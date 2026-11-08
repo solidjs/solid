@@ -8,7 +8,10 @@
 // re-entered the same transaction and parked it again, every round, until
 // the dev guard: "Potential Infinite Loop Detected … last staged node:
 // effect". A reader the parked transaction holds that read none of its
-// stagings has nothing to re-derive: it runs at the landing.
+// stagings has nothing to re-derive: it runs at the landing. (Since S-52,
+// 2026-11-07, a render effect probing and reading a flight observes it as
+// a memo does, so a write of the same tick is held on the flight instead
+// of landing beneath it; the refresh shapes below are unchanged.)
 //
 // Frames (F-9; optimistic-lanes R12): a bare refresh is a quiet re-ask —
 // `v41` stays until `v42` lands; a declared reload (`affects`) shows
@@ -162,10 +165,15 @@ describe("refresh(memo) inside an action with an isPending reader settles (#4349
       expect(r.frames).toEqual(declared ? ["v41", "pending", "v42"] : ["v41", "v42"]);
     });
 
-  it("`[isPending(x), x()]` after an action's write holds like `x()` alone (D-23), once", async () => {
-    // The same loop without a refresh: the action's write lands beneath its
-    // memo's new question, and the render effect that probes and reads it
-    // parked the frame it opened every round.
+  it("`[isPending(x), x()]` after an action's write shows pending beside the committed value (S-52, D-25)", async () => {
+    // The same loop without a refresh. Until S-52 (2026-11-07) the render
+    // effect that probed and read `x` was lane work that held nothing, so
+    // the action's write landed beneath `x`'s new question and the effect,
+    // re-run on the committed world, parked a frame of its own on the
+    // flight — the pair held as one, `false:41` until the landing. Now the
+    // effect observes the flight as a memo reading the pair does: the write
+    // is held on it, the display shows the verdict beside the value it
+    // keeps, and the landing reveals the answer.
     const fetches: (() => void)[] = [];
     const frames: string[] = [];
     let set!: (v: number) => void;
@@ -195,10 +203,10 @@ describe("refresh(memo) inside an action with an isPending reader settles (#4349
       })();
       expect(() => flush()).not.toThrow();
       await tick();
-      expect(frames).toEqual(["false:41"]);
+      expect(frames).toEqual(["false:41", "true:41"]);
       fetches.shift()!();
       await tick();
-      expect(frames).toEqual(["false:41", "false:42"]);
+      expect(frames).toEqual(["false:41", "true:41", "false:42"]);
     } finally {
       dispose();
     }

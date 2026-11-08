@@ -9,8 +9,7 @@ const celebration = "🎉";
 export function 国際化({ user, visible }) {
   const marker = "🚀";
   var _el$ = _tmpl$2(),
-    _el$2 = _el$.firstChild,
-    _el$3 = _el$2.firstChild;
+    _el$2 = _el$.firstChild;
   _$insert(_el$2, () => user.名前, null);
   _$insert(
     _el$,

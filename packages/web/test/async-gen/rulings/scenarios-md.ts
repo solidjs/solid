@@ -147,7 +147,7 @@ function stepText(st: Step, names: Record<string, string>, settledLabel: string 
       if (st.after?.length) parts.push(`then ${st.after.map(w => writeText(w, names)).join(", ")}`);
       if (st.refresh?.length)
         parts.push(`refresh(${st.refresh.map(i => names[`m${i}`] ?? `m${i}`).join(", ")})`);
-      return `action: ${parts.join("; ")}`;
+      return `action${st.sync ? " (no yield)" : ""}: ${parts.join("; ")}`;
     }
     case "guess":
       return `${writeText({ o: st.o, v: st.v }, names)} (a guess)`;
@@ -270,6 +270,8 @@ export function renderRuling(r: Ruling, observed: (Result | undefined)[]): strin
     if (r.cases.length > 1) lines.push(`**Case ${c.label || k + 1}.**`, "");
     lines.push("```tsx", describeTsx(c.scenario, r.names), "```", "");
     lines.push(...tableFor(r, c, observed[k], c.status ?? r.status));
+    if (c.allow?.length)
+      lines.push("", `_Expected findings: ${c.allow.map(l => `\`${l}\``).join(", ")}._`);
     if (c.note) lines.push("", c.note);
   });
   if (r.prose) lines.push("", r.prose);

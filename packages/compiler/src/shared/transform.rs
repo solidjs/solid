@@ -874,6 +874,7 @@ impl_jsx_visit_mut!(AstUniversalTransform);
 // needs enter/exit hooks on functions to collect and attach them.
 impl<'a> VisitMut<'a> for AstSsrTransform<'a, '_> {
     fn visit_program(&mut self, program: &mut Program<'a>) {
+        self.foreign_raw_text_spans = crate::ssr::foreign::foreign_raw_text_spans(program);
         visit_program(self, program);
     }
 

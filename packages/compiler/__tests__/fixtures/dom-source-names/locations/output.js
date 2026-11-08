@@ -49,7 +49,6 @@ _$effect(() => color(), (_v$) => {
 });
 const styleObject = _el$2;
 var _el$3 = _tmpl$2();
-var _el$4 = _el$3.firstChild;
 _$insert(_el$3, count, null, undefined, {
 	name: "p.children",
 	loc: "locations/code.jsx:21:24"

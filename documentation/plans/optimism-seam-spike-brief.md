@@ -181,7 +181,9 @@ hook on a core node to pass its gate.
 
 ## 6. Result
 
-(To be written at M4.)
+- **H1 — yes.** The two-slot value model keeps every screen: scalar pins 3,885 pass as on `next`, the full signals suite 6,745 pass, the seat shadow at `next`'s six classes, 2,000 generated cases × 3 seeds with no difference (the 50k differential for seed 3289 is running). It is a relocation, as §1 said: `_x._lane`, `display`, `laneValueOf`, the promote step and the lane arms of `recompute` are gone; the covered value lives in a record and a guess's location follows a per-node mark. Size: the core floor −50 B minified, the optimism chunk +102 B, truth readers +102 B. H1 does not pay for itself in bytes; it is the scalar interface the store work targets (§13.1: a guess is a value on a node, `latestOf`/`covered`/`underOf` the three views).
+- **H2 — no.** The verdict lane is the record of F-6's group: a hold's display-ahead readers show together, each waiting for its own async and never for the hold. Without the group, `tests/verdict-contract.test.ts`'s shape tears (§15). A correct cut would take about −400 B from the optimism chunk; the maintainer ruled F-6 stands.
+- **What this says about the engine's size.** After M1 the lane engine's remaining bytes are the group's seam (`laneSeams`, `laneRead`'s arms, `enterLane`'s exceptions, `heldBy`, `entered`, `adoptParked`, `revealing`) — the price of F-6, D-25's exceptions and the repairs #4349, #4393, #4397 as they stand. The simplification the maintainer wants is not in the scalar engine's value model; the next step of the plan (stores alone, then together: one lane node per store root with a patch-valued guess) is where the duplicated machinery is (`store/optimistic.ts`'s `_laneRebase`, `fold`, `foldedRead`, `laneSet`, `_slotTake`, and lanes.ts's `take`/`kept`/`marked`, all store-only).
 
 ## 7. Commands
 
@@ -418,3 +420,126 @@ With the glossary holding the definitions and the rows holding the screens, sixt
 | —        | D-36, D-37       | consequences of the glossary's _Guess_ and _Lane_ plus D-25; D-36 stays as a pin                                     |
 
 D-30 shortened to its one distinct sentence. `RULES-DERIVED.md`: 40 rules, 14,335 words on 2026-11-05 → 24 live rules, about 7,600 words. Checks: every row a folded rule listed is listed by its absorber; the rulings spec and the rules index pass; the boundary rules D-18 and D-19 and the hold rules D-3, D-4, D-6, D-7, D-8, D-10 stand as they were.
+
+## 13. M1 — the value model (2026-11-06)
+
+Inventory on the merged `next` (`45648f782`): the third slot `_x._lane` had 27 sites in `lanes.ts`, 5 in `core.ts`, 3 in `verdict.ts`, 2 in `truth.ts`, 1 in `async.ts` (DEV), 1 in `store.ts`, 8 plus 6 `laneValueOf` picks in `store/optimistic.ts`; `display`, `laneValueOf`, `truthRead`, `covered`, `guessedValueOf` were built on it; the lane record carries `_shown`, `_held`, `_links`, `over`, `folded`, `latest` for it.
+
+### 13.1 The model as built
+
+A node keeps two value slots, as any held node: `_value` is what the screen shows, `_pendingValue` the staging of the transaction holding it. For a lane's node the holder is the lane. One mark on the extension, `_x._shown`, says the lane has shown a value of the node; one record beside the slots, `covers` (truth.ts, a WeakMap by node), holds what the two slots cannot.
+
+- **A lane derivation** stages its pass's answer in `_pendingValue`; the lane's reveal (`laneSeam`) commits it into `_value` with `commitPendingNode` (a staged error publishes there, D-41; the frame the pass built retires the one it replaces) and marks the node shown. After the reveal a re-run stages again and the next unblocked seam commits it. `covers` keeps what the screen showed before the first reveal: a pass that leaves a shown lane outside a held frame is judged against it (the screen moves at the seam's wake, #3892/#4367), and a leaf asks the mark whether the lane has ever shown the node (`laneRead`'s "never", #3334).
+- **A guess** is in `covers` until the lane shows it; the reveal swaps it into `_value` and the record takes the covered value for the revert. A truth landing beneath a guess is the node's staging (`_pendingValue`, the parent's; `landBeneath`), as before — a staging on a guess is the truth beneath it whether a hold holds it or the same tick staged it (A18's `isPending`, `until`, the revert's "superseded").
+- `latestOf(n)`: a guess's guess (`_value` once shown, the record before); a derivation's staging else its screen value (NOT_PENDING for a node born in the lane with nothing shown). `screenOf(n)`: `_value` (NOT_PENDING uninitialized). `covered(n)`: the record once shown, `_value` before; a store slot asks the store with that as the fallback (`_slotCovered(n, v)`, a chained link following the inner store). `underOf(n)`: the staging, else the covered value.
+- A guess node's lane can change (`laneStage` lists a pending pass's node on the lane whose work it is; `take`): the mark and the record go with the node, so where its guess lives does not depend on which lane it is in. (A per-lane record needed a value move at every change of lane; a config bit for the mark is not available — all 32 are taken, bits 23–24 by the effect type.)
+- The store's chained links write their committed value on every read ("the link follows the inner store", S4): `follow(n, v)` (store.ts) writes `_value` unless a shown lane owns it.
+
+### 13.2 What went, what stayed
+
+Gone: `_x._lane` and its initialization; `display`; `laneValueOf` (replaced by `latestOf`); `laneSeam`'s promote step (the reveal is a commit); `recompute`'s lane arms for the pass's prev and the equality gate (−50 B minified on the core floor); `laneWrite`'s shown/unshown branch; `dissolveLane`'s per-node value outcomes and its `loading` list; `verdictValue`'s dead "first load" throw; `supersede`'s slot shuffle; `async.ts`'s DEV lane clause; the store's slot moves in `holdWithDerive`; `_slotCovered`'s write into `_value`.
+
+Stayed, for M2/M3: `LEFT_SHOWN` (the seam's wake for a pass that left a shown lane; without it #3528 shows the stale frame it would have shown on `next` with a later landing — the principled fix is a frame reader keeping what it shows until the landing, and under H2 the verdict lanes this arises in are gone); `laneRead`'s routing arms (M2); the verdict override arm in `verdictValue` (M3); the `#4666` arm, now `l._shown && isVerdict(l)` (a verdict lane's staging is the frame's, S-39; a guess lane's is the lane's).
+
+### 13.3 Record
+
+- Scalar pins: 276 files, 3,885 pass, 12 expected fail, 1 skipped — the same counts as `next`. One pin text changed: `tests/settle-walk-invariant.test.ts`'s lane-override case fakes `_pendingValue` instead of `_x._lane`. No screen pin changed.
+- Full signals suite: 481 files, 6,745 pass, 14 expected fail, 2 skipped (store tests included; the chained links needed `follow`).
+- Seat shadow: 6 classes, the same six as `next` (M0.2's residue), 126,720 reads. One row changed: L7' is now `l._shown && vlane` (the #4666 arm as it is).
+- Generator differential: seeds 3289, 91501, 7 × 2,000 cases against `next`'s recordings — 0 cases differ.
+- Size (minified / brotli vs the base measurement, `scripts/size`): core floor −50 / −15; + createStore +14 / 0; + isPending/latest +102 / +3 (within its cap); + until/refresh +102 / +56 (over its cap: truth.ts carries `covers`, `covered`, `underOf` and `latestOf` for `truthRead`, which `until` installs whether or not a lane exists). The floors shrank; the optimism chunk grew by the helpers (`setLaneValue`, `cover`, `landBeneath`, `screenOf`), the guess swap at the reveal and `take`. The M1 gate as written ("not above base on + isPending/latest") is missed by 102 B minified; the brotli cap holds.
+
+### 13.4 Open
+
+- Size: the two +102 B. M2 removes `LEFT_SHOWN`, `dissolveLane`'s remaining outcomes and `laneRead`'s arms; `truthRead`'s installation (signals.ts `watch`) could move to the lane engine so a bundle with `until` and no lane carries none of truth.ts.
+- The 50k base recordings: seed 3289 recorded on `next` (2.7 h, not 10 min); 91501 and 7 run from the `/workspace/solid-base` worktree (built `next`). The M1 build's 50k differential for 3289 runs against it.
+
+## 15. M3 — H2 cut, and the rule it meets (2026-11-06)
+
+H2 was built on `tembo/spike-h2-cut` (one commit, not green): `verdictLane`, `_verdict`, `isVerdict`, `heldBy` and the verdict arms of `enterLane`, `laneRead`, `laneSeams` and `verdictValue` removed; a window read, or a read of a display-ahead reader's value, marks the pass display-ahead of the hold (`route`: `REACTIVE_LANE_READ`, listed on the hold through `_x._transaction` with CONFIG_VERDICT and no CONFIG_HELD — no new field); the park seam commits what such a pass staged; its effect runs go to one ahead queue released with the lanes' reveals; a boundary's display-ahead swap marks the output's pass the same way. 147 of 3,898 pins fail.
+
+**The finding is a rule, not a bug.** F-6: display-ahead readers "wait for their _own_ async, in their own lane" — the transaction's verdict readers are one optimistic frame (lane contract 3; `tests/verdict-contract.test.ts`, "a verdict reader whose own pass goes async holds the transaction's verdict frame, not the parent"). Posture per read has no group: each reader shows when its own pass completes. After M1 the verdict lane is exactly that group record — the readers, their queued runs, and the seam's judgement of them together — with no value of its own. So the answer to H2 as asked ("is the record needed at all?") is: it is needed as long as F-6 groups.
+
+**The stake, measured.** The cut as built: `+ isPending/latest` −430 B minified / −177 B brotli against M1 (lanes.js −669); the cut leaked +185 B onto the core floor through the ahead queue and hook plumbing in scheduler.ts and core.ts, which a correct version must keep behind the verdict engine's hooks. A correct H2 is worth about −400 B on the optimism chunk and nothing elsewhere.
+
+**The decision** (Decision 5, for the maintainer; the shape of `tests/verdict-contract.test.ts`):
+
+```ts
+const [q, setQ] = createSignal("a");
+// The hold: q's change is held on results' flight.
+const results = createMemo(() => fetchResults(q()));
+// A display-ahead reader with async of its own.
+const suggest = createMemo(() => fetchSuggest(latest(q)));
+// A display-ahead reader with none.
+createRenderEffect(() => `input:${latest(q)}`, log);
+setQ("b"); // then resolve suggest, then resolve results
+```
+
+| #   | Event                                | Today (F-6: one frame per hold)                       | Posture per read (no group) |
+| --- | ------------------------------------ | ----------------------------------------------------- | --------------------------- |
+| 1   | `setQ("b")` flushes; both flights up | nothing shows: `input:b` waits for `suggest`'s flight | `input:b` shows now         |
+| 2   | `suggest` lands                      | `input:b` and `suggest:b` show together               | `suggest:b` shows           |
+| 3   | `results` lands                      | `results:b`                                           | `results:b`                 |
+
+**Ruled (maintainer, 2026-11-06): F-6 stands.** The second column is a tear — a verdict reader with no async of its own showing `b` beside a verdict reader of the same `q` still showing `a` — and F-6 exists to prevent it. A hold's display-ahead readers are one frame; the verdict lane is that frame's record and stays. H2 is **no**. `LEFT_SHOWN` stays with it.
+
+## 16. A question is asked only of the truth (ruled 2026-11-07)
+
+GabbeV's `experiment/unified-updates` branch (a scalar engine without lanes; 137 agent-written stages; 2,111 failing tests and over every size cap at its last checkpoint) was read for its rulings, not its code. Its 384 new tests were run against `next`: 177 + 25 pass unchanged, 26 files need its own modules, about 100 screens differ. Most of the differences are one philosophy — a guess, an input landing, an input error masked until the action ends — which contradicts F-11 and A18 and was declined. Seven rows were tabled and ruled in one sitting, each with code and a frame table; the rulings spec pins today's screen and records the gap. The spec gained a no-yield action (#4349's shape) and a `truth-asks` oracle.
+
+**The ruling that settled them** came from #4677: the badge, an async memo over `id` and `isPending(id)`, asked `badge(0, true)` from its display-ahead pass while the engine held `id = 1`. That stale ask was licensed by L2's rule 6 (2026-10-04: a verdict reader's whole pass seated in a lane), enabled by A10's atomic pair (#2831, 2026-07-06), and generalized to memos on 2026-11-05 (Decision 1, D-25, S-27's memo row, "#3905 not needed"). Written as F-2's producer clause and F-6's limit rather than a new fundamental:
+
+- One version per node. The hold is the only producer of a change's consequences: nothing asks of the value the screen keeps.
+- The display is the one declared, terminal, kept-not-computed inconsistency: a render effect, a compiled binding, a user effect (its callback runs at the frame it belongs to), and the sync derivations feeding them may hold the value they showed beside the verdict about its successor. Memo-inline parity holds; S-27's memo row stands.
+- The act is the async derivation. Reached from a display-ahead value it is the hold's and asks of the truth. Async in a user effect is the author's.
+- `latest` is never stale; `isPending` is a fact; both read anywhere. A guess is not stale until corrected (D-34). Inside a hold's work, a verdict about that hold is answered.
+- #3905 is not warranted: the display lane cannot ask, so there is nothing to propagate. Full #3905 (two versions everywhere) was weighed and declined: the inconsistency is meant to be narrow. The verdict lane stays; it loses its flights.
+
+| Row | Ruled | Today |
+| --- | --- | --- |
+| S-51 #4677 | the badge asks once, of the truth; the `isPending` hole shows at once | the display-ahead pass asks `badge(0, true)` and its answer gets a frame |
+| S-52 #4349 | `[isPending(x), x()]` shows pending beside the committed value in every shape, render effect or memo | the action-ends-inside-the-call shape holds the pair as one |
+| S-53 #4403 | `latest` shows a held recovery ahead, value/error symmetric | the error stays until the action lands |
+| S-54 | `isPending` stays true for a held, unshowable answer | clears when the answer is ready |
+| S-55 | standing: `refresh` under a guess is the guess's own source answering (F-11) | same |
+| S-56 | a guess before the first answer shows; the first answer judges it | the dev guard refuses it |
+| S-57 (their A2) | a plain write whose derivation became a guess's lane work holds on that flight and reveals with the lane (F-2 as written) | the write publishes beside the stale derivation, because the lane took the only question |
+
+**Measured on today's engine:** the `truth-asks` oracle finds 12 stale asks in the regression gate's 1,500 cases (seed 3289), all one shape — an async memo reading `latest(s)` beside a plain `s`, D-25's same-node clause handing the pass the screen's `s`. Recorded in `baseline.json` as known; they become improvements when the clause is built.
+
+**Deferred to the build, on purpose:** how a pass is known to ask before it asks; the verdict lane losing `blocked`, its seam arms and #3869's first-pass seating; the #4349 and #4677 pins rewritten. Built on M1 (the lane value model), independent of S1–S3.
+
+## 17. Building the producer clause (2026-11-07, `tembo/m1-truth-asks`)
+
+The rule (§16): nothing asks of a value the screen keeps; the display may show it beside the verdict about its successor; an act — an async derivation — reached from a display-ahead value is the hold's. The mechanism has to answer three questions the rule leaves to it.
+
+**1. How the engine knows a pass asks before it has asked.** It already records it: `CONFIG_ASYNC` is set by `handleAsync` when a pass produces a flight and cleared by a sync answer. Today the bit is also cleared when the pass opens a verdict window (`markVerdictReader`), because `holdWork` used it to mean "async memo with no window of its own". That conflation is the exemption that let a probing async memo run display-ahead and ask. The build keeps `CONFIG_ASYNC` as "this derivation's last answer was a flight", moves the no-window condition in `holdWork` onto `CONFIG_OWN_PROBE` (the window bit the recompute tail already keeps), and uses `CONFIG_ASYNC` as the asker marker. Residue, stated once: a derivation whose last answer was synchronous is not an asker until it asks; in the ahead pass it reads the screen and, if it fetches on that pass, issues one request whose answer never shows. In real code that pass takes the synchronous branch because it sees the old input; the only body that trips it fetches *because* `isPending` is true. (`_x._q` was considered as the marker — set by every flight, never reset — and rejected: guesses stamp it on optimistic memos that never ask.)
+
+**2. Where the asker leaves the display.** Two reads, both of a *held* node (one whose successor the engine holds; a node merely in flight has no successor and stays as today):
+
+- A plain read of a held node by an asker is not served the screen. `frameRead` returns false for it: the pass reads the staging and `joinPass` makes it the hold's. If a window read earlier in the same pass had routed it into the holder's verdict lane, it is un-seated: `passLane` cleared when it is that verdict lane, `REACTIVE_LANE_READ` cleared, the `_reruns` entry the probe pushed removed (a joined pass is re-derived by the landing as any held pass is, not twice). An optimistic lane seat is kept: a pass that read a guess is lane work by F-6 and S-57 governs how its frame meets a held write.
+- An `isPending` read of a held node by an asker joins the hold the same way and answers in the hold's world: `false`, the hold's own write is its answer (§16, rule 7). This is what removes the order dependence: `isPending(id)` before `id()` and after it give the same pass, the hold's, asking once. `latest` of a held node stays ahead — the staging is the truth, and F-6's example (an async memo over `latest(x)`) keeps its lane.
+
+The reads that stay as today: a sync derivation's reads (the display, memo parity), any read of an in-flight node, `latest` anywhere, a window read by a pass with an optimistic lane seat.
+
+**3. What the verdict lane loses — corrected after the build.** Only the askers that read a held value plainly or probe it leave the lane. An async memo over `latest(x)` alone stays lane work by F-6's own example, so a verdict lane can still carry flights, `blocked` still applies to it, and #4687's reveal-whole has a verdict-lane case left. No simplification came from this step; the mechanism is additive (+205 B brotli on the isPending/latest chunk). What did go: the asker's second pass (the lane's re-derivation of a question already asked of the truth), the inherited verdict posture on askers (#4504's memo-over-asker now holds by construction), and the stale questions in 29 pins across `latest-two-readers-one-ask-4393`, `verdict-memo-flight-no-reask`, `latest-first-one-pass-4402`, `midflight-memo-over-reask-4504`, `unread-derive-midflight-mount-4491`.
+
+**Pins that changed (built).** The twelve `truth-asks` gate cases are improvements in `baseline.json`; S-51 is standing; the seat table gained V0/Vp0 and the shadow is back at six classes. `ispending-async-derivation-4677`'s own fixture is the residue case (the badge is synchronous at id 0, so not yet an asker) and keeps its screens; the S-51 row, whose badge is always async, flipped. The #4349 held shape (S-52) is untouched by this step.
+
+**Order.** S-51 first (this mechanism), gates and size against M1; then S-54, S-53, S-56, S-52, S-57.
+
+**S-54 (built 2026-11-07).** The lane-node probe arm in `verdictValue`: a lane derivation whose answer landed while the lane is held (`l._held`, a sibling's flight) is still pending for a reader outside the lane; the reader is registered as the lane's stale reader so it re-derives at the reveal. Not for the lane's own work (it reads the lane's latest, which answers its question) and not for a verdict lane that is merely mid-flush (it reveals this seam). Three checkout pins changed: `isPending(shippingInfo)` stays true while the lane holds on tax, the `latest()` text showing "DHL" ahead on its own channel (A8). +34 B brotli on the isPending/latest chunk.
+
+**S-53 (built 2026-11-07).** `recompute`: a recovery to the last good value in a flush that has joined a hold is a change of answer (D-41), staged with the shown error and held — before, it published silently (the #2949 path), so `latest(m)` had no held recovery to show ahead of and the `Show` it gated was held whole, the boundary keeping `[E]` until the landing. The park no longer nets a staging that replaces a shown error. The #4403 pin flipped (the boundary recovers while the action is open). The plain-read case (S-53′) is S-46's plain row, ruled not built: the hole attaches empty today (#4417's mechanism), which the shown error masked before. +11 B brotli on the core floor.
+
+**S-56 (built 2026-11-07).** The memo-form optimistic setter drops the DEV guard; the engine already carries the guess as the uninitialized node's lane value, so it shows in place of the loading and the first answer judges it (the function form receives `undefined`). Three pins flipped; the A18 (d) pin keeps its reads (an unshown guess is void at the correction). Not the store form: a derived optimistic store's screen cannot show a guess before its first landing (untracked reads see it, the screen stays loading, and the first answer folds the guess in), so `OPTIMISTIC_WRITE_BEFORE_LOAD` stays for stores — a store engine question for the maintainer, parked with the store branch. No size change expected (dev-only code).
+
+**S-52, the #4349 shape (built 2026-11-07).** `observeFlight` drops its D-26 arm: a render effect routed into a verdict lane observes the flight it reads plainly, as a memo reading the pair does, instead of reading the screen "as lane work" that holds nothing. The action ending inside the call is then held on the flight it just probed (F-2) rather than landing beneath it, so the effect is never re-run on the committed world with the published-inputs read that parked it. `[isPending(x), x()]` shows `[true, 41]` ahead in every shape and either read order; the landing reveals `[false, 42]`. One pin flipped; the refresh shapes (quiet re-ask, `affects`) are unchanged. A few bytes fewer.
+
+**S-57 (built 2026-11-07).** From `laneStage` at the tail of the lane pass (first a core hook called from `recompute`'s NotReady arm, moved out of the core the same day; the wait list lives on the lane and the frame is found through `over`, which also dropped a `merge` append worth 21 B brotli of core): a pass that read this flush's staging, ran as a guess's lane's and went pending makes the flush join a frame waiting on that node (`Transaction.waits`, judged in `lanesBlocked`) and sets the lane `over` the frame — the lane's work reads the frame's staging as its own world (`frameRead`'s existing `over` arm) and holds while the frame does, so `label(5, 10)` is the one question and `ordinary = 10` reveals with the lane. Limits, each falling back to today's screen: the hold's own work (its parent already waits on the lane), a verdict lane's `latest`-only asker (the same sentence, not built), and a lane already over another live frame (`over` is one slot; #4577's matrix keeps its screens). No pin flipped. Size: see the commit.
+
+**S-46's plain row (built 2026-11-07, after PR 4708).** A first pass under a probing pass is stamped CONFIG_MOUNT_AHEAD at `recompute`'s head; `frameRead` does not serve such a render effect the screen on its first pass (born held instead); `lanesBlocked`'s `mountPending` holds a verdict lane's reveal while a stamped mount in its nodes' frames still waits on a flight. `<Show>` and the compiled ternary keep the fallback through the flight and attach at the landing (the e1-3289-1831 pin flipped). First built as an owner-chain walk on every held read (+43 B core) and reverted for the stamp: +8 B core, +96 B isPending/latest. After the S-57 move the core floor is 7,423 B brotli (cap 7,430) and the compiled hello world 9,979 B (cap 9,980). Not built: the hop-less single-memo gate (PR 4708's target), the mount whose own pass reads another node ahead (PR 4708's exact scenario), S-53′. PR 4708's runner `gate` variant does not model the compiled ternary.
+
+**D-34's `latest` clause (#4689, built 2026-11-07).** `keptGuess` (lanes.ts: the `marked` set a correction re-homes a shown guess into) read by verdict.ts's held arm: `latest` of such a node is its screen value while the hold is blocked, the staging once it lands. A signal and a superseded keyed row keep the displayed guess (seven pins flipped); a folded keyed arrangement still reads the world whole — kept per leaf it tore (#4336's store forms). S-44's frame 7 now matches; its frame 5 (`isPending` true for an outside input change under a guess) is still open. +25 B isPending/latest, 0 core.
+
+**S-58, the gate with any hop count (built 2026-11-08, after #4717 merged; PR 4708 closed).** `keepReaders` (verdict.ts) no longer publishes a probe's held reader mainline when that reader's frame holds a born-held mount (`holdsMount`: a render effect stamped CONFIG_MOUNT_AHEAD, held, uninitialized, not behind a fallback); `mountPending` (lanes.ts) counts a mount under an open action as waiting. Both walk `aheadMounts`, a lane-module list of born-held mounts collected incrementally from the holds' node lists (one look per held node), so a seam without such a mount pays nothing (PR 4720 review). One-hop and zero-hop gates now keep the fallback through the flight like `<Show>` and the compiled ternary; S-53′ flips to standing with it. Runner `gate: "memo" | "cond"` variant; web pin `display-ahead-gate-hops.spec.tsx`. 0 B core, +57 B isPending/latest.

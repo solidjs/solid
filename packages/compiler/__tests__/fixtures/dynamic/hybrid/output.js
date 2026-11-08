@@ -21,7 +21,6 @@ const Child = (props) => {
 	const [s, set] = createSignal();
 	return [(() => {
 		var _el$ = _tmpl$();
-		var _el$2 = _el$.firstChild;
 		var _ref$ = props.ref;
 		typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => {
 			return _ref$;
@@ -79,7 +78,6 @@ const Child = (props) => {
 				_$createComponent(HTML, { get children() {
 					return [(() => {
 						var _el$5 = _tmpl$();
-						var _el$6 = _el$5.firstChild;
 						var _ref$2 = props.ref;
 						typeof _ref$2 === "function" || Array.isArray(_ref$2) ? _$ref(() => {
 							return _ref$2;

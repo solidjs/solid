@@ -1,6 +1,11 @@
 import * as t from "@babel/types";
 import { addNamed } from "@babel/helper-module-imports";
-import { DOMWithState } from "../../../web/src/constants.js";
+import {
+  DOMWithState,
+  MathMLElements,
+  Namespaces,
+  SVGElements
+} from "../../../web/src/constants.js";
 import type { NodePath, Visitor } from "@babel/traverse";
 import type { PluginConfig, RendererConfig } from "../config";
 import type {
@@ -1043,4 +1048,64 @@ export function addAttribute(
   value: t.JSXAttribute["value"]
 ): void {
   path.get("openingElement").pushContainer("attributes", t.jsxAttribute(name, value));
+}
+
+// Start tags that leave foreign content: the HTML parser closes the open
+// `<svg>`/`<math>` and creates them as HTML elements (`font` only with
+// color/face/size, so it is left undecided).
+const foreignBreakoutTags = new Set(
+  "b,big,blockquote,body,br,center,code,dd,div,dl,dt,em,embed,h1,h2,h3,h4,h5,h6,head,hr,i,img,li,listing,menu,meta,nobr,ol,p,pre,ruby,s,small,span,strike,strong,sub,sup,table,tt,u,ul,var".split(
+    ","
+  )
+);
+// Children of these parse as HTML again: SVG's HTML integration points and
+// MathML's text integration points.
+const htmlIntegrationPoints = new Set([
+  "foreignObject",
+  "desc",
+  "title",
+  "mi",
+  "mo",
+  "mn",
+  "ms",
+  "mtext"
+]);
+
+function staticAttribute(node: t.JSXElement, name: string): string | undefined {
+  for (const attr of node.openingElement.attributes) {
+    if (!t.isJSXAttribute(attr) || t.isJSXNamespacedName(attr.name) || attr.name.name !== name)
+      continue;
+    const value = attr.value;
+    if (t.isStringLiteral(value)) return value.value;
+    if (t.isJSXExpressionContainer(value) && t.isStringLiteral(value.expression))
+      return value.expression.value;
+  }
+}
+
+/**
+ * Whether an element parses in SVG/MathML (foreign) content, where `<style>`
+ * and `<script>` are ordinary elements: their text is markup and character
+ * references, so it has to be escaped like any other text. Decided by the
+ * nearest JSX ancestor that settles the namespace; components are transparent
+ * (their children usually render in place), and an element with no deciding
+ * ancestor is HTML.
+ */
+export function isInForeignContent(path: NodePath<t.JSXElement>): boolean {
+  const ownXmlns = staticAttribute(path.node, "xmlns");
+  if (ownXmlns === Namespaces.svg || ownXmlns === Namespaces.mathml) return true;
+  for (let p: NodePath | null = path.parentPath; p; p = p.parentPath) {
+    if (!p.isJSXElement()) continue;
+    const name = getTagName(p.node);
+    if (isComponent(name)) continue;
+    if (htmlIntegrationPoints.has(name) || foreignBreakoutTags.has(name)) return false;
+    if (name === "annotation-xml") {
+      const encoding = staticAttribute(p.node, "encoding")?.toLowerCase();
+      if (encoding === "text/html" || encoding === "application/xhtml+xml") return false;
+      return true;
+    }
+    const xmlns = staticAttribute(p.node, "xmlns");
+    if (xmlns === Namespaces.svg || xmlns === Namespaces.mathml) return true;
+    if (name !== "font" && (SVGElements.has(name) || MathMLElements.has(name))) return true;
+  }
+  return false;
 }

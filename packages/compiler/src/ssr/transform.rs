@@ -141,6 +141,9 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     wont_escape_spans: std::vec::Vec<Span>,
     /// Native children of a spread raw-text element, whose templates keep their characters.
     raw_text_spans: std::vec::Vec<Span>,
+    /// `<script>`/`<style>` elements in SVG/MathML content, whose children
+    /// escape (see `ssr::foreign`).
+    pub(crate) foreign_raw_text_spans: std::vec::Vec<Span>,
     /// Span of the JSX root currently being lowered via the visitor entry.
     /// Babel keeps a raw `this` in the tag callee of the root element of each
     /// `transformJSX` call; only descendants use the `_self$` capture.
@@ -301,6 +304,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             var_scope_stack: std::vec::Vec::new(),
             wont_escape_spans: std::vec::Vec::new(),
             raw_text_spans: std::vec::Vec::new(),
+            foreign_raw_text_spans: std::vec::Vec::new(),
             jsx_root_span: None,
             deferring: false,
             iife_callee_addrs: std::vec::Vec::new(),
@@ -1588,7 +1592,8 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             // A spread on a select can carry `value` — arm conservatively.
             self.uses_ssr_select_values = true;
         }
-        let do_not_escape = tag_name == "script" || tag_name == "style";
+        let do_not_escape = (tag_name == "script" || tag_name == "style")
+            && !self.foreign_raw_text_spans.contains(&element.span);
         let (props, tail) = self.spread_props(
             &tag_name,
             &element.opening_element.attributes,
@@ -2097,8 +2102,10 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         {
             self.uses_ssr_select_values = true;
         }
-        // Babel: `<script>`/`<style>` contents render raw (`path.doNotEscape`).
-        let mut child_do_not_escape = tag_name == "script" || tag_name == "style";
+        // Babel: HTML-namespace `<script>`/`<style>` contents render raw
+        // (`path.doNotEscape`); under `<svg>`/`<math>` they escape.
+        let mut child_do_not_escape = (tag_name == "script" || tag_name == "style")
+            && !self.foreign_raw_text_spans.contains(&element.span);
         let mut template = SsrTemplate::new(format!("<{tag_name}"));
         if top_level && self.hydratable {
             let key_call = self.ssr_hydration_key_call(element.span);

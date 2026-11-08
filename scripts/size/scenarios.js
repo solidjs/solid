@@ -1129,8 +1129,11 @@ module.exports = [
     // Batch re-record (2026-11-02, over next @ f8080f3, size job 125582643125: #4620, #4621, #4604, #4630): 15.01 KB -> 15.03 KB, recorded minified 43,875 -> 43,742 B (-133 B), measured at 15,011 B brotli. #4620 and #4621 were accepted by the maintainer; #4604 and #4630 are size-neutral on the gated rows. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ 885b99b, size job 125684994005: #4633, #4634, #4637): cap unchanged at 15.03 KB, recorded minified 43,742 -> 43,811 B (+69 B), measured at 15,012 B brotli. #4633, #4634 and #4637 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-04, over next @ e704cfc, measured locally: #4674, #4676): 15.03 KB -> 15.10 KB, recorded minified 43,811 -> 43,868 B (+57 B), measured at 15,089 B brotli. The growth of #4674 and #4676 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
-    limit: "15.10 KB",
-    capMinified: 43868,
+    // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
+    // #4689): measured 15,114 B / 43,914 B minified; the cap raised in
+    // its PR with the growth accepted (the rulings' cost on this chunk).
+    limit: "15.13 KB",
+    capMinified: 43914,
     alias
   },
   {
@@ -1474,9 +1477,15 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ 061b013, size job 126059550469: #4656, #4658, #4663): 11.92 KB -> 11.99 KB, recorded minified 32,772 -> 32,951 B (+179 B), measured at 11,973 B brotli. The growth of #4656, #4658 and #4663 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ ab5b5cb, measured locally: #4667, #4669): 11.99 KB -> 12.07 KB, recorded minified 32,951 -> 33,081 B (+130 B), measured at 12,055 B brotli. The growth of #4667 and #4669 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Re-record (2026-11-05, over next @ 5208944, measured locally: #4682, #4677): 12.07 KB -> 12.25 KB, recorded minified 33,081 -> 33,615 B (+534 B: #4682 +7 B, #4677 +527 B), measured at 12,239 B brotli. Re-recorded in the fix's own change rather than in a batch, at the maintainer's request.
-    limit: "12.25 KB",
+    // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
+    // #4689): measured 12,692 B / 35,289 B minified; the cap raised in
+    // its PR with the growth accepted (the rulings' cost on this chunk).
+    // 2026-11-08: S-58 (the gate with any hop count): born-held mounts collected into a
+    // lane-module list, scanned incrementally — measured 12,749 B / 35,492 B minified.
+    // Batch re-record (2026-11-08, over next @ 2789ca9, measured locally: #4714, #4711, #4717, #4719, #4720): cap unchanged at 12.76 KB, recorded minified 35,492 -> 35,495 B (+3 B), measured at 12,748 B brotli. Re-recorded once after the batch, per the batch process.
+    limit: "12.76 KB",
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 28,693 -> 29,086 B (+343 B minified over next), measured locally (linux) at 10,565 B brotli (+135 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 33615,
+    capMinified: 35495,
     alias
   },
   {
@@ -1523,8 +1532,11 @@ module.exports = [
     // (21,719 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, over next @ 563b6b0): cap unchanged, recorded minified 21,719 -> 21,732 B (+13 B), measured locally (linux) at 8,043 B brotli. Growth is the 2026-10-30 merges (#4454, #4457, #4461). Recorded minified = measured.
-    limit: "8.06 KB",
-    capMinified: 21732
+    // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
+    // #4689): measured 8,107 B / 21,776 B minified; the cap raised in
+    // its PR with the growth accepted (the rulings' cost on this chunk).
+    limit: "8.12 KB",
+    capMinified: 21776
   },
   {
     name: "app: render + one signal (the simple-app floor)",
@@ -2800,11 +2812,17 @@ module.exports = [
     // Batch re-record (2026-11-04, over next @ e704cfc, measured locally: #4674, #4676): 33.26 KB -> 33.27 KB, recorded minified 99,898 -> 99,967 B (+69 B), measured at 33,260 B brotli. The growth of #4674 and #4676 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Re-record (2026-11-05, over next @ 5208944, measured locally: #4682, #4677): 33.27 KB -> 33.42 KB, recorded minified 99,967 -> 100,437 B (+470 B: #4677 +470 B; #4682 is size-neutral here), measured at 33,401 B brotli. Re-recorded in the fix's own change rather than in a batch, at the maintainer's request.
     // Re-record (2026-11-05, over next @ fb672ca, measured locally: #4690): 33.42 KB -> 33.41 KB, recorded minified 100,437 -> 100,547 B (+110 B: #4690), measured at 33,398 B brotli. Re-recorded in the fix's own change rather than in a batch, at the maintainer's request.
-    limit: "33.41 KB",
+    // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
+    // #4689): measured 33,755 B / 101,725 B minified; the cap raised in
+    // its PR with the growth accepted (the rulings' cost on this chunk).
+    // 2026-11-08: S-58 (the gate with any hop count), the isPending/latest chunk this
+    // scenario carries — measured 33,820 B / 101,918 B minified.
+    // Batch re-record (2026-11-08, over next @ 2789ca9, measured locally: #4714, #4711, #4717, #4719, #4720): 33.83 KB -> 33.89 KB, recorded minified 101,918 -> 101,921 B (+3 B), measured at 33,872 B brotli. Re-recorded once after the batch, per the batch process.
+    limit: "33.89 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 96,989 -> 97,047 B (+58 B minified over next's record), measured locally (linux) at 31,811 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 97,024 -> 97,045 B (+21 B minified over next's record), measured locally (linux) at 31,798 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 97,045 -> 97,426 B (+240 B minified over next), measured locally (linux) at 31,976 B brotli (+109 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 100547,
+    capMinified: 101921,
     alias
   },
   {
@@ -4244,8 +4262,11 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ 061b013, size job 126059550469: #4656, #4658, #4663): 26.57 KB -> 26.61 KB, recorded minified 80,500 -> 80,484 B (-16 B), measured at 26,597 B brotli. The growth of #4656, #4658 and #4663 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ ab5b5cb, measured locally: #4667, #4669): cap unchanged at 26.61 KB, recorded minified 80,484 -> 80,493 B (+9 B), measured at 26,597 B brotli. The growth of #4667 and #4669 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-04, over next @ e704cfc, measured locally: #4674, #4676): 26.61 KB -> 26.67 KB, recorded minified 80,493 -> 80,558 B (+65 B), measured at 26,651 B brotli. The growth of #4674 and #4676 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
-    limit: "26.67 KB",
-    capMinified: 80558,
+    // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
+    // #4689): measured 26,734 B / 80,605 B minified; the cap raised in
+    // its PR with the growth accepted (the rulings' cost on this chunk).
+    limit: "26.75 KB",
+    capMinified: 80605,
     alias
   },
   {
@@ -4429,8 +4450,11 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ 6e569c7, size job 125766182293: #4639, #4641): cap unchanged at 32.79 KB, recorded minified 100,960 -> 101,034 B (+74 B), measured at 32,761 B brotli. #4639 and #4641 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ ccfc7ea, size job 125848841075: #4653, #4655, #4657, #4659): 32.79 KB -> 32.87 KB, recorded minified 101,034 -> 101,221 B (+187 B), measured at 32,856 B brotli. The growth of #4653, #4655 and #4659 was accepted by the maintainer; #4657 and #4654 are size-neutral on the gated rows. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-04, over next @ e704cfc, measured locally: #4674, #4676): 32.87 KB -> 32.95 KB, recorded minified 101,221 -> 101,278 B (+57 B), measured at 32,932 B brotli. The growth of #4674 and #4676 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
-    limit: "32.95 KB",
-    capMinified: 101278,
+    // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
+    // #4689): measured 32,988 B / 101,325 B minified; the cap raised in
+    // its PR with the growth accepted (the rulings' cost on this chunk).
+    limit: "33.00 KB",
+    capMinified: 101325,
     alias
   },
   {
@@ -5758,6 +5782,7 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ 061b013, size job 126059550469: #4656, #4658, #4663): 39.96 KB -> 40.08 KB, recorded minified 120,310 -> 120,486 B (+176 B), measured at 40,066 B brotli. A frozen floor, Size-Exception in this PR's body. The growth of #4656, #4658 and #4663 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ ab5b5cb, measured locally: #4667, #4669): 40.08 KB -> 40.14 KB, recorded minified 120,486 -> 120,619 B (+133 B), measured at 40,124 B brotli. A frozen floor, Size-Exception in this PR's body. The growth of #4667 and #4669 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Re-record (2026-11-05, over next @ 5208944, measured locally: #4682, #4677): 40.14 KB -> 40.30 KB, recorded minified 120,619 -> 121,153 B (+534 B: #4682 +7 B, #4677 +527 B), measured at 40,289 B brotli. A frozen floor, Size-Exception in this PR's body. Re-recorded in the fix's own change rather than in a batch, at the maintainer's request.
+    // Batch re-record (2026-11-08, over next @ 2789ca9, measured locally: #4714, #4711, #4717, #4719, #4720): cap unchanged at 40.76 KB, recorded minified 122,905 -> 123,070 B (+165 B), measured at 40,734 B brotli. A frozen floor, Size-Exception in this PR's body. Re-recorded once after the batch, per the batch process.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -6111,11 +6136,16 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ 061b013, size job 126059550469: #4656, #4658, #4663): 44.05 KB -> 44.19 KB, recorded minified 128,562 -> 128,738 B (+176 B), measured at 44,177 B brotli. The growth of #4656, #4658 and #4663 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ ab5b5cb, measured locally: #4667, #4669): cap unchanged at 44.19 KB, recorded minified 128,738 -> 128,866 B (+128 B), measured at 44,149 B brotli. The growth of #4667 and #4669 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Re-record (2026-11-05, over next @ 5208944, measured locally: #4682, #4677): 44.19 KB -> 44.34 KB, recorded minified 128,866 -> 129,402 B (+536 B: #4682 +7 B, #4677 +529 B), measured at 44,324 B brotli. Re-recorded in the fix's own change rather than in a batch, at the maintainer's request.
-    limit: "44.34 KB",
+    // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
+    // #4689): measured 44,755 B / 131,093 B minified; the cap raised in
+    // its PR with the growth accepted (the rulings' cost on this chunk).
+    // 2026-11-08: S-58 (the gate with any hop count): born-held mounts collected into a
+    // lane-module list, scanned incrementally — measured 44,840 B / 131,330 B minified.
+    limit: "44.85 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 123,191 -> 123,249 B (+58 B minified over next's record), measured locally (linux) at 41,899 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 123,203 -> 123,224 B (+21 B minified over next's record), measured locally (linux) at 41,966 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 123,224 -> 123,733 B (+403 B minified over next), measured locally (linux) at 42,119 B brotli (+169 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 129402,
+    capMinified: 131330,
     alias: pageAlias
   },
   {
@@ -6558,11 +6588,17 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ 061b013, size job 126059550469: #4656, #4658, #4663): 49.78 KB -> 49.81 KB, recorded minified 146,123 -> 146,299 B (+176 B), measured at 49,793 B brotli. The growth of #4656, #4658 and #4663 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ ab5b5cb, measured locally: #4667, #4669): 49.81 KB -> 49.86 KB, recorded minified 146,299 -> 146,432 B (+133 B), measured at 49,845 B brotli. The growth of #4667 and #4669 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Re-record (2026-11-05, over next @ 5208944, measured locally: #4682, #4677): 49.86 KB -> 50.10 KB, recorded minified 146,432 -> 146,967 B (+535 B: #4682 +7 B, #4677 +528 B), measured at 50,082 B brotli. Re-recorded in the fix's own change rather than in a batch, at the maintainer's request.
-    limit: "50.10 KB",
+    // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
+    // #4689): measured 50,507 B / 148,650 B minified; the cap raised in
+    // its PR with the growth accepted (the rulings' cost on this chunk).
+    // 2026-11-08: S-58 (the gate with any hop count), the isPending/latest chunk this
+    // scenario carries — measured 50,559 B / 148,799 B minified.
+    // Batch re-record (2026-11-08, over next @ 2789ca9, measured locally: #4714, #4711, #4717, #4719, #4720): 50.57 KB -> 50.59 KB, recorded minified 148,799 -> 148,802 B (+3 B), measured at 50,580 B brotli. Re-recorded once after the batch, per the batch process.
+    limit: "50.59 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 140,451 -> 140,509 B (+58 B minified over next's record), measured locally (linux) at 47,516 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 140,463 -> 140,485 B (+22 B minified over next's record), measured locally (linux) at 47,547 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 140,485 -> 140,983 B (+405 B minified over next), measured locally (linux) at 47,722 B brotli (+162 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 146967,
+    capMinified: 148802,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -6694,6 +6730,7 @@ module.exports = [
     // Batch re-record (2026-11-02, over next @ f8080f3, size job 125582643125: #4620, #4621, #4604, #4630): cap unchanged at 22.87 KB, recorded minified 77,739 -> 77,768 B (+29 B), measured at 22,857 B brotli. #4620 and #4621 were accepted by the maintainer; #4604 and #4630 are size-neutral on the gated rows. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ ccfc7ea, size job 125848841075: #4653, #4655, #4657, #4659): cap unchanged at 22.87 KB, recorded minified 77,768 -> 77,792 B (+24 B), measured at 22,856 B brotli. The growth of #4653, #4655 and #4659 was accepted by the maintainer; #4657 and #4654 are size-neutral on the gated rows. Re-recorded once after the batch, per the batch process.
     // SSR nodes stamped as runtime-made (#4700, 2026-11-06, over next @ 45648f7, size job 128035426016): 22.87 KB -> 22.92 KB, recorded minified 77,792 -> 77,875 B (+83 B), measured in CI at 22,908 B brotli. Every SSR node carries `$: Symbol.for("solid.ssrNode")` and each insert position checks it, so a plain object with a `t` key is data, never markup. Server only: client eager chunks are unchanged. Size-Exception accepted by the maintainer (2026-11-06: "the server size is less important than the performance"). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
+    // Batch re-record (2026-11-08, over next @ 2789ca9, measured locally: #4714, #4711, #4717, #4719, #4720): cap unchanged at 22.92 KB, recorded minified 77,875 -> 77,888 B (+13 B), measured at 22,903 B brotli. A frozen floor, Size-Exception in this PR's body. Re-recorded once after the batch, per the batch process.
     limit: floorCaps["server: renderToString (the server-render floor)"],
     capMinified: floorMinified["server: renderToString (the server-render floor)"],
     alias: serverAlias,

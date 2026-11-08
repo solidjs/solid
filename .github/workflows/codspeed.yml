@@ -13,10 +13,28 @@ permissions:
   contents: read
   id-token: write
 
+# A push gets its own group, so every commit on next keeps its run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   benchmarks:
-    name: Run benchmarks
+    name: Run benchmarks (${{ matrix.lane }})
     runs-on: ubuntu-latest
+    # CodSpeed merges these results only when the jobs share one workflow.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: signals
+            command: pnpm --filter @solidjs/signals run bench
+          - lane: web-client-1
+            command: BENCH_LANE=1 pnpm --filter @solidjs/web run bench
+          - lane: web-client-2
+            command: BENCH_LANE=2 pnpm --filter @solidjs/web run bench
+          - lane: web-server
+            command: pnpm --filter @solidjs/web run bench:server
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -35,7 +53,4 @@ jobs:
         uses: CodSpeedHQ/action@v4
         with:
           mode: simulation
-          run: |
-            pnpm --filter @solidjs/signals run bench
-            pnpm --filter @solidjs/web run bench
-            pnpm --filter @solidjs/web run bench:server
+          run: ${{ matrix.command }}
