@@ -61,8 +61,9 @@ export type Step =
   /** An action: writes s = v, then yields on a flight the script settles. */
   | { t: "action"; s: number; v: number }
   /** An action (rulings only): `before` writes, a yield on a flight the
-   * script settles, then `after` writes and `refresh(memos[i])` calls. */
-  | { t: "action"; before: Write[]; after?: Write[]; refresh?: number[] }
+   * script settles, then `after` writes and `refresh(memos[i])` calls.
+   * `sync`: no yield — the body ends inside the call (S-52). */
+  | { t: "action"; before: Write[]; after?: Write[]; refresh?: number[]; sync?: true }
   /** A guess outside an action (rulings only). */
   | { t: "guess"; o: SrcRef; v: number }
   /** `refresh(memos[m])` from outside any hold (rulings only). */

@@ -64,8 +64,10 @@ import {
   REACTIVE_STAGED_READ,
   STATUS_ERROR,
   STATUS_PENDING,
-  STATUS_UNINITIALIZED
+  STATUS_UNINITIALIZED,
+  CONFIG_ASYNC
 } from "./constants.js";
+import { keptGuess } from "./lanes.js";
 import {
   clock,
   flushTransaction,
@@ -74,6 +76,7 @@ import {
   GlobalQueue,
   latestOpened,
   passLane,
+  blocked,
   liveTx,
   passTx,
   resolveTx,
@@ -549,6 +552,15 @@ export function slot(
   /** f0: a flight with no value yet. */
   const firstFlight = pending && uninit;
   const inLane = seat !== null && seat.lane !== null;
+  /** F-2's producer clause (S-51): the reading pass asks (CONFIG_ASYNC —
+   * its last answer was a flight) and sits in no optimistic lane: a plain
+   * or `isPending` read of a held node, or of a staging, is the hold's
+   * (`askerJoins`), never the screen's. */
+  const asks =
+    c !== null &&
+    (c._config & CONFIG_ASYNC) !== 0 &&
+    !(c as any)._type &&
+    !(seat !== null && seat.lane !== null && seat.lane._parent?._verdict !== seat.lane);
   /** Today's `passLane !== null`: lane work, or a hold's verdict reader.
    * Selects the rows for a lane node's read (a verdict memo's node: its
    * value or its display is screen-visible); the held-staging rows use
@@ -665,14 +677,16 @@ export function slot(
       // A first load in flight with nothing produced yet (D-22): loading —
       // unless an error answered it first (`isPending`: the error is the
       // display, D-41 #4375).
-      if (flying && uninit && el._x!._lane === el._value && (latest || !el._x!._shownError))
-        return pred(row, SLOT_NR, tr ? MARK_AH : 0, parent);
       return pred(row, latest && !flying ? SLOT_LV : SLOT_DV, tr ? MARK_AH : 0, parent);
     }
     // (An error is thrown last, as `verdictValue` does: a held or staged
     // node answers through the rows above it, D-41.)
     if (held) {
       const t = txOf(el);
+      // Vp0 (F-2's producer clause, S-51): `isPending` of a held node by a
+      // pass that asks joins the hold and is answered in its world — the
+      // staging, raise H (`askerJoins`).
+      if (!latest && asks && tr) return pred("Vp0", staged ? stagedSlot : SLOT_C, RAISE_H, t);
       // The hold's own work (a pass the same hold holds) reads its staging
       // plainly, whatever it asks (D-25, #3884, #4341).
       if (c !== null && c._config & CONFIG_HELD && resolveTx(txOf(c)) === resolveTx(t))
@@ -698,6 +712,10 @@ export function slot(
           return pred("Vl1'", SLOT_C, MARK_ST, t);
         // Vl1 (D-22 F-6): the proposal — a staged error included (D-41:
         // `staged` throws it); `isPending`'s value is the screen's (Vp1).
+        // Vl1g (D-34, #4689): a shown guess a correction re-homed into the
+        // hold keeps the screen's value for `latest` until the commit.
+        if (latest && staged && keptGuess(el) && blocked(t))
+          return pred("Vl1g", SLOT_C, tr ? MARK_AH : 0, t);
         if (latest && staged) return pred("Vl1", stagedSlot, tr ? MARK_AH : 0, t);
         return pred(latest ? "Vl1" : "Vp1", SLOT_C, tr ? MARK_AH : 0, t);
       }
@@ -720,6 +738,9 @@ export function slot(
       // joins.
       if (uninit)
         return pred("Vp2", stagedSlot, running ? seam : tr ? MARK_W : 0, flushTransaction);
+      // Vp0 (F-2's producer clause, S-51): a pass that asks reads the
+      // staging as the frame's (Fl), its probe answered in that frame.
+      if (asks && tr) return pred("Vp0", stagedSlot, RAISE_FL, null);
       return pred("Vp1", SLOT_C, running ? seam : tr ? MARK_W : 0, flushTransaction);
     }
     if (pending) {
@@ -818,7 +839,7 @@ export function slot(
         laneRow = row || "D4";
       }
     } else if (renderLeaf) {
-      const never = flying && el._x!._lane === NOT_PENDING;
+      const never = flying && !el._x!._shown;
       // D-28 (#4275, #4284): a leaf seated as a hold's verdict reader
       // leaves the seat on a flight never shown, or for a lane that is not
       // that hold's, and reads from the frame's seat.
@@ -833,9 +854,10 @@ export function slot(
         // A flight never shown waits (NR); the lane has never shown: the
         // screen is the committed value.
         if (never && l._shown) return pred(row || "L7", SLOT_NR, MARK_ST | leave, l);
-        // L7' (D-2): a leaf the flush's hold holds reads a lane derivation's
-        // staging — the hold's own value.
-        if (!guess && staged && cHeldByFlush && (!l._shown || vlane))
+        // L7' (D-2): a leaf the flush's hold holds reads a shown verdict
+        // lane's staging as its frame's (#4275, S-39). A guess lane's
+        // staging is the lane's, for its next reveal (#4666).
+        if (!guess && staged && cHeldByFlush && l._shown && vlane)
           return pred(row || "L7'", SLOT_P, leave);
         if (l._held || flying) {
           // D-26 D-28: a stale reader of the lane — the display, re-derived
@@ -934,6 +956,11 @@ export function slot(
       if (own) return r("L2", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H); // D-3 D-2
       return r("L3", screen, MARK_ST); // D-3 D-9 D-26
     }
+    // V0 (F-2's producer clause, S-51): a pass that asks derives from the
+    // hold — the staging, raise H (`askerJoins`, core `frameRead`) — whether
+    // a verdict reader or seated in the holder's verdict lane.
+    if (asks && (verdictReader || inLane))
+      return r("V0", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H);
     if (verdictReader) {
       // V1 (D-23 A10 [R7]): a verdict reader is a frame reader — the
       // screen, re-derived at the landing — unless born into t or the
@@ -983,6 +1010,10 @@ export function slot(
       // nothing: not a read of the frame's future, nor a verdict reader's
       // stale read of the tick's hold.
       if (netted) return carry(pred(row + "''", SLOT_P));
+      // V0 (F-2's producer clause, S-51): a pass that asks reads the staging
+      // as the frame's (Fl), un-seated from a verdict lane (`askerJoins`).
+      if (asks && (verdictReader || inLane) && !uninit)
+        return carry(pred(rowBase + "V0", stagedSlot, RAISE_FL, null, null));
       if (verdictReader && !uninit && c!._config & CONFIG_VERDICT) {
         // V2/V3 (D-23 D-32 [R5]): the screen once the tick has a hold, the
         // staging before (the seam's verdict).
@@ -1041,13 +1072,11 @@ export function slot(
 /** `laneValueOf(el) === NOT_PENDING`: a lane node with nothing in either
  * view (born in the lane, uninitialized, nothing produced). */
 function laneNP(el: AnyNode, guess: boolean, staged: boolean, uninit: boolean): boolean {
-  if (!guess && staged) return false;
-  return el._x!._lane === NOT_PENDING && uninit;
+  return !guess && !staged && uninit;
 }
-/** `display(el) === NOT_PENDING`: nothing on screen for a lane node. */
+/** `screenOf(el) === NOT_PENDING`: nothing on screen for a lane node. */
 function dispNP(el: AnyNode, uninit: boolean): boolean {
-  const l = el._x!;
-  return !(l._transaction!._shown && l._lane !== NOT_PENDING) && uninit;
+  return uninit;
 }
 
 // ─── Shadow harness ────────────────────────────────────────────────────────

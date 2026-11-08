@@ -120,13 +120,14 @@ describe("#4393: two latest() readers under one async memo, t written during the
   const notReDerived = async (reader: "value" | "beside") => {
     const { asks, out, values } = await run(reader, 12);
     expect(new Set(asks).size, asks.join(" ")).toBe(asks.length);
-    expect(asks.slice(-2)).toEqual(["m1:1122", "m1:1123"]);
-    expect(values).toEqual(["1122", "1123"]);
-    if (reader === "beside") {
-      const shown = out.indexOf("c1101");
-      expect(out.indexOf("v1122"), out.join(" ")).toBeLessThan(shown);
-      expect(out.slice(shown).filter(v => v[0] === "v")).toEqual(["v1123"]);
-    }
+    // F-2's producer clause (2026-11-07, S-51): `m1` asks once, of the truth;
+    // `m1:1122` was its question over `m0b`'s stale value.
+    expect(asks.slice(-2)).toEqual(["m0b:1100", "m1:1123"]);
+    expect(values).toEqual(["1123"]);
+    // `latest(m2)` reveals m0b's answer ahead (`c1101`) in the frame that
+    // lands `m1`'s one question, not before it.
+    if (reader === "beside")
+      expect(out.filter((v, i) => v !== out[i - 1])).toEqual(["c1", "v1123", "c1101"]);
   };
   it("m1's lane pass is not re-derived over a staging that lands with it (value)", () =>
     notReDerived("value"));
@@ -146,7 +147,7 @@ describe("#4393: two latest() readers under one async memo, t written during the
   it("m1's lane pass is not re-derived when the staging's transaction lands at the seam", async () => {
     const { asks, values } = await run("pair", 12);
     expect(new Set(asks).size, asks.join(" ")).toBe(asks.length);
-    expect(asks.slice(-2)).toEqual(["m1:1122", "m1:1123"]);
+    expect(asks.slice(-2)).toEqual(["m0b:1100", "m1:1123"]);
     expect(values.at(-1)).toBe("1123");
   });
 });
@@ -202,7 +203,9 @@ describe("#4400: a second write during the hold, distinct encoding", () => {
     flush();
     for (let i = 0; i < 4; i++) await settle();
     dispose();
-    expect(asks).toEqual(["m0:23", "m0:22", "m0:32", "m1:33", "m0:34", "m1:35"]);
+    // F-2's producer clause (2026-11-07, S-51): no question over the screen's
+    // stale `s` (`m0:22`, `m0:32`, and `m1:33` over the latter).
+    expect(asks).toEqual(["m0:23", "m0:34", "m1:35"]);
     expect(out.at(-1)).toBe(reader === "pair" ? "false,35" : "pfalse");
   });
 });
@@ -260,11 +263,13 @@ describe("#4393: a latest() reader's lane answer reaches the screen", () => {
       flush();
       await wait(25);
       flush();
-      expect(out).toEqual(["v22"]);
+      // F-2's producer clause (2026-11-07, S-51): `m0` asks of the truth and
+      // is the frame's — nothing shows ahead of X's flight.
+      expect(out).toEqual([]);
       await settle();
       await settle();
       dispose();
-      expect(out).toEqual(["v22", "v23"]);
+      expect(out).toEqual(["v23"]);
     });
 
   // An async memo over `latest(s)*10 + s()*100`, held only by its own
@@ -307,7 +312,8 @@ describe("#4393: a latest() reader's lane answer reaches the screen", () => {
       await settle();
       await settle();
       dispose();
-      expect(out).toEqual(["v120", "v220"]);
+      // F-2's producer clause (2026-11-07, S-51): no `v120` over the stale `s`.
+      expect(out).toEqual(["v220"]);
     });
 
   // A sync memo over `latest(s) + s()` under an unrelated hold, read as

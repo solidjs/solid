@@ -960,12 +960,13 @@ describe("A18 (was B4): an override's lifetime is bound to its own async source,
     expect(log).toEqual(["99|100"]);
 
     // Own source resolves with a DIFFERENT value: the graph moves to it now
-    // (latest() sees it; the verdict says the displayed value is not final),
-    // while the displayed frame and untracked reads keep the override until
-    // the transaction — now holding for the re-derived `joined` — commits.
+    // (the verdict says the displayed value is not final), while the
+    // displayed frame, untracked reads and `latest()` keep the override
+    // until the transaction — now holding for the re-derived `joined` —
+    // commits (D-34, #4689).
     dataFetch.resolveAll();
     await settle();
-    expect(latest(data)).toBe(20);
+    expect(latest(data)).toBe(99);
     expect(isPending(data)).toBe(true);
     expect(data()).toBe(99);
     expect(log).toEqual(["99|100"]);
@@ -1309,7 +1310,7 @@ describe("A18 (was B4): an override's lifetime is bound to its own async source,
       resolveUp.shift()!(6);
       await settle();
       expect(flights.map(f => f.n)).toEqual([6]);
-      expect(latest(double)).toBe(6);
+      expect(latest(double)).toBe(5); // the displayed guess, until the commit (D-34, #4689)
       expect(double()).toBe(5);
       expect(log).toEqual([]);
 
@@ -1399,7 +1400,7 @@ describe("A18 (was B4): an override's lifetime is bound to its own async source,
       resolveUp.shift()!(6);
       await settle();
       expect(flights.map(f => f.n)).toEqual([6]);
-      expect(latest(double)).toBe(6);
+      expect(latest(double)).toBe(5); // the displayed guess, until the commit (D-34, #4689)
       flights.shift()!.resolve();
       await a;
       await b;

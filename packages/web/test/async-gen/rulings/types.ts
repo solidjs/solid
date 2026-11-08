@@ -25,6 +25,9 @@ export type Case = {
   forbid?: Forbid[];
   /** Equivalence rewrites that must show the same screen at every frame. */
   variants?: Variant[];
+  /** Law findings this case expects (a dev guard the scenario trips on
+   * purpose); listed under the table. Any other finding fails. */
+  allow?: string[];
   /** Overrides the ruling's status for this case. */
   status?: Ruling["status"];
   /** Under the table, for this case. */
