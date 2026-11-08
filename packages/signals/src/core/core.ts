@@ -2749,14 +2749,19 @@ let landed = false;
  * answer is whether the value changed (passed the equality gate).
  */
 export function landThroughSetSignal(el: Computed<any>, value: unknown): boolean {
+  // Saved and restored, not reset: a landing that reaches another landing
+  // synchronously (a write hook, a comparator) must not clear the outer's.
+  const outerLanding = landing;
+  const outerLanded = landed;
   landing = el;
   landed = false;
   try {
     setSignal(el, () => value);
+    return landed;
   } finally {
-    landing = null;
+    landing = outerLanding;
+    landed = outerLanded;
   }
-  return landed;
 }
 
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {

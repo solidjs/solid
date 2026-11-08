@@ -3896,6 +3896,10 @@ interface Watched {
   /** Who staged the value the drain will show, when an origin was open. */
   origin: ChangeOrigin | undefined;
 }
+// Strong on the node, walked at every drain end: a node leaves when it
+// settles (`unsettled`) or is disposed, and a held or lane node always
+// settles — its transaction lands, merges or dissolves (`unhold`, `land`,
+// `dissolveLane`); nothing drops one without clearing `_transaction`.
 const watched = new Map<Signal<any> | Computed<any>, Watched>();
 
 /** What the screen shows of `n` — a revealed guess included (NOT_PENDING: none yet). */
@@ -3926,18 +3930,19 @@ function watch(n: Computed<any>): void {
 function trackStaged(el: Signal<any> | Computed<any>): void {
   // Effects are not state; their values are what they rendered.
   if ((el as { _type?: number })._type) return;
-  const origin = ambientOrigin();
   const w = watched.get(el);
   if (w !== undefined) {
+    const origin = ambientOrigin();
     if (origin !== undefined) w.origin = origin;
     return;
   }
   // Watched for the flush record's audience, or for the revert finding (a
-  // guess enters a lane through `list`).
+  // guess enters a lane through `list`). Nothing wants it: no origin walk —
+  // this runs on every write while the engine is enabled.
   if (!records.observed("flush") && !(options.optimisticReverts && el._x?._transaction?._lane))
     return;
   const guess = showsGuess(el);
-  watched.set(el, { shown: shownOf(el), guess, covered: el._value, origin });
+  watched.set(el, { shown: shownOf(el), guess, covered: el._value, origin: ambientOrigin() });
 }
 
 /** flushEnd: compare, judge the reverts, and list the changes for the record (`live` beside it). */
