@@ -29,8 +29,10 @@ export type HydrationContext = {
    * In renderToStream (async: true), accepts promises and async iterables.
    * In renderToString (async: false), only synchronous values are allowed —
    * passing async values will throw.
+   * @internal `errorRecord` marks an `<Errored>` record: a renderer that
+   * cannot encode it sends a plain `Error` instead of failing the render.
    */
-  serialize: (id: string, v: any, deferStream?: boolean) => void;
+  serialize: (id: string, v: any, deferStream?: boolean, errorRecord?: boolean) => void;
   resolve(value: any): SSRTemplateObject;
   ssr(template: string[], ...values: any[]): SSRTemplateObject;
   escape(value: any): string;

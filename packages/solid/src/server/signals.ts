@@ -4263,7 +4263,7 @@ export function createErrorBoundary<T, U>(
   const boundaryId = ownerId(idOwner);
   const serializeError = (err: any) => {
     if (ctx && boundaryId && !runWithOwner(owner, () => getContext(NoHydrateContext))) {
-      ctx.serialize(boundaryId, err);
+      ctx.serialize(boundaryId, err, undefined, true);
     }
   };
   // The finding (observe/dev): a render error this boundary contained by

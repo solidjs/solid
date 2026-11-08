@@ -2367,17 +2367,44 @@ export function renderToStream(code, options = {}) {
   // `onCompleteAll` does not fire. After it, published values reject through
   // `rejectUnserializedKey` (#4647); a synchronous failure that published
   // nothing still omits the value and lets the render complete (#4227).
+  // An error record (an `<Errored>` record, a deferStream source's rejection)
+  // never fails the render: its error was contained, or fails the render on
+  // its own. One the default serializer cannot encode is sent as a plain
+  // `Error` with its message; another record of the same error gets the same
+  // replacement without a second report.
   let stranded = false;
-  const handOver = (id, value) => serializer.write(id, value);
-  const write = (id, value) => {
-    if (stableOrder && !dead) (parkedWrites ||= []).push([id, value]);
-    else handOver(id, value);
+  let writingRecord = false;
+  let recordFailed = false;
+  const plainRecords = new WeakMap();
+  const handOver = (id, value, errorRecord) => {
+    if (!errorRecord || options.serializer) return serializer.write(id, value);
+    const known = value !== null && typeof value === "object" && plainRecords.get(value);
+    if (known) return serializer.write(id, known);
+    recordFailed = false;
+    writingRecord = true;
+    try {
+      serializer.write(id, value);
+    } finally {
+      writingRecord = false;
+    }
+    if (!recordFailed) return;
+    const plain = new Error(
+      value != null && typeof value.message === "string"
+        ? value.message
+        : `The error record for key ${JSON.stringify(id)} could not be serialized on the server`
+    );
+    if (value !== null && typeof value === "object") plainRecords.set(value, plain);
+    serializer.write(id, plain);
+  };
+  const write = (id, value, errorRecord) => {
+    if (stableOrder && !dead) (parkedWrites ||= []).push([id, value, errorRecord]);
+    else handOver(id, value, errorRecord);
   };
   const flushParkedWrites = () => {
     if (!parkedWrites) return;
     const writes = parkedWrites.sort(byKey);
     parkedWrites = null;
-    for (let i = 0; i < writes.length; i++) handOver(writes[i][0], writes[i][1]);
+    for (let i = 0; i < writes.length; i++) handOver(writes[i][0], writes[i][1], writes[i][2]);
   };
   const flushStubBatch = () => {
     if (!stubBatch) return;
@@ -2559,7 +2586,8 @@ export function renderToStream(code, options = {}) {
     // render's hook, else the ambient one, else `console.error`.
     onError: err => {
       reportFailure(err, "serialize");
-      if (!options.serializer && !firstFlushed && !stranded) {
+      if (writingRecord) recordFailed = true;
+      else if (!options.serializer && !firstFlushed && !stranded) {
         stranded = true;
         // Let the current write and render initialization finish. The normal
         // flush may abandon first; a pending sibling must not hold it open.
@@ -2965,7 +2993,7 @@ export function renderToStream(code, options = {}) {
         resolveSSRSync(escape(payloadFn())) +
         html.slice(last + placeholder.length + 1);
     },
-    serialize(id, p, deferStream) {
+    serialize(id, p, deferStream, errorRecord) {
       // The channels the runtime opens to the client — an async source's
       // promise, a live source's iterable — reject or throw with the RAW
       // failure, and seroval encodes that reason as a value for the client
@@ -2977,7 +3005,7 @@ export function renderToStream(code, options = {}) {
       if (p && typeof p === "object" && typeof p.then === "function") {
         if (!firstFlushed && deferStream) {
           blockingPromises.add(p);
-          p.then(d => write(id, d)).catch(e => write(id, e));
+          p.then(d => write(id, d)).catch(e => write(id, e, true));
           return;
         }
         // Every pending promise handed to seroval joins the abandonment
@@ -2994,7 +3022,7 @@ export function renderToStream(code, options = {}) {
           return;
         }
       }
-      write(id, p);
+      write(id, p, errorRecord);
     },
     escape: escape,
     resolve: resolveSSRNode,
