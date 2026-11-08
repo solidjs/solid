@@ -1037,29 +1037,33 @@ function lanesBlocked(t: Transaction): boolean {
   // landing; the verdict lane that opened it reveals with that landing, not
   // ahead of it (shown now, the branch attached with its hole empty, #4417,
   // or with the committed value a re-derived mount read).
-  if (t._lane && t._parent!._verdict === t && mountPending(t)) return true;
+  if (t._lane && t._parent!._verdict === t && heldMountUnder(null, t)) return true;
   return (t._lane && linkBlocked(t)) || nestedBlocked(t);
 }
-/** A mount a probing pass opened, born held (CONFIG_MOUNT_AHEAD) under one
- * of `l`'s nodes, on screen, still waiting: on its own flight, or on a
- * flight its frame holds. Found on the live transactions' node lists (the
- * park listed it there when it held it) — no owner-tree walk — and
- * attributed to `l` by its owner chain. */
-function mountPending(l: Transaction): boolean {
+/** A mount a probing pass opened, born held (CONFIG_MOUNT_AHEAD), on
+ * screen, still waiting — on its own flight, an action open in its frame,
+ * or a flight its frame holds — under `o`, or under one of lane `l`'s
+ * nodes. Found on the live transactions' node lists (the park listed it
+ * there when it held it) — no owner-tree walk — and attributed by its
+ * owner chain. */
+export function heldMountUnder(o: Owner | null, l: Transaction | null): boolean {
   for (let k = 0; k < transactions.length; k++) {
-    const nodes = transactions[k]._nodes;
+    const t = transactions[k],
+      nodes = t._nodes;
     for (let i = 0; i < nodes.length; i++) {
       const r = nodes[i] as Computed<any>;
       if (
+        (r as any)._type === EFFECT_RENDER &&
         (r._config & (CONFIG_MOUNT_AHEAD | CONFIG_HELD)) === (CONFIG_MOUNT_AHEAD | CONFIG_HELD) &&
         r._statusFlags & STATUS_UNINITIALIZED &&
         !(r._flags & REACTIVE_DISPOSED) &&
         !hiddenHook?.(r) &&
         (r._statusFlags & STATUS_PENDING ||
+          t._open !== 0 ||
           nodes.some(n => !(n as any)._type && (n as Computed<any>)._statusFlags! & STATUS_PENDING))
       )
-        for (let o: Owner | null = r._parent; o !== null; o = o._parent)
-          if ((o as Computed<any>)._x?._transaction === l) return true;
+        for (let p: Owner | null = r._parent; p !== null; p = p._parent)
+          if (l !== null ? (p as Computed<any>)._x?._transaction === l : p === o) return true;
     }
   }
   return false;

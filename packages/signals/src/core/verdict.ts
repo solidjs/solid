@@ -19,6 +19,7 @@ import {
   CONFIG_HELD_FRAME,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_INPUTS_PUBLISHED,
+  CONFIG_MOUNT_AHEAD,
   CONFIG_OVERRIDE,
   CONFIG_REDERIVE,
   CONFIG_STAGED,
@@ -68,7 +69,7 @@ import { settlePendingSource } from "./async.js";
 import { forgetThrownRead, warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { ahead, keptGuess, screenOf, verdictLane, waiting } from "./lanes.js";
+import { ahead, heldMountUnder, keptGuess, screenOf, verdictLane, waiting } from "./lanes.js";
 import { latestOf } from "./truth.js";
 import { deleteFromHeap, enqueueSub } from "./heap.js";
 import {
@@ -890,6 +891,12 @@ function keepReaders(el: Computed<any>): void {
     let d = r._deps;
     while (d !== null && (d._dep === el || !(d._dep._config & CONFIG_HELD))) d = d._nextDep;
     if (d !== null) continue;
+    // Not a pass whose frame holds a mount a probing pass opened (S-46,
+    // CONFIG_MOUNT_AHEAD, born held): published now, the branch would
+    // attach with its hole empty — it attaches at the landing, as the
+    // mount does (the single-memo gate: the branch is the probe's own
+    // reader, where `<Show>`'s truthiness memo kept it one read away).
+    if (heldMountUnder(r, null)) continue;
     deleteFromHeap(r, dirtyQueue);
     r._flags &= ~(REACTIVE_DIRTY | REACTIVE_CHECK);
     r._config &= ~CONFIG_HELD;

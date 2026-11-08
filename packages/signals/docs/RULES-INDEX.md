@@ -39,7 +39,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | R (PJ) | 37 | 2 | 5 | 32 |
 | R (RS) | 38 | 0 | 2 | 36 |
 | § | 24 | 14 | 11 | 7 |
-| S | 57 | 15 | 18 | 34 |
+| S | 58 | 15 | 18 | 35 |
 
 ## Unresolved citations
 
@@ -516,7 +516,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | S-43 | prose | `docs/SCENARIOS.md:1256` | — | error-is-an-answer.test.ts×2 | [prose] A held recovery keeps the shown error; recovering to the last good value is a change — D-41, D-39 (#3886) |
 | S-44 | executable, ruled-not-built | `docs/SCENARIOS.md:1109` | — | optimistic-outside-reask-4690.test.ts×2 | [executable, ruled-not-built] An outside input change under a guess is held with the guess's hold — D-34, F-1 (#4336) |
 | S-45 | executable, ruled-not-built | `docs/SCENARIOS.md:959` | — | — | [executable, ruled-not-built] A first answer landing in the same tick as an action that writes its input: `latest` shows it, the plain read waits — D-22, F-9 (E9) |
-| S-46 | executable, standing | `docs/SCENARIOS.md:838` | constants.ts×1 core.ts×2 lanes.ts×1 verdict.ts×1 | display-ahead-plain-write-content.test.ts×2 | [executable, standing] The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-25 |
+| S-46 | executable, standing | `docs/SCENARIOS.md:838` | constants.ts×1 core.ts×2 lanes.ts×1 verdict.ts×2 | display-ahead-plain-write-content.test.ts×2 | [executable, standing] The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-25 |
 | S-47 | prose | `docs/SCENARIOS.md:1222` | dev.ts×1 | caught-reactive-read-diagnostic.test.ts×2 try-catch-reactive-read.test.ts×1 | [prose] `try/catch` around a reactive read: caught on one pass, bypassed on the next — D-42, F-12 |
 | S-48 | executable, standing | `docs/SCENARIOS.md:497` | — | — | [executable, standing] `on={id()}`: the `on` pass reads the held value plainly, so the swap lands with the write's frame — D-17 (#3540) |
 | S-49 | executable, ruled-not-built | `docs/SCENARIOS.md:523` | seat.ts×3 | — | [executable, ruled-not-built] A mixed `on`: a plain read of a held value makes the re-arm wait — D-17 |
@@ -528,3 +528,4 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | S-55 | executable, standing | `docs/SCENARIOS.md:1460` | — | — | [executable, standing] `refresh` of an optimistic derivation under a guess: the authoritative view replaces the guess, or the guess stays until its action ends — F-11, D-34 |
 | S-56 | executable, standing | `docs/SCENARIOS.md:1488` | dev.ts×1 | createOptimistic.test.ts×1 superseded-before-first-commit.test.ts×2 uninitialized-visibility.test.ts×2 visibility-oracle.states.ts×3 | [executable, standing] A guess before the first answer is the newest value the node has produced: it shows, and the first answer judges it — F-11, D-22, D-2 |
 | S-57 | executable, standing | `docs/SCENARIOS.md:1513` | core.ts×1 lanes.ts×3 scheduler.ts×1 verdict.ts×1 | — | [executable, standing] A change whose derivation became a guess's lane work holds on that flight, and reveals with the lane — F-2, F-1, F-6 |
+| S-58 | executable, standing | `docs/SCENARIOS.md:1561` | — | — | [executable, standing] A display-ahead gate is the same mainline mount with any number of memos between the probe and the branch — D-25, F-1 (#4708) |
