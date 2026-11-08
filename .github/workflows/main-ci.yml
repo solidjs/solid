@@ -61,6 +61,9 @@ jobs:
       base-path: packages/solid
       path-to-lcov: "./packages/solid/coverage/lcov.info"
       github-token: ${{ secrets.GITHUB_TOKEN }}
+      # Coverage reporting is informational: an outage or a bad release of the
+      # reporter binary (checksum mismatch) must not fail the required job.
+      fail-on-error: false
 
   - name: Archive production artifacts
     uses: actions/upload-artifact@v4
