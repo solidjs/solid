@@ -1417,14 +1417,14 @@ const m = createMemo(() => 1 + s()); // throws when the input % 4 === 2
 </Errored>;
 ```
 
-| #   | Action                   | Screen             | Notes                                                                                                                                                                                                                                                                                                                                                                             |
-| --- | ------------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0   | render                   | `s 0`              |                                                                                                                                                                                                                                                                                                                                                                                   |
-| 1   | setS(1); flush()         | `[error]`          | `m = 2` throws: the boundary shows its fallback                                                                                                                                                                                                                                                                                                                                   |
-| 2   | action: setS(0); flush() | —                  | the `Show` opens ahead as in case 1, but its content's first pass reads the held `s` plainly: born held (S-46), the mount attaches at the landing and the `Show`'s switch waits with it — the boundary keeps its fallback meanwhile; a `<Loading>` inside the `Show` would show ahead (S-31). Today the branch attaches with its hole empty, S-46's plain row (#4417's mechanism) |
-| 3   | the action lands; tick   | `s 0`              | the action lands: the branch attaches                                                                                                                                                                                                                                                                                                                                             |
-| ✗   |                          | after 2: `(empty)` | the branch attached with its hole empty (F-2: never an empty slot) — S-46's plain row, #4417's mechanism; before S-53 the shown error masked it here                                                                                                                                                                                                                              |
-| ✗   |                          | after 2: `s 1`     | the branch attached with the committed `s` beside a `Show` opened by the hold's recovery (S-46 ✗: a mount under a display-ahead reader is born held, not a D-3 leaf)                                                                                                                                                                                                              |
+| #   | Action                   | Screen             | Notes                                                                                                                                                                                                                                                                                                                    |
+| --- | ------------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0   | render                   | `s 0`              |                                                                                                                                                                                                                                                                                                                          |
+| 1   | setS(1); flush()         | `[error]`          | `m = 2` throws: the boundary shows its fallback                                                                                                                                                                                                                                                                          |
+| 2   | action: setS(0); flush() | —                  | the `Show` opens ahead as in case 1, but its content's first pass reads the held `s` plainly: born held (S-46), the mount attaches at the landing and the `Show`'s switch waits with it — the boundary keeps its fallback meanwhile; a `<Loading>` inside the `Show` would show ahead (S-31). Built 2026-11-08 with S-58 |
+| 3   | the action lands; tick   | `s 0`              | the action lands: the branch attaches                                                                                                                                                                                                                                                                                    |
+| ✗   |                          | after 2: `(empty)` | the branch attached with its hole empty (F-2: never an empty slot) — S-46's plain row, #4417's mechanism; before S-53 the shown error masked it here, and until S-58 the action's open hold let the lane reveal it                                                                                                       |
+| ✗   |                          | after 2: `s 1`     | the branch attached with the committed `s` beside a `Show` opened by the hold's recovery (S-46 ✗: a mount under a display-ahead reader is born held, not a D-3 leaf)                                                                                                                                                     |
 
 <!-- /ruling -->
 
@@ -1553,5 +1553,33 @@ const label = createMemo(() => 1 + view() + ordinary());
 Standing today: the peers coordinate (the experiment's accepted C2 reading).
 
 The experiment's A2 row. Ruled 2026-11-07 for case 1: F-2 as written. F-6's lane exemption was for the guess's own hold, the action; it never released an unrelated write from its own consequence. A lane's superseded question holds nothing, which today already does.
+
+<!-- /ruling -->
+
+<!-- ruling:S-58 -->
+
+### S-58. A display-ahead gate is the same mainline mount with any number of memos between the probe and the branch — D-25, F-1 (#4708)
+
+_Generated from `packages/web/test/async-gen/rulings/S-58.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/verdict-mount-first-pass-3851.test.ts`, `web/test/display-ahead-gate-hops.spec.tsx`._
+
+```tsx
+const [id, setId] = createSignal(0);
+const detail = createMemo(async () => fetch(1 + id()));
+<span>{id()}</span>
+<span>{detail()}</span>
+<Show when={latest(id)} fallback="[none]">
+  <span>{id()}</span>
+</Show>
+```
+
+| #   | Action                | Screen                              | Notes                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --- | --------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | detail(1) lands; tick | `id 0 \| detail 1 \| [none]`        | primed                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 1   | setId(1); flush()     | —                                   | the gate opens ahead (`latest` asked) and mounts a branch whose first pass reads the staging plainly: born held, it attaches at the landing and the fallback stays — through `<Show>` (two memos between the probe and the branch), a truthiness memo and a branch memo (one), or one memo that probes and mounts (none). Ruled 2026-11-08: D-25's third sentence is about the gate, not about `<Show>` |
+| 2   | detail(2) lands; tick | `id 1 \| detail 2 \| id 1`          |                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ✗   |                       | after 1: `id 0 \| detail 1`         | the branch attached with its hole empty (F-2: never an empty slot) — the one-hop gate before S-58: the probe's own reader was published with its frame when the probe re-derived to the same value at the seam (`keepReaders`), where `<Show>`'s truthiness memo kept the branch one read away                                                                                                          |
+| ✗   |                       | after 1: `id 0 \| detail 1 \| id 0` | the branch attached with the committed value: a mount under a display-ahead reader is born held, not a D-3 leaf (S-46)                                                                                                                                                                                                                                                                                  |
+
+PR #4708 pinned a hop-less `<Show>` as never painting; with real JSX it paints at the landing and tears only during the flight, the same way `<Show>` did before S-46. The runner's `gate` variant here is the gate as written by hand, not an emulation.
 
 <!-- /ruling -->
