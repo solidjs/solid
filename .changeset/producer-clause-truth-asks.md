@@ -1,0 +1,7 @@
+---
+"@solidjs/signals": patch
+---
+
+A question is asked only of the truth (F-2's producer clause, F-6's limit), on the M1 lane value model. An async derivation that reads a held value plainly beside `latest()`/`isPending()` is the hold's work: it asks once, of the truth, never of the value the screen keeps (S-51, #4677). `isPending` stays true for a landed answer the lane still holds on a sibling's flight (S-54, #4685). A held recovery to the last good value is a change of answer and `latest` shows it ahead, so an errored boundary recovers while the action is open (S-53, #4403). A guess written to an optimistic memo before its first answer shows and the first answer judges it (S-56; the memo-form `OPTIMISTIC_WRITE_BEFORE_LOAD` guard is gone, the store form keeps it). `[isPending(x), x()]` shows pending beside the kept value in every shape, a sync-ending action included (S-52, #4349). A plain write whose derivation became a guess's lane work holds on that flight and reveals with the lane (S-57). The branch a display-ahead `<Show>` opens is born held: the fallback stays through the flight and the branch attaches at the landing, for `<Show>` and the compiled ternary alike (S-46's plain row). `latest()` of a displayed optimistic guess keeps the guess over a correction until the commit, for a signal and a superseded keyed row (#4689).
+
+Lane values now live on the node's two slots with the cover recorded explicitly (M1): the separate lane slot, `display()` and `laneValueOf` are gone.
