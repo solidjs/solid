@@ -60,6 +60,7 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
+import { attrHooks } from "./attribution-hooks.js";
 import { bornInto, creatorReads, ext, stagedRead, tracking } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
 import {
@@ -198,6 +199,8 @@ export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T)
   if (typeof v === "function") v = (v as (prev: T) => T)(prev);
   if (n._equals && n._equals(prev, v) && !(n._config & CONFIG_GUESS)) return v;
   pendingGuesses.push(n, v, question || nextQuestion());
+  // Observe: staged where it was written, so the guess carries its writer's origin.
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.staged(n);
   armGuessing();
   guessed = true;
   schedule();

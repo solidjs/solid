@@ -93,7 +93,8 @@ export interface AttributionHooks {
   write(el: Signal<any> | Computed<any>, prev: unknown, value: unknown): void;
   /**
    * A value for `el` was staged: queued for this flush's commit
-   * (`queuePendingNode`) or put on a transaction's or lane's list (`list`).
+   * (`queuePendingNode`), written as an optimistic guess (`optimisticWrite`),
+   * or put on a transaction's or lane's list (`list`).
    * What the screen shows of `el` may change at the end of this drain, or of
    * a later one if the value is held. The engine compares what `el` showed
    * before with what it shows at `flushEnd` — the one place a drain's visible

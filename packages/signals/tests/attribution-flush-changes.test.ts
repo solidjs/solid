@@ -167,16 +167,18 @@ describe("FlushEvent.changes", () => {
     createRoot(() => createRenderEffect(status, () => {}, { name: "badge" }));
     flush();
     flushes.length = 0;
-    const save = action(function* save() {
+    const submit = action(function* save() {
       setStatus("saving");
       yield gate.promise;
     });
-    const done = save();
+    const done = submit();
     flush();
     expect(status()).toBe("saving");
     expect(seen(flushes)).toEqual([
       expect.objectContaining({ nodeName: "status", prev: "idle", value: "saving" })
     ]);
+    // The guess carries the origin it was written under.
+    expect(flushes[0].changes[0].origin).toMatchObject({ kind: "action", name: "save" });
     flushes.length = 0;
     gate.resolve();
     await done;
