@@ -161,7 +161,8 @@ export interface AttributionHooks {
    * wrote (`null`: any of them — an array length write, accessors, a
    * non-plain prototype). Fired once per setter exit, before its nodes are
    * told. The engine judges what it needs from the two containers (a spread
-   * copy where a draft mutation would do).
+   * copy where a draft mutation would do), through the `StoreTools` the
+   * store registered.
    */
   storeWrite(
     target: object,
@@ -336,6 +337,36 @@ const INSTALLED = Symbol.for("@solidjs/signals/observe/attribution");
 export function setAttributionHooks(hooks: AttributionHooks | null): void {
   attrHooks = hooks;
   (globalThis as { [INSTALLED]?: AttributionHooks })[INSTALLED] = hooks ?? undefined;
+}
+
+/**
+ * What the engine needs of the store to judge a `storeWrite` (the
+ * spread-copy census), registered by the store module at its init. The
+ * engine reads these instead of importing the store: an app without stores
+ * then pays nothing for the store when it turns attribution on (the size
+ * scenario "CSR, observe tier + attribution engine enabled"), and core keeps
+ * its layering — nothing under `core/` imports `store/`. A `storeWrite`
+ * can only arrive once the store module has loaded and registered.
+ */
+export interface StoreTools {
+  /** The target's path from its root: `store.user.address`. */
+  pathOf(target: object): string;
+  /** A shallow store: a replaced value invalidates as one unit (#4686). */
+  isShallow(target: object): boolean;
+  /** The keys this batch deleted on the target, if any. */
+  deleted(target: object): Set<PropertyKey> | null;
+  /** The owner the store root was created under (undefined when unrecorded). */
+  rootOwner(target: object): Owner | null | undefined;
+  /** The backing's owner slot, not a leaf. */
+  ownerKey: PropertyKey;
+  unwrapValue(v: unknown): unknown;
+  targetsEqual(a: unknown, b: unknown): boolean;
+  isRawValue(v: unknown): boolean;
+  isWrappable(v: unknown): boolean;
+}
+export let storeTools: StoreTools | null = null;
+export function registerStoreTools(tools: StoreTools): void {
+  storeTools = tools;
 }
 
 /**

@@ -28,7 +28,7 @@
  * setter (`wk`); overlay drafts for large plain records; zero allocation
  * for adopted-but-unread objects.
  */
-import { attrHooks } from "../core/attribution-hooks.js";
+import { attrHooks, registerStoreTools } from "../core/attribution-hooks.js";
 import {
   $REFRESH,
   CONFIG_CHILDREN_FORBIDDEN,
@@ -553,7 +553,7 @@ function storeRoot(target: StoreTarget): StoreTarget {
   while (root.u !== null) root = root.u;
   return root;
 }
-export function storeRootOwner(target: StoreTarget): Owner | null | undefined {
+function storeRootOwner(target: StoreTarget): Owner | null | undefined {
   return storeOwners!.get(storeRoot(target));
 }
 function stampNodeOwner(created: Signal<any>, target: StoreTarget): void {
@@ -2788,6 +2788,29 @@ function snapshotRecord(
     }
   }
   return copy ?? src;
+}
+
+// Observe: what the attribution engine needs of a store to judge a
+// `storeWrite` (its spread-copy census). Registered here so the engine never
+// imports this module — an app without stores does not load it for turning
+// attribution on.
+if (__OBSERVE__) {
+  registerStoreTools({
+    pathOf(target) {
+      let path = "";
+      for (let cur: StoreTarget | null = target as StoreTarget; cur !== null; cur = cur.u)
+        path = cur.pk === null ? "store" + path : "." + String(cur.pk) + path;
+      return path;
+    },
+    isShallow: target => (target as StoreTarget).s,
+    deleted: target => (target as StoreTarget).del,
+    rootOwner: target => storeRootOwner(target as StoreTarget),
+    ownerKey: $OWNER,
+    unwrapValue,
+    targetsEqual,
+    isRawValue,
+    isWrappable
+  });
 }
 
 // Devtools `DEV.setSignal` for store property slots (#4679): go through the
