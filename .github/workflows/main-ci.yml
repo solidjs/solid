@@ -56,13 +56,16 @@ jobs:
       pnpm run coverage --filter=solid-js
 
   - name: Coveralls
+    # Coverage reporting is informational: an outage or a bad release of the
+    # reporter binary (checksum mismatch, a 504 on the checksum download) must
+    # not fail the required job. `fail-on-error` alone misses some install
+    # paths, so the step is also allowed to fail.
+    continue-on-error: true
     uses: coverallsapp/github-action@v2
     with:
       base-path: packages/solid
       path-to-lcov: "./packages/solid/coverage/lcov.info"
       github-token: ${{ secrets.GITHUB_TOKEN }}
-      # Coverage reporting is informational: an outage or a bad release of the
-      # reporter binary (checksum mismatch) must not fail the required job.
       fail-on-error: false
 
   - name: Archive production artifacts
