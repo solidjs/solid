@@ -25,7 +25,6 @@ const Child = (props) => {
 	const [s, set] = createSignal();
 	return [(() => {
 		var _el$ = _tmpl$();
-		var _el$2 = _el$.firstChild;
 		var _ref$ = props.ref;
 		typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => {
 			return _ref$;
@@ -182,7 +181,6 @@ var _el$36 = _el$35.firstChild;
 var _el$37 = _el$36.nextSibling;
 var _el$38 = _el$37.nextSibling;
 var _el$39 = _el$38.nextSibling;
-var _el$40 = _el$39.nextSibling;
 _$insert(_el$35, _$createComponent(Link, { children: "comments" }), _el$37);
 _$insert(_el$35, _$createComponent(Link, { children: "show" }), _el$39);
 const template12 = _el$35;
@@ -367,7 +365,6 @@ function MyComponent(props) {
 var _el$49 = _tmpl$11();
 var _el$50 = _el$49.firstChild;
 var _el$51 = _el$50.nextSibling;
-var _el$52 = _el$51.nextSibling;
 _$insert(_el$49, _$createComponent(Comp, { n: 1 }), _el$51);
 // solidjs/solid#3004: a component boxed by static text needs a dedicated
 // `<!>` marker — the surrounding template texts merge into a single node
