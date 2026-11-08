@@ -26,6 +26,7 @@ import {
   createSSRResponse,
   Errored,
   getHydrationWriter,
+  Loading,
   renderToStream,
   type ServerErrorContext
 } from "@solidjs/web";
@@ -230,6 +231,66 @@ test("dev tier: createSSRResponse answers 200 with the fallback", async () => {
   expect(escaped).toEqual([]);
   expect(status).toBe(200);
   expect(main(result!.html)).toBe("<main><p>fallback</p></main>");
+});
+
+// After the first flush a failed record used to be omitted (#4227); the
+// boundary's markup is the fallback either way, and now its record is too.
+test("dev tier: a record written after the first flush is sent plain as well", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(r => (release = r));
+  const heard: string[] = [];
+  let completed = false;
+  let result: { state: string; html: string } | undefined;
+  const escaped = await watchEscapes(async () => {
+    result = await settle(
+      new Promise<string>(done => {
+        const chunks: string[] = [];
+        renderToStream(
+          () => {
+            const Thrower = () => {
+              const ready = createMemo(() => gate.then(() => "ready"));
+              ready();
+              throw unserializable();
+            };
+            return (
+              <main>
+                <Loading fallback="pending">
+                  <Errored fallback={<p>fallback</p>}>
+                    <Thrower />
+                  </Errored>
+                </Loading>
+              </main>
+            );
+          },
+          {
+            onError: (_: unknown, c: ServerErrorContext) =>
+              void heard.push(`${c.kind}/${c.handling}`),
+            onCompleteAll() {
+              completed = true;
+            }
+          }
+        ).pipe({
+          write(chunk: string) {
+            chunks.push(String(chunk));
+            if (chunks.length === 1) {
+              expect(chunks[0]).toContain("pending");
+              release();
+            }
+          },
+          end() {
+            done(chunks.join(""));
+          }
+        });
+      })
+    );
+  });
+  expect(escaped).toEqual([]);
+  expect(result!.state).toBe("settled");
+  expect(completed).toBe(true);
+  expect(result!.html).toContain("<p");
+  expect(result!.html).toContain(">fallback</p>");
+  expect(errorRecords(result!.html)).toEqual([plain("x")]);
+  expect(heard).toEqual(["render/fallback", "render/serialize"]);
 });
 
 describe("unchanged", () => {
