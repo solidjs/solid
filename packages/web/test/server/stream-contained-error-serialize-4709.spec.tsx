@@ -364,7 +364,9 @@ function artifacts(conditions: string[]): Artifacts {
     execFileSync(process.execPath, [...conditions.map(c => `--conditions=${c}`), FIXTURE], {
       cwd: process.cwd(),
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
+      // A handle left open must not hang collection, and a failed import keeps its stderr.
+      timeout: 10_000,
+      stdio: ["ignore", "pipe", "pipe"]
     })
   );
 }
