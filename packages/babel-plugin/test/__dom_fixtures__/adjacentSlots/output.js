@@ -38,7 +38,6 @@ var _el$12 = _tmpl$3(),
 _$insert(_el$12, a, _el$14);
 _$insert(_el$12, b, _el$13);
 const slotsBeforeElement = _el$12;
-var _el$15 = _tmpl$4(),
-  _el$16 = _el$15.firstChild;
+var _el$15 = _tmpl$4();
 _$insert(_el$15, a, null);
 const singleTrailingSlot = _el$15;

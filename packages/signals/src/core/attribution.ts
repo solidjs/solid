@@ -3902,21 +3902,14 @@ interface Watched {
 }
 const watched = new Map<Signal<any> | Computed<any>, Watched>();
 
-/** What the screen shows of `n`: a revealed lane's value, else the committed one (NOT_PENDING: none yet). */
+/** What the screen shows of `n` — a revealed guess included (NOT_PENDING: none yet). */
 function shownOf(n: Signal<any> | Computed<any>): unknown {
-  const x = n._x;
-  if (n._config & CONFIG_OVERRIDE && x != null && x._transaction?._shown && x._lane !== NOT_PENDING)
-    return x._lane;
   return (n as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ? NOT_PENDING : n._value;
 }
 
 /** The screen shows `n`'s optimistic guess (not a derived override or a companion). */
 function showsGuess(n: Signal<any> | Computed<any>): boolean {
-  return (
-    (n._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === (CONFIG_OVERRIDE | CONFIG_GUESS) &&
-    !!n._x!._transaction?._shown &&
-    n._x!._lane !== NOT_PENDING
-  );
+  return (n._config & CONFIG_GUESS) !== 0 && !!n._x?._shown;
 }
 
 /** Its shown value can still change without a new staging: staged, held, or on a lane. */
@@ -3980,11 +3973,11 @@ function drainChanges(record: boolean, live: FlushLive["changes"]): FlushChange[
         changes.push(change);
         live.push(bodies ? { node: n, prev: w.shown, value: now } : { node: n });
       }
+      // A guess's truth is what the screen showed before it appeared; a new
+      // guess over a shown guess keeps covering the same truth.
+      if (guess && !w.guess) w.covered = w.shown;
       w.shown = now;
       w.origin = undefined;
-      // A guess's truth is what it covered when it appeared; a new guess over
-      // a shown guess keeps covering the same truth.
-      if (guess && !w.guess) w.covered = n._value;
       w.guess = guess;
     }
     if (!unsettled(n) && !pendingFallbacks.has(n as Computed<any>)) watched.delete(n);

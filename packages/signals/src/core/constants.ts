@@ -232,6 +232,12 @@ export const CONFIG_KEY_BAG = 1 << 28;
  * joins nothing, so two mounts under one boundary made in separate flushes
  * keep their holds apart (D-4, S-5 rows 1′–3′, #4283). */
 export const CONFIG_FRAME = 1 << 23;
+/** A render effect created by a pass that probed (`isPending`/`latest`) —
+ * the mount a display-ahead `Show` opens (S-46, D-25). Stamped at its first
+ * pass; its first read of a hold's staging or flight is born held, not a
+ * D-3 leaf of the screen, and the verdict lane that opened it reveals with
+ * the landing (lanes.ts `mountPending`). */
+export const CONFIG_MOUNT_AHEAD = 1 << 24;
 /** The node's last answering pass registered a flight: an async memo. Kept
  * by the verdict engine alone (verdict.ts `holdWork`), which reads it. */
 export const CONFIG_ASYNC = 1 << 29;

@@ -22,7 +22,6 @@ const leading = _tmpl$2();
 /* prettier-ignore */
 const extraSpaces = _tmpl$3();
 var _el$4 = _tmpl$();
-var _el$5 = _el$4.firstChild;
 _$insert(_el$4, name, null);
 const trailingExpr = _el$4;
 var _el$6 = _tmpl$2();
@@ -41,7 +40,6 @@ var _el$12 = _el$11.firstChild;
 var _el$13 = _el$12.nextSibling;
 var _el$14 = _el$13.nextSibling;
 var _el$15 = _el$14.nextSibling;
-var _el$16 = _el$15.nextSibling;
 _$insert(_el$11, greeting, _el$13);
 _$insert(_el$11, name, _el$15);
 /* prettier-ignore */
@@ -50,7 +48,6 @@ var _el$17 = _tmpl$6();
 var _el$18 = _el$17.firstChild;
 var _el$19 = _el$18.nextSibling;
 var _el$20 = _el$19.nextSibling;
-var _el$21 = _el$20.nextSibling;
 _$insert(_el$17, greeting, _el$19);
 _$insert(_el$17, name, _el$20);
 /* prettier-ignore */
@@ -82,7 +79,6 @@ const trailingSpace = _el$31;
 const trailingSpaceComp = _$createComponent(Comp, { children: expr });
 const trailingSpaceFrag = expr;
 var _el$32 = _tmpl$14();
-var _el$33 = _el$32.firstChild;
 _$insert(_el$32, expr, null);
 const leadingSpaceElement = _el$32;
 const leadingSpaceComponent = _$createComponent(Div, { get children() {

@@ -112,15 +112,15 @@ export interface NodeExtension {
   /** Provenance (A18, #3331): the question this node's guess or latest
    * flight answers (`scheduler.question`); 0 when unstamped. */
   _q: number;
+  /** Lanes: the node's lane has shown a value of it (lanes.ts `laneSeam`,
+   * `setLaneValue`): a guess is `_value` and the lane's record (truth.ts
+   * `covers`) holds the value it covered; before, the record holds the
+   * guess. Cleared when the node leaves its lane. */
+  _shown: boolean;
   /** #4544: the hold (or, before one, the flush clock) under which a verdict
    * window read this node's staging (verdict.ts `holdStaging`). Stale once
    * that hold lands or dissolves: nothing clears it. Unset until then. */
   _askedIn?: Transaction | number;
-  /** Lanes (plan sec. 28) — the lane's value for this node while CONFIG_OVERRIDE is
-   * set: a written guess, or a lane pass's derivation. `NOT_PENDING` when
-   * none. The screen shows it once the lane has revealed (`_shown`); a
-   * direct read sees it throughout; the committed truth stays `_value`. */
-  _lane: unknown;
   /** `affects()` marks live on this node (affects.ts): declared in-flight
    * changes — `isPending` reads true for it and its derivations while any
    * is live. A count, never a hold. */

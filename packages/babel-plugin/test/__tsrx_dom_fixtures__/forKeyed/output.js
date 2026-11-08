@@ -43,8 +43,7 @@ export function WithSetup({ posts }) {
         const heading = post().title.trim();
         var _el$7 = _tmpl$5(),
           _el$8 = _el$7.firstChild,
-          _el$9 = _el$8.nextSibling,
-          _el$0 = _el$9.firstChild;
+          _el$9 = _el$8.nextSibling;
         _$insert(_el$8, heading);
         _$insert(_el$9, n, null);
         return _el$7;

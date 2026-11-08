@@ -338,11 +338,12 @@ describe("contrast: a read served SUPERSEDED truth is a staged read and enters (
     expect(shown.at(-1)).toBe("3 x"); // the override displays (A17)
 
     // The node's own source lands 2 ≠ 3 while the action is live: the
-    // override is superseded (A18). The graph derives from the staged truth,
-    // the screen keeps the override until the commit.
+    // override is superseded (A18). The graph derives from the staged truth;
+    // the screen, untracked reads and `latest` keep the override until the
+    // commit (D-34, #4689).
     fetches.pop()!(0);
     await settle();
-    expect(latest(double)).toBe(2);
+    expect(latest(double)).toBe(3);
     expect(isPending(double)).toBe(true);
     expect(shown.at(-1)).toBe("3 x");
 

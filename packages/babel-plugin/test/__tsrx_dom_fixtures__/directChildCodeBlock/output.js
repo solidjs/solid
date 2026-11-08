@@ -5,8 +5,7 @@ var _tmpl$ = /*#__PURE__*/ _$template(`<section>before<!>after`),
 export function DirectChild({ name }) {
   var _el$ = _tmpl$(),
     _el$2 = _el$.firstChild,
-    _el$4 = _el$2.nextSibling,
-    _el$3 = _el$4.nextSibling;
+    _el$4 = _el$2.nextSibling;
   _$insert(
     _el$,
     () => {
