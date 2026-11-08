@@ -1402,9 +1402,11 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
       // render effect a probing pass is mounting (CONFIG_MOUNT_AHEAD) is not
       // a D-3 leaf of the screen: its first pass reading the hold's staging
       // or flight is born held, and the branch attaches at the landing.
+      // (Only the lane engine stamps the flag: without it the clause folds
+      // away, as the lane blocks in `recompute` do.)
       (!(c._config & (EFFECT_RENDER << 23)) ||
         el._config & CONFIG_INPUTS_PUBLISHED ||
-        (c._config & CONFIG_MOUNT_AHEAD && c._statusFlags & STATUS_UNINITIALIZED))
+        (laneStageHook && c._config & CONFIG_MOUNT_AHEAD && c._statusFlags & STATUS_UNINITIALIZED))
     )
   ) {
     const t = txOf(el);
