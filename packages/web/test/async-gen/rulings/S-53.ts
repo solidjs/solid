@@ -48,7 +48,6 @@ export default {
     },
     {
       label: "′",
-      status: "ruled-not-built",
       scenario: {
         signals: [0],
         memos: [{ async: false, deps: [{ src: s(0), how: "plain" }], poison: 2 }],
@@ -68,7 +67,7 @@ export default {
         {
           after: 3,
           screen: "—",
-          note: "the `Show` opens ahead as in case 1, but its content's first pass reads the held `s` plainly: born held (S-46), the mount attaches at the landing and the `Show`'s switch waits with it — the boundary keeps its fallback meanwhile; a `<Loading>` inside the `Show` would show ahead (S-31). Today the branch attaches with its hole empty, S-46's plain row (#4417's mechanism)"
+          note: "the `Show` opens ahead as in case 1, but its content's first pass reads the held `s` plainly: born held (S-46), the mount attaches at the landing and the `Show`'s switch waits with it — the boundary keeps its fallback meanwhile; a `<Loading>` inside the `Show` would show ahead (S-31). Built 2026-11-08 with S-58"
         },
         { after: 5, screen: "<span>vs0:0 </span>", note: "the action lands: the branch attaches" }
       ],
@@ -76,7 +75,7 @@ export default {
         {
           after: 3,
           screen: "<span></span>",
-          why: "the branch attached with its hole empty (F-2: never an empty slot) — S-46's plain row, #4417's mechanism; before S-53 the shown error masked it here"
+          why: "the branch attached with its hole empty (F-2: never an empty slot) — S-46's plain row, #4417's mechanism; before S-53 the shown error masked it here, and until S-58 the action's open hold let the lane reveal it"
         },
         {
           after: 3,
