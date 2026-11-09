@@ -1,4 +1,4 @@
-import { Show as _$Show } from "r-dom";
+import { memo as _$memo } from "r-dom";
 import { For as _$For } from "r-dom";
 import { mergeProps as _$mergeProps } from "r-dom";
 import { ssr as _$ssr } from "r-dom";
@@ -77,26 +77,20 @@ var _v$2 = _$escape(
       "test/__dom_source_names_fixtures__/ssr/code.js:12:5"
     )
   ),
-  _v$6 = _$escape(
-    _$createComponent(
-      _$Show,
-      {
-        get when() {
-          return visible();
-        },
-        get children() {
-          return _$createComponent(
-            Child,
-            {},
-            "Child",
-            "test/__dom_source_names_fixtures__/ssr/code.js:14:7"
-          );
-        }
-      },
-      "Show",
-      "test/__dom_source_names_fixtures__/ssr/code.js:13:5"
-    )
-  ),
+  _v$6 = (() => {
+    var _c$ = _$memo(() => !!visible());
+    return () =>
+      _c$()
+        ? _$escape(
+            _$createComponent(
+              Child,
+              {},
+              "Child",
+              "test/__dom_source_names_fixtures__/ssr/code.js:14:7"
+            )
+          )
+        : void 0;
+  })(),
   _v$7 = _$escape(
     _$createComponent(
       _self$.Row,

@@ -7,6 +7,9 @@ import solidPlugin from "@solidjs/vite-plugin";
 
 const compiler = process.env.JSX_COMPILER === "babel" ? "babel" : "native";
 import { resolve } from "path";
+// `LOWER_SHOW=1` compiles with `<Show>` lowered to a ternary, as production
+// builds do (dev builds keep the component).
+const lowerShow = process.env.LOWER_SHOW === "1" ? { lowerShow: true } : {};
 
 const rootDir = resolve(import.meta.dirname);
 
@@ -17,7 +20,7 @@ export default defineConfig({
   plugins: [
     solidPlugin({
       compiler,
-      solid: { generate: "ssr", hydratable: true, sourceNames: true }
+      solid: { generate: "ssr", hydratable: true, sourceNames: true, ...lowerShow }
     })
   ],
   test: {

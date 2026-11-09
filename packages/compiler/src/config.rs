@@ -78,6 +78,9 @@ pub struct TransformOptions {
     /// `"effect"`.
     pub effect_wrapper: Option<Either<bool, String>>,
     pub wrap_conditionals: Option<bool>,
+    /// Babel's `lowerShow` (default `!dev`): a `<Show>` that needs no
+    /// component compiles to the ternary it renders.
+    pub lower_show: Option<bool>,
     /// The memo wrapper import name (Babel's `memoWrapper: string`), with the
     /// same boolean shorthand as `effect_wrapper`. Default `"memo"`.
     pub memo_wrapper: Option<Either<bool, String>>,
