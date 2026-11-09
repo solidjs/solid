@@ -307,6 +307,8 @@ describe("uninitialized async memo over latest(s) (#4362, #4363)", () => {
   // shape #4365 found): the pass `latest(a) + b()` runs ahead of the hold
   // that holds `b`, throws over b's screen value (2 + 0 + 1), and its error
   // is its own. The landing re-derives it on the landed world (2 + 3 + 1).
+  // Like a successful answer to that ahead pass, the error publishes ahead;
+  // the recovery then replaces it when the ordinary update lands.
   it.each(["memo", "effect"])(
     "a pass that threw over a held write re-derives at the landing (%s)",
     async reader => {
@@ -353,7 +355,7 @@ describe("uninitialized async memo over latest(s) (#4362, #4363)", () => {
       setB(3);
       setC(2);
       flush();
-      expect(out).toBe("title=2");
+      expect(out).toBe("[E m:3]");
       resolve();
       for (let i = 0; i < 8; i++) await Promise.resolve();
       flush();

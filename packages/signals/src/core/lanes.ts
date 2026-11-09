@@ -782,7 +782,12 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
   }
   const status = (el as Computed<any>)._statusFlags;
   // An errored member's lane value predates its error; the error is the answer (#4106).
-  if (!guess && status & STATUS_ERROR) return NOT_PENDING;
+  if (!guess && status & STATUS_ERROR) {
+    // The error still belongs to this lane. A downstream memo must select
+    // the same update before read() throws, as it does for a lane value.
+    if (c !== null && tracking && !(c._config & CONFIG_CHILDREN_FORBIDDEN)) enterLane(l, c);
+    return NOT_PENDING;
+  }
   if (c === null) {
     if (__TEST__) shadowActual(SLOT_LV);
     return latestOf(el);
