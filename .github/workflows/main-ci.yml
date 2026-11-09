@@ -103,3 +103,43 @@ jobs:
   - name: Testing on Babel 8
     working-directory: packages/babel-plugin
     run: pnpm exec vitest run
+
+ # Production builds lower `<Show>` to the ternary it renders (lowerShow),
+ # while the web suites compile with dev on, so they keep the component.
+ # This runs them lowered on both compilers, so a runtime change that only
+ # breaks the lowered shape still fails a PR. Specs about the component's own
+ # dev behavior skip themselves here (LOWERED_SKIP in the vite configs).
+ lowered-show:
+  runs-on: ubuntu-latest
+  strategy:
+   fail-fast: false
+   matrix:
+    compiler: [native, babel]
+  steps:
+  - uses: actions/checkout@v4
+  - uses: pnpm/action-setup@v4
+  - uses: actions/setup-node@v4
+    with:
+      node-version-file: ".nvmrc"
+      cache: "pnpm"
+
+  - name: Installing deps
+    run: pnpm install
+
+  - uses: dtolnay/rust-toolchain@stable
+  - uses: Swatinem/rust-cache@v2
+    with:
+      workspaces: packages/compiler
+
+  - name: Building compiler binding
+    run: pnpm --filter @solidjs/compiler run build
+
+  - name: Building
+    run: pnpm run build
+
+  - name: Testing web with Show lowered
+    working-directory: packages/web
+    env:
+      LOWER_SHOW: "1"
+      JSX_COMPILER: ${{ matrix.compiler }}
+    run: pnpm run test
