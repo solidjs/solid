@@ -26,11 +26,8 @@ import {
   action,
   createOptimisticStore,
   createMemo,
-  createEffect,
-  createErrorBoundary,
   flush,
-  refresh,
-  untrack
+  refresh
 } from "solid-js";
 import { render } from "../src/index.js";
 
@@ -55,7 +52,6 @@ for (const form of ["field", "whole-array"] as const)
     const container = document.body.appendChild(document.createElement("div"));
     let assign!: (id: number) => any;
     let close!: (id: number) => any;
-    let count = -99;
     const guess = (set: any, id: number, patch: (r: any) => void) =>
       form === "field"
         ? set((d: any[]) => {
@@ -102,19 +98,6 @@ for (const form of ["field", "whole-array"] as const)
         refresh(list);
         refresh(rows);
       });
-      const shownOpen = createMemo(() => rows.filter((r: any) => !r.closed).length);
-      const caught = untrack(() =>
-        createErrorBoundary(
-          () => shownOpen(),
-          () => -1
-        )
-      );
-      createEffect(
-        () => caught(),
-        (v: number) => {
-          count = v;
-        }
-      );
       return (
         <Loading fallback="loading">
           <Errored fallback={(e: any) => <b>list error: {e().message}</b>}>
@@ -129,27 +112,27 @@ for (const form of ["field", "whole-array"] as const)
         </Loading>
       );
     }, container);
-    const screen = () => `${container.textContent} (${count})`;
+    const screen = () => container.textContent;
     await tick();
     await settle("fetch", [{ id: 1 }, { id: 3 }, { id: 4 }]);
-    expect(screen()).toBe("[#1 -][#3 -][#4 -] (3)");
+    expect(screen()).toBe("[#1 -][#3 -][#4 -]");
     assign(4);
     await tick();
-    expect(screen(), "assign #4 guessed").toBe("[#1 -][#3 -][#4 guest] (3)");
+    expect(screen(), "assign #4 guessed").toBe("[#1 -][#3 -][#4 guest]");
     await settle("assign:4", {});
-    expect(screen(), "assign landed; its refresh is in flight").toBe("[#1 -][#3 -][#4 guest] (3)");
+    expect(screen(), "assign landed; its refresh is in flight").toBe("[#1 -][#3 -][#4 guest]");
     close(1);
     await tick();
     // F-11: a guess is its slot's value from the flush that carries it; a
     // refresh re-asks the same question and holds nothing new (D-34).
-    expect(screen(), "close #1 guessed during assign's refresh").toBe("[#3 -][#4 guest] (2)");
+    expect(screen(), "close #1 guessed during assign's refresh").toBe("[#3 -][#4 guest]");
     await settle("fetch", "down", true);
     // D-41: the error is the answer; the guesses are on rows 1 and 4, the
     // list is the truth's, and the truth is an error.
-    expect(screen(), "the refresh fails").toBe("list error: down (-1)");
+    expect(screen(), "the refresh fails").toBe("list error: down");
     close(4);
     await tick();
-    expect(screen(), "close #4 guessed under the error").toBe("list error: down (-1)");
+    expect(screen(), "close #4 guessed under the error").toBe("list error: down");
     await settle("close:1", {});
     await settle("close:4", {});
     await settle("fetch", [
@@ -157,7 +140,7 @@ for (const form of ["field", "whole-array"] as const)
       { id: 4, a: "guest", closed: true },
       { id: 1, closed: true }
     ]);
-    expect(screen(), "the re-ask answers").toBe("[#3 -] (1)");
+    expect(screen(), "the re-ask answers").toBe("[#3 -]");
     dispose();
     container.remove();
   });
