@@ -36,8 +36,7 @@ _$insert(_el$4, name, _el$7, _co$);
 const trailingExpr = _el$4;
 var _el$8 = _$getNextElement(_tmpl$5),
   _el$0 = _el$8.firstChild,
-  [_el$1, _co$2] = _$getNextMarker(_el$0.nextSibling),
-  _el$9 = _el$1.nextSibling;
+  [_el$1, _co$2] = _$getNextMarker(_el$0.nextSibling);
 _$insert(_el$8, greeting, _el$1, _co$2);
 const leadingExpr = _el$8;
 
@@ -59,8 +58,7 @@ var _el$16 = _$getNextElement(_tmpl$7),
   [_el$21, _co$5] = _$getNextMarker(_el$20.nextSibling),
   _el$18 = _el$21.nextSibling,
   _el$22 = _el$18.nextSibling,
-  [_el$23, _co$6] = _$getNextMarker(_el$22.nextSibling),
-  _el$19 = _el$23.nextSibling;
+  [_el$23, _co$6] = _$getNextMarker(_el$22.nextSibling);
 _$insert(_el$16, greeting, _el$21, _co$5);
 _$insert(_el$16, name, _el$23, _co$6);
 const multiExprSpaced = _el$16;
@@ -71,8 +69,7 @@ var _el$24 = _$getNextElement(_tmpl$8),
   _el$27 = _el$25.nextSibling,
   [_el$28, _co$7] = _$getNextMarker(_el$27.nextSibling),
   _el$29 = _el$28.nextSibling,
-  [_el$30, _co$8] = _$getNextMarker(_el$29.nextSibling),
-  _el$26 = _el$30.nextSibling;
+  [_el$30, _co$8] = _$getNextMarker(_el$29.nextSibling);
 _$insert(_el$24, greeting, _el$28, _co$7);
 _$insert(_el$24, name, _el$30, _co$8);
 const multiExprTogether = _el$24;
@@ -103,8 +100,7 @@ let number = 4 + 5;
 const evaluatedNonString = _$getNextElement(_tmpl$11);
 var _el$38 = _$getNextElement(_tmpl$12),
   _el$40 = _el$38.firstChild,
-  [_el$41, _co$9] = _$getNextMarker(_el$40.nextSibling),
-  _el$39 = _el$41.nextSibling;
+  [_el$41, _co$9] = _$getNextMarker(_el$40.nextSibling);
 _$insert(_el$38, s, _el$41, _co$9);
 const newLineLiteral = _el$38;
 var _el$42 = _$getNextElement(_tmpl$13);
@@ -128,8 +124,7 @@ const leadingSpaceComponent = _$createComponent(Div, {
 const leadingSpaceFragment = [" ", expr];
 var _el$47 = _$getNextElement(_tmpl$15),
   _el$49 = _el$47.firstChild,
-  [_el$50, _co$1] = _$getNextMarker(_el$49.nextSibling),
-  _el$48 = _el$50.nextSibling;
+  [_el$50, _co$1] = _$getNextMarker(_el$49.nextSibling);
 _$insert(_el$47, expr, _el$50, _co$1);
 const trailingSpaceElement = _el$47;
 const trailingSpaceComponent = _$createComponent(Div, {

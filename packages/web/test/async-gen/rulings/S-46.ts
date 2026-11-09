@@ -31,7 +31,6 @@ export default {
   names: { s0: "id", m0: "detail", F: "[none]" },
   cases: [
     {
-      status: "ruled-not-built",
       scenario: {
         signals: [0],
         memos,

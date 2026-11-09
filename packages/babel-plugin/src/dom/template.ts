@@ -43,13 +43,18 @@ export function createTemplate(
     }
     registerTemplate(path, result);
     const decl = result.decl!;
+    const dynamicsStmt = wrapDynamics(path, result.dynamics, result.claims, ownerId);
+    pruneUnusedWalks(decl, [
+      ...result.exprs,
+      ...(dynamicsStmt ? [dynamicsStmt] : []),
+      ...(result.postExprs || [])
+    ]);
     if (
-      !(result.exprs.length || result.dynamics.length || result.postExprs?.length) &&
+      !(result.exprs.length || dynamicsStmt || result.postExprs?.length) &&
       decl.declarations.length === 1
     ) {
       return decl.declarations[0].init as t.Expression;
     } else {
-      const dynamicsStmt = wrapDynamics(path, result.dynamics, result.claims, ownerId);
       const stmts = [
         decl,
         ...result.exprs,
@@ -94,6 +99,43 @@ export function createTemplate(
     ]);
   }
   return result.exprs[0] as t.Expression;
+}
+
+/** Drops `_el$N = _el$M.firstChild` / `.nextSibling` walks whose node is never
+ * read. Positional ids are handed out before it is known whether a child's
+ * insert needs a marker, so a text node ahead of an appended expression keeps
+ * a walk nothing reads. A minifier keeps the property read (it could be a
+ * getter), so it would ship as `_el$M.firstChild;`.
+ *
+ * Runs from the last declarator back, so a walk that only feeds a dropped walk
+ * is dropped too. Other declarators always stay. */
+function pruneUnusedWalks(decl: t.VariableDeclaration, after: t.Node[]) {
+  const read = new Set<string>();
+  const collect = (node: t.Node) =>
+    t.traverseFast(node, n => {
+      if (t.isIdentifier(n)) read.add(n.name);
+    });
+
+  // Names read by the statements that run after the walks
+  for (const node of after) collect(node);
+
+  // Keep a walk only when something kept after it reads its node
+  const kept: t.VariableDeclarator[] = [];
+  for (let i = decl.declarations.length - 1; i >= 0; i--) {
+    const declarator = decl.declarations[i];
+    const init = declarator.init;
+    const isWalk =
+      t.isIdentifier(declarator.id) &&
+      t.isMemberExpression(init) &&
+      !init.computed &&
+      t.isIdentifier(init.object) &&
+      t.isIdentifier(init.property) &&
+      (init.property.name === "firstChild" || init.property.name === "nextSibling");
+    if (isWalk && !read.has((declarator.id as t.Identifier).name)) continue;
+    collect(declarator);
+    kept.push(declarator);
+  }
+  decl.declarations = kept.reverse();
 }
 
 export function appendTemplates(path: NodePath<t.Program>, templates: TemplateRecord[]) {

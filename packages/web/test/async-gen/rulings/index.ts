@@ -14,6 +14,14 @@ import S46 from "./S-46.js";
 import S48 from "./S-48.js";
 import S49 from "./S-49.js";
 import S50 from "./S-50.js";
+import S51 from "./S-51.js";
+import S52 from "./S-52.js";
+import S53 from "./S-53.js";
+import S54 from "./S-54.js";
+import S55 from "./S-55.js";
+import S56 from "./S-56.js";
+import S57 from "./S-57.js";
+import S58 from "./S-58.js";
 
 export const RULINGS: Ruling[] = [
   S3,
@@ -30,5 +38,13 @@ export const RULINGS: Ruling[] = [
   S46,
   S48,
   S49,
-  S50
+  S50,
+  S51,
+  S52,
+  S53,
+  S54,
+  S55,
+  S56,
+  S57,
+  S58
 ];

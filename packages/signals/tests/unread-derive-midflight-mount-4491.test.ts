@@ -236,6 +236,9 @@ describe("the derive's posture after the held mount (#4491)", () => {
       const held = await later("storeKey", true, equal);
       expect(screen(held)).toEqual(screen(await later("storeKey", false, equal)));
       expect(screen(held)).toEqual(screen(await later("memo", true, equal)));
-      expect(held).toContain("--landed verdict=true pending=false");
+      // F-2's producer clause (2026-11-07, S-51): `m1` asks, so it carries no
+      // inherited verdict posture (only a window of its own would), and the
+      // derive over it inherits none. The screen is the rule (D-30).
+      expect(held).toContain("--landed verdict=false pending=false");
     });
 });

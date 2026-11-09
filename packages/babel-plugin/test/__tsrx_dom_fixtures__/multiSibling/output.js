@@ -16,8 +16,7 @@ export function Article({ post }) {
     (() => {
       var _el$2 = _tmpl$2(),
         _el$3 = _el$2.firstChild,
-        _el$5 = _el$3.nextSibling,
-        _el$4 = _el$5.nextSibling;
+        _el$5 = _el$3.nextSibling;
       _$insert(_el$2, () => post.summary, _el$3);
       _$insert(_el$2, () => post.minutes, _el$5);
       return _el$2;

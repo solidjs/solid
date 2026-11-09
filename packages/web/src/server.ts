@@ -742,6 +742,12 @@ function preloadInvalid(field, message, value) {
 // with the client's skip (client.ts). `data.type` is the one thing safe to
 // record about an arbitrary value; the value itself rides `data.value` for
 // the console consumer.
+
+// Finished markup is only what this runtime made: its nodes carry this symbol
+// as `$` (`Symbol.for`, so duplicate runtime copies agree). No data, JSON
+// included, can hold a symbol value, so a plain object with a `t` key is data
+// and never markup. A named key keeps the check one plain property read.
+const SSR_NODE = /*#__PURE__*/ Symbol.for("solid.ssrNode");
 function unrecognizedInsert(node) {
   devCheck({
     code: "UNRECOGNIZED_INSERT_VALUE",
@@ -3786,6 +3792,8 @@ function buildAsyncWrap(err, node) {
   fn.$rw = true;
   if (suppress) fn.$lhSuppress = true;
   if (node.$lhSkip) fn.$lhSkip = true;
+  if (node.$lhInTag) fn.$lhInTag = true;
+  if (node.$lhAttr) fn.$lhAttr = node.$lhAttr;
   if (node.$lhBinding) fn.$lhBinding = node.$lhBinding;
   return { fn, p };
 }
@@ -4128,7 +4136,7 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
   // `resolveValue` returns them). NotReady escalations are absorbed into
   // h/p (the caller decides pending semantics); real errors propagate.
   function resolveHoleValue(hole) {
-    const result = { t: [""], h: [], p: [], rows: null };
+    const result = { t: [""], h: [], p: [], rows: null, $: SSR_NODE };
     try {
       result.rows = resolveValue(holeValue(hole), result);
     } catch (err) {
@@ -4268,7 +4276,8 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
      */
     nest(hole) {
       const s = engine.scope;
-      if (!s || s.h === hole || hole.$lhSkip || (inScope && !inScope())) return undefined;
+      if (!s || s.h === hole || hole.$lhSkip || hole.$lhInTag || (inScope && !inScope()))
+        return undefined;
       engine.scope = scopeFor(hole);
       return s;
     },
@@ -4282,6 +4291,32 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
      * evaluations), or null when interception is off for this evaluation.
      */
     content(hole) {
+      // An escalated in-tag hole's retry (see `retry` below): never marked,
+      // whatever chain it rides. Under a pending capture, the tag's last
+      // retry to resolve registers the binding (the text now is what the
+      // client receives); a retry that is still pending re-wraps, keeping
+      // its capture.
+      if (hole.$lhInTag) {
+        const cap = hole.$lhAttr;
+        if (!cap || cap.adopted || engine.suppressed || engine.sweeping) return null;
+        const r = tryResolveFunctionHole(hole);
+        if (typeof r !== "string") {
+          const res = { t: [""], h: [], p: [], $: SSR_NODE };
+          appendResolvedNode(res, r);
+          return res;
+        }
+        if (--cap.waiting === 0 && !cap.closed) {
+          try {
+            cap.base = attrPartsText(cap.parts);
+          } catch (err) {
+            // A part still waits (its value moved back to pending) or failed:
+            // the tag keeps what its retries resolved to.
+            cap.base = null;
+          }
+          if (cap.base !== null) engine.attr(cap);
+        }
+        return r;
+      }
       // A retry fn of an escalated hole re-enters here on its re-pull —
       // through `ctx.ssr(pending.t, ...pending.h)` (boundary resume) or the
       // tree resolver (root holes). Its markers already ride the pending
@@ -4293,7 +4328,7 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
       // sweep — a sweep's value doesn't ship, and a baseline the client
       // never saw would swallow a needed emission.
       if (hole.$lhSuppress) {
-        const r = { t: [""], h: [], p: [] };
+        const r = { t: [""], h: [], p: [], $: SSR_NODE };
         let rows = null;
         const b = hole.$lhBinding;
         const run = () => {
@@ -4449,7 +4484,7 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
         // …and a slot-tagged value resolves unmarked (suppressed, so a
         // wrapped getter isn't re-intercepted one level down).
         leave(b, prevParent, prevScope, prevVisit);
-        const r = { t: [""], h: [], p: [] };
+        const r = { t: [""], h: [], p: [], $: SSR_NODE };
         engine.suppressed++;
         try {
           resolveSSRNode(value, r);
@@ -4471,9 +4506,9 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
         closeChildren(b);
         escalated.fn.$lhSuppress = true;
         escalated.fn.$lhBinding = b;
-        res = { t: ["", ""], h: [escalated.fn], p: [escalated.p] };
+        res = { t: ["", ""], h: [escalated.fn], p: [escalated.p], $: SSR_NODE };
       } else {
-        res = { t: [""], h: [], p: [] };
+        res = { t: [""], h: [], p: [], $: SSR_NODE };
         try {
           rows = resolveValue(value, res);
         } catch (_) {
@@ -4524,12 +4559,58 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
       t[0] = open + t[0];
       t[t.length - 1] += close;
       sink.openBinding(key, b);
-      return { t, h: res.h, p: res.p };
+      return { t: t, h: res.h, p: res.p, $: SSR_NODE };
     },
     /** The shared id counter — `ssr()` mints an attr address at injection
      *  time, before its capture completes. */
     mint() {
       return nextId++;
+    },
+    /**
+     * Open an attr capture for the tag whose open ends at `off` in `text`
+     * (`ssr()`'s tag-open segment): mint its address and splice
+     * ` data-lha="N"` in, or — a boundary resume re-rendering a tag whose
+     * capture went pending (see `retry`), where the address is already on
+     * the element — take that address over, so the pending capture never
+     * registers. Returns the capture, its segment's new text on `text`.
+     */
+    open(text, off, hole) {
+      const pending = hole && hole.$lhAttr;
+      let inject;
+      let id;
+      if (pending && !pending.adopted && text.startsWith(pending.inject, off)) {
+        pending.adopted = true;
+        ({ id, inject } = pending);
+      } else {
+        id = nextId++;
+        inject = ` data-lha="${id}"`;
+        text = text.slice(0, off) + inject + text.slice(off);
+      }
+      const prefix = text.slice(off + inject.length);
+      return { id, parts: [prefix], base: prefix, inject, waiting: 0, text };
+    },
+    /**
+     * An in-tag hole that escalated (its value is still pending) resolves later
+     * as a retry fn, one of two ways. A boundary resume re-renders the open tag
+     * through `ssr(pending.t, ...pending.h)`, which captures it again. At the
+     * top of a render there is no boundary: the tree resolver pulls the retry
+     * as a function node, which it otherwise treats as content and routes
+     * through the live-hole engine, so its markers would land inside the tag
+     * (`<div<!--lh:N--> style="…"<!--lh:/N-->>`) or inside the attribute value.
+     * The retry is tagged (`$lhInTag`, carried through re-wraps) so the engine
+     * never marks it. When the tag was being captured, the capture stays open
+     * as pending (`$lhAttr`): its address stays on the element, and the engine
+     * registers its binding once the tag's last retry resolves, with the text
+     * at that moment as the baseline. A boundary resume adopts the address
+     * instead (see `open`), so the element carries one.
+     */
+    retry(fn, cap) {
+      if (typeof fn !== "function") return;
+      fn.$lhInTag = true;
+      if (cap) {
+        fn.$lhAttr = cap;
+        cap.waiting++;
+      }
     },
     /** Whether interception may arm at the current evaluation point —
      *  `ssr()` asks before opening an attr capture (the `data-lha`
@@ -4556,8 +4637,15 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
      * known only as a digest, no list — removes them too.
      */
     attr(cap) {
-      const owner = getOwner();
-      const holeCtx = sharedConfig.context;
+      // A capture still waiting on escalated retries registers when the last
+      // resolves (see `retry`), under the render's owner and context.
+      if (cap.waiting) {
+        cap.owner = getOwner();
+        cap.ctx = sharedConfig.context;
+        return;
+      }
+      const owner = cap.owner !== undefined ? cap.owner : getOwner();
+      const holeCtx = cap.ctx !== undefined ? cap.ctx : sharedConfig.context;
       const b = {
         key: "lha:" + cap.id,
         children: [],
@@ -4573,29 +4661,7 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
           engine.gateHit = false;
           let html = "";
           try {
-            let group = null;
-            let groupVal = null;
-            const run = () => {
-              for (const part of cap.parts) {
-                if (typeof part === "string") {
-                  html += part;
-                  continue;
-                }
-                let v;
-                if (part.g) {
-                  if (group !== part.g) {
-                    group = part.g;
-                    groupVal = part.g();
-                  }
-                  v = groupVal[part.i];
-                } else {
-                  v = part.f();
-                }
-                const vt = typeof v;
-                if (vt === "string" || vt === "number") html += v;
-              }
-            };
-            swept(owner, holeCtx, run);
+            swept(owner, holeCtx, () => (html = attrPartsText(cap.parts)));
           } catch (err) {
             // NotReady holds for a later commit (the end-latch sweep is the
             // floor), unless scopes this sweep created are what wait (see
@@ -4736,9 +4802,37 @@ function rowPatch(a, b) {
   }
 }
 
-export function ssr(template: string[] | string, ...nodes: any[]): { t: string };
+// The attribute text of a capture's parts (statics, re-runnable thunks,
+// group positions), as the binding's sweep and its deferred baseline build
+// it. Throws what a part throws.
+function attrPartsText(parts) {
+  let html = "";
+  let group = null;
+  let groupVal = null;
+  for (const part of parts) {
+    if (typeof part === "string") {
+      html += part;
+      continue;
+    }
+    let v;
+    if (part.g) {
+      if (group !== part.g) {
+        group = part.g;
+        groupVal = part.g();
+      }
+      v = groupVal[part.i];
+    } else {
+      v = part.f();
+    }
+    const vt = typeof v;
+    if (vt === "string" || vt === "number") html += v;
+  }
+  return html;
+}
 
 // rendering
+export function ssr(template: string[] | string, ...nodes: any[]): { t: string };
+
 export function ssr(t) {
   // Inlined hole resolution — uses `arguments` instead of a `(t, ...nodes)`
   // rest parameter to avoid the per-call holes-array allocation. Inline
@@ -4750,7 +4844,7 @@ export function ssr(t) {
   // returns an array of values for >=N hole positions. The check is at
   // the END of the typeof chain so non-function holes don't pay for it.
   const len = arguments.length;
-  if (len === 1) return { t };
+  if (len === 1) return { t: t, $: SSR_NODE };
   let s = t[0];
   let result = null;
   let lastGroup = null;
@@ -4776,24 +4870,21 @@ export function ssr(t) {
   // (started or already active). Declines when the tag-open buffer is no
   // longer the current tail (an earlier hole of this tag escalated — the
   // tag latches) or interception is off for this evaluation.
-  const captureStart = () => {
+  const captureStart = hole => {
     if (cap) return true;
     if (!lastOpen || live.suppressed || live.sweeping || !live.active()) return false;
+    // The tag opened while the output was one string and a hole of this
+    // tag has since escalated it into segments: the open is in the first.
+    if (lastOpen.r === null && result !== null && result.t.length === 1) {
+      lastOpen.r = result;
+      lastOpen.seg = 0;
+    }
     if (lastOpen.r !== result || (result !== null && lastOpen.seg !== result.t.length - 1)) {
       return false;
     }
-    const id = live.mint();
-    const inject = ` data-lha="${id}"`;
-    let prefix;
-    if (result === null) {
-      s = s.slice(0, lastOpen.off) + inject + s.slice(lastOpen.off);
-      prefix = s.slice(lastOpen.off + inject.length);
-    } else {
-      const seg = result.t[lastOpen.seg];
-      result.t[lastOpen.seg] = seg.slice(0, lastOpen.off) + inject + seg.slice(lastOpen.off);
-      prefix = result.t[lastOpen.seg].slice(lastOpen.off + inject.length);
-    }
-    cap = { id, parts: [prefix], base: prefix, at: lastOpen.seg, inject };
+    cap = live.open(result === null ? s : result.t[lastOpen.seg], lastOpen.off, hole);
+    if (result === null) s = cap.text;
+    else result.t[lastOpen.seg] = cap.text;
     return true;
   };
   for (let i = 1; i < len; i++) {
@@ -4827,7 +4918,7 @@ export function ssr(t) {
           lastGroupVal = r;
           lastGroupIdx = 0;
           if (!Array.isArray(r) && result === null) {
-            result = { t: [s], h: [], p: [] };
+            result = { t: [s], h: [], p: [], $: SSR_NODE };
             s = "";
           }
         }
@@ -4840,7 +4931,7 @@ export function ssr(t) {
           hasValue = true;
           // A group can span elements; each element captures only its own
           // positions (by dequeue index — group order is positional).
-          if (live && !hp.pos[i - 1] && captureStart()) {
+          if (live && !hp.pos[i - 1] && captureStart(hole)) {
             cap.parts.push({ g: hole, i: lastGroupIdx - 1 });
           }
         } else {
@@ -4850,11 +4941,17 @@ export function ssr(t) {
           // tag and mints its own, so a leftover would sit beside it and
           // move the element off its bound address on the first op. The
           // address is unique, so the first match is the splice.
-          if (cap) {
-            result.t[cap.at] = result.t[cap.at].replace(cap.inject, "");
-            cap = null;
+          //
+          // At the top of a render nothing re-renders the tag, so a capture
+          // stays open, pending (see the engine's `retry`): the address stays and
+          // the binding registers when the tag's retries resolve.
+          const slot = ssrGroupSlot(lastGroupVal.fn, lastGroupIdx++);
+          if (live && !hp.pos[i - 1]) {
+            const capturing = captureStart(hole);
+            if (capturing) cap.parts.push({ g: hole, i: lastGroupIdx - 1 });
+            live.retry(slot, capturing && cap);
           }
-          result.h.push(ssrGroupSlot(lastGroupVal.fn, lastGroupIdx++));
+          result.h.push(slot);
           result.p.push(lastGroupVal.p);
           result.t.push("");
         }
@@ -4877,7 +4974,7 @@ export function ssr(t) {
           if (typeof rs === "string") {
             s += rs;
           } else {
-            result = { t: [s], h: [], p: [] };
+            result = { t: [s], h: [], p: [], $: SSR_NODE };
             s = "";
             if (rs.merge !== undefined) mergeTemplateInto(result, rs.merge);
             else resolveSSRNode(rs.bail, result);
@@ -4901,37 +4998,36 @@ export function ssr(t) {
           else result.t[result.t.length - 1] += liveNode;
         } else {
           if (result === null) {
-            result = { t: [s], h: [], p: [] };
+            result = { t: [s], h: [], p: [], $: SSR_NODE };
             s = "";
           }
           resolveSSRNode(liveNode, result);
         }
       } else if (result !== null) {
         const inTag = live && !hp.pos[i - 1];
-        const capturing = inTag && captureStart();
+        const capturing = inTag && captureStart(hole);
         const li = capturing ? result.t.length - 1 : 0;
         const before = capturing ? result.t[li].length : 0;
+        const pushed = result.h.length;
         if (live) live.suppressed++;
         try {
           resolveSSRNode(hole, result);
         } finally {
           if (live) live.suppressed--;
         }
+        if (inTag) {
+          for (let k = pushed; k < result.h.length; k++) live.retry(result.h[k], capturing && cap);
+        }
         if (capturing) {
-          if (result.t.length - 1 === li) {
-            cap.base += result.t[li].slice(before);
-            cap.parts.push({ f: hole });
-          } else {
-            // The hole escalated mid-attrs: the tag latches, its address
-            // with it (see the group escalation above).
-            result.t[cap.at] = result.t[cap.at].replace(cap.inject, "");
-            cap = null;
-          }
+          // Escalated mid-attrs: the capture goes pending (see the group
+          // escalation above); its base is rebuilt when it registers.
+          if (result.t.length - 1 === li) cap.base += result.t[li].slice(before);
+          cap.parts.push({ f: hole });
         }
       } else {
         // Capture opens BEFORE the value resolves — the prefix slice must
         // stop at the hole position, not swallow its first value.
-        const capturing = live && !hp.pos[i - 1] && captureStart();
+        const capturing = live && !hp.pos[i - 1] && captureStart(hole);
         // An unminted content hole keeps its occurrence scope (`nest`).
         const scope = live && hp.pos[i - 1] && live.nest(hole);
         const r = tryResolveFunctionHole(hole);
@@ -4943,15 +5039,13 @@ export function ssr(t) {
             cap.parts.push({ f: hole });
           }
         } else {
-          // The hole escalated mid-attrs: the tag latches, its address
-          // with it (see the group escalation above).
-          if (capturing) {
-            s = s.replace(cap.inject, "");
-            cap = null;
-          }
-          result = { t: [s], h: [], p: [] };
+          // The hole escalated mid-attrs: the capture goes pending (see the
+          // group escalation above).
+          result = { t: [s], h: [], p: [], $: SSR_NODE };
           s = "";
           appendResolvedNode(result, r);
+          if (capturing) cap.parts.push({ f: hole });
+          if (live && !hp.pos[i - 1]) for (const h of result.h) live.retry(h, capturing && cap);
         }
       }
       if ("_SOLID_DEV_" && devNext !== undefined) checkUnscopedHole(devNext, t, i - 1, hole);
@@ -4964,7 +5058,7 @@ export function ssr(t) {
       } else {
         // Escalation: allocate the heavy `{ t, h, p }` result shape and
         // splice in the sync prefix we accumulated.
-        result = { t: [s], h: [], p: [] };
+        result = { t: [s], h: [], p: [], $: SSR_NODE };
         s = "";
         appendResolvedNode(result, r);
       }
@@ -5000,7 +5094,7 @@ export function ssr(t) {
     if (result === null) s += next;
     else result.t[result.t.length - 1] += next;
   }
-  if (result === null) return { t: s };
+  if (result === null) return { t: s, $: SSR_NODE };
   return result;
 }
 export function ssrClassName(value: string | { [k: string]: boolean } | Array<any>): string;
@@ -5276,7 +5370,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   if (link !== null && link.href !== undefined) result += ssrLinkClaim(link);
   // The hydration key is unquoted, so a void element needs the space before
   // `/>` or the slash becomes part of the key's value.
-  if (skipChildren) return { t: result + " />" };
+  if (skipChildren) return { t: result + " />", $: SSR_NODE };
   if (childOwner !== null) children = info.raw ? childOwner.children : escape(childOwner.children);
   if (typeof children === "function") children = children();
   // `() => scope(fn)` children return the scope's evaluator: run it as resolveSSRNode would.
@@ -5287,7 +5381,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
     try {
       children = thunk();
     } catch (err) {
-      const res = { t: [""], h: [], p: [] };
+      const res = { t: [""], h: [], p: [], $: SSR_NODE };
       pushSSRAsyncHole(res, err, thunk);
       return ssr([result + ">", info.close], res);
     }
@@ -5304,14 +5398,15 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   // (`ssrTextTail`) is left as the child left it: the parent resets it on this
   // element's finished node either way.
   const ct = typeof children;
-  if (ct === "string" || ct === "number") return { t: result + ">" + children + info.close };
-  if (children == null || ct === "boolean") return { t: result + ">" + info.close };
-  if (ct === "object" && !children.h && typeof children.t === "string")
-    return { t: result + ">" + children.t + info.close };
+  if (ct === "string" || ct === "number")
+    return { t: result + ">" + children + info.close, $: SSR_NODE };
+  if (children == null || ct === "boolean") return { t: result + ">" + info.close, $: SSR_NODE };
+  if (ct === "object" && children.$ === SSR_NODE && !children.h && typeof children.t === "string")
+    return { t: result + ">" + children.t + info.close, $: SSR_NODE };
   if (thunk === null)
     return ssr([result + ">", info.close], resolveSSRNode(children, undefined, true));
   // Nested, as resolveSSRNode resolves a function's value: arrays keep their separators.
-  const res = { t: [""], h: [], p: [] };
+  const res = { t: [""], h: [], p: [], $: SSR_NODE };
   try {
     resolveSSRNode(children, res, false, true);
   } catch (err) {
@@ -5812,7 +5907,13 @@ function tryJoinPlainSSRArray(nodes) {
   let out = "";
   for (let i = 0, len = nodes.length; i < len; i++) {
     const node = nodes[i];
-    if (node == null || typeof node !== "object" || node.h || typeof node.t !== "string") {
+    if (
+      node == null ||
+      typeof node !== "object" ||
+      node.$ !== SSR_NODE ||
+      node.h ||
+      typeof node.t !== "string"
+    ) {
       return undefined;
     }
     out += node.t;
@@ -6252,13 +6353,13 @@ function tryResolveString(node, nested?: boolean) {
       }
       return s;
     }
-    if (node.h && node.h.length > 0) return { merge: node };
-    if (node.t === undefined) {
+    if (node.$ !== SSR_NODE) {
       // Not a template object — mirror the client's dev warn-and-skip
       // instead of crashing downstream on a malformed template shape.
       if ("_SOLID_DEV_") unrecognizedInsert(node);
       return "";
     }
+    if (node.h && node.h.length > 0) return { merge: node };
     ssrTextTail = false;
     return Array.isArray(node.t) ? node.t[0] : node.t;
   }
@@ -6282,16 +6383,7 @@ function tryResolveString(node, nested?: boolean) {
 // callers never pass it.
 export function resolveSSRNode(node: any, result?: any, top?: boolean, nested?: boolean): any;
 
-export function resolveSSRNode(
-  node,
-  result = {
-    t: [""],
-    h: [],
-    p: []
-  },
-  top,
-  nested
-) {
+export function resolveSSRNode(node, result = { t: [""], h: [], p: [], $: SSR_NODE }, top, nested) {
   if (!nested) ssrTextTail = false;
   const t = typeof node;
   if (t === "string" || t === "number") {
@@ -6317,7 +6409,9 @@ export function resolveSSRNode(
       if (slotLive) slotLive.suppressed--;
     }
   } else if (t === "object") {
-    if (node.h) {
+    if (node.$ !== SSR_NODE) {
+      if ("_SOLID_DEV_") unrecognizedInsert(node);
+    } else if (node.h) {
       result.t[result.t.length - 1] += node.t[0];
       if (node.t.length > 1) {
         result.t.push(...node.t.slice(1));
@@ -6325,10 +6419,10 @@ export function resolveSSRNode(
         result.p.push(...node.p);
       }
       ssrTextTail = false;
-    } else if (node.t !== undefined) {
+    } else {
       result.t[result.t.length - 1] += node.t;
       ssrTextTail = false;
-    } else if ("_SOLID_DEV_") unrecognizedInsert(node);
+    }
   } else if (t === "function") {
     // Function nodes reaching the tree resolver are content by construction
     // (in-tag holes route here only under `ssr()`'s suppression window), so

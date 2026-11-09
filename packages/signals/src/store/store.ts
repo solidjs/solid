@@ -445,6 +445,13 @@ export function getHasNode(target: StoreTarget, key: PropertyKey): Signal<boolea
   return node;
 }
 
+/** A chained link's committed value follows the inner store's (S4): `_value`,
+ * while it is the screen's — a lane that has revealed the node shows its own
+ * value there, and a revert asks the store (`_slotCovered`). */
+export function follow(n: Signal<any>, v: unknown): void {
+  if (!(n._config & CONFIG_OVERRIDE) || !n._x!._transaction!._shown) n._value = v;
+}
+
 /** The container node (plan sec. 31.3): created by the first structural subscription
  * or the first write that needs to stage. Its committed value is the
  * committed backing. */
@@ -947,15 +954,15 @@ GlobalQueue._slotFlight = (n: Signal<any>): boolean => {
  * A chained link's committed value is the inner store's at the last
  * read-through — refreshed here, since a guess served the reads since
  * (#3672: the revert compares against the base's live value). */
-GlobalQueue._slotCovered = (n: Signal<any>): unknown => {
+GlobalQueue._slotCovered = (n: Signal<any>, v: unknown): unknown => {
   const t = (n as any)._host as StoreTarget;
   if (t.ch) {
     const key = (n as any)._key as PropertyKey;
     const inner = t.v as Record<PropertyKey, any>;
-    if (t.h?.[key as any] === n) n._value = untrack(() => key in inner);
-    else if (t.n?.[key as any] === n) n._value = untrack(() => unwrapValue(inner[key as any]));
+    if (t.h?.[key as any] === n) return untrack(() => key in inner);
+    if (t.n?.[key as any] === n) return untrack(() => unwrapValue(inner[key as any]));
   }
-  return n._value;
+  return v;
 };
 installStoreHooks(storePark, () => {
   drainFolds();
@@ -1035,7 +1042,7 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
         // discarded with it) — gone with the batch.
         if (k._subs === null) t.k = null;
         else if (k._value instanceof LaneView) k._value.base = t.v;
-        else k._value = t.v;
+        else follow(k, t.v);
       }
       if (t.v !== old && t.u) {
         const slot = parentSlotKey(t, old);
@@ -1820,7 +1827,7 @@ function serveDataKey(
       if (chained) {
         // The link's committed value follows the inner store's (what a lane
         // over it covers — its reveal and revert compare against it, S4).
-        node._value = backingValue;
+        follow(node, backingValue);
         if (node._config & CONFIG_OVERRIDE) v = nv;
       } else v = nv;
     }
@@ -1962,8 +1969,6 @@ function holdWithDerive(
     !(node._config & CONFIG_OVERRIDE)
   ) {
     list(node, lane);
-    node._x!._lane = node._pendingValue;
-    node._pendingValue = NOT_PENDING;
     node._config |= CONFIG_OVERRIDE;
     return;
   }
@@ -2289,7 +2294,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
         const nv = readNode(node);
         if (!target.ch || src !== target.v) return !!nv;
         const present = key in src;
-        node._value = present; // the link follows the inner store (S4)
+        follow(node, present); // the link follows the inner store (S4)
         if (node._config & CONFIG_OVERRIDE) return !!nv;
         return present;
       } else if (optHooks && optRead(target)) {

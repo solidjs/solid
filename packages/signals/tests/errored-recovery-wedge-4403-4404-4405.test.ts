@@ -16,8 +16,9 @@
  *   the pass replacing it with the committed value was judged unchanged: the
  *   `latest()` readers that had thrown the staged error kept it (D-41: a
  *   recovery equal to the last good value is a change). The minimized form
- *   (the recovery itself held) holds on next since #4401; it stays as the
- *   guard that the error remains the display until that action lands (D-39).
+ *   (the recovery itself held) holds on next since #4401; since S-53
+ *   (2026-11-07) it guards that `latest` shows the held recovery ahead, the
+ *   boundary recovering while the action is open.
  * - #4405: the boundary's tree, errored at the landing of the action that
  *   remounted its content, was not re-derived there, so it never linked the
  *   new content whose recovery had to reach it (D-3: structure reads the
@@ -108,7 +109,7 @@ it("#4404: a re-poisoning write batched with a remount settles on the new error 
   }
 });
 
-it("#4403: an action recovering the memo to its last good value keeps the error until it lands (D-39, D-41)", async () => {
+it("#4403: an action recovering the memo to its last good value shows the recovery through `latest` while it is open (D-41, S-53)", async () => {
   const [s, set] = createSignal(0);
   const m = poisoned("m", 2, () => s() + 1);
   const app = mount(() => show(() => latest(m), "[F]"));
@@ -124,10 +125,13 @@ it("#4403: an action recovering the memo to its last good value keeps the error 
     await tick();
     expect(app.screen()).toBe("[E m:2]");
     // m = 1 again, the value it had before it threw: a new answer all the
-    // same, held with the action — the error stays the display meanwhile.
+    // same, held with the action. `latest(m)` shows the held recovery
+    // ahead as it shows a held value (S-53, ruled 2026-11-07): the `Show`
+    // opens and the boundary recovers while the action is open; a plain
+    // read of `m` would keep the error (D-41's mirror clause).
     act(0);
     flush();
-    expect(app.screen()).toBe("[E m:2]");
+    expect(app.screen()).toEqual({ span: true });
     release();
     await tick();
     await tick();

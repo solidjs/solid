@@ -325,6 +325,216 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
 
 ## 7. Decision log
 
+- 2026-11-08: **A display-ahead gate is the same mainline mount with any
+  number of memos between the probe and the branch** (S-58, D-25's third
+  sentence; prompted by PR 4708, closed). S-46's plain row was built on
+  11-07 for `<Show>` and the compiled ternary, and a hand-written gate one
+  memo from the probe still attached with its hole empty — a gap in the
+  engine's seating, not in the rule. Two causes, both on the lane side:
+  verdict.ts `keepReaders` — when the probing memo re-derives at the seam
+  to the same value, its held readers' staging is published mainline
+  instead of re-run (one key, one child); right for a value, wrong for a
+  frame holding a mount a probing pass opened (CONFIG_MOUNT_AHEAD, born
+  held, not behind a fallback: `holdsMount`), which `<Show>`'s truthiness
+  memo had kept one read away. Such a reader stays held and attaches at
+  the landing. And lanes.ts `mountPending` counted a mount as waiting only
+  on a flight; a mount whose frame is an open action (`_open`) waits too —
+  S-53′, the plain read under an errored boundary inside an action, which
+  the lane revealed with its hole empty. Both checks walk one lane-module
+  list (`aheadMounts`, `heldMountUnder`): born-held mounts collected from
+  the live transactions' node lists, each list scanned past where it was
+  last scanned (`Transaction.scanned`), so a held node is looked at once in
+  its life and a seam with no such mount, the common case, pays a loop over
+  an empty list — not readers × held nodes (review of PR 4720). The S-58
+  row runs S-46's shape
+  through the runner's new `gate` variant: `"memo"` (one memo that probes
+  and mounts) and `"cond"` (a truthiness memo and a branch memo), both
+  pinned to `<Show>`'s screens; `web/test/display-ahead-gate-hops.spec.tsx`
+  pins the four shapes in real JSX. Two pins guard the limits: a `<Loading>`
+  inside the branch still shows its fallback ahead (#3851, S-31) and the
+  #3540 matrix's early fallback (hidden mounts do not keep the branch;
+  memos never count, only render effects). 0 B on the core floor; +57 B
+  brotli on the isPending/latest chunk (the list and its scan), caps raised
+  with ledger lines. The same day, the maintainer's table (S-58′): the row
+  held for a plain-only leaf and broke once the leaf's one grouped effect
+  also read ahead — `[latest(m2), m0()]`, or `[latest(m0), m0()]` of the
+  same node — under a hand-written gate: `<Show>` and a split leaf kept
+  the fallback, the gates attached with the committed `m0` beside the
+  ahead read. The born-held arm for a stamped mount sat inside core.ts
+  `frameRead`'s `!verdict` branch, so a mount whose own pass had opened a
+  window was a verdict reader first and served the screen (A10's pair,
+  which is a mainline leaf's rule, not a mount's); and `read`'s pending
+  arm handed such a reader to `observeFlight` the same way. Both now test
+  the stamp first: a mount a probing pass opened observes the flight on its
+  first pass whatever it read ahead, and is born held. −2 B brotli on the
+  core floor (the clause left the big condition), +7 B on the
+  isPending/latest chunk. Pins: S-58 case ′ (three variants) and
+  `web/test/display-ahead-gate-leaf-reads.spec.tsx`, the table itself.
+  Review (#4723): the new arm, ahead of the lane-over return and the
+  stale-reader path, also fired for lane work reading a held node that is
+  not pending — the guess's target under a zero-hop gate — and joined the
+  flush to the hold (D-37). The arm keeps the old lane guard (`!lane ||`
+  el pending). The row the review asked for (case ′ with the write inside
+  an action, a guess on `id`) found the same frame on `next` by another
+  path: under a guess lane the stamped mount's first pass read the lane's
+  pending node through lanes.ts `laneRead`'s render-effect arm, which
+  serves lane work the screen (A15's stale reader, D-28) — the mount
+  initialized with S-46's frame inside the lane's, revealed at the action's
+  landing, and kept it after the answer (F-1). The plain-only leaf tore the
+  same way; only the single-memo gate escaped, by re-creating its branch at
+  the landing. `laneRead` now returns NOT_PENDING for a stamped
+  uninitialized mount reading a pending node: it waits on the flight
+  (`read`'s throw) as in a mainline flush. Pins: S-58 cases ″ (the mixed
+  leaf) and ‴ (the plain-only leaf), each through `<Show>`, both
+  hand-written gates and a split leaf. 0 B on the core floor; +18 B brotli
+  on the isPending/latest chunk (guard and lane arm together).
+- 2026-11-07: **A question is asked only of the truth** (F-2's producer
+  clause; F-6's limit). Prompted by GabbeV's `experiment/unified-updates`
+  (its tests run against `next`, the differing screens tabled as S-51–S-56)
+  and settled on #4677: the badge, an async memo over `id` and
+  `isPending(id)`, asked `badge(0, true)` from its display-ahead pass while
+  the engine held `id = 1`. The stale ask was licensed by L2's rule 6
+  (2026-10-04, "a verdict reader of a held node is the holder's verdict
+  lane's — shown now"), which seated the reader's whole pass, body included,
+  in a lane; A10's atomic pair (#2831, 2026-07-06) made the pass runnable on
+  the committed value; Decision 1 and the D-25 collapse (2026-11-05)
+  generalized it to memos and read #3905 as "not needed". The model as
+  ruled: one version per node; the hold is the only producer of a change's
+  consequences; the display — render effects, compiled bindings, user
+  effects (their callback runs at the frame they belong to), and the sync
+  derivations feeding them — is the one declared, terminal, kept-not-computed
+  inconsistency, so memo-inline parity holds and S-27's memo row stands; the
+  act is the async derivation, which is the hold's wherever it is reached;
+  `latest` is never stale and `isPending` is a fact, readable anywhere; a
+  guess is not stale until corrected (D-34 already said so); inside a hold's
+  work a verdict about that hold is answered. #3905 is not warranted: the
+  display lane cannot ask, so there is nothing to propagate. Full #3905 (two
+  versions everywhere) was weighed and declined — the inconsistency is meant
+  to be narrow. Rows: S-51 (one question, of the truth; the `isPending` hole
+  shows at once), S-52 (the #4349 held shape was the odd one out), S-53
+  (`latest` shows a held recovery ahead, value/error symmetry), S-54
+  (pending stays true for a held, unshowable answer), S-56 (a guess before
+  the first answer shows); S-55 standing (F-11). Built the same day for S-51
+  (`askerJoins`, core `frameRead`/`read`, verdict.ts, scheduler `laneDirty`,
+  the seat table's V0/Vp0 rows): the marker is `CONFIG_ASYNC` kept across
+  windows (`holdWork` pairs it with CONFIG_OWN_PROBE); a plain or
+  `isPending` read of a held or staged node by such a pass joins the frame
+  and un-seats it from a verdict lane; it is re-derived by neither the seam
+  nor a verdict lane's pass; it carries no inherited verdict posture, so a
+  memo over it inherits none (#4504). `latest`-only askers stay lane work
+  (F-6), so the verdict lane keeps those flights — the simplification §17
+  hoped for is not there. Cost: +205 B brotli on the isPending/latest chunk.
+  The `truth-asks` oracle's twelve gate cases became improvements; 29 pins
+  in four files lost their display-ahead questions. S-54 built next
+  (verdict.ts, the lane-node probe arm): a lane derivation's answer that
+  landed while the lane is held on a sibling's flight keeps `isPending`
+  true for a reader outside the lane, which re-derives at the reveal
+  (`staleReader(c, l)`); three checkout pins in `createOptimistic.test.ts`
+  changed (opacity waits for the lane while `latest()` text shows ahead).
+  +34 B brotli on the isPending/latest chunk. S-53 built next (core.ts
+  `recompute`, scheduler.ts the park): a recovery to the last good value
+  in a flush that has joined a hold is a change of answer, so it stages
+  with the shown error and is held, where before it published silently
+  (`settleErroredDependents`, #2949's path) and left the display-ahead
+  readers downstream with nothing to show ahead of — the `Show` it gated
+  was held whole and the boundary kept `[E]` until the landing; the park
+  no longer nets a staging that replaces a shown error. `latest` of the
+  held recovery shows it ahead as it shows a held value, the readers are
+  verdict-lane work, and the boundary recovers at the lane's seam. Unheld
+  recoveries keep the silent path (same screen; #2701's boundary
+  depends on it). The #4403 pin flipped. S-53's plain-read case (`′`) is
+  S-46's plain row: the branch born held, the `Show` waits — today the hole
+  attaches empty (#4417's mechanism), which the shown error masked before.
+  +11 B brotli on the core floor. S-56 built next: the memo-form setter
+  no longer calls `devGuardOptimisticBeforeLoad` (signals.ts) — the engine
+  already carried a guess over an uninitialized node as its lane value, so
+  the guess shows in place of the loading, `isPending` is true while the
+  first flight is up, the function form receives `undefined`, and the first
+  answer judges it; a guess whose lane never shows is void at the
+  correction as before (the A18 d pin). The guard stays for derived
+  optimistic stores: without it the store's screen stays loading while an
+  untracked read sees the guess, and the first answer folds the guess in
+  rather than judging a shown one — store engine work, parked with the
+  store branch. Three pins flipped. S-52's #4349 shape built next
+  (verdict.ts `observeFlight`): a render effect routed into a verdict lane
+  no longer reads a flight "as lane work" that holds nothing (the D-26
+  arm, #4661) — it observes the flight as a memo reading the same pair
+  does (`verdictRead`, a frame reader), so an action ending inside the
+  call is held on the flight it just probed instead of landing beneath it
+  (CONFIG_INPUTS_PUBLISHED, #3305) and re-running the effect on the
+  committed world, where the published-inputs read parked it. The pair
+  shows `[true, 41]` ahead in every shape — render effect or memo, probe
+  before or after the plain read — and the landing reveals `[false, 42]`.
+  One pin flipped (the #4349 file's last case); the refresh shapes are
+  unchanged. A few bytes fewer. Last, S-57 (the experiment's A2, "optimism
+  winning when combined"): a plain write whose derivation became a guess's
+  lane work was published beside the stale derivation because the lane had
+  taken the only question; ruled F-2 as written — the write holds on the
+  lane's flight and reveals with it, the frames entangled. Built the same
+  day (lanes.ts `laneStage` → `laneWait`, at the tail of the lane pass —
+  first as a core hook from `recompute`'s NotReady arm, moved out of the
+  core the same day): a pass that read this flush's staging, ran as a
+  guess's lane's and went pending makes the flush join a frame, lists the
+  node on the lane (`Transaction.waits`, on the lane; `lanesBlocked` finds
+  the frame through `over` with `liveTx`, so a frame merged since still
+  waits — the `merge` append this replaced was 21 B brotli of core) and
+  sets the lane `over` the frame, so the lane's work reads the frame's
+  staging as its own world (core `frameRead`'s `over` arm) and holds while
+  the frame does (`laneSeam`): one question (`label(5, 10)`), one reveal. The pass is
+  dropped from `stagedReaders` so the seam does not re-ask the old world's
+  question. Not the hold's own work (its parent already waits on the lane,
+  `nestedBlocked`), not a verdict lane's `latest`-only asker (the same
+  sentence, not built: the write publishes as before), and not a lane
+  already over another live frame (a keyed rebase over a landing's answer,
+  #4536 — `over` is one slot): the write publishes as before, beside the
+  lane's answer to its old question (#4577's matrix keeps its screens).
+  No pin flipped; the S-57 row's case 1 is standing. S-46's plain row built
+  last, prompted by PR 4708 (the probe-gated mount without `<Show>`'s hop):
+  a first pass under a pass that probed is stamped CONFIG_MOUNT_AHEAD at
+  `recompute`'s head (one test of the creator's REACTIVE_PROBED, inside the
+  existing lane-engine block), and core.ts `frameRead` no longer serves such
+  a render effect the screen on its first pass: the branch a display-ahead
+  read gates is a mainline mount whose first read of the hold's staging or
+  flight is born held, not a D-3 leaf. lanes.ts `lanesBlocked` holds a
+  verdict lane's reveal while a stamped render effect in its nodes' frames
+  is born held and still waiting — on its own flight, or on a flight its
+  frame holds (`mountPending`; only flights count, an orphaned first-mount
+  leaf would otherwise deadlock the lane): revealed earlier, the branch
+  attached with its hole empty (#4417) or with the committed value a seam
+  re-derive's mount read (S-46's ✗ rows). Real `<Show>` and the compiled
+  ternary keep the fallback through the flight and attach at the landing;
+  the e1-3289-1831 pin flipped to `[F]` for that step and the S-46 row's
+  case 1 is standing. A first build walked the owner chain on every held
+  read (+43 B brotli on the core floor) and was reverted for the stamp
+  (+8 B core, +96 B on the isPending/latest chunk — the seam walk). Not
+  built: a hop-less single-memo gate (the branch reads the probing memo
+  directly, PR 4708's target) still attaches with its hole empty — the
+  insert effect reading it is routed into the verdict lane and its run goes
+  with the lane's reveal; a mount whose own pass reads another node ahead
+  (`[latest(m2), m0()]`, PR 4708's exact scenario) is served `m0`'s committed
+  value by the verdict arm (A10 generalized to a different node, which D-25
+  narrowed); S-53′ likewise. PR 4708's own two pins do not flip: its `gate`
+  variant in the runner does not model the compiled ternary (real JSX
+  paints at the landing, the runner's gate never does). After the day's
+  trims the core floor is 7,423 B brotli (M1 7,406, cap 7,430) and the
+  compiled hello world 9,979 B (cap 9,980): S-53 ~10 B, S-46's stamp ~8 B;
+  the isPending/latest chunk carries the rest (+415 B over M1, the seam
+  walk `mountPending` ~335 B minified the next thing to trim). Last, D-34's
+  `latest` clause (decision 3, #4689): a shown guess a correction re-homed
+  into its hold (`supersede`/`dissolveLane` mark it, `keptGuess`) keeps the
+  screen's value for `latest` while the hold is blocked — verdict.ts's held
+  arm returns `_value` before `heldLatest`; once the hold lands (`blocked`
+  false) the landing's re-derive reads the staging, so a `latest`-only
+  reader shows the truth at the commit and not a frame later. Built for a
+  signal and for a superseded keyed row; seven pins flipped from "latest
+  answers the truth" to the displayed guess (#4336's signal form, #4329,
+  #3698, #3331's entangled and provenance cases). Not built for a lane a
+  correction folded under (rows removed, `Transaction.folded`): `latest`
+  of a folded guess reads the world whole as before — kept rows beside the
+  truth's length tore inside one `latest` (#4336's store forms) when tried
+  per leaf; the arrangement needs to be kept as a whole or not at all.
+  +25 B brotli on the isPending/latest chunk, 0 on the core floor.
+
 - 2026-07-17: **A18 store corollary — per-transaction optimistic layer**
   (#2899). `createOptimisticStore`'s override layer is one record per store
   target, but a settling action must consume only its own entries: layer

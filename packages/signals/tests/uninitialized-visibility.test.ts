@@ -252,7 +252,7 @@ describe("A25 write-visibility corollary: seed visible on the write path", () =>
     dispose();
   });
 
-  it("optimistic computed: getter throws while uninitialized, the setter throws OPTIMISTIC_WRITE_BEFORE_LOAD", async () => {
+  it("optimistic computed: getter throws while uninitialized; a guess before the first answer shows and the answer judges it (S-56)", async () => {
     const d = deferred<number>();
     let get!: any, set!: any, dispose!: () => void;
     createRoot(disp => {
@@ -271,18 +271,22 @@ describe("A25 write-visibility corollary: seed visible on the write path", () =>
 
     expect(() => get()).toThrow(NotReadyError);
     let prevSeen: any = "not-run";
-    // Ruled 2026-11-03 (#4656): before its first landing the source is
-    // loading, not a value to guess over — in DEV the write throws.
-    expect(() =>
-      set((prev: any) => {
-        prevSeen = prev;
-        return 99;
-      })
-    ).toThrow(/OPTIMISTIC_WRITE_BEFORE_LOAD/);
-    expect(prevSeen).toBe("not-run");
+    // S-56 (ruled 2026-11-07, reversing 2026-11-03's #4656 guard): a guess
+    // before the first answer is the newest value the node has produced —
+    // it shows in place of the loading, and the function form receives
+    // `undefined` (nothing has been produced yet).
+    set((prev: any) => {
+      prevSeen = prev;
+      return 99;
+    });
+    expect(prevSeen).toBe(undefined);
+    flush();
+    expect(get()).toBe(99);
 
+    // The first answer judges the guess.
     d.resolve(1);
     await settle();
+    expect(get()).toBe(1);
     dispose();
   });
 
