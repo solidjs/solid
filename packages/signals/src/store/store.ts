@@ -428,6 +428,24 @@ export function follow(n: Signal<any>, v: unknown): void {
 }
 
 const INDEX = /^(0|[1-9]\d*)$/;
+/** S2 — a live guess carrier CHANGED `key` (its record: `wk`, or `del` for a
+ * presence read): the key's leaf is silent at a landing — its readers read
+ * the carrier, whose judgement tells them. Not the structural coverage
+ * `guessFor` adds for reads: a key the guess only carried over is the
+ * truth's, and its leaf tells its readers of a landing as ever. */
+export function guessCovers(t: StoreTarget, key: PropertyKey, shape = false): boolean {
+  const kg = t.kg;
+  if (kg !== null)
+    for (let i = kg.length - 1; i >= 0; i--) {
+      const g: any = kg[i];
+      if (
+        g._config & (CONFIG_OVERRIDE | CONFIG_HELD) &&
+        (g.wk?.has(key) || (shape && g.del?.has(key)))
+      )
+        return true;
+    }
+  return false;
+}
 /** S2 — the newest live guess carrier whose record has `key`, if any: a
  * lane's guess, or one a correction re-homed into its hold (HELD) — the
  * screen keeps what it showed until that hold lands (A18 (c)), a member
@@ -1311,7 +1329,7 @@ function notifyWrites(t: StoreTarget): void {
       // carrier's judgement of this landing tells them — a correction through
       // the carrier, a confirmation silently (A17). The leaf records the
       // value and says nothing (S2).
-      if (t.kg !== null && guessFor(t, key) !== null) {
+      if (t.kg !== null && guessCovers(t, key)) {
         node._value = nv;
         continue;
       }
@@ -1332,7 +1350,7 @@ function notifyWrites(t: StoreTarget): void {
     for (const key of keys) {
       const node = has[key as any];
       if (node !== undefined) {
-        if (t.kg !== null && guessFor(t, key, true) !== null) {
+        if (t.kg !== null && guessCovers(t, key, true)) {
           node._value = key in pb && !t.del?.has(key);
           continue;
         }
@@ -1424,10 +1442,7 @@ function leafSet(node: Signal<any>, v: any): void {
   // the carrier, a confirmation silently (A17). The leaf records the value
   // and says nothing (S2).
   const t: StoreTarget = (node as any)._host;
-  if (
-    t.kg !== null &&
-    guessFor(t, (node as any)._key, t.h?.[(node as any)._key] === node) !== null
-  ) {
+  if (t.kg !== null && guessCovers(t, (node as any)._key, t.h?.[(node as any)._key] === node)) {
     node._value = typeof v === "function" ? v() : v;
     return;
   }
