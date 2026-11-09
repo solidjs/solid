@@ -280,6 +280,61 @@ export function getCoverageIgnoreComments(path: NodePath): t.Comment[] | undefin
   return path.getData(coverageIgnoreCommentData) as t.Comment[] | undefined;
 }
 
+function isComponentElementPath(path: NodePath): boolean {
+  return t.isJSXElement(path.node) && isComponent(getTagName(path.node));
+}
+
+/**
+ * Coverage pragmas that should lead *this* component's `children` getter.
+ * A pragma immediately before a nested component belongs on that child's
+ * getter instead (see #2138); fragments are transparent for the hand-off.
+ */
+export function takeCoverageIgnoreCommentsForParent(path: NodePath): t.Comment[] | undefined {
+  if (isComponentElementPath(path)) return undefined;
+  if (t.isJSXFragment(path.node)) {
+    const filtered = filterChildren(path.get("children"));
+    for (const child of filtered) {
+      const comments = takeCoverageIgnoreCommentsForParent(child);
+      if (comments?.length) return comments;
+      if (isComponentElementPath(child)) return undefined;
+      break;
+    }
+    return undefined;
+  }
+  return getCoverageIgnoreComments(path);
+}
+
+/**
+ * Pragmas handed to a nested component that never built a `children` getter
+ * stay on that component path (or under a transparent fragment). Reclaim them
+ * for the parent's getter (#4701).
+ *
+ * Does not call `filterChildren` — that would re-attach already-consumed
+ * pragmas onto nested components after they cleared the hand-off.
+ */
+export function reclaimCoverageIgnoreComments(path: NodePath): t.Comment[] | undefined {
+  if (isComponentElementPath(path)) {
+    const comments = getCoverageIgnoreComments(path);
+    if (comments?.length) path.setData(coverageIgnoreCommentData, undefined);
+    return comments;
+  }
+  if (t.isJSXFragment(path.node)) {
+    for (const child of path.get("children")) {
+      const node = child.node;
+      if (t.isJSXExpressionContainer(node) && t.isJSXEmptyExpression(node.expression)) {
+        continue;
+      }
+      if (t.isJSXText(node) && /^[\r\n]\s*$/.test((node.extra?.raw as string | undefined) ?? "")) {
+        continue;
+      }
+      const comments = reclaimCoverageIgnoreComments(child);
+      if (comments?.length) return comments;
+      break;
+    }
+  }
+  return undefined;
+}
+
 // remove unnecessary JSX Text nodes
 export function filterChildren<TPath extends NodePath>(children: TPath[]): TPath[] {
   const filtered: TPath[] = [];

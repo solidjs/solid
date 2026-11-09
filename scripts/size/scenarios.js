@@ -1132,9 +1132,9 @@ module.exports = [
     // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
     // #4689): measured 15,114 B / 43,914 B minified; the cap raised in
     // its PR with the growth accepted (the rulings' cost on this chunk).
-    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ 701cbb3): a store's guess is one carrier node per target per lane (store/optimistic.ts); the list's per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 15,322 B / 45,037 B minified (+214 B brotli over next's record). 0 B on the core floor and the compiled floor.
-    limit: "15.34 KB",
-    capMinified: 45037,
+    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ eef34fd9d): a store's guess is one carrier node per target per lane (store/optimistic.ts); the per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 15,319 B / 45,056 B minified (+189 B brotli over the recorded cap). 0 B on the core floor and the compiled floor.
+    limit: "15.33 KB",
+    capMinified: 45056,
     alias
   },
   {
@@ -1484,9 +1484,11 @@ module.exports = [
     // 2026-11-08: S-58 (the gate with any hop count): born-held mounts collected into a
     // lane-module list, scanned incrementally — measured 12,749 B / 35,492 B minified.
     // Batch re-record (2026-11-08, over next @ 2789ca9, measured locally: #4714, #4711, #4717, #4719, #4720): cap unchanged at 12.76 KB, recorded minified 35,492 -> 35,495 B (+3 B), measured at 12,748 B brotli. Re-recorded once after the batch, per the batch process.
-    limit: "12.76 KB",
+    // 2026-11-08 (#4723, over next @ 701cbb3): S-58′ — a mount a probing pass opened is born held whatever its own pass reads ahead (the arm tests the stamp first in `frameRead` and `read`'s pending arm; the lane guard kept on it, D-37), and S-58″/‴ — the same mount under a guess lane waits on the lane's flight instead of being served the screen (lanes.ts `laneRead`): 12.76 -> 12.77 KB, measured 12,766 B / 35,587 B minified (+18 B brotli, +92 B minified over the batch record). 0 B on the core floor.
+    // 2026-11-09 (#4726, over next @ db3d13d, measured locally, matching the PR's size job): a zombie does not retry an errored source (#4405's one-hop livelock, +11 B) and the S-46 mount stamp passes through a boundary in the mount (S-58, +33 B, lane engine only): 12.77 KB -> 12.79 KB, recorded minified 35,587 -> 35,631 B (+44 B), measured at 12,777 B brotli. Growth accepted by the maintainer.
+    limit: "12.79 KB",
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 28,693 -> 29,086 B (+343 B minified over next), measured locally (linux) at 10,565 B brotli (+135 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 35495,
+    capMinified: 35631,
     alias
   },
   {
@@ -1802,6 +1804,7 @@ module.exports = [
     // (26,739 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, over next @ 71a6a75: #4512, #4506, #4509): 9.78 KB -> 9.80 KB, recorded minified 26,739 -> 26,754 B (+15 B), measured at 9,781 B brotli. Re-recorded once after the batch, per the batch process.
+    // 2026-11-09 (#4727, over next @ ebd6283, size job 129310970054): a root ternary under a guess (#3835 shape, +29 B minified, lane engine only) and an Errored fallback's isPending ternary after a reset (+8 B everywhere): 9.80 KB -> 9.81 KB (floor-caps.json, Size-Exception), recorded minified 26,754 B unchanged, measured in CI at 9,808 B brotli / 26,578 B minified. Growth accepted by the maintainer (2026-11-09); cap held at 9.81 KB rather than measured + 10 B.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
@@ -2819,12 +2822,13 @@ module.exports = [
     // 2026-11-08: S-58 (the gate with any hop count), the isPending/latest chunk this
     // scenario carries — measured 33,820 B / 101,918 B minified.
     // Batch re-record (2026-11-08, over next @ 2789ca9, measured locally: #4714, #4711, #4717, #4719, #4720): 33.83 KB -> 33.89 KB, recorded minified 101,918 -> 101,921 B (+3 B), measured at 33,872 B brotli. Re-recorded once after the batch, per the batch process.
-    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ 701cbb3): a store's guess is one carrier node per target per lane (store/optimistic.ts); the list's per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 33,963 B / 102,844 B minified (+91 B brotli over next's record). 0 B on the core floor and the compiled floor.
-    limit: "33.98 KB",
+    // 2026-11-09 (#4726, over next @ db3d13d, measured locally, matching the PR's size job): a zombie does not retry an errored source (#4405's one-hop livelock, +11 B) and the S-46 mount stamp passes through a boundary in the mount (S-58, +33 B, lane engine only): 33.89 KB -> 33.90 KB, recorded minified 101,921 -> 102,057 B (+136 B), measured at 33,883 B brotli. Growth accepted by the maintainer.
+    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ eef34fd9d): a store's guess is one carrier node per target per lane (store/optimistic.ts); the per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 33,953 B / 103,017 B minified (+53 B brotli over the recorded cap). 0 B on the core floor and the compiled floor.
+    limit: "33.97 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 96,989 -> 97,047 B (+58 B minified over next's record), measured locally (linux) at 31,811 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 97,024 -> 97,045 B (+21 B minified over next's record), measured locally (linux) at 31,798 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 97,045 -> 97,426 B (+240 B minified over next), measured locally (linux) at 31,976 B brotli (+109 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 102844,
+    capMinified: 103017,
     alias
   },
   {
@@ -4013,9 +4017,9 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ 885b99b, size job 125684994005: #4633, #4634, #4637): 29.94 KB -> 30.03 KB, recorded minified 88,422 -> 88,582 B (+160 B), measured at 30,015 B brotli. #4633, #4634 and #4637 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ 6e569c7, size job 125766182293: #4639, #4641): cap unchanged at 30.03 KB, recorded minified 88,582 -> 88,656 B (+74 B), measured at 30,012 B brotli. #4639 and #4641 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ ccfc7ea, size job 125848841075: #4653, #4655, #4657, #4659): 30.03 KB -> 30.12 KB, recorded minified 88,656 -> 88,842 B (+186 B), measured at 30,109 B brotli. The growth of #4653, #4655 and #4659 was accepted by the maintainer; #4657 and #4654 are size-neutral on the gated rows. Re-recorded once after the batch, per the batch process.
-    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ 701cbb3): a store's guess is one carrier node per target per lane (store/optimistic.ts); the list's per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 30,150 B / 88,898 B minified (+72 B brotli over next's record). 0 B on the core floor and the compiled floor.
+    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ eef34fd9d): a store's guess is one carrier node per target per lane (store/optimistic.ts); the per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 30,148 B / 88,918 B minified (+28 B brotli over the recorded cap). 0 B on the core floor and the compiled floor.
     limit: "30.16 KB",
-    capMinified: 88898,
+    capMinified: 88918,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -4113,7 +4117,8 @@ module.exports = [
     // measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): cap unchanged, recorded minified 27,270 -> 27,271 B, measured in CI at 9,961 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
     // Batch re-record (2026-10-30, over next @ 563b6b0): cap unchanged, recorded minified 27,271 -> 27,284 B (+13 B), measured locally (linux) at 9,963 B brotli. Growth is the 2026-10-30 merges (#4454, #4457, #4461). Recorded minified = measured.
-    limit: "9.98 KB",
+    // 2026-11-09 (#4727, over next @ ebd6283, size job 129310970054): a root ternary under a guess (#3835 shape, lane engine only) and an Errored fallback's isPending ternary after a reset (+8 B minified): 9.98 KB -> 9.99 KB, recorded minified 27,284 B unchanged, measured in CI at 9,988 B brotli / 27,056 B minified. Growth accepted by the maintainer (2026-11-09); held at 9.99 KB, under the 10 KB stop.
+    limit: "9.99 KB",
     capMinified: 27284,
     alias
   },
@@ -4268,9 +4273,9 @@ module.exports = [
     // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
     // #4689): measured 26,734 B / 80,605 B minified; the cap raised in
     // its PR with the growth accepted (the rulings' cost on this chunk).
-    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ 701cbb3): a store's guess is one carrier node per target per lane (store/optimistic.ts); the list's per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 26,879 B / 81,727 B minified (+214 B brotli over next's record). 0 B on the core floor and the compiled floor.
-    limit: "26.89 KB",
-    capMinified: 81727,
+    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ eef34fd9d): a store's guess is one carrier node per target per lane (store/optimistic.ts); the per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 26,916 B / 81,747 B minified (+166 B brotli over the recorded cap). 0 B on the core floor and the compiled floor.
+    limit: "26.93 KB",
+    capMinified: 81747,
     alias
   },
   {
@@ -4457,9 +4462,9 @@ module.exports = [
     // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
     // #4689): measured 32,988 B / 101,325 B minified; the cap raised in
     // its PR with the growth accepted (the rulings' cost on this chunk).
-    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ 701cbb3): a store's guess is one carrier node per target per lane (store/optimistic.ts); the list's per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 33,132 B / 102,447 B minified (+196 B brotli over next's record). 0 B on the core floor and the compiled floor.
-    limit: "33.15 KB",
-    capMinified: 102447,
+    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ eef34fd9d): a store's guess is one carrier node per target per lane (store/optimistic.ts); the per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 33,179 B / 102,467 B minified (+179 B brotli over the recorded cap). 0 B on the core floor and the compiled floor.
+    limit: "33.19 KB",
+    capMinified: 102467,
     alias
   },
   {
@@ -5788,8 +5793,9 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ ab5b5cb, measured locally: #4667, #4669): 40.08 KB -> 40.14 KB, recorded minified 120,486 -> 120,619 B (+133 B), measured at 40,124 B brotli. A frozen floor, Size-Exception in this PR's body. The growth of #4667 and #4669 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Re-record (2026-11-05, over next @ 5208944, measured locally: #4682, #4677): 40.14 KB -> 40.30 KB, recorded minified 120,619 -> 121,153 B (+534 B: #4682 +7 B, #4677 +527 B), measured at 40,289 B brotli. A frozen floor, Size-Exception in this PR's body. Re-recorded in the fix's own change rather than in a batch, at the maintainer's request.
     // Batch re-record (2026-11-08, over next @ 2789ca9, measured locally: #4714, #4711, #4717, #4719, #4720): cap unchanged at 40.76 KB, recorded minified 122,905 -> 123,070 B (+165 B), measured at 40,734 B brotli. A frozen floor, Size-Exception in this PR's body. Re-recorded once after the batch, per the batch process.
-    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ 701cbb3): a store's guess is one carrier node per target per lane (store/optimistic.ts); the list's per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 40,796 B / 123,066 B minified (+62 B brotli over next's record). 0 B on the core floor and the compiled floor.
-    limit: "40.81 KB",
+    // 2026-11-09 (#4726, over next @ db3d13d, measured locally, matching the PR's size job): a zombie does not retry an errored source (#4405's one-hop livelock, +11 B) and the S-46 mount stamp passes through a boundary in the mount (S-58, +33 B, lane engine only): 40.76 KB -> 40.81 KB (floor-caps.json, Size-Exception), recorded minified 123,070 -> 123,206 B (+136 B: +44 B this PR, +92 B from #4723 not yet re-recorded), measured at 40,798 B brotli. Growth accepted by the maintainer.
+    // 2026-11-09 (#4727, over next @ ebd6283, size job 129310970054): a root ternary under a guess (#3835 shape, +29 B minified, lane engine only) and an Errored fallback's isPending ternary after a reset (+8 B): 40.81 KB -> 40.82 KB (floor-caps.json, Size-Exception), recorded minified 123,206 -> 123,243 B (+37 B), measured in CI at 40,811 B brotli. Growth accepted by the maintainer (2026-11-09).
+    limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
@@ -5969,9 +5975,9 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ 885b99b, size job 125684994005: #4633, #4634, #4637): cap unchanged at 35.93 KB, recorded minified 108,126 -> 108,286 B (+160 B), measured at 35,862 B brotli. #4633, #4634 and #4637 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ 6e569c7, size job 125766182293: #4639, #4641): cap unchanged at 35.93 KB, recorded minified 108,286 -> 108,360 B (+74 B), measured at 35,909 B brotli. #4639 and #4641 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ ccfc7ea, size job 125848841075: #4653, #4655, #4657, #4659): 35.93 KB -> 36.00 KB, recorded minified 108,360 -> 108,546 B (+186 B), measured at 35,989 B brotli. The growth of #4653, #4655 and #4659 was accepted by the maintainer; #4657 and #4654 are size-neutral on the gated rows. Re-recorded once after the batch, per the batch process.
-    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ 701cbb3): a store's guess is one carrier node per target per lane (store/optimistic.ts); the list's per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 36,027 B / 108,536 B minified (+92 B brotli over next's record). 0 B on the core floor and the compiled floor.
-    limit: "36.04 KB",
-    capMinified: 108536,
+    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ eef34fd9d): a store's guess is one carrier node per target per lane (store/optimistic.ts); the per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 36,049 B / 108,556 B minified (+49 B brotli over the recorded cap). 0 B on the core floor and the compiled floor.
+    limit: "36.06 KB",
+    capMinified: 108556,
     alias: pageAlias
   },
   {
@@ -6148,11 +6154,12 @@ module.exports = [
     // its PR with the growth accepted (the rulings' cost on this chunk).
     // 2026-11-08: S-58 (the gate with any hop count): born-held mounts collected into a
     // lane-module list, scanned incrementally — measured 44,840 B / 131,330 B minified.
-    limit: "44.85 KB",
+    // 2026-11-09 (#4726, over next @ db3d13d, measured locally, matching the PR's size job): a zombie does not retry an errored source (#4405's one-hop livelock, +11 B) and the S-46 mount stamp passes through a boundary in the mount (S-58, +33 B, lane engine only): 44.85 KB -> 44.87 KB, recorded minified 131,330 -> 131,469 B (+139 B), measured at 44,853 B brotli. Growth accepted by the maintainer.
+    limit: "44.87 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 123,191 -> 123,249 B (+58 B minified over next's record), measured locally (linux) at 41,899 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 123,203 -> 123,224 B (+21 B minified over next's record), measured locally (linux) at 41,966 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 123,224 -> 123,733 B (+403 B minified over next), measured locally (linux) at 42,119 B brotli (+169 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 131330,
+    capMinified: 131469,
     alias: pageAlias
   },
   {
@@ -6601,11 +6608,13 @@ module.exports = [
     // 2026-11-08: S-58 (the gate with any hop count), the isPending/latest chunk this
     // scenario carries — measured 50,559 B / 148,799 B minified.
     // Batch re-record (2026-11-08, over next @ 2789ca9, measured locally: #4714, #4711, #4717, #4719, #4720): 50.57 KB -> 50.59 KB, recorded minified 148,799 -> 148,802 B (+3 B), measured at 50,580 B brotli. Re-recorded once after the batch, per the batch process.
-    limit: "50.59 KB",
+    // 2026-11-09 (#4726, over next @ db3d13d, measured locally, matching the PR's size job): a zombie does not retry an errored source (#4405's one-hop livelock, +11 B) and the S-46 mount stamp passes through a boundary in the mount (S-58, +33 B, lane engine only): cap unchanged at 50.59 KB, recorded minified 148,802 -> 148,938 B (+136 B), measured at 50,574 B brotli. Growth accepted by the maintainer.
+    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ eef34fd9d): a store's guess is one carrier node per target per lane (store/optimistic.ts); the per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 50,594 B / 148,999 B minified (+4 B brotli over the recorded cap). 0 B on the core floor and the compiled floor.
+    limit: "50.61 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 140,451 -> 140,509 B (+58 B minified over next's record), measured locally (linux) at 47,516 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 140,463 -> 140,485 B (+22 B minified over next's record), measured locally (linux) at 47,547 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 140,485 -> 140,983 B (+405 B minified over next), measured locally (linux) at 47,722 B brotli (+162 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 148802,
+    capMinified: 148999,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }

@@ -403,10 +403,17 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     : null;
   if (laneStageHook) {
     // The creator's flags on a first pass (0 with no creator running).
-    const cf = create ? (creatorPass(context)?._flags as number) | 0 : 0;
+    const cp = create ? creatorPass(context) : null;
+    const cf = (cp?._flags as number) | 0;
     // S-46 (D-25): a first pass under a pass that probed is the mount a
-    // display-ahead read gates — stamped once, read by `frameRead`.
-    if (cf & REACTIVE_PROBED) el._config |= CONFIG_MOUNT_AHEAD;
+    // display-ahead read gates — stamped once, read by `frameRead`. So is
+    // one its first pass creates: a boundary inside the mount is the mount
+    // (S-58: an `<Errored>` around the content changes nothing).
+    if (
+      cf & REACTIVE_PROBED ||
+      (cp && cp._config & CONFIG_MOUNT_AHEAD && cp._statusFlags & STATUS_UNINITIALIZED)
+    )
+      el._config |= CONFIG_MOUNT_AHEAD;
     setPassLane(
       (el._flags & REACTIVE_LANE_DIRTY ||
         (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE) &&
@@ -854,6 +861,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // same screen.
       !!(outgoingError && tx) ||
       !!replaced ||
+      // Lane work on a node a held pass created (its owner's staging is the
+      // frame's, not yet revealed): it has no screen, so the lane's value is
+      // a change, whatever its first pass published (#3835, F-11).
+      (lane !== null && (el._parent as Computed<any> | null)?._config! & CONFIG_HELD) ||
       !isSame(el, compareValue, value);
 
     // A committed derived change becomes a cause for this node's subscribers,
@@ -1391,6 +1402,26 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
     askerJoinsHook(c, el, txOf(el));
     return false;
   }
+  // S-46 (D-25): a render effect a probing pass is mounting
+  // (CONFIG_MOUNT_AHEAD) is not a D-3 leaf of the screen: its first pass
+  // reading the hold's staging or flight is born held, and the branch
+  // attaches at the landing — whatever else that pass read, a window of its
+  // own included (S-58: `[latest(m2), m0()]` in one grouped effect is the
+  // same mount as `m0()` alone; neither hop count nor grouping changes it).
+  // Not lane work reading a held node that is not pending (its guess's
+  // target, say): a lane sees the screen plus its own guesses and never
+  // makes a flush the hold's (D-37) — it is served or reads the re-based
+  // staging below, as before this arm. (Only the lane engine stamps the
+  // flag: without it the arm folds away.)
+  if (
+    laneStageHook &&
+    c._config & CONFIG_MOUNT_AHEAD &&
+    c._statusFlags & STATUS_UNINITIALIZED &&
+    (!lane || (el as Computed<any>)._statusFlags & STATUS_PENDING)
+  ) {
+    joinPass(c, el);
+    return false;
+  }
   if (
     !(verdict && holdStagingHook!(c, el)) &&
     !(
@@ -1398,15 +1429,8 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
         (c._statusFlags & STATUS_UNINITIALIZED &&
           (el as Computed<any>)._statusFlags & STATUS_PENDING)) &&
       !verdict &&
-      // CONFIG_FRAME, spelled as at the effect's creation. S-46 (D-25): a
-      // render effect a probing pass is mounting (CONFIG_MOUNT_AHEAD) is not
-      // a D-3 leaf of the screen: its first pass reading the hold's staging
-      // or flight is born held, and the branch attaches at the landing.
-      // (Only the lane engine stamps the flag: without it the clause folds
-      // away, as the lane blocks in `recompute` do.)
-      (!(c._config & (EFFECT_RENDER << 23)) ||
-        el._config & CONFIG_INPUTS_PUBLISHED ||
-        (laneStageHook && c._config & CONFIG_MOUNT_AHEAD && c._statusFlags & STATUS_UNINITIALIZED))
+      // CONFIG_FRAME, spelled as at the effect's creation.
+      (!(c._config & (EFFECT_RENDER << 23)) || el._config & CONFIG_INPUTS_PUBLISHED)
     )
   ) {
     const t = txOf(el);
@@ -2393,7 +2417,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // (A10; `observeFlight` serves a routed render effect as lane work, D-26,
     // #4661). A reader with no committed value yet sees the flight pending: a
     // boundary a lane mounts shows its fallback (A29's boundary exemption).
-    if (c !== null && c._config & CONFIG_VERDICT)
+    // A mount a probing pass opened (S-46, S-58) observes the flight on its
+    // first pass whatever it read ahead: born held, not served the screen.
+    if (
+      c !== null &&
+      c._config & CONFIG_VERDICT &&
+      !(c._config & CONFIG_MOUNT_AHEAD && (c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
+    )
       committed = observeFlightHook!(c as Computed<any>, owner);
     else if (
       passLane !== null &&
@@ -2453,7 +2483,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // Only a genuine reactive re-read may retry an errored async source:
     // - tracking: owned/tracked scope only (never events / `untrack` / effect side-effect phase)
     // - owner._time < clock: only on a later cycle than the one the error was found
-    if (tracking && (owner as Computed<any>)._time < clock) {
+    // - not a zombie: its fate is the seam's (L2). A zombie's retry of a sync
+    //   memo it reads threw a fresh error that re-derived the live frame's
+    //   verdict readers of the same memo, whose retry next round re-derived
+    //   the zombie: a livelock (#4405's one-hop shape, S-58)
+    if (
+      tracking &&
+      (owner as Computed<any>)._time < clock &&
+      !((owner as Computed<any>)._flags & REACTIVE_ZOMBIE)
+    ) {
       recompute(owner as Computed<unknown>);
       if (__TEST__) shadowActual(SLOT_E);
       return read(el);
