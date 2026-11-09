@@ -12,6 +12,7 @@ pub(crate) mod condition;
 pub(crate) mod constants;
 pub(crate) mod fragment;
 pub(crate) mod location;
+pub(crate) mod lower_show;
 pub(crate) mod mode_lower;
 pub(crate) mod parser;
 pub(crate) mod refs;

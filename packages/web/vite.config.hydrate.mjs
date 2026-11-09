@@ -7,6 +7,9 @@ import solidPlugin from "@solidjs/vite-plugin";
 
 const compiler = process.env.JSX_COMPILER === "babel" ? "babel" : "native";
 import { resolve } from "path";
+// `LOWER_SHOW=1` compiles with `<Show>` lowered to a ternary, as production
+// builds do (dev builds keep the component).
+const lowerShow = process.env.LOWER_SHOW === "1" ? { lowerShow: true } : {};
 
 const rootDir = resolve(__dirname);
 
@@ -14,7 +17,7 @@ export default defineConfig({
   // hot: false — solid-refresh wraps top-level components (e.g. the shared
   // parity-harness scenarios) in HMR wrappers that add owners and break
   // hydration id parity.
-  plugins: [solidPlugin({ compiler, hot: false, solid: { dev: true, hydratable: true } })],
+  plugins: [solidPlugin({ compiler, hot: false, solid: { dev: true, hydratable: true, ...lowerShow } })],
   test: {
     environment: "jsdom",
     pool: "threads",

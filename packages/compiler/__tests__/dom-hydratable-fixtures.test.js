@@ -23,6 +23,7 @@ const fixtureParity = {
   insertChildren: "subset",
   jsxAttributeValues: "subset",
   keyedElements: "subset",
+  lowerShow: "subset",
   simpleElements: "subset",
   textInterpolation: "subset"
 };

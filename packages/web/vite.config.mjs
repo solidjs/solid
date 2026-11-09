@@ -8,6 +8,9 @@ import codspeedPlugin from "@codspeed/vitest-plugin";
 
 const compiler = process.env.JSX_COMPILER === "babel" ? "babel" : "native";
 import { resolve } from "path";
+// `LOWER_SHOW=1` compiles with `<Show>` lowered to a ternary, as production
+// builds do (dev builds keep the component).
+const lowerShow = process.env.LOWER_SHOW === "1" ? { lowerShow: true } : {};
 
 const rootDir = resolve(__dirname);
 
@@ -20,7 +23,7 @@ const LANE_1_BENCHES = [
 const BENCH_LANE = process.env.BENCH_LANE;
 
 export default defineConfig({
-  plugins: [solidPlugin({ compiler }), codspeedPlugin()],
+  plugins: [solidPlugin({ compiler, solid: { ...lowerShow } }), codspeedPlugin()],
   server: {
     port: 3000
   },
