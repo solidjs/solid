@@ -1132,8 +1132,9 @@ module.exports = [
     // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
     // #4689): measured 15,114 B / 43,914 B minified; the cap raised in
     // its PR with the growth accepted (the rulings' cost on this chunk).
-    limit: "15.13 KB",
-    capMinified: 43914,
+    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ 701cbb3): a store's guess is one carrier node per target per lane (store/optimistic.ts); the list's per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 15,322 B / 45,037 B minified (+214 B brotli over next's record). 0 B on the core floor and the compiled floor.
+    limit: "15.34 KB",
+    capMinified: 45037,
     alias
   },
   {
@@ -2818,11 +2819,12 @@ module.exports = [
     // 2026-11-08: S-58 (the gate with any hop count), the isPending/latest chunk this
     // scenario carries — measured 33,820 B / 101,918 B minified.
     // Batch re-record (2026-11-08, over next @ 2789ca9, measured locally: #4714, #4711, #4717, #4719, #4720): 33.83 KB -> 33.89 KB, recorded minified 101,918 -> 101,921 B (+3 B), measured at 33,872 B brotli. Re-recorded once after the batch, per the batch process.
-    limit: "33.89 KB",
+    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ 701cbb3): a store's guess is one carrier node per target per lane (store/optimistic.ts); the list's per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 33,963 B / 102,844 B minified (+91 B brotli over next's record). 0 B on the core floor and the compiled floor.
+    limit: "33.98 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 96,989 -> 97,047 B (+58 B minified over next's record), measured locally (linux) at 31,811 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 97,024 -> 97,045 B (+21 B minified over next's record), measured locally (linux) at 31,798 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 97,045 -> 97,426 B (+240 B minified over next), measured locally (linux) at 31,976 B brotli (+109 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 101921,
+    capMinified: 102844,
     alias
   },
   {
@@ -4011,8 +4013,9 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ 885b99b, size job 125684994005: #4633, #4634, #4637): 29.94 KB -> 30.03 KB, recorded minified 88,422 -> 88,582 B (+160 B), measured at 30,015 B brotli. #4633, #4634 and #4637 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ 6e569c7, size job 125766182293: #4639, #4641): cap unchanged at 30.03 KB, recorded minified 88,582 -> 88,656 B (+74 B), measured at 30,012 B brotli. #4639 and #4641 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ ccfc7ea, size job 125848841075: #4653, #4655, #4657, #4659): 30.03 KB -> 30.12 KB, recorded minified 88,656 -> 88,842 B (+186 B), measured at 30,109 B brotli. The growth of #4653, #4655 and #4659 was accepted by the maintainer; #4657 and #4654 are size-neutral on the gated rows. Re-recorded once after the batch, per the batch process.
-    limit: "30.12 KB",
-    capMinified: 88842,
+    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ 701cbb3): a store's guess is one carrier node per target per lane (store/optimistic.ts); the list's per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 30,150 B / 88,898 B minified (+72 B brotli over next's record). 0 B on the core floor and the compiled floor.
+    limit: "30.16 KB",
+    capMinified: 88898,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -4265,8 +4268,9 @@ module.exports = [
     // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
     // #4689): measured 26,734 B / 80,605 B minified; the cap raised in
     // its PR with the growth accepted (the rulings' cost on this chunk).
-    limit: "26.75 KB",
-    capMinified: 80605,
+    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ 701cbb3): a store's guess is one carrier node per target per lane (store/optimistic.ts); the list's per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 26,879 B / 81,727 B minified (+214 B brotli over next's record). 0 B on the core floor and the compiled floor.
+    limit: "26.89 KB",
+    capMinified: 81727,
     alias
   },
   {
@@ -4453,8 +4457,9 @@ module.exports = [
     // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
     // #4689): measured 32,988 B / 101,325 B minified; the cap raised in
     // its PR with the growth accepted (the rulings' cost on this chunk).
-    limit: "33.00 KB",
-    capMinified: 101325,
+    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ 701cbb3): a store's guess is one carrier node per target per lane (store/optimistic.ts); the list's per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 33,132 B / 102,447 B minified (+196 B brotli over next's record). 0 B on the core floor and the compiled floor.
+    limit: "33.15 KB",
+    capMinified: 102447,
     alias
   },
   {
@@ -5783,7 +5788,8 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ ab5b5cb, measured locally: #4667, #4669): 40.08 KB -> 40.14 KB, recorded minified 120,486 -> 120,619 B (+133 B), measured at 40,124 B brotli. A frozen floor, Size-Exception in this PR's body. The growth of #4667 and #4669 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Re-record (2026-11-05, over next @ 5208944, measured locally: #4682, #4677): 40.14 KB -> 40.30 KB, recorded minified 120,619 -> 121,153 B (+534 B: #4682 +7 B, #4677 +527 B), measured at 40,289 B brotli. A frozen floor, Size-Exception in this PR's body. Re-recorded in the fix's own change rather than in a batch, at the maintainer's request.
     // Batch re-record (2026-11-08, over next @ 2789ca9, measured locally: #4714, #4711, #4717, #4719, #4720): cap unchanged at 40.76 KB, recorded minified 122,905 -> 123,070 B (+165 B), measured at 40,734 B brotli. A frozen floor, Size-Exception in this PR's body. Re-recorded once after the batch, per the batch process.
-    limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
+    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ 701cbb3): a store's guess is one carrier node per target per lane (store/optimistic.ts); the list's per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 40,796 B / 123,066 B minified (+62 B brotli over next's record). 0 B on the core floor and the compiled floor.
+    limit: "40.81 KB",
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
@@ -5963,8 +5969,9 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ 885b99b, size job 125684994005: #4633, #4634, #4637): cap unchanged at 35.93 KB, recorded minified 108,126 -> 108,286 B (+160 B), measured at 35,862 B brotli. #4633, #4634 and #4637 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ 6e569c7, size job 125766182293: #4639, #4641): cap unchanged at 35.93 KB, recorded minified 108,286 -> 108,360 B (+74 B), measured at 35,909 B brotli. #4639 and #4641 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ ccfc7ea, size job 125848841075: #4653, #4655, #4657, #4659): 35.93 KB -> 36.00 KB, recorded minified 108,360 -> 108,546 B (+186 B), measured at 35,989 B brotli. The growth of #4653, #4655 and #4659 was accepted by the maintainer; #4657 and #4654 are size-neutral on the gated rows. Re-recorded once after the batch, per the batch process.
-    limit: "36.00 KB",
-    capMinified: 108546,
+    // 2026-11-09 (store guess carrier, S-59/#4724, over next @ 701cbb3): a store's guess is one carrier node per target per lane (store/optimistic.ts); the list's per-key lane nodes and the LaneView arrangement snapshot are gone, the carrier, its record and the read arms are in: measured 36,027 B / 108,536 B minified (+92 B brotli over next's record). 0 B on the core floor and the compiled floor.
+    limit: "36.04 KB",
+    capMinified: 108536,
     alias: pageAlias
   },
   {

@@ -455,7 +455,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | §6c | live | `docs/INTERNALS-STORE-STATE.md:356` | — | createProjection.async.test.ts×1 flight-owned-transaction.test.ts×1 | Store-wide status gating (RUL-7) |
 | §6d | live | `docs/INTERNALS-STORE-STATE.md:369` | reconcile.ts×2 target.ts×2 | — | Diff reachability (RUL-11) |
 | §7 | live | `docs/INTERNALS-STORE-STATE.md:381` | seat.ts×2 optimistic.ts×1 projection.ts×1 | — | Projections & optimism layering |
-| §7b | live | `docs/INTERNALS-STORE-STATE.md:391` | scheduler.ts×1 affects.ts×1 projection.ts×1 reconcile.ts×2 store.ts×9 target.ts×4 | projection-proxy-then-array-4361.test.ts×1 optimistic-chained-revert-3672-memo.test.ts×1 optimistic-removed-prop-3883.test.ts×1 | Chained backing (cross-store) — spec |
+| §7b | live | `docs/INTERNALS-STORE-STATE.md:391` | affects.ts×1 projection.ts×1 reconcile.ts×2 store.ts×9 target.ts×4 | projection-proxy-then-array-4361.test.ts×1 optimistic-chained-revert-3672-memo.test.ts×1 optimistic-removed-prop-3883.test.ts×1 | Chained backing (cross-store) — spec |
 | §8 | live | `docs/INTERNALS-STORE-STATE.md:466` | seat.ts×1 | l2-contract.test.ts×1 reconcile-resend-identity.test.ts×1 | Assumptions / open questions |
 | §8b | live | `docs/INTERNALS-STORE-STATE.md:522` | — | — | Suite-mined rules (2026-08-16) — index & rulings needed |
 | §9 | live | `docs/INTERNALS-STORE-STATE.md:758` | — | — | Decision log |

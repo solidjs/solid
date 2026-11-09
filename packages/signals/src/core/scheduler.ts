@@ -915,10 +915,6 @@ export class GlobalQueue implements IQueue {
    * `back`: the slot's node now, for a guess that comes back (lanes.ts
    * `endLanes`). */
   declare static _slotTake: ((n: Signal<any>, back?: boolean) => any) | undefined;
-  /** The value a slot node's guess covered: its committed value — a chained
-   * link's refreshed from the inner store, whose commits it never learned
-   * while the guess served the reads (store/store.ts, §7b). */
-  declare static _slotCovered: ((n: Signal<any>, v: unknown) => unknown) | undefined;
   /** A lane dirtied a store's guess carrier: the readers of the leaves of
    * the keys it changed re-derive as the lane's work (optimistic.ts). */
   declare static _slotDirty: ((n: Signal<any>, l: Transaction) => void) | undefined;

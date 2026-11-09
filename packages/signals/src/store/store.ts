@@ -420,50 +420,33 @@ export function getHasNode(target: StoreTarget, key: PropertyKey): Signal<boolea
   return node;
 }
 
-/** A chained link's committed value follows the inner store's (S4): `_value`,
- * while it is the screen's — a lane that has revealed the node shows its own
- * value there, and a revert asks the store (`_slotCovered`). */
-export function follow(n: Signal<any>, v: unknown): void {
-  if (!(n._config & CONFIG_OVERRIDE) || !n._x!._transaction!._shown) n._value = v;
-}
-
 const INDEX = /^(0|[1-9]\d*)$/;
-/** S2 — a live guess carrier CHANGED `key` (its record: `wk`, or `del` for a
- * presence read): the key's leaf is silent at a landing — its readers read
- * the carrier, whose judgement tells them. Not the structural coverage
- * `guessFor` adds for reads: a key the guess only carried over is the
- * truth's, and its leaf tells its readers of a landing as ever. */
-export function guessCovers(t: StoreTarget, key: PropertyKey, shape = false): boolean {
+/** S2 — the newest live guess carrier for `key`, if any: a lane's guess, or
+ * one a correction re-homed into its hold (HELD) — the screen keeps what it
+ * showed until that hold lands (A18 (c)), a member reads the truth beneath;
+ * `read()` of the carrier decides. Its record (`wk`, `del`) has the key —
+ * or, for a read (`reads`), the key is an index
+ * or the length of a keyed list's arrangement guess (`g`): a list reader
+ * enters the lane through them, as it did through the guessed container. A
+ * landing asks without `reads`: a key the guess only carried over is the
+ * truth's, and its leaf tells its readers as ever (`leafSet`). */
+export function guessFor(
+  t: StoreTarget,
+  key: PropertyKey,
+  shape = false,
+  reads = true
+): Signal<any> | null {
   const kg = t.kg;
   if (kg !== null)
     for (let i = kg.length - 1; i >= 0; i--) {
       const g: any = kg[i];
-      if (
-        g._config & (CONFIG_OVERRIDE | CONFIG_HELD) &&
-        (g.wk?.has(key) || (shape && g.del?.has(key)))
-      )
-        return true;
-    }
-  return false;
-}
-/** S2 — the newest live guess carrier whose record has `key`, if any: a
- * lane's guess, or one a correction re-homed into its hold (HELD) — the
- * screen keeps what it showed until that hold lands (A18 (c)), a member
- * reads the truth beneath; `read()` of the carrier decides. `shape`: a
- * presence read (a deleted key counts). */
-export function guessFor(t: StoreTarget, key: PropertyKey, shape = false): Signal<any> | null {
-  const kg = t.kg;
-  if (kg !== null)
-    for (let i = kg.length - 1; i >= 0; i--) {
-      const g: any = kg[i];
-      // A keyed list's arrangement guess (`g`, the rows as written) covers
-      // every index and the length: a list reader enters the lane through
-      // them, as it did through the guessed container.
       if (
         g._config & (CONFIG_OVERRIDE | CONFIG_HELD) &&
         (g.wk?.has(key) ||
           g.del?.has(key) ||
-          (g.g !== undefined && (key === "length" || (typeof key === "string" && INDEX.test(key)))))
+          (reads &&
+            g.g !== undefined &&
+            (key === "length" || (typeof key === "string" && INDEX.test(key)))))
       )
         return g;
     }
@@ -1013,20 +996,6 @@ GlobalQueue._slotFlight = (n: Signal<any>): boolean => {
   const fam = ((n as any)._host as StoreTarget | undefined)?._fam;
   return (fam?.node?._statusFlags! & STATUS_PENDING) !== 0;
 };
-/** Core asks (lanes.ts `covered`): the value a slot node's guess covered.
- * A chained link's committed value is the inner store's at the last
- * read-through — refreshed here, since a guess served the reads since
- * (#3672: the revert compares against the base's live value). */
-GlobalQueue._slotCovered = (n: Signal<any>, v: unknown): unknown => {
-  const t = (n as any)._host as StoreTarget;
-  if (t.ch) {
-    const key = (n as any)._key as PropertyKey;
-    const inner = t.v as Record<PropertyKey, any>;
-    if (t.h?.[key as any] === n) return untrack(() => key in inner);
-    if (t.n?.[key as any] === n) return untrack(() => unwrapValue(inner[key as any]));
-  }
-  return v;
-};
 installStoreHooks(storePark, () => {
   drainFolds();
   optHooks?.sweep();
@@ -1104,7 +1073,7 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
         // observer-less write holds a transient record until the fold,
         // discarded with it) — gone with the batch.
         if (k._subs === null) t.k = null;
-        else follow(k, t.v);
+        else k._value = t.v;
       }
       if (t.v !== old && t.u) {
         const slot = parentSlotKey(t, old);
@@ -1329,7 +1298,7 @@ function notifyWrites(t: StoreTarget): void {
       // carrier's judgement of this landing tells them — a correction through
       // the carrier, a confirmation silently (A17). The leaf records the
       // value and says nothing (S2).
-      if (t.kg !== null && guessCovers(t, key)) {
+      if (t.kg !== null && guessFor(t, key, false, false) !== null) {
         node._value = nv;
         continue;
       }
@@ -1350,7 +1319,7 @@ function notifyWrites(t: StoreTarget): void {
     for (const key of keys) {
       const node = has[key as any];
       if (node !== undefined) {
-        if (t.kg !== null && guessCovers(t, key, true)) {
+        if (t.kg !== null && guessFor(t, key, true, false) !== null) {
           node._value = key in pb && !t.del?.has(key);
           continue;
         }
@@ -1442,7 +1411,10 @@ function leafSet(node: Signal<any>, v: any): void {
   // the carrier, a confirmation silently (A17). The leaf records the value
   // and says nothing (S2).
   const t: StoreTarget = (node as any)._host;
-  if (t.kg !== null && guessCovers(t, (node as any)._key, t.h?.[(node as any)._key] === node)) {
+  if (
+    t.kg !== null &&
+    guessFor(t, (node as any)._key, t.h?.[(node as any)._key] === node, false) !== null
+  ) {
     node._value = typeof v === "function" ? v() : v;
     return;
   }
@@ -1912,8 +1884,7 @@ function serveDataKey(
       if (chained) {
         // The link's committed value follows the inner store's (what a lane
         // over it covers — its reveal and revert compare against it, S4).
-        follow(node, backingValue);
-        if (node._config & CONFIG_OVERRIDE) v = nv;
+        node._value = backingValue;
       } else v = nv;
     }
   }
@@ -2424,8 +2395,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
         const nv = readNode(node);
         if (!target.ch || src !== target.v) return !!nv;
         const present = key in src;
-        follow(node, present); // the link follows the inner store (S4)
-        if (node._config & CONFIG_OVERRIDE) return !!nv;
+        node._value = present; // the link follows the inner store (S4)
         return present;
       }
     }
