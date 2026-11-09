@@ -9,12 +9,12 @@ import { insert as _$insert } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
 import { memo as _$memo } from "r-dom";
 var _tmpl$ = /*#__PURE__*/ _$template(`<h1>Welcome`),
-  _tmpl$2 = /*#__PURE__*/ _$template(`<p>Sign in`),
+  _tmpl$2 = /*#__PURE__*/ _$template(`<label>Sign in`),
   _tmpl$3 = /*#__PURE__*/ _$template(`<div><!$><!/><span>`),
-  _tmpl$4 = /*#__PURE__*/ _$template(`<b>total`),
-  _tmpl$5 = /*#__PURE__*/ _$template(`<b>`),
-  _tmpl$6 = /*#__PURE__*/ _$template(`<i>none`),
-  _tmpl$7 = /*#__PURE__*/ _$template(`<i>`),
+  _tmpl$4 = /*#__PURE__*/ _$template(`<span>total`),
+  _tmpl$5 = /*#__PURE__*/ _$template(`<span>`),
+  _tmpl$6 = /*#__PURE__*/ _$template(`<label>none`),
+  _tmpl$7 = /*#__PURE__*/ _$template(`<label>`),
   _tmpl$8 = /*#__PURE__*/ _$template(`<div>`);
 import { Show, createSignal, createMemo } from "solid-js";
 import { Show as Visible } from "@solidjs/web";

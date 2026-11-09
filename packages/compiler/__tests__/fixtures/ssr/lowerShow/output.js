@@ -4,18 +4,18 @@ import { ssr as _$ssr } from "r-server";
 import { ssrAttribute as _$ssrAttribute } from "r-server";
 import { mergeProps as _$mergeProps } from "r-server";
 var _tmpl$ = "<h1>Welcome</h1>";
-var _tmpl$2 = "<p>Sign in</p>";
+var _tmpl$2 = "<label>Sign in</label>";
 var _tmpl$3 = ["<div>", "<span></span></div>"];
-var _tmpl$4 = "<b>total</b>";
+var _tmpl$4 = "<span>total</span>";
 var _tmpl$5 = [
-	"<b",
+	"<span",
 	">",
-	"</b>"
+	"</span>"
 ];
-var _tmpl$6 = "<i>none</i>";
-var _tmpl$7 = ["<i>", "</i>"];
-var _tmpl$8 = ["<b>", "</b>"];
-var _tmpl$9 = "<i></i>";
+var _tmpl$6 = "<label>none</label>";
+var _tmpl$7 = ["<label>", "</label>"];
+var _tmpl$8 = ["<span>", "</span>"];
+var _tmpl$9 = "<label></label>";
 var _tmpl$10 = ["<div>", "</div>"];
 var _m$ = Symbol();
 var _d$ = {

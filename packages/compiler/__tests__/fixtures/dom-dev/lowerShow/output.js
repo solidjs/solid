@@ -6,12 +6,12 @@ import { mergeProps as _$mergeProps } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<h1>Welcome`);
-var _tmpl$2 = /* @__PURE__ */ _$template(`<p>Sign in`);
+var _tmpl$2 = /* @__PURE__ */ _$template(`<label>Sign in`);
 var _tmpl$3 = /* @__PURE__ */ _$template(`<div><span>`);
-var _tmpl$4 = /* @__PURE__ */ _$template(`<b>total`);
-var _tmpl$5 = /* @__PURE__ */ _$template(`<b>`);
-var _tmpl$6 = /* @__PURE__ */ _$template(`<i>none`);
-var _tmpl$7 = /* @__PURE__ */ _$template(`<i>`);
+var _tmpl$4 = /* @__PURE__ */ _$template(`<span>total`);
+var _tmpl$5 = /* @__PURE__ */ _$template(`<span>`);
+var _tmpl$6 = /* @__PURE__ */ _$template(`<label>none`);
+var _tmpl$7 = /* @__PURE__ */ _$template(`<label>`);
 var _tmpl$8 = /* @__PURE__ */ _$template(`<div>`);
 import { Show, createSignal, createMemo } from "solid-js";
 import { Show as Visible } from "@solidjs/web";
@@ -80,14 +80,14 @@ const Callback = () => _$createComponent(Show, {
 		_$insert(_el$6, () => {
 			return u().name;
 		}, undefined, undefined, {
-			name: "b.children",
-			loc: "lowerShow.jsx:36:68"
+			name: "span.children",
+			loc: "lowerShow.jsx:36:71"
 		});
 		_$effect(() => u().id, (_v$) => {
 			_$setAttribute(_el$6, "title", _v$);
 		}, {
-			name: "b.title",
-			loc: "lowerShow.jsx:36:53"
+			name: "span.title",
+			loc: "lowerShow.jsx:36:56"
 		});
 		return _el$6;
 	})()
@@ -120,8 +120,8 @@ const Nested = (props) => _$createComponent(Show, {
 				_$insert(_el$8, () => {
 					return b().c;
 				}, undefined, undefined, {
-					name: "i.children",
-					loc: "lowerShow.jsx:44:35"
+					name: "label.children",
+					loc: "lowerShow.jsx:44:39"
 				});
 				return _el$8;
 			})()
@@ -139,8 +139,8 @@ const Keyed = () => _$createComponent(Show, {
 		_$insert(_el$9, () => {
 			return u.name;
 		}, undefined, undefined, {
-			name: "b.children",
-			loc: "lowerShow.jsx:51:14"
+			name: "span.children",
+			loc: "lowerShow.jsx:51:17"
 		});
 		return _el$9;
 	})()
@@ -167,8 +167,8 @@ const Fetched = () => _$createComponent(Show, {
 		_$insert(_el$10, () => {
 			return u().name;
 		}, undefined, undefined, {
-			name: "b.children",
-			loc: "lowerShow.jsx:62:52"
+			name: "span.children",
+			loc: "lowerShow.jsx:62:55"
 		});
 		return _el$10;
 	})()
@@ -180,8 +180,8 @@ const Mutable = () => _$createComponent(Show, {
 	children: (u) => (() => {
 		var _el$11 = _tmpl$5();
 		_$insert(_el$11, u, undefined, undefined, {
-			name: "b.children",
-			loc: "lowerShow.jsx:63:55"
+			name: "span.children",
+			loc: "lowerShow.jsx:63:58"
 		});
 		return _el$11;
 	})()
@@ -195,8 +195,8 @@ const Block = () => _$createComponent(Show, {
 		_$insert(_el$12, () => {
 			return u().name;
 		}, undefined, undefined, {
-			name: "b.children",
-			loc: "lowerShow.jsx:67:17"
+			name: "span.children",
+			loc: "lowerShow.jsx:67:20"
 		});
 		return _el$12;
 	}
@@ -210,12 +210,12 @@ const Shadowed = () => _$createComponent(Show, {
 		_$insert(_el$13, () => {
 			return [1].map((user) => u().name + user);
 		}, undefined, undefined, {
-			name: "b.children",
-			loc: "lowerShow.jsx:71:53"
+			name: "span.children",
+			loc: "lowerShow.jsx:72:35"
 		});
 		return _el$13;
 	})()
-}, "Show", "lowerShow.jsx:71:24");
+}, "Show", "lowerShow.jsx:72:3");
 // Kept: a child that could be a function, a non-sole component child, an
 // attribute, or inside a JSX expression.
 const Render = (props) => _$createComponent(Show, {
@@ -225,23 +225,23 @@ const Render = (props) => _$createComponent(Show, {
 	get children() {
 		return props.render;
 	}
-}, "Show", "lowerShow.jsx:74:25");
+}, "Show", "lowerShow.jsx:76:25");
 const Siblings = () => _$createComponent(Panel, { get children() {
 	return [_$createComponent(Show, {
 		get when() {
 			return user();
 		},
 		children: "x"
-	}, "Show", "lowerShow.jsx:77:5"), _tmpl$7()];
-} }, "Panel", "lowerShow.jsx:76:3");
+	}, "Show", "lowerShow.jsx:79:5"), _tmpl$7()];
+} }, "Panel", "lowerShow.jsx:78:3");
 const Attribute = () => _$createComponent(Panel, { get fallback() {
 	return _$createComponent(Show, {
 		get when() {
 			return user();
 		},
 		children: "x"
-	}, "Show", "lowerShow.jsx:81:42");
-} }, "Panel", "lowerShow.jsx:81:25");
+	}, "Show", "lowerShow.jsx:83:42");
+} }, "Panel", "lowerShow.jsx:83:25");
 const InExpression = (props) => (() => {
 	var _el$15 = _tmpl$8();
 	_$insert(_el$15, (() => {
@@ -254,11 +254,11 @@ const InExpression = (props) => (() => {
 					return user();
 				},
 				children: "x"
-			}, "Show", "lowerShow.jsx:82:49") : props.ok;
+			}, "Show", "lowerShow.jsx:84:49") : props.ok;
 		};
 	})(), undefined, undefined, {
 		name: "div.children",
-		loc: "lowerShow.jsx:82:36"
+		loc: "lowerShow.jsx:84:36"
 	});
 	return _el$15;
 })();
@@ -270,5 +270,5 @@ const Local = () => {
 			return user();
 		},
 		children: "x"
-	}, "Show", "lowerShow.jsx:86:10");
+	}, "Show", "lowerShow.jsx:88:10");
 };

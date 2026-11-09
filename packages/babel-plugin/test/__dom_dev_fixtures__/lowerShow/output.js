@@ -6,12 +6,12 @@ import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 var _tmpl$ = /*#__PURE__*/ _$template(`<h1>Welcome`),
-  _tmpl$2 = /*#__PURE__*/ _$template(`<p>Sign in`),
+  _tmpl$2 = /*#__PURE__*/ _$template(`<label>Sign in`),
   _tmpl$3 = /*#__PURE__*/ _$template(`<div><span>`),
-  _tmpl$4 = /*#__PURE__*/ _$template(`<b>total`),
-  _tmpl$5 = /*#__PURE__*/ _$template(`<b>`),
-  _tmpl$6 = /*#__PURE__*/ _$template(`<i>none`),
-  _tmpl$7 = /*#__PURE__*/ _$template(`<i>`),
+  _tmpl$4 = /*#__PURE__*/ _$template(`<span>total`),
+  _tmpl$5 = /*#__PURE__*/ _$template(`<span>`),
+  _tmpl$6 = /*#__PURE__*/ _$template(`<label>none`),
+  _tmpl$7 = /*#__PURE__*/ _$template(`<label>`),
   _tmpl$8 = /*#__PURE__*/ _$template(`<div>`);
 import { Show, createSignal, createMemo } from "solid-js";
 import { Show as Visible } from "@solidjs/web";
@@ -131,8 +131,8 @@ const Callback = () =>
         (() => {
           var _el$6 = _tmpl$5();
           _$insert(_el$6, () => u().name, undefined, undefined, {
-            name: "b.children",
-            loc: "test/__dom_dev_fixtures__/lowerShow/code.js:36:68"
+            name: "span.children",
+            loc: "test/__dom_dev_fixtures__/lowerShow/code.js:36:71"
           });
           _$effect(
             () => u().id,
@@ -140,8 +140,8 @@ const Callback = () =>
               _$setAttribute(_el$6, "title", _v$);
             },
             {
-              name: "b.title",
-              loc: "test/__dom_dev_fixtures__/lowerShow/code.js:36:53"
+              name: "span.title",
+              loc: "test/__dom_dev_fixtures__/lowerShow/code.js:36:56"
             }
           );
           return _el$6;
@@ -194,8 +194,8 @@ const Nested = props =>
               (() => {
                 var _el$8 = _tmpl$7();
                 _$insert(_el$8, () => b().c, undefined, undefined, {
-                  name: "i.children",
-                  loc: "test/__dom_dev_fixtures__/lowerShow/code.js:44:35"
+                  name: "label.children",
+                  loc: "test/__dom_dev_fixtures__/lowerShow/code.js:44:39"
                 });
                 return _el$8;
               })()
@@ -222,8 +222,8 @@ const Keyed = () =>
         (() => {
           var _el$9 = _tmpl$5();
           _$insert(_el$9, () => u.name, undefined, undefined, {
-            name: "b.children",
-            loc: "test/__dom_dev_fixtures__/lowerShow/code.js:51:14"
+            name: "span.children",
+            loc: "test/__dom_dev_fixtures__/lowerShow/code.js:51:17"
           });
           return _el$9;
         })()
@@ -275,8 +275,8 @@ const Fetched = () =>
         (() => {
           var _el$0 = _tmpl$5();
           _$insert(_el$0, () => u().name, undefined, undefined, {
-            name: "b.children",
-            loc: "test/__dom_dev_fixtures__/lowerShow/code.js:62:52"
+            name: "span.children",
+            loc: "test/__dom_dev_fixtures__/lowerShow/code.js:62:55"
           });
           return _el$0;
         })()
@@ -295,8 +295,8 @@ const Mutable = () =>
         (() => {
           var _el$1 = _tmpl$5();
           _$insert(_el$1, u, undefined, undefined, {
-            name: "b.children",
-            loc: "test/__dom_dev_fixtures__/lowerShow/code.js:63:55"
+            name: "span.children",
+            loc: "test/__dom_dev_fixtures__/lowerShow/code.js:63:58"
           });
           return _el$1;
         })()
@@ -314,8 +314,8 @@ const Block = () =>
       children: u => {
         var _el$10 = _tmpl$5();
         _$insert(_el$10, () => u().name, undefined, undefined, {
-          name: "b.children",
-          loc: "test/__dom_dev_fixtures__/lowerShow/code.js:67:17"
+          name: "span.children",
+          loc: "test/__dom_dev_fixtures__/lowerShow/code.js:67:20"
         });
         return _el$10;
       }
@@ -334,14 +334,14 @@ const Shadowed = () =>
         (() => {
           var _el$11 = _tmpl$5();
           _$insert(_el$11, () => [1].map(user => u().name + user), undefined, undefined, {
-            name: "b.children",
-            loc: "test/__dom_dev_fixtures__/lowerShow/code.js:71:53"
+            name: "span.children",
+            loc: "test/__dom_dev_fixtures__/lowerShow/code.js:72:35"
           });
           return _el$11;
         })()
     },
     "Show",
-    "test/__dom_dev_fixtures__/lowerShow/code.js:71:24"
+    "test/__dom_dev_fixtures__/lowerShow/code.js:72:3"
   );
 // Kept: a child that could be a function, a non-sole component child, an
 // attribute, or inside a JSX expression.
@@ -357,7 +357,7 @@ const Render = props =>
       }
     },
     "Show",
-    "test/__dom_dev_fixtures__/lowerShow/code.js:74:25"
+    "test/__dom_dev_fixtures__/lowerShow/code.js:76:25"
   );
 const Siblings = () =>
   _$createComponent(
@@ -374,14 +374,14 @@ const Siblings = () =>
               children: "x"
             },
             "Show",
-            "test/__dom_dev_fixtures__/lowerShow/code.js:77:5"
+            "test/__dom_dev_fixtures__/lowerShow/code.js:79:5"
           ),
           _tmpl$7()
         ];
       }
     },
     "Panel",
-    "test/__dom_dev_fixtures__/lowerShow/code.js:76:3"
+    "test/__dom_dev_fixtures__/lowerShow/code.js:78:3"
   );
 const Attribute = () =>
   _$createComponent(
@@ -397,12 +397,12 @@ const Attribute = () =>
             children: "x"
           },
           "Show",
-          "test/__dom_dev_fixtures__/lowerShow/code.js:81:42"
+          "test/__dom_dev_fixtures__/lowerShow/code.js:83:42"
         );
       }
     },
     "Panel",
-    "test/__dom_dev_fixtures__/lowerShow/code.js:81:25"
+    "test/__dom_dev_fixtures__/lowerShow/code.js:83:25"
   );
 const InExpression = props =>
   (() => {
@@ -422,7 +422,7 @@ const InExpression = props =>
                   children: "x"
                 },
                 "Show",
-                "test/__dom_dev_fixtures__/lowerShow/code.js:82:49"
+                "test/__dom_dev_fixtures__/lowerShow/code.js:84:49"
               )
             : props.ok;
       })(),
@@ -430,7 +430,7 @@ const InExpression = props =>
       undefined,
       {
         name: "div.children",
-        loc: "test/__dom_dev_fixtures__/lowerShow/code.js:82:36"
+        loc: "test/__dom_dev_fixtures__/lowerShow/code.js:84:36"
       }
     );
     return _el$13;
@@ -447,6 +447,6 @@ const Local = () => {
       children: "x"
     },
     "Show",
-    "test/__dom_dev_fixtures__/lowerShow/code.js:86:10"
+    "test/__dom_dev_fixtures__/lowerShow/code.js:88:10"
   );
 };

@@ -4,14 +4,14 @@ import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { memo as _$memo } from "r-server";
 var _tmpl$ = "<h1>Welcome</h1>",
-  _tmpl$2 = "<p>Sign in</p>",
+  _tmpl$2 = "<label>Sign in</label>",
   _tmpl$3 = ["<div>", "<span></span></div>"],
-  _tmpl$4 = "<b>total</b>",
-  _tmpl$5 = ["<b", ">", "</b>"],
-  _tmpl$6 = "<i>none</i>",
-  _tmpl$7 = ["<i>", "</i>"],
-  _tmpl$8 = ["<b>", "</b>"],
-  _tmpl$9 = "<i></i>",
+  _tmpl$4 = "<span>total</span>",
+  _tmpl$5 = ["<span", ">", "</span>"],
+  _tmpl$6 = "<label>none</label>",
+  _tmpl$7 = ["<label>", "</label>"],
+  _tmpl$8 = ["<span>", "</span>"],
+  _tmpl$9 = "<label></label>",
   _tmpl$0 = ["<div>", "</div>"];
 var _m$ = Symbol();
 var _d$ = {
