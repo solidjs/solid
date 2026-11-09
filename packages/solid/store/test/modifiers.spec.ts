@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { createRoot, createSignal, createEffect } from "../../src/index.js";
+import { createRoot, createSignal, createEffect, createMemo } from "../../src/index.js";
 import {
   createStore,
   createMutable,
@@ -173,6 +173,91 @@ describe("setState with reconcile", () => {
     expect(store.value).toEqual([1, 2, 3]);
     setStore(reconcile({ value: { q: "aa" } }));
     expect(store.value).toEqual({ q: "aa" });
+  });
+});
+
+describe("reconcile array length", () => {
+  const cases: [string, (number | null | undefined)[], (number | null | undefined)[], boolean?][] =
+    [
+      ["preserves trailing undefined entries", [1], [1, undefined]],
+      ["preserves trailing holes", [1], Object.assign(new Array(3), { 0: 1 })],
+      ["grows an empty array with undefined entries", [], [undefined, undefined]],
+      ["grows an empty sparse array", [], new Array(3)],
+      ["replaces entries before trailing undefined entries", [1, 2], [3, undefined, undefined]],
+      ["preserves trailing undefined entries in merge mode", [1], [1, undefined], true],
+      ["preserves sparse length in merge mode", [1], new Array(3), true],
+      ["grows an array", [1], [1, 2, 3]],
+      ["appends null", [1], [1, null]],
+      ["shortens an array", [1, 2, 3], [1]],
+      ["clears an array", [1, 2], []]
+    ];
+
+  test.each(cases)("%s at the root", (_, initial, next, merge) => {
+    createRoot(dispose => {
+      const original = initial.slice();
+      const [state, setState] = createStore(original);
+      const length = createMemo(() => state.length);
+      const values = createMemo(() => [...state]);
+      try {
+        setState(reconcile(next, { merge }));
+        expect(length()).toBe(next.length);
+        expect(values()).toEqual([...next]);
+        expect(unwrap(state)).toBe(original);
+        expect(Object.keys(original)).toEqual(
+          Object.keys(next).filter(key => next[+key] !== undefined)
+        );
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  test.each(cases)("%s on a nested path", (_, initial, next, merge) => {
+    createRoot(dispose => {
+      const original = initial.slice();
+      const [state, setState] = createStore({ items: original });
+      const items = state.items;
+      const length = createMemo(() => state.items.length);
+      try {
+        setState("items", reconcile(next, { merge }));
+        expect(length()).toBe(next.length);
+        expect([...state.items]).toEqual([...next]);
+        expect(state.items).toBe(items);
+        expect(unwrap(state.items)).toBe(original);
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  test.each(cases)("%s with modifyMutable", (_, initial, next, merge) => {
+    createRoot(dispose => {
+      const original = initial.slice();
+      const state = createMutable(original);
+      const length = createMemo(() => state.length);
+      try {
+        modifyMutable(state, reconcile(next, { merge }));
+        expect(length()).toBe(next.length);
+        expect([...state]).toEqual([...next]);
+        expect(unwrap(state)).toBe(original);
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  test.each([false, true])("preserves keyed identities with trailing holes (merge: %s)", merge => {
+    const first = { id: 1 },
+      second = { id: 2 };
+    const original = [first, second];
+    const [state, setState] = createStore<(typeof first | undefined)[]>(original);
+    setState(reconcile([{ id: 2 }, { id: 1 }, undefined], { merge }));
+    expect(state).toHaveLength(3);
+    expect(unwrap(state)).toBe(original);
+    expect(unwrap(state[0])).toBe(second);
+    expect(unwrap(state[1])).toBe(first);
+    expect(state[2]).toBeUndefined();
+    expect(Object.keys(original)).toEqual(["0", "1"]);
   });
 });
 
