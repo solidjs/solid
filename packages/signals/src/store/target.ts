@@ -91,12 +91,6 @@ export interface StoreTarget {
    * of one per path; write paths bump it only when it exists. Separate from
    * `k` so $TRACK/mapArray never rerun on leaf value changes (R9). */
   dk: Signal<number> | null;
-  /** S2: the target's guess carriers (optimistic families), one per lane
-   * (per action): `$PATCH` slot nodes whose lane value is the user's draft —
-   * the keys it changed recorded (`wk`, `del`), a keyed list's rows as
-   * written and removed keys with it. Oldest first. Null until a setter
-   * guesses; a carrier that is no lane's is dropped (optimistic.ts sweep). */
-  kg: Signal<any>[] | null;
   /** Parent target (path copying walks this at commit). */
   u: StoreTarget | null;
   /** Property key of this target in the parent's backing. */

@@ -174,7 +174,6 @@ function TargetShape(
   this.n = null;
   this.h = null;
   this.k = null;
-  this.kg = null;
   this.dk = null;
   this.u = parent;
   this.pk = parentKey;
@@ -420,72 +419,6 @@ export function getHasNode(target: StoreTarget, key: PropertyKey): Signal<boolea
   return node;
 }
 
-const INDEX = /^(0|[1-9]\d*)$/;
-/** S2 — the newest live guess carrier for `key`, if any: a lane's guess, or
- * one a correction re-homed into its hold (HELD) — the screen keeps what it
- * showed until that hold lands (A18 (c)), a member reads the truth beneath;
- * `read()` of the carrier decides. Its record (`wk`, `del`) has the key —
- * or, for a read (`reads`), the key is an index
- * or the length of a keyed list's arrangement guess (`g`): a list reader
- * enters the lane through them, as it did through the guessed container. A
- * landing asks without `reads`: a key the guess only carried over is the
- * truth's, and its leaf tells its readers as ever (`leafSet`). */
-export function guessFor(
-  t: StoreTarget,
-  key: PropertyKey,
-  shape = false,
-  reads = true
-): Signal<any> | null {
-  const kg = t.kg;
-  if (kg !== null)
-    for (let i = kg.length - 1; i >= 0; i--) {
-      const g: any = kg[i];
-      if (
-        g._config & (CONFIG_OVERRIDE | CONFIG_HELD) &&
-        (g.wk?.has(key) ||
-          g.del?.has(key) ||
-          (reads &&
-            g.g !== undefined &&
-            (key === "length" || (typeof key === "string" && INDEX.test(key)))))
-      )
-        return g;
-    }
-  return null;
-}
-/** The hold's carrier of a truth staged beneath the screen: the container
- * node while a transaction holds its staging (a landing adopted under an
- * action), else null. A guess made over it carries that truth beneath. */
-export function heldCarrier(t: StoreTarget): Signal<any> | null {
-  const k = t.k;
-  return k !== null && k._config & CONFIG_HELD && k._pendingValue !== NOT_PENDING ? k : null;
-}
-/** The newest live guess carrier (the frame a structural read sees). */
-export function newestGuess(t: StoreTarget): Signal<any> | null {
-  const kg = t.kg;
-  if (kg !== null)
-    for (let i = kg.length - 1; i >= 0; i--)
-      if (kg[i]._config & (CONFIG_OVERRIDE | CONFIG_HELD)) return kg[i];
-  return null;
-}
-/** A landing on a target carrying guesses: the truth frame, judged against
- * each live carrier by the lane engine (`laneWrite`: confirmed beneath,
- * re-based, folded, or a correction — optimistic.ts `patchEquals`). */
-function judgeGuesses(t: StoreTarget, truth: Record<PropertyKey, any>): void {
-  const kg = t.kg;
-  if (kg === null) return;
-  // The frame as landed, not the backing by reference: a later batch writes
-  // the backing in place, and a truth staged beneath a guess (a correction
-  // held for the hold's end) must stay the answer it was — the next landing
-  // is judged against it, and its readers re-derive when it differs.
-  const frame = Array.isArray(truth) ? (truth as any[]).slice() : { ...truth };
-  for (let i = 0; i < kg.length; i++)
-    if (kg[i]._config & (CONFIG_OVERRIDE | CONFIG_HELD)) setSignal(kg[i], frame);
-}
-/** A guessed key's value from the carrier's frame: the key the guess
- * removed reads absent (`undefined`). */
-function carrierValue(frame: Record<PropertyKey, any>, key: PropertyKey): any {
-  return hasOwn.call(frame, key) || key !== "__proto__" ? frame[key as any] : undefined;
-}
 export function nameCarrier(g: Signal<any>, t: StoreTarget): void {
   if (__OBSERVE__ && attrHooks !== null) {
     const root = storeRoot(t);
@@ -893,7 +826,7 @@ export function adoptPB(
   if (__TEST__ && ingestedRaw && !isOwned(incoming)) ingestedRaw.add(incoming);
   // S2: the landing reaches each live guess carrier as the truth it is
   // judged against (a returned-rows derive never passes `notifyWrites`).
-  if (target.kg !== null) judgeGuesses(target, incoming);
+  if (optHooks !== null && target._fam?.opt === true) optHooks.judge(target, incoming);
   if (notify && base !== incoming) notifyFold(target, base, incoming);
 }
 
@@ -1219,7 +1152,7 @@ function notifyWrites(t: StoreTarget): void {
     // first (D-34, #4329); the frame then reaches each live guess carrier as
     // the truth it is judged against (S2).
     optHooks.pair(t, pb);
-    if (t.kg !== null) judgeGuesses(t, pb);
+    optHooks.judge(t, pb);
   }
   const old = t.v;
   // Devtools mutation hook: full-key diff (dev-only cost) so unobserved
@@ -1298,7 +1231,7 @@ function notifyWrites(t: StoreTarget): void {
       // carrier's judgement of this landing tells them — a correction through
       // the carrier, a confirmation silently (A17). The leaf records the
       // value and says nothing (S2).
-      if (t.kg !== null && guessFor(t, key, false, false) !== null) {
+      if (optHooks !== null && t._fam?.opt === true && optHooks.covers(t, key, false)) {
         node._value = nv;
         continue;
       }
@@ -1319,7 +1252,7 @@ function notifyWrites(t: StoreTarget): void {
     for (const key of keys) {
       const node = has[key as any];
       if (node !== undefined) {
-        if (t.kg !== null && guessFor(t, key, true, false) !== null) {
+        if (optHooks !== null && t._fam?.opt === true && optHooks.covers(t, key, true)) {
           node._value = key in pb && !t.del?.has(key);
           continue;
         }
@@ -1412,8 +1345,9 @@ function leafSet(node: Signal<any>, v: any): void {
   // and says nothing (S2).
   const t: StoreTarget = (node as any)._host;
   if (
-    t.kg !== null &&
-    guessFor(t, (node as any)._key, t.h?.[(node as any)._key] === node, false) !== null
+    optHooks !== null &&
+    t._fam?.opt === true &&
+    optHooks.covers(t, (node as any)._key, t.h?.[(node as any)._key] === node)
   ) {
     node._value = typeof v === "function" ? v() : v;
     return;
@@ -1893,7 +1827,7 @@ function serveDataKey(
 /** The value of `key` as the reader gets it: shallow-served, a chained raw
  * resolved to the inner store's (#3767, #3859), a wrappable wrapped (cached
  * on the key's node by value identity). */
-function serveKeyValue(
+export function serveKeyValue(
   target: StoreTarget,
   key: PropertyKey,
   v: any,
@@ -2078,12 +2012,8 @@ export function resolveChainedRaw(target: StoreTarget, key: PropertyKey, v: obje
 function enumerationSource(target: StoreTarget): Record<PropertyKey, any> {
   if (!inDraft(target) && !writeOverride && getObserver() !== null) {
     const base = readNode(getContainerNode(target));
-    // S2: a target carrying a guess enumerates the carrier's frame, read
-    // tracked — the lane's seat, re-derived as its work (the frame core
-    // serves this reader: the lane's world, the screen, the truth beneath).
-    const g = newestGuess(target);
-    if (g !== null) {
-      const frame = readNode(g);
+    if (optHooks !== null && target._fam?.opt === true) {
+      const frame = optHooks.frame(target);
       if (frame !== NOT_PENDING) return frame as Record<PropertyKey, any>;
     }
     return base;
@@ -2206,19 +2136,9 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     // tracked — the lane's seat, a verdict window's judgment of the guess
     // (A17/A24): the frame core serves this reader, indexed. The key's own
     // leaf is silent while the guess covers it (optimistic.ts).
-    if (target.kg !== null && !inDraft(target) && !writeOverride) {
-      const g = guessFor(target, key);
-      if (g !== null) {
-        const frame = readNode(g) as Record<PropertyKey, any>;
-        const v = carrierValue(frame, key);
-        // The key's leaf stays the reader's subscription point (silent while
-        // the guess covers it): the next guess on the key, on a carrier of
-        // its own, reaches the reader through it (`readersOf`).
-        const obs = getObserver();
-        const node = obs !== null ? getNode(target, key) : target.n?.[key as any];
-        if (obs !== null) link(node!, obs as Computed<any>);
-        return serveKeyValue(target, key, v, false, node);
-      }
+    if (optHooks !== null && optRead(target)) {
+      const v = optHooks.read(target, key);
+      if (v !== NOT_PENDING) return v;
     }
     // Hot inline case: existing PLAIN node (non-accessor) read outside any
     // draft — the dbmon/uibench effect re-read shape. Core's `read()` serves
@@ -2376,13 +2296,9 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       affectsHooks._witness(target, key);
     if (target._fam !== null) pullFamily(target);
     // S2: presence of a key a live guess changed is the carrier frame's.
-    if (target.kg !== null && !inDraft(target) && !writeOverride) {
-      const g = guessFor(target, key, true);
-      if (g !== null) {
-        const obs = getObserver();
-        if (obs !== null) link(getHasNode(target, key), obs as Computed<any>);
-        return key in (readNode(g) as object);
-      }
+    if (optHooks !== null && optRead(target)) {
+      const guessed = optHooks.has(target, key);
+      if (guessed !== undefined) return guessed;
     }
     const src = readSource(target, key);
     // A tracked reader's presence node answers (born from the two frames;
@@ -2424,20 +2340,9 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     const enumerating = plain && observerHoldsContainer(target, obs);
     // S2: a key a live guess changed is described from the carrier's frame —
     // before the presence node answers (silent while the guess covers it).
-    if (!enumerating && target.kg !== null && !inDraft(target) && !writeOverride) {
-      const g = guessFor(target, key, true);
-      if (g !== null) {
-        if (obs !== null) link(getHasNode(target, key), obs as Computed<any>);
-        const frame = readNode(g) as Record<PropertyKey, any>;
-        if (!(key in frame)) return undefined;
-        const value = frame[key as any];
-        const d: PropertyDescriptor =
-          key === "length" && Array.isArray(frame)
-            ? { value, writable: true, enumerable: false, configurable: false }
-            : { value, writable: true, enumerable: true, configurable: true };
-        if (!(key === "length" && Array.isArray(shell))) d.configurable = true;
-        return d;
-      }
+    if (!enumerating && optHooks !== null && optRead(target)) {
+      const guessed = optHooks.descriptor(target, key, Array.isArray(shell));
+      if (guessed !== undefined) return guessed === null ? undefined : guessed;
     }
     let src: Record<PropertyKey, any>;
     if (enumerating) src = enumerationSource(target);

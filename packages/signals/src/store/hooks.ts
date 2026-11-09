@@ -25,6 +25,23 @@ export interface OptHooks {
   view(t: StoreTarget, src: Record<PropertyKey, any>, writer?: boolean): Record<PropertyKey, any>;
   /** The flush's commit: targets no lane holds leave `_overlaid`. */
   sweep(): void;
+  /** S2 — the carrier arms (optimistic.ts), each a no-op for a target with
+   * no live guess: a key read served through the carrier (`NOT_PENDING`:
+   * none), a presence read (`undefined`: none), a descriptor (`null`: the
+   * key is absent in the guess; `undefined`: none), the frame an
+   * enumeration reads (`NOT_PENDING`: none), whether a landing on `key`
+   * is the carrier's to tell (the key's leaf is silent), and a landing's
+   * truth judged against the live carriers. */
+  read(t: StoreTarget, key: PropertyKey): unknown;
+  has(t: StoreTarget, key: PropertyKey): boolean | undefined;
+  descriptor(
+    t: StoreTarget,
+    key: PropertyKey,
+    array: boolean
+  ): PropertyDescriptor | null | undefined;
+  frame(t: StoreTarget): unknown;
+  covers(t: StoreTarget, key: PropertyKey, shape: boolean): boolean;
+  judge(t: StoreTarget, truth: Record<PropertyKey, any>): void;
   /** A user's `reconcile` on an optimistic family: the keyed diff written
    * into the draft. */
   reconcile(draft: any, incoming: any, keyFn: ((item: any) => any) | null): void;

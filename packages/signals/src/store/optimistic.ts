@@ -42,10 +42,12 @@ import {
   isEqual,
   joinPassAt,
   read as readNode,
+  setSignal,
   slotSignal,
   untrack
 } from "../core/core.js";
 import { link } from "../core/graph.js";
+import { getObserver } from "../core/owner.js";
 import { devGuardOptimisticBeforeLoad } from "../core/dev.js";
 import {
   guessedValueOf,
@@ -77,10 +79,12 @@ import { reconcileState } from "./reconcile.js";
 import {
   cloneRaw,
   committed,
-  heldCarrier,
+  getHasNode,
+  getNode,
   linkedTo,
   nameCarrier,
   sameKey,
+  serveKeyValue,
   storeSetter,
   targetsEqual,
   unwrapValue
@@ -100,6 +104,65 @@ import {
 } from "./types.js";
 
 const hasOwn = Object.prototype.hasOwnProperty;
+
+/** S2 — a target's guess carriers, one per lane (per action): `$PATCH` slot
+ * nodes whose lane value is the user's draft, the keys it changed recorded
+ * (`wk`, `del`; a keyed list's rows as written and removed keys with it).
+ * Oldest first; a carrier that is no lane's is dropped (`sweepOverlaid`).
+ * Off the target (a plain store carries nothing for the optimistic engine). */
+const carriers: WeakMap<StoreTarget, Signal<any>[]> = new WeakMap();
+const kgOf = (t: StoreTarget): Signal<any>[] | null => carriers.get(t) ?? null;
+const INDEX = /^(0|[1-9]\d*)$/;
+/** The newest live guess carrier for `key`, if any: a lane's guess, or one a
+ * correction re-homed into its hold (HELD) — the screen keeps what it showed
+ * until that hold lands (A18 (c)), a member reads the truth beneath;
+ * `read()` of the carrier decides. Its record (`wk`, `del`) has the key —
+ * or, for a read (`reads`), the key is an index or the length of a keyed
+ * list's arrangement guess (`g`): a list reader enters the lane through
+ * them, as it did through the guessed container. A landing asks without
+ * `reads`: a key the guess only carried over is the truth's, and its leaf
+ * tells its readers as ever (store.ts `leafSet`). */
+function guessFor(
+  t: StoreTarget,
+  key: PropertyKey,
+  shape = false,
+  reads = true
+): Signal<any> | null {
+  const kg = kgOf(t);
+  if (kg !== null)
+    for (let i = kg.length - 1; i >= 0; i--) {
+      const g: any = kg[i];
+      if (
+        g._config & (CONFIG_OVERRIDE | CONFIG_HELD) &&
+        (g.wk?.has(key) ||
+          g.del?.has(key) ||
+          (reads &&
+            g.g !== undefined &&
+            (key === "length" || (typeof key === "string" && INDEX.test(key)))))
+      )
+        return g;
+    }
+  return null;
+}
+/** The newest live guess carrier (the frame a structural read sees). */
+function newestGuess(t: StoreTarget): Signal<any> | null {
+  const kg = kgOf(t);
+  if (kg !== null)
+    for (let i = kg.length - 1; i >= 0; i--)
+      if (kg[i]._config & (CONFIG_OVERRIDE | CONFIG_HELD)) return kg[i];
+  return null;
+}
+/** The hold's carrier of a truth staged beneath the screen: the container
+ * node while a transaction holds its staging (a landing adopted under an
+ * action), else null. A guess made over it carries that truth beneath. */
+function heldCarrier(t: StoreTarget): Signal<any> | null {
+  const k = t.k;
+  return k !== null && k._config & CONFIG_HELD && k._pendingValue !== NOT_PENDING ? k : null;
+}
+/** A guessed key's value from the carrier's frame. */
+function carrierValue(frame: Record<PropertyKey, any>, key: PropertyKey): any {
+  return hasOwn.call(frame, key) || key !== "__proto__" ? frame[key as any] : undefined;
+}
 
 /** An optimistic setter's targets whose staging was set aside (`draft`),
  * restored when the setter's writes become guesses (`writes`). */
@@ -122,7 +185,7 @@ function guessView(
   src: Record<PropertyKey, any>,
   writer = false
 ): Record<PropertyKey, any> {
-  const kg = t.kg;
+  const kg = kgOf(t);
   if (kg !== null)
     for (let i = kg.length - 1; i >= 0; i--) {
       const g = kg[i];
@@ -160,7 +223,8 @@ function optimisticDraft(t: StoreTarget): Record<PropertyKey, any> {
  * the guess over the keys the guess changed (`echoes`: the server's echo of a
  * guessed row is a new object with the same contents, #3898). */
 function guessCarrier(t: StoreTarget, keys?: Set<PropertyKey>): any {
-  const kg = (t.kg ??= []);
+  let kg = kgOf(t);
+  if (kg === null) carriers.set(t, (kg = []));
   // The carrier a guess goes on: one with a guess still unflushed (this
   // flush's: one lane), or a live one whose record shares a key (two
   // suggestions for one slot entangle their frames, A34 (1) — as the one
@@ -198,7 +262,7 @@ function guessCarrier(t: StoreTarget, keys?: Set<PropertyKey>): any {
  * applied one's frame merges now. */
 function entangle(t: StoreTarget, g: any, keys: Set<PropertyKey> | undefined): any {
   if (keys !== undefined)
-    for (const o of t.kg! as any[])
+    for (const o of kgOf(t)! as any[])
       if (o !== g && o._config & CONFIG_OVERRIDE && o.wk !== null)
         for (const key of keys)
           if (o.wk.has(key) || o.del?.has(key)) {
@@ -512,7 +576,8 @@ GlobalQueue._slotTake = (n, back) => {
     // node itself, re-attached if the taker lane's end swept it (as the leaf
     // path re-made its node).
     markOverlaid(t!);
-    const kg = (t!.kg ??= []);
+    let kg = kgOf(t!);
+    if (kg === null) carriers.set(t!, (kg = []));
     if (kg.indexOf(n) === -1) kg.push(n);
     return n;
   }
@@ -522,7 +587,7 @@ GlobalQueue._slotTake = (n, back) => {
   // The re-ask takes the target's guess whole (the carrier and the deep
   // witness): a node other than the written one shows its truth in the
   // lane's world (lanes `take`).
-  for (const m of [...(t!.kg ?? []), t!.dk])
+  for (const m of [...(kgOf(t!) ?? []), t!.dk])
     if (m?._config! & CONFIG_GUESS && txOf(m!) === g) take(m!, d, m !== n);
   return true;
 };
@@ -550,7 +615,7 @@ GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
     // The deep witness's guess: a bump beneath a shown keyed arrangement
     // guess folds that lane (D-34), else the lane judges it.
     if (older) return true;
-    const g = t.kg?.find(c => c._config & CONFIG_OVERRIDE && (c as any).removed);
+    const g = kgOf(t)?.find(c => c._config & CONFIG_OVERRIDE && (c as any).removed);
     return g !== undefined && (g as any).g !== null ? fold(g, truth) : false;
   }
   const guess = latestOf(el) as any;
@@ -710,6 +775,61 @@ installOptHooks({
   view: guessView,
   reconcile: reconcileDraft,
   sweep: sweepOverlaid,
+  // The carrier arms (store.ts calls them for an optimistic family's target
+  // outside a draft and the write override): a key a live guess changed
+  // reads through the carrier, tracked — the lane's seat, a verdict
+  // window's judgment of the guess (A17/A24) — and the key's leaf stays the
+  // reader's subscription point (silent while the guess covers it: the next
+  // guess on the key, on a carrier of its own, reaches the reader through
+  // it, `readersOf`). Presence and descriptors are the carrier frame's;
+  // enumeration reads the newest carrier, tracked.
+  read: (t, key) => {
+    const g = guessFor(t, key);
+    if (g === null) return NOT_PENDING;
+    const frame = readNode(g) as Record<PropertyKey, any>;
+    const obs = getObserver();
+    const node = obs !== null ? getNode(t, key) : t.n?.[key as any];
+    if (obs !== null) link(node!, obs as Computed<any>);
+    return serveKeyValue(t, key, carrierValue(frame, key), false, node);
+  },
+  has: (t, key) => {
+    const g = guessFor(t, key, true);
+    if (g === null) return undefined;
+    const obs = getObserver();
+    if (obs !== null) link(getHasNode(t, key), obs as Computed<any>);
+    return key in (readNode(g) as object);
+  },
+  descriptor: (t, key, array) => {
+    const g = guessFor(t, key, true);
+    if (g === null) return undefined;
+    const obs = getObserver();
+    if (obs !== null) link(getHasNode(t, key), obs as Computed<any>);
+    const frame = readNode(g) as Record<PropertyKey, any>;
+    if (!(key in frame)) return null;
+    const value = frame[key as any];
+    const length = key === "length" && Array.isArray(frame);
+    return { value, writable: true, enumerable: !length, configurable: !(length && array) };
+  },
+  frame: t => {
+    const g = newestGuess(t);
+    return g === null ? NOT_PENDING : readNode(g);
+  },
+  // A key a live guess changed: its leaf is silent at a landing — its
+  // readers read the carrier, whose judgement of the landing tells them (a
+  // correction through the carrier, a confirmation silently, A17).
+  covers: (t, key, shape) => guessFor(t, key, shape, false) !== null,
+  // A landing reaches each live carrier as the truth it is judged against
+  // (`laneWrite`: confirmed beneath, re-based, folded, or a correction) —
+  // the frame as landed, not the backing by reference: a later batch writes
+  // the backing in place, and a truth staged beneath a guess (a correction
+  // held for the hold's end) must stay the answer it was.
+  judge: (t, truth) => {
+    const kg = kgOf(t);
+    if (kg === null) return;
+    const frame = Array.isArray(truth) ? (truth as any[]).slice() : { ...truth };
+    for (let i = 0; i < kg.length; i++)
+      if (kg[i]._config & (CONFIG_OVERRIDE | CONFIG_HELD)) setSignal(kg[i], frame);
+  },
   // A new question (not a `refresh()`) asked over guesses an earlier frame
   // opened, which answer the old one (D-34, #4336). Stamped on `fam._asked`
   // with this flush's `clock`, so it lapses when the flush ends: `clock + 1`
@@ -768,7 +888,7 @@ installOptHooks({
     // Linked by this pass's hold (below): its other reads keep the guess.
     const j = heldC === c && heldAt === clock;
     if (linkedTo(c, d)) return j && heldV > 1;
-    if (t.kg?.some(g => (g as any).g === null) && c?._statusFlags & STATUS_PENDING)
+    if (kgOf(t)?.some(g => (g as any).g === null) && c?._statusFlags & STATUS_PENDING)
       if (c._type === EFFECT_RENDER) readNode(d);
       else if (j ? heldV : ((heldC = c), (heldAt = clock), (heldV = held(c))))
         d._x?._transaction ? (link(d, c), staleReader(c, txOf(d)), (heldV = 2)) : readNode(d);
@@ -831,17 +951,21 @@ export function sweepOverlaid(): void {
     for (const t of set)
       if (!laneNodeOf(t)) {
         set.delete(t);
-        const live = t.kg?.filter(g => g._config & CONFIG_HELD || g._pendingValue !== NOT_PENDING);
-        t.kg = !live || live.length === 0 ? null : live;
-      } else if (t.kg !== null) {
+        const live = kgOf(t)?.filter(
+          g => g._config & CONFIG_HELD || g._pendingValue !== NOT_PENDING
+        );
+        if (!live || live.length === 0) carriers.delete(t);
+        else carriers.set(t, live);
+      } else if (kgOf(t) !== null) {
         // A carrier that is no lane's and no hold's (a corrected guess waits
         // for its hold's landing, A18 (c)) is done.
-        const live = t.kg.filter(
+        const live = kgOf(t)!.filter(
           g =>
             g._config & (CONFIG_OVERRIDE | CONFIG_GUESS | CONFIG_HELD) ||
             g._pendingValue !== NOT_PENDING
         );
-        t.kg = live.length === 0 ? null : live;
+        if (live.length === 0) carriers.delete(t);
+        else carriers.set(t, live);
       }
     if (set.size === 0) overlaidFamilies.delete(fam);
   }
@@ -850,7 +974,7 @@ export function sweepOverlaid(): void {
 /** The node of `t` carrying a lane value, if any — the guess carrier or the
  * deep witness (`read`: one a reader's last pass read). */
 function laneNodeOf(t: StoreTarget, read?: boolean): Signal<any> | undefined {
-  for (const n of [...(t.kg ?? []), t.dk])
+  for (const n of [...(kgOf(t) ?? []), t.dk])
     if (n !== null && n._config & CONFIG_OVERRIDE) {
       if (!read) return n;
       for (let s = n._subs; s !== null; s = s._nextSub) if (s._gen === s._sub._depGen) return n;
