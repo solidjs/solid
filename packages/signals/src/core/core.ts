@@ -403,10 +403,17 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     : null;
   if (laneStageHook) {
     // The creator's flags on a first pass (0 with no creator running).
-    const cf = create ? (creatorPass(context)?._flags as number) | 0 : 0;
+    const cp = create ? creatorPass(context) : null;
+    const cf = (cp?._flags as number) | 0;
     // S-46 (D-25): a first pass under a pass that probed is the mount a
-    // display-ahead read gates — stamped once, read by `frameRead`.
-    if (cf & REACTIVE_PROBED) el._config |= CONFIG_MOUNT_AHEAD;
+    // display-ahead read gates — stamped once, read by `frameRead`. So is
+    // one its first pass creates: a boundary inside the mount is the mount
+    // (S-58: an `<Errored>` around the content changes nothing).
+    if (
+      cf & REACTIVE_PROBED ||
+      (cp && cp._config & CONFIG_MOUNT_AHEAD && cp._statusFlags & STATUS_UNINITIALIZED)
+    )
+      el._config |= CONFIG_MOUNT_AHEAD;
     setPassLane(
       (el._flags & REACTIVE_LANE_DIRTY ||
         (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE) &&
@@ -2472,7 +2479,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // Only a genuine reactive re-read may retry an errored async source:
     // - tracking: owned/tracked scope only (never events / `untrack` / effect side-effect phase)
     // - owner._time < clock: only on a later cycle than the one the error was found
-    if (tracking && (owner as Computed<any>)._time < clock) {
+    // - not a zombie: its fate is the seam's (L2). A zombie's retry of a sync
+    //   memo it reads threw a fresh error that re-derived the live frame's
+    //   verdict readers of the same memo, whose retry next round re-derived
+    //   the zombie: a livelock (#4405's one-hop shape, S-58)
+    if (
+      tracking &&
+      (owner as Computed<any>)._time < clock &&
+      !((owner as Computed<any>)._flags & REACTIVE_ZOMBIE)
+    ) {
       recompute(owner as Computed<unknown>);
       if (__TEST__) shadowActual(SLOT_E);
       return read(el);

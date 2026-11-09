@@ -33,13 +33,13 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | C | 4 | 0 | 3 | 1 |
 | INV | 11 | 4 | 7 | 4 |
 | RUL | 13 | 3 | 6 | 6 |
-| R (CS) | 59 | 15 | 20 | 30 |
+| R (CS) | 59 | 15 | 21 | 29 |
 | R (OL) | 37 | 5 | 1 | 31 |
 | R (OS) | 46 | 0 | 0 | 46 |
 | R (PJ) | 37 | 2 | 5 | 32 |
 | R (RS) | 38 | 0 | 2 | 36 |
 | § | 24 | 14 | 11 | 7 |
-| S | 58 | 16 | 18 | 34 |
+| S | 58 | 16 | 19 | 34 |
 
 ## Unresolved citations
 
@@ -241,7 +241,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | CS-R32 | live | `docs/rules-mining/core-store.md:147` | — | visibility-oracle-store.states.ts×1 | A setter-staged replacement followed by reconcile lands the reconciled value — staged writes fold into the diff.** Aligned: O7's resolution (a test already exists). |
 | CS-R33 | live | `docs/rules-mining/core-store.md:151` | — | visibility-oracle-store.states.ts×4 | Action/async lane semantics on store properties: a write held by an action makes isPending true for that property (per-property, not whole-store) while showing the committed value; applies on settle.*… |
 | CS-R34 | live | `docs/rules-mining/core-store.md:155` | — | visibility-oracle-store.states.ts×1 | ~~Optimistic writes visible immediately at write time (before flush)~~, never touch base raw; ambient (non-action) optimistic writes auto-revert at flush end.** _Visibility superseded 2026-09-10 by A2… |
-| CS-R35 | live | `docs/rules-mining/core-store.md:160` | — | — | Mid-refetch optimistic overlays are consumed when data lands — identical via direct reads, mapArray, wrapper views, Object.keys, snapshot.** |
+| CS-R35 | live | `docs/rules-mining/core-store.md:160` | — | zombie-errored-retry-4405.test.ts×1 | Mid-refetch optimistic overlays are consumed when data lands — identical via direct reads, mapArray, wrapper views, Object.keys, snapshot.** |
 | CS-R36 | live | `docs/rules-mining/core-store.md:164` | — | — | An active optimistic hold on a wrapper view masks inner-store changes for the view's subscribers: mid-hold inner refresh landing causes ZERO re-runs of the view's structural subscribers; the reveal re… |
 | CS-R37 | live | `docs/rules-mining/core-store.md:169` | projection.ts×1 | createProjection.draft-lifetime-3585.test.ts×1 visibility-oracle-store.states.ts×3 | Setting store state from effect callbacks and promise resolutions works, applying next flush.** |
 | CS-R38 | live | `docs/rules-mining/core-store.md:175` | — | — | Shallow stores: root keys reactive (per-key nodes, membership, length), values served raw by identity at every depth, arrays and objects.** |
@@ -528,4 +528,4 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | S-55 | executable, standing | `docs/SCENARIOS.md:1460` | — | — | [executable, standing] `refresh` of an optimistic derivation under a guess: the authoritative view replaces the guess, or the guess stays until its action ends — F-11, D-34 |
 | S-56 | executable, standing | `docs/SCENARIOS.md:1488` | dev.ts×1 | createOptimistic.test.ts×1 superseded-before-first-commit.test.ts×2 uninitialized-visibility.test.ts×2 visibility-oracle.states.ts×3 | [executable, standing] A guess before the first answer is the newest value the node has produced: it shows, and the first answer judges it — F-11, D-22, D-2 |
 | S-57 | executable, standing | `docs/SCENARIOS.md:1513` | core.ts×1 lanes.ts×3 scheduler.ts×1 verdict.ts×1 | — | [executable, standing] A change whose derivation became a guess's lane work holds on that flight, and reveals with the lane — F-2, F-1, F-6 |
-| S-58 | executable, standing | `docs/SCENARIOS.md:1561` | core.ts×2 lanes.ts×1 scheduler.ts×1 | — | [executable, standing] A display-ahead gate is the same mainline mount with any number of memos between the probe and the branch — D-25, F-1 (#4708) |
+| S-58 | executable, standing | `docs/SCENARIOS.md:1561` | core.ts×4 lanes.ts×1 scheduler.ts×1 | zombie-errored-retry-4405.test.ts×2 | [executable, standing] A display-ahead gate is the same mainline mount with any number of memos between the probe and the branch — D-25, F-1 (#4708, #4405) |
