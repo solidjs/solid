@@ -115,7 +115,9 @@ export async function recordStream(
  * silently re-recording: either the artifact was not re-recorded with the
  * change that moved it (run the server suite and commit it), or the recorder
  * is not deterministic for this fixture. The committed artifacts are the
- * native compiler's; a `JSX_COMPILER=babel` run is an A/B and only writes.
+ * native compiler's unlowered output; a `JSX_COMPILER=babel` run is an A/B and a
+ * `LOWER_SHOW=1` run (lowered `<Show>`, different `_hk` numbering) is a variant,
+ * so both only write: their hydrate half replays what they recorded.
  */
 export function writeArtifact(name: string, data: unknown): void {
   const file = resolve(artifactsDir, `${name}.json`);
@@ -124,7 +126,7 @@ export function writeArtifact(name: string, data: unknown): void {
   if (prev === next) return;
   writeFileSync(file, next);
   const ci = process.env.CI && process.env.CI !== "false" && process.env.CI !== "0";
-  if (!ci || process.env.JSX_COMPILER === "babel") return;
+  if (!ci || process.env.JSX_COMPILER === "babel" || process.env.LOWER_SHOW === "1") return;
   throw new Error(
     prev === undefined
       ? `artifact ${name}.json is not committed: this run wrote it fresh. Run the server ` +
