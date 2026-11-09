@@ -36,6 +36,35 @@ export const nestedComponent = (
   </Outer>
 );
 
+export const beforeComponent = (
+  <Switch>
+    {/* istanbul ignore next */}
+    <Match when={condition()}>
+      <div>A</div>
+    </Match>
+  </Switch>
+);
+
+export const fragmentPragma = (
+  <Comp>
+    <>
+      {/* c8 ignore next */}
+      <div>A</div>
+    </>
+  </Comp>
+);
+
+export const fragmentBeforeComponent = (
+  <Comp>
+    <>
+      {/* istanbul ignore next */}
+      <Match when={condition()}>
+        <div>A</div>
+      </Match>
+    </>
+  </Comp>
+);
+
 export const twoContainers = (
   <Comp>
     {/* istanbul ignore next */}
@@ -108,4 +137,37 @@ export const lookalike = (
     {/* c8 ignored */}
     <div>A</div>
   </Comp>
+);
+
+export const beforeComponentNoGetter = (
+  <Parent>
+    {/* istanbul ignore next */}
+    <Child when={condition()} />
+  </Parent>
+);
+
+export const beforeComponentStaticText = (
+  <Parent>
+    {/* istanbul ignore next */}
+    <Child>hello</Child>
+  </Parent>
+);
+
+export const fragmentBeforeComponentNoGetter = (
+  <Parent>
+    <>
+      {/* istanbul ignore next */}
+      <Child when={condition()} />
+    </>
+  </Parent>
+);
+
+export const stackedBeforeAndOwn = (
+  <Parent>
+    {/* istanbul ignore next */}
+    <Child>
+      {/* c8 ignore next */}
+      {state.value}
+    </Child>
+  </Parent>
 );

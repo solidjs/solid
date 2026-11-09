@@ -163,7 +163,7 @@ fn is_dynamic_with_namespaces(
 /// `check_tags`, JSX elements and non-empty JSX fragments count as dynamic;
 /// without it their subtrees are skipped entirely, exactly like Babel's
 /// `p.skip()`.
-fn is_dynamic_deep(value: &Expression<'_>, check_tags: bool) -> bool {
+pub(crate) fn is_dynamic_deep(value: &Expression<'_>, check_tags: bool) -> bool {
     use oxc_ast_visit::Visit;
 
     if matches!(
