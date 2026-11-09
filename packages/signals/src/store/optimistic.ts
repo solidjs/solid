@@ -276,9 +276,16 @@ export function notifyOptimisticWrites(
       // write): the draft's rows are clones of the view's, so a carried row
       // is a new object with the view's contents — the same row, as the
       // server's echo of a guessed one is (`echoes`, #3898).
-      if (!isEqual(ov, nv) && !targetsEqual(ov, nv) && !(isArr && echoes(ov, nv))) {
-        changed.add(key);
-        if (isArr) structural = true;
+      if (!isEqual(ov, nv) && !targetsEqual(ov, nv)) {
+        if (isArr && echoes(ov, nv)) {
+          // The frame carries the row the view showed, not the draft's clone
+          // of it: the same object wraps as the same proxy (a list keeps its
+          // row identities across a structural guess, deep-chained-view).
+          pb[key as any] = previous;
+        } else {
+          changed.add(key);
+          if (isArr) structural = true;
+        }
       }
     }
   }

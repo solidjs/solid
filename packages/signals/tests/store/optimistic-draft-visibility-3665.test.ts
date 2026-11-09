@@ -259,7 +259,8 @@ describe("#3665 — a second setter in the same action sees the first setter's a
       await run;
       flush();
       expect(keys).toEqual(["a", "b"]);
-      expect(afterWrite!.h).toEqual(["b"]); // the add's own presence override
+      // S2: the add is the target's guess carrier's, not a presence node's.
+      expect(afterWrite!.h).toEqual([]);
       expect(afterEnumerate).toEqual(afterWrite);
       dispose();
     });

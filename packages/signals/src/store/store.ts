@@ -1902,6 +1902,18 @@ function serveDataKey(
       } else v = nv;
     }
   }
+  return serveKeyValue(target, key, v, chained, node);
+}
+/** The value of `key` as the reader gets it: shallow-served, a chained raw
+ * resolved to the inner store's (#3767, #3859), a wrappable wrapped (cached
+ * on the key's node by value identity). */
+function serveKeyValue(
+  target: StoreTarget,
+  key: PropertyKey,
+  v: any,
+  chained: boolean,
+  node?: Signal<any>
+): any {
   if (target.s) return serveShallow(target, key, v);
   // A derive's draft wrapper answers `$TARGET` without being a proxy: the
   // inner store's alias (#3767), resolved like a raw (#3859).
@@ -2217,9 +2229,9 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
         // the guess covers it): the next guess on the key, on a carrier of
         // its own, reaches the reader through it (`readersOf`).
         const obs = getObserver();
-        if (obs !== null) link(getNode(target, key), obs as Computed<any>);
-        if (target.s) return serveShallow(target, key, v);
-        return isWrappable(v) ? draftServe(target, wrap(v, target, key)) : v;
+        const node = obs !== null ? getNode(target, key) : target.n?.[key as any];
+        if (obs !== null) link(node!, obs as Computed<any>);
+        return serveKeyValue(target, key, v, false, node);
       }
     }
     // Hot inline case: existing PLAIN node (non-accessor) read outside any
@@ -2425,6 +2437,23 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     // presence (R13).
     const plain = obs !== null && !inDraft(target) && !writeOverride;
     const enumerating = plain && observerHoldsContainer(target, obs);
+    // S2: a key a live guess changed is described from the carrier's frame —
+    // before the presence node answers (silent while the guess covers it).
+    if (!enumerating && target.kg !== null && !inDraft(target) && !writeOverride) {
+      const g = guessFor(target, key, true);
+      if (g !== null) {
+        if (obs !== null) link(getHasNode(target, key), obs as Computed<any>);
+        const frame = readNode(g) as Record<PropertyKey, any>;
+        if (!(key in frame)) return undefined;
+        const value = frame[key as any];
+        const d: PropertyDescriptor =
+          key === "length" && Array.isArray(frame)
+            ? { value, writable: true, enumerable: false, configurable: false }
+            : { value, writable: true, enumerable: true, configurable: true };
+        if (!(key === "length" && Array.isArray(shell))) d.configurable = true;
+        return d;
+      }
+    }
     let src: Record<PropertyKey, any>;
     if (enumerating) src = enumerationSource(target);
     else if (plain) {
@@ -2441,20 +2470,6 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
         return undefined;
     } else src = readSource(target, key, true);
     let desc: PropertyDescriptor | undefined;
-    // S2: a key a live guess changed is described from the carrier's frame.
-    if (!enumerating && target.kg !== null && !inDraft(target) && !writeOverride) {
-      const g = guessFor(target, key, true);
-      if (g !== null) {
-        if (obs !== null) link(getHasNode(target, key), obs as Computed<any>);
-        const frame = readNode(g) as Record<PropertyKey, any>;
-        if (!(key in frame)) return undefined;
-        const value = frame[key as any];
-        desc =
-          key === "length" && Array.isArray(frame)
-            ? { value, writable: true, enumerable: false, configurable: false }
-            : { value, writable: true, enumerable: true, configurable: true };
-      }
-    }
     desc ??= visibleDescriptor(target, src, key);
     if (desc === undefined) return undefined;
     if (!(key === "length" && Array.isArray(shell))) desc.configurable = true;
