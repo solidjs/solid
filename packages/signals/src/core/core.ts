@@ -861,6 +861,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // same screen.
       !!(outgoingError && tx) ||
       !!replaced ||
+      // Lane work on a node a held pass created (its owner's staging is the
+      // frame's, not yet revealed): it has no screen, so the lane's value is
+      // a change, whatever its first pass published (#3835, F-11).
+      (lane !== null && (el._parent as Computed<any> | null)?._config! & CONFIG_HELD) ||
       !isSame(el, compareValue, value);
 
     // A committed derived change becomes a cause for this node's subscribers,

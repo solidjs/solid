@@ -1803,6 +1803,7 @@ module.exports = [
     // (26,739 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, over next @ 71a6a75: #4512, #4506, #4509): 9.78 KB -> 9.80 KB, recorded minified 26,739 -> 26,754 B (+15 B), measured at 9,781 B brotli. Re-recorded once after the batch, per the batch process.
+    // 2026-11-09 (#4727, over next @ ebd6283, size job 129310970054): a root ternary under a guess (#3835 shape, +29 B minified, lane engine only) and an Errored fallback's isPending ternary after a reset (+8 B everywhere): 9.80 KB -> 9.81 KB (floor-caps.json, Size-Exception), recorded minified 26,754 B unchanged, measured in CI at 9,808 B brotli / 26,578 B minified. Growth accepted by the maintainer (2026-11-09); cap held at 9.81 KB rather than measured + 10 B.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
@@ -4113,7 +4114,8 @@ module.exports = [
     // measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): cap unchanged, recorded minified 27,270 -> 27,271 B, measured in CI at 9,961 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
     // Batch re-record (2026-10-30, over next @ 563b6b0): cap unchanged, recorded minified 27,271 -> 27,284 B (+13 B), measured locally (linux) at 9,963 B brotli. Growth is the 2026-10-30 merges (#4454, #4457, #4461). Recorded minified = measured.
-    limit: "9.98 KB",
+    // 2026-11-09 (#4727, over next @ ebd6283, size job 129310970054): a root ternary under a guess (#3835 shape, lane engine only) and an Errored fallback's isPending ternary after a reset (+8 B minified): 9.98 KB -> 9.99 KB, recorded minified 27,284 B unchanged, measured in CI at 9,988 B brotli / 27,056 B minified. Growth accepted by the maintainer (2026-11-09); held at 9.99 KB, under the 10 KB stop.
+    limit: "9.99 KB",
     capMinified: 27284,
     alias
   },
@@ -5787,6 +5789,7 @@ module.exports = [
     // Re-record (2026-11-05, over next @ 5208944, measured locally: #4682, #4677): 40.14 KB -> 40.30 KB, recorded minified 120,619 -> 121,153 B (+534 B: #4682 +7 B, #4677 +527 B), measured at 40,289 B brotli. A frozen floor, Size-Exception in this PR's body. Re-recorded in the fix's own change rather than in a batch, at the maintainer's request.
     // Batch re-record (2026-11-08, over next @ 2789ca9, measured locally: #4714, #4711, #4717, #4719, #4720): cap unchanged at 40.76 KB, recorded minified 122,905 -> 123,070 B (+165 B), measured at 40,734 B brotli. A frozen floor, Size-Exception in this PR's body. Re-recorded once after the batch, per the batch process.
     // 2026-11-09 (#4726, over next @ db3d13d, measured locally, matching the PR's size job): a zombie does not retry an errored source (#4405's one-hop livelock, +11 B) and the S-46 mount stamp passes through a boundary in the mount (S-58, +33 B, lane engine only): 40.76 KB -> 40.81 KB (floor-caps.json, Size-Exception), recorded minified 123,070 -> 123,206 B (+136 B: +44 B this PR, +92 B from #4723 not yet re-recorded), measured at 40,798 B brotli. Growth accepted by the maintainer.
+    // 2026-11-09 (#4727, over next @ ebd6283, size job 129310970054): a root ternary under a guess (#3835 shape, +29 B minified, lane engine only) and an Errored fallback's isPending ternary after a reset (+8 B): 40.81 KB -> 40.82 KB (floor-caps.json, Size-Exception), recorded minified 123,206 -> 123,243 B (+37 B), measured in CI at 40,811 B brotli. Growth accepted by the maintainer (2026-11-09).
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
