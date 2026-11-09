@@ -65,7 +65,8 @@ import {
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
-  CONFIG_ASYNC
+  CONFIG_ASYNC,
+  REACTIVE_ZOMBIE
 } from "./constants.js";
 import { keptGuess } from "./lanes.js";
 import {
@@ -573,7 +574,12 @@ export function slot(
   /** D-41 (#2897): an errored derivation's retry — a tracked re-read on a
    * later cycle than the one that found the error re-runs it and reads
    * again; the re-read is compared on its own (a nested frame). */
-  const retry = errored && tracked && c !== null && (el as Computed<any>)._time < clock;
+  const retry =
+    errored &&
+    tracked &&
+    c !== null &&
+    (el as Computed<any>)._time < clock &&
+    !((el as Computed<any>)._flags & REACTIVE_ZOMBIE);
 
   // ── U: no pass ──────────────────────────────────────────────────────────
   if (posture === POSTURE_U) {

@@ -12,10 +12,11 @@ export default {
     "A display-ahead gate is the same mainline mount with any number of memos between the probe and the branch",
   rules: ["D-25", "F-1"],
   status: "standing",
-  issues: ["#4708"],
+  issues: ["#4708", "#4405"],
   pins: [
     "tests/verdict-mount-first-pass-3851.test.ts",
-    "web/test/display-ahead-gate-hops.spec.tsx"
+    "web/test/display-ahead-gate-hops.spec.tsx",
+    "tests/zombie-errored-retry-4405.test.ts"
   ],
   names: { s0: "id", m0: "detail", F: "[none]" },
   cases: [
@@ -216,6 +217,68 @@ export default {
           after: 3,
           screen: "<span data-a0=vm0:1 ></span>",
           why: "the branch attached inside the lane with the committed value (S-46 ✗2, in a lane) — every gate shape before this case was built; the frame then stayed on screen after `detail` answered"
+        }
+      ]
+    },
+    {
+      label: "⁗",
+      scenario: {
+        signals: [0],
+        memos,
+        tree: {
+          t: "group",
+          kids: [
+            leaf(plain(s(0))),
+            leaf(plain(m(0))),
+            {
+              t: "show",
+              when: { how: "latest", src: s(0) },
+              fallback: true,
+              child: { t: "errored", child: leaf(plain(s(0))) }
+            }
+          ]
+        },
+        steps: [settle(), task, write(0, 1), flush, settle(), task]
+      },
+      variants: [{ gate: "memo" }, { gate: "cond" }],
+      frames: [
+        { after: 1, screen: "<span>vs0:0 </span><span>vm0:1 </span>[F]", note: "primed" },
+        {
+          after: 3,
+          screen: "—",
+          note: "case 1 with an `<Errored>` around the branch's content: the boundary is part of the mount, so the content's first pass is the mount's and is born held — the fallback stays through every gate shape"
+        },
+        { after: 5, screen: "<span>vs0:1 </span><span>vm0:2 </span><span>vs0:1 </span>" }
+      ],
+      forbid: [
+        {
+          after: 3,
+          screen: "<span>vs0:0 </span><span>vm0:1 </span><span></span>",
+          why: "the branch attached with its hole empty (F-2): the mount stamp (S-46) did not reach a first pass the mount's boundary created, so the content behind it was served as a plain leaf — through a hand-written gate, before this case was built"
+        }
+      ]
+    },
+    {
+      label: "⁗′",
+      scenario: JSON.parse(
+        `{"signals":[2,3],"memos":[{"async":false,"deps":[{"src":{"k":"s","i":0},"how":"plain"},{"src":{"k":"s","i":1},"how":"latest"}],"poison":0},{"async":false,"deps":[{"src":{"k":"m","i":0},"how":"plain"},{"src":{"k":"s","i":1},"how":"plain"}],"poison":1}],"tree":{"t":"show","when":{"how":"plain","src":{"k":"m","i":1}},"child":{"t":"leaf","text":[],"attrs":[],"grouped":true},"fallback":false},"steps":[{"t":"action","s":1,"v":2},{"t":"settle","pick":2},{"t":"write","s":0,"v":3},{"t":"task"},{"t":"action","s":1,"v":1}]}`
+      ),
+      variants: [
+        { remount: true },
+        { remount: true, gate: "memo" },
+        { remount: true, gate: "cond" }
+      ],
+      frames: [
+        { after: "render", screen: "<span></span>" },
+        {
+          after: 3,
+          screen: "[ROOT-E]",
+          note: "#4405's minimized shape: the action's landing, a write that poisons `m1` and (variant) a remount of the gate in one tick"
+        },
+        {
+          after: 4,
+          screen: "—",
+          note: "a second action re-asks `detail` through `latest(s1)`; the remounted gate's old content is a zombie until the hold lands and reads the same errored memo. It settles in every hop count: before this case was built the one-hop gate looped (\"Potential Infinite Loop Detected\") — the zombie retried the errored memo every round (a later cycle's retry, PJ-R35), and the fresh error re-derived the live gate, whose retry next round re-derived the zombie"
         }
       ]
     }
