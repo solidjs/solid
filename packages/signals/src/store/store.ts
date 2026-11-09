@@ -471,9 +471,14 @@ export function newestGuess(t: StoreTarget): Signal<any> | null {
  * re-based, folded, or a correction — optimistic.ts `patchEquals`). */
 function judgeGuesses(t: StoreTarget, truth: Record<PropertyKey, any>): void {
   const kg = t.kg;
-  if (kg !== null)
-    for (let i = 0; i < kg.length; i++)
-      if (kg[i]._config & (CONFIG_OVERRIDE | CONFIG_HELD)) setSignal(kg[i], truth);
+  if (kg === null) return;
+  // The frame as landed, not the backing by reference: a later batch writes
+  // the backing in place, and a truth staged beneath a guess (a correction
+  // held for the hold's end) must stay the answer it was — the next landing
+  // is judged against it, and its readers re-derive when it differs.
+  const frame = Array.isArray(truth) ? (truth as any[]).slice() : { ...truth };
+  for (let i = 0; i < kg.length; i++)
+    if (kg[i]._config & (CONFIG_OVERRIDE | CONFIG_HELD)) setSignal(kg[i], frame);
 }
 /** A guessed key's value from the carrier's frame: the key the guess
  * removed reads absent (`undefined`). */
@@ -2440,6 +2445,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (!enumerating && target.kg !== null && !inDraft(target) && !writeOverride) {
       const g = guessFor(target, key, true);
       if (g !== null) {
+        if (obs !== null) link(getHasNode(target, key), obs as Computed<any>);
         const frame = readNode(g) as Record<PropertyKey, any>;
         if (!(key in frame)) return undefined;
         const value = frame[key as any];
