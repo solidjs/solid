@@ -165,7 +165,7 @@ pub(crate) fn lower_component_with_setup<'a, C: ComponentLower<'a>>(
         }
     }
 
-    let children = component_children(ctx, &element.children)?;
+    let children = component_children(ctx, element)?;
     if let Some(children) = children {
         if children.needs_getter {
             running_props.push(crate::shared::ast::object_getter_property_with_setup(
