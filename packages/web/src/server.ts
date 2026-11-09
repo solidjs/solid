@@ -49,6 +49,7 @@ import { observeRender, timesServerWork } from "./server-observe.js";
 import { records } from "./observe.js";
 import {
   createHydrationSerializer,
+  rejectUnserializedKey,
   getLocalHeaderScript
 } from "../serialization/src/serializer.js";
 // Wire-protocol header names for the commit fold's gap-fill denylist
@@ -158,17 +159,26 @@ export type PreloadLink = PreloadLinkAttributes &
  * (unknown fields pass through untyped), but any bundler integration can
  * produce it. Only these fields are ever read: `preloads` is Solid's
  * extension slot for explicit typed links the integration selects.
+ *
+ * Keys are module ids, except `_`-prefixed metadata strings: `_base` (the
+ * public base joined with every `file`), plus any an integration stamps,
+ * such as the vite plugin's `_entry`. The index signature carries both
+ * (solidjs/solid#4502), so a read by key is an entry only once narrowed,
+ * e.g. `typeof entry === "object"`.
  */
-export type AssetManifest = Record<
-  string,
-  {
-    file: string;
-    css?: string[];
-    isEntry?: boolean;
-    imports?: string[];
-    preloads?: PreloadLink[];
-  }
-> & { _base?: string };
+export type AssetManifest = {
+  [key: string]:
+    | {
+        file: string;
+        css?: string[];
+        isEntry?: boolean;
+        imports?: string[];
+        preloads?: PreloadLink[];
+      }
+    | string
+    | undefined;
+  _base?: string;
+};
 
 /** Inline style content, e.g. dev CSS collected from a bundler's module graph. */
 export type InlineStyleAsset = {
@@ -437,8 +447,9 @@ function hasWidthDescriptor(srcset) {
 function resolveAssets(moduleUrl, manifest) {
   if (!manifest) return null;
   const base = manifest._base;
+  // Entries are objects; `_`-prefixed keys hold metadata strings (#4502).
   const entry = manifest[moduleUrl];
-  if (!entry) return null;
+  if (!entry || typeof entry !== "object") return null;
   const css = [];
   const js = [];
   let preloads;
@@ -447,7 +458,7 @@ function resolveAssets(moduleUrl, manifest) {
     if (visited.has(key)) return;
     visited.add(key);
     const e = manifest[key];
-    if (!e) return;
+    if (!e || typeof e !== "object") return;
     js.push(joinAssetPath(base, e.file));
     if (e.css) for (let i = 0; i < e.css.length; i++) css.push(joinAssetPath(base, e.css[i]));
     if (e.preloads) {
@@ -491,7 +502,9 @@ function registerEntryAssets(manifest) {
   const ctx = sharedConfig.context;
   if (!ctx?.registerAsset) return;
   for (const key in manifest) {
-    if (manifest[key].isEntry) {
+    // Metadata keys (`_base`, `_entry`) hold strings, or `undefined` (#4502).
+    const entry = manifest[key];
+    if (entry && entry.isEntry) {
       const assets = resolveAssets(key, manifest);
       if (assets) {
         if (assets.preloads)
@@ -500,7 +513,7 @@ function registerEntryAssets(manifest) {
         for (let i = 0; i < assets.css.length; i++) ctx.registerAsset("style", assets.css[i]);
         // js[0] is the entry itself, which the document loads with its own <script>;
         // preload only its static import closure.
-        for (let i = 1; i < assets.js.length; i++) ctx.registerAsset("module", assets.js[i]);
+        for (let i = 1; i < assets.js.length; i++) ctx.registerAsset("module", assets.js[i], true);
       }
       return;
     }
@@ -509,7 +522,7 @@ function registerEntryAssets(manifest) {
 
 // ---- Asset Tracking ----
 
-function createAssetTracking() {
+function createAssetTracking(lowPriorityPreloads) {
   const boundaryModules = new Map();
   const boundaryStyles = new Map();
   const emittedAssets = new Set();
@@ -521,6 +534,7 @@ function createAssetTracking() {
     emittedAssets,
     inlineStyles,
     preloadLinks: null,
+    lowModules: lowPriorityPreloads !== false ? new Set() : null,
     // Inline styles (dev CSS collected from the module graph, critical CSS)
     // dedupe by `id` — repeated registrations reuse the same entry object so
     // boundary Sets and the head injection never emit the same style twice.
@@ -728,6 +742,12 @@ function preloadInvalid(field, message, value) {
 // with the client's skip (client.ts). `data.type` is the one thing safe to
 // record about an arbitrary value; the value itself rides `data.value` for
 // the console consumer.
+
+// Finished markup is only what this runtime made: its nodes carry this symbol
+// as `$` (`Symbol.for`, so duplicate runtime copies agree). No data, JSON
+// included, can hold a symbol value, so a plain object with a `t` key is data
+// and never markup. A named key keeps the check one plain property read.
+const SSR_NODE = /*#__PURE__*/ Symbol.for("solid.ssrNode");
 function unrecognizedInsert(node) {
   devCheck({
     code: "UNRECOGNIZED_INSERT_VALUE",
@@ -1131,7 +1151,7 @@ function emitHeadResource(registry, context, tracking, emitResource, nonce, desc
     if (plain && props.href != null) {
       const isCss = isCssUrl(props.href);
       if (rel === "stylesheet" ? isCss : !isCss) {
-        context.registerAsset(rel === "stylesheet" ? "style" : "module", props.href);
+        context.registerAsset(rel === "stylesheet" ? "style" : "module", props.href, true);
         return;
       }
     }
@@ -1488,6 +1508,14 @@ function nonceDestination(tag, props) {
   }
 }
 
+// `lowModules` (null when `lowPriorityPreloads: false`) holds the module hints that
+// keep default priority: the entry's static import closure and authored links. Every
+// other module hint goes low, yielding bandwidth to the modules hydration waits on.
+function modulePreloadLink(url, scriptAttr, lowModules) {
+  const priority = lowModules && !lowModules.has(url) ? ' fetchpriority="low"' : "";
+  return `<link rel="modulepreload" href="${url}"${priority}${scriptAttr}>`;
+}
+
 function nonceAttr(nonce, destination) {
   if (!nonce || !destination) return "";
   return destination === "script" ? nonce.scriptAttr : nonce.styleAttr;
@@ -1736,6 +1764,13 @@ export function renderToString<T>(
     plugins?: SerializerPlugin[];
     manifest?: AssetManifest | AssetResolver | AssetResolverFn;
     /**
+     * Server modulepreload hints for modules outside the entry's static import
+     * closure (lazy and route chunks) carry `fetchpriority="low"` so they do not
+     * compete with the modules hydration waits on. `false` emits them at default
+     * priority.
+     */
+    lowPriorityPreloads?: boolean;
+    /**
      * This render's server error hook, ahead of `configureServerErrors`'
      * (see `ServerErrorHook`): every failure the render handles — an
      * `<Errored>` fallback (`handling: "fallback"`), a hydration value that
@@ -1783,7 +1818,7 @@ export function renderToString(code, options = {}) {
     },
     onError: serializerErrorHook(options.onError)
   });
-  const tracking = createAssetTracking();
+  const tracking = createAssetTracking(options.lowPriorityPreloads);
   const headRegistry = createHeadRegistry();
   // Render-local, never on the context: the finished context lingers as the
   // module global, and another request's writes must not read this latch.
@@ -1815,7 +1850,7 @@ export function renderToString(code, options = {}) {
       }
       serializer.write(id, p);
     },
-    registerAsset(type, value) {
+    registerAsset(type, value, defaultPriority) {
       if (type === "preload") {
         registerPreloadLink(tracking, headRegistry, value, nonce);
         return;
@@ -1832,6 +1867,7 @@ export function renderToString(code, options = {}) {
         }
         styles.add(value);
       }
+      if (defaultPriority && tracking.lowModules) tracking.lowModules.add(value);
       tracking.emittedAssets.add(value);
     }
   };
@@ -1878,7 +1914,8 @@ export function renderToString(code, options = {}) {
         scripts.length ? scripts : "",
         nonce,
         head,
-        onHead
+        onHead,
+        tracking.lowModules
       ),
       context,
       renderId,
@@ -1943,6 +1980,13 @@ export function renderToStream<T>(
     noScripts?: boolean;
     plugins?: SerializerPlugin[];
     manifest?: AssetManifest | AssetResolver | AssetResolverFn;
+    /**
+     * Server modulepreload hints for modules outside the entry's static import
+     * closure (lazy and route chunks) carry `fetchpriority="low"` so they do not
+     * compete with the modules hydration waits on. `false` emits them at default
+     * priority.
+     */
+    lowPriorityPreloads?: boolean;
     onCompleteShell?: (info: { write: (v: string) => void }) => void;
     onCompleteAll?: (info: { write: (v: string) => void }) => void;
     /**
@@ -1950,7 +1994,10 @@ export function renderToStream<T>(
      * (see `ServerErrorHook`): every failure the render handles — an
      * `<Errored>` fallback (`handling: "fallback"`), a rejected fragment
      * (`"client"`), a hydration value that would not serialize
-     * (`"serialize"`) — and the one that fails the request (`"failed"`),
+     * (`"serialize"`: an async value that fails before the first flush
+     * also fails the render, with no `onCompleteAll`; after it, its key
+     * rejects on the client — #4647) — and the one that fails the request
+     * (`"failed"`),
      * once per error per kind per request (per render outside one), with
      * where it was met. A one-argument listener still
      * works; it hears them all — filter on `context.handling` for the
@@ -1973,13 +2020,19 @@ export function renderToStream<T>(
      * The request's lifecycle. Aborting tears the render down exactly as a
      * client disconnect does (`SSR_STREAM_ABANDONED`, `data.reason:
      * "signal"`): in-flight reactive work is disposed, every async source
-     * still being pulled is returned, and nothing more reaches the sink. For
-     * the host whose transport cannot report a dead consumer through the
-     * sink or the readable view — a frame stream whose emission never
-     * touches the document writable, a platform whose response body is
-     * consumed by a proxy — this is the one teardown handle; pass
+     * still being pulled is returned, and nothing more is written to the
+     * sink. For the host whose transport cannot report a dead consumer
+     * through the sink or the readable view — a frame stream whose emission
+     * never touches the document writable, a platform whose response body
+     * is consumed by a proxy — this is the one teardown handle; pass
      * `request.signal`. Idempotent with the sink and consumer paths: whichever
      * fires first tears down, the rest are no-ops.
+     * Awaiting the render rejects with `signal.reason` when this signal aborts;
+     * the streaming forms stop writing and end cleanly — a close, not an
+     * error, since bytes are already out: `pipe` ends its sink, `pipeTo`
+     * closes its writable (after the writes already handed to it) and
+     * resolves, and `readable` closes. `onError` and `onCompleteAll` are not
+     * called (#4646).
      */
     signal?: AbortSignal;
   }
@@ -1988,8 +2041,8 @@ export function renderToStream<T>(
    * Awaiting the stream resolves with the complete HTML once every boundary
    * settles — the fully-settled-string form of the render (`const html =
    * await renderToStream(...)`). Render errors route through `onError` and
-   * the promise resolves with whatever HTML the render produced; it never
-   * rejects.
+   * the promise resolves with whatever HTML the render produced. Signal
+   * cancellation rejects with `signal.reason`.
    *
    * Completion is this path's head-freeze point: the request event's
    * `response` head (the request scope the render was started in) is
@@ -2069,8 +2122,9 @@ export function renderToStream(code, options = {}) {
   // (`failRender`), silently: that one is already the render error's
   // finding.
   //
-  // The two differ in what is left alive. After a disconnect nobody is
-  // listening: the sink is never touched again (`disconnected`). After a
+  // The two differ in what is left alive. After a disconnect nothing more
+  // is written to the sink (`disconnected`, holding the reason); only a
+  // `signal` abort, whose sink is still alive, ends it (below). After a
   // render FAILURE the consumer is still waiting — the awaited promise, a
   // `pipe` sink, a `pipeTo` writable — and must be completed by the
   // wind-down itself, because nothing downstream will: seroval's `onDone`
@@ -2078,14 +2132,18 @@ export function renderToStream(code, options = {}) {
   // assemble on a disposed render and returns early. Left incomplete, an
   // awaited `renderToStream` hung the request forever (#3569). Each
   // consumer registers its completion through `onFailure` (they chain —
-  // `then` may be called more than once, and beside a pipe); a failure that
-  // lands before the consumer claims the render runs it at registration.
+  // `then` may be called more than once, and beside a pipe); a wind-down
+  // that lands before the consumer claims the render runs it at
+  // registration. A disconnect runs it too, with `gone` naming it (the
+  // `abandon` reason): a promise still waiting on the render — the awaited
+  // form, `pipeTo`, `createSSRResponse`'s shell (`SHELL_ABANDONED`) — must
+  // settle, or it hangs the caller the same way (#4646). The awaited form
+  // rejects with `signal.reason` when the `signal` aborted. A dead sink
+  // (`"sink"`, `"consumer"`) is left alone; on a `"signal"` abort the sink
+  // is alive, so the streaming forms write nothing more but end it cleanly
+  // — a close, not an error: the bytes already sent stay sent.
   let disconnected = false;
-  let failed = false;
   let onFailed;
-  // A disconnect leaves the sink alone, but `createSSRResponse`'s promise
-  // still waits on a shell that will never come (see `SHELL_ABANDONED`).
-  let onDisconnectedBeforeShell;
   // What the render still hands the serializer once it is torn down: a
   // rejection with nobody to hear it is owned here; an iterable is never
   // started, so there is nothing to return.
@@ -2100,12 +2158,12 @@ export function renderToStream(code, options = {}) {
     close() {}
   };
   const onFailure = complete => {
-    if (failed) return complete(undefined);
+    if (dead) return complete(undefined, disconnected || undefined);
     const prev = onFailed;
     onFailed = prev
-      ? sink => {
-          prev(sink);
-          complete(sink);
+      ? (sink, gone) => {
+          prev(sink, gone);
+          complete(sink, gone);
         }
       : complete;
   };
@@ -2128,7 +2186,7 @@ export function renderToStream(code, options = {}) {
       );
     dead = true;
     completed = true;
-    if (disconnect) disconnected = true;
+    if (disconnect) disconnected = disconnect;
     // The render's record ends here, with how: the client left, or the
     // render failed (the render error's finding says why).
     if (render) settleRender(render, rootOwner, disconnect ? "abandoned" : "error");
@@ -2180,10 +2238,7 @@ export function renderToStream(code, options = {}) {
       for (const p of stubBatch.values()) defuse(p);
       stubBatch = null;
     }
-    if (!disconnect) {
-      failed = true;
-      onFailed && onFailed(sink);
-    } else if (!sink && onDisconnectedBeforeShell) onDisconnectedBeforeShell();
+    onFailed && onFailed(sink, disconnect);
   };
   // A retry pass that throws a REAL error (not NotReady) can have nothing on
   // the stack to catch it: the initial render pass throws synchronously out
@@ -2307,22 +2362,41 @@ export function renderToStream(code, options = {}) {
   let stableOrder = false;
   let parkedWrites = null;
   const byKey = (a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  // A failure reported after write returns leaves a pending client key
+  // (#4647). Before the first flush nothing has reached the client, so the
+  // render fails: the shell is not sent and `onCompleteAll` does not fire
+  // (Ryan's ruling, 2026-11-03). After it the page is midstream: the default
+  // serializer rejects the key, and whatever of its value already went out,
+  // on the client (`rejectUnserializedKey`) and the render completes. Keep synchronous failures completing as before (#4227). A
+  // buffered stream can emit its initial chunk and fail inside write;
+  // detecting that case would require publication information from the
+  // serializer.
+  let writing = 0;
+  let stranded = false;
+  const handOver = (id, value) => {
+    writing++;
+    try {
+      serializer.write(id, value);
+    } finally {
+      writing--;
+    }
+  };
   const write = (id, value) => {
     if (stableOrder && !dead) (parkedWrites ||= []).push([id, value]);
-    else serializer.write(id, value);
+    else handOver(id, value);
   };
   const flushParkedWrites = () => {
     if (!parkedWrites) return;
     const writes = parkedWrites.sort(byKey);
     parkedWrites = null;
-    for (let i = 0; i < writes.length; i++) serializer.write(writes[i][0], writes[i][1]);
+    for (let i = 0; i < writes.length; i++) handOver(writes[i][0], writes[i][1]);
   };
   const flushStubBatch = () => {
     if (!stubBatch) return;
     const entries = [...stubBatch];
     stubBatch = null;
     if (stableOrder) entries.sort(byKey);
-    for (let i = 0; i < entries.length; i++) serializer.write(entries[i][0], entries[i][1]);
+    for (let i = 0; i < entries.length; i++) handOver(entries[i][0], entries[i][1]);
   };
   let headerEmitted = false;
   const pushTask = task => {
@@ -2348,6 +2422,9 @@ export function renderToStream(code, options = {}) {
     // wind-down, so seroval still reaches here; do nothing (#3569).
     if (dead) return;
     writeTasks();
+    // A key that failed before the first flush: nothing went out, and the
+    // render fails as a rejection there would, already reported (#4647).
+    if (stranded) return abandon();
     // Every blocker has settled by definition here (the render is complete),
     // so doShell's growth gate has nothing to wait for: align its baseline
     // rather than let a stale flush-loop snapshot hold a finished shell.
@@ -2434,7 +2511,7 @@ export function renderToStream(code, options = {}) {
     // already-rendered markup and write through eagerly.
     asset(type, value) {
       if (type === "module") {
-        buffer.write(`<link rel="modulepreload" href="${value}"${nonceAttr(nonce, "script")}>`);
+        buffer.write(modulePreloadLink(value, nonceAttr(nonce, "script"), tracking.lowModules));
       } else if (type === "preload") {
         buffer.write(`<link${value.attrHtml}>`);
       } else if (type === "inline-style") {
@@ -2460,7 +2537,8 @@ export function renderToStream(code, options = {}) {
             meta.tasks.length ? meta.tasks : "",
             nonce,
             meta.head,
-            onHead
+            onHead,
+            tracking.lowModules
           ),
           context,
           renderId,
@@ -2491,8 +2569,14 @@ export function renderToStream(code, options = {}) {
     // throws from its promise callback and never reaches `onDone` — the
     // render would stay pending. Heard as `handling: "serialize"` by the
     // render's hook, else the ambient one, else `console.error`.
-    onError: err => reportFailure(err, "serialize")
-  });
+    onError: err => {
+      reportFailure(err, "serialize");
+      if (!writing && !options.serializer && !firstFlushed) stranded = true;
+    },
+    // After the first flush: rejects on the client what the failed write
+    // left pending (#4647). Only here, so `renderToString` does not carry it.
+    late: rejectUnserializedKey
+  } as any);
   let rootAssetsSerialized = false;
   const serializeRootAssets = () => {
     if (rootAssetsSerialized) return;
@@ -2773,7 +2857,7 @@ export function renderToStream(code, options = {}) {
       tmp += payload;
     }
   };
-  const tracking = createAssetTracking();
+  const tracking = createAssetTracking(options.lowPriorityPreloads);
   const headRegistry = createHeadRegistry();
   let headScriptFlushed = false;
   // Head patch ops park on `_$HY.hp[key]` and apply when the owning
@@ -2830,7 +2914,7 @@ export function renderToStream(code, options = {}) {
         tags
       );
     },
-    registerAsset(type, value) {
+    registerAsset(type, value, defaultPriority) {
       if (type === "preload") {
         const entry = registerPreloadLink(tracking, headRegistry, value, nonce);
         if (entry && firstFlushed) sink.asset("preload", entry);
@@ -2855,6 +2939,7 @@ export function renderToStream(code, options = {}) {
         }
         styles.add(value);
       }
+      if (defaultPriority && tracking.lowModules) tracking.lowModules.add(value);
       if (!tracking.emittedAssets.has(value)) {
         tracking.emittedAssets.add(value);
         if (firstFlushed) sink.asset(type, value);
@@ -3114,8 +3199,16 @@ export function renderToStream(code, options = {}) {
   // frame stream ending a plain response at its streaming bound (see
   // frame-sink's `frameStream`) — not a client that left: no abandonment
   // finding for it.
+  // `cancelled` is set before the wind-down runs: the awaited form's
+  // completion (see `then`) reads it to reject with `signal.reason` instead
+  // of resolving; the pipe paths only settle (#4646).
+  let cancelled = false;
   const onAbort = signal
-    ? () => abandon("signal", !!(signal.reason && signal.reason.quiet === true))
+    ? () => {
+        if (dead) return;
+        cancelled = true;
+        abandon("signal", !!(signal.reason && signal.reason.quiet === true));
+      }
     : undefined;
   // Dependency edges: the server's signal-naming hooks are installed while
   // an edges render is in flight; this one releases them at its final
@@ -3377,11 +3470,19 @@ export function renderToStream(code, options = {}) {
     // settles and the writable — alive; the RENDER died — is closed so a
     // `Response` built on `readable` completes instead of hanging. Post-
     // shell the live wrapper ends (flushing what it coalesced, then the
-    // writer's own close path); pre-shell nothing was written yet.
-    onFailure(sink => {
+    // writer's own close path); pre-shell nothing was written yet. A
+    // disconnect settles the promise and writes nothing more; a `signal`
+    // abort also closes the (alive) writable — after the writes already
+    // handed to it, dropping what was still coalescing — so a `Response`
+    // built on `readable` ends instead of hanging (#4646). A dead sink
+    // (`"consumer"`) is left alone.
+    let closeOnAbort = () => w.close().catch(() => {});
+    onFailure((sink, gone) => {
       try {
-        if (sink) sink.end();
-        else w.close().catch(() => {});
+        if (!gone) {
+          if (sink) sink.end();
+          else w.close().catch(() => {});
+        } else if (gone === "signal") closeOnAbort();
       } catch (_) {}
       resolve();
     });
@@ -3400,6 +3501,8 @@ export function renderToStream(code, options = {}) {
             return;
           }
           if (!shellCompleted) return flush();
+          // A key failed to serialize before the shell went out (#4647).
+          if (stranded) return abandon();
           const encoder = new TextEncoder();
           const writer = w.getWriter();
           // Writes are chained and awaited before the lock is released.
@@ -3425,6 +3528,10 @@ export function renderToStream(code, options = {}) {
             }
           };
           writer.closed && writer.closed.catch(failed);
+          closeOnAbort = () => {
+            ended = true;
+            pendingWrites.then(() => writer.close()).catch(() => {});
+          };
           buffer = writable = coalesceWrites(
             payload => {
               pendingWrites = pendingWrites
@@ -3458,8 +3565,8 @@ export function renderToStream(code, options = {}) {
     // Proper thenable: `await renderToStream(...)` resolves with the full
     // HTML once every boundary settles — the replacement for the removed
     // renderToStringAsync. Render errors route through `onError` (the
-    // promise resolves with whatever HTML the render produced; it never
-    // rejects), matching the pipe/pipeTo contract.
+    // promise resolves with whatever HTML the render produced), matching
+    // the pipe/pipeTo contract. Signal cancellation rejects with its reason.
     //
     // Head-freeze point: completion. The pipe paths freeze the request's
     // response head when the shell reaches the sink (`createSSRResponse`
@@ -3483,7 +3590,7 @@ export function renderToStream(code, options = {}) {
         if (requestEvent && requestEvent.response)
           commitResponseStub(requestEvent.response, { event: requestEvent });
       };
-      const p = new Promise(resolve => {
+      const p = new Promise((resolve, reject) => {
         function complete() {
           freezeHead();
           dispose();
@@ -3499,18 +3606,28 @@ export function renderToStream(code, options = {}) {
         // A render failure (see `abandon`) — the renderer's own retry pass
         // below, or a boundary's resume loop through `failRender` — resolves
         // with whatever HTML the render produced (nothing, pre-shell): the
-        // thenable never rejects, `onError` already heard the failure. The
-        // head is deliberately NOT frozen: the render died, its teardown
+        // thenable only rejects on signal cancellation; `onError` already
+        // heard the render failure. The head is deliberately NOT frozen:
+        // the render died, its teardown
         // retracts the declarations as it always did, and the consumer
         // keeps a writable head for whatever error response it builds
-        // around the partial HTML.
-        onFailure(() => resolve(tmp));
+        // around the partial HTML. The signal aborting runs the same
+        // wind-down (a disconnect) and rejects with its reason instead —
+        // at registration too, when it aborted before `then` (#4646).
+        onFailure(() => (cancelled ? reject(signal.reason) : resolve(tmp)));
         function flush() {
           allSettled(blockingPromises).then(awaited => {
             scheduleFlush(() => {
               // The wind-down already completed this consumer; a re-pull on
               // the disposed render would only find another failure.
               if (dead) return;
+              // Same restore doShell performs, for the same reason: re-pulled
+              // root holes re-enter render code that captures
+              // `sharedConfig.context` (a memo's settle ctx, lazy()'s asset
+              // registration), and the global is whichever render ran last —
+              // without it a resumed body creates and records into another
+              // concurrent request's context (#4595).
+              sharedConfig.context = context;
               // Same gates as doShell: pending root head props are shell
               // blockers, so flushEnd must not run ahead of them (their
               // source may not be serialized, so the serializer alone
@@ -3545,18 +3662,23 @@ export function renderToStream(code, options = {}) {
       // the RENDER died — and leaving it open would hang the response. Post-
       // shell through the live wrapper (coalesced bytes flush first); pre-
       // shell nothing was written: `createSSRResponse`'s sink answers it
-      // (`SHELL_ABANDONED`), any other raw sink is ended.
+      // (`SHELL_ABANDONED`), any other raw sink is ended. A disconnect leaves
+      // a dead sink alone, but `createSSRResponse`'s promise still waits on a
+      // shell that will never come: pre-shell it is answered too. A `signal`
+      // abort leaves an alive sink: nothing more is written (what was still
+      // coalescing is dropped) and the raw sink is ended directly — the live
+      // wrapper is guarded off once disconnected — so a post-shell
+      // `createSSRResponse` body closes, pre-shell it still gets its
+      // bodyless 500 (#4646).
       const abandoned = w[SHELL_ABANDONED];
-      onFailure(sink => {
+      onFailure((sink, gone) => {
         try {
-          sink ? sink.end() : abandoned ? abandoned() : w.end();
+          if (!gone) sink ? sink.end() : abandoned ? abandoned() : w.end();
+          else if (!sink && abandoned) abandoned();
+          else if (gone === "signal") w.end();
         } catch (_) {}
       });
-      if (abandoned) {
-        w[ABANDON_RENDER] = abandon;
-        if (disconnected) abandoned();
-        else onDisconnectedBeforeShell = abandoned;
-      }
+      if (abandoned) w[ABANDON_RENDER] = abandon;
       function flush() {
         allSettled(blockingPromises).then(awaited => {
           scheduleFlush(() => {
@@ -3570,6 +3692,8 @@ export function renderToStream(code, options = {}) {
               return;
             }
             if (!shellCompleted) return flush();
+            // A key failed to serialize before the shell went out (#4647).
+            if (stranded) return abandon();
             const sink = guardSink(w);
             buffer = writable = coalesceWrites(sink.write, sink.end);
             buffer.write(tmp);
@@ -3668,6 +3792,8 @@ function buildAsyncWrap(err, node) {
   fn.$rw = true;
   if (suppress) fn.$lhSuppress = true;
   if (node.$lhSkip) fn.$lhSkip = true;
+  if (node.$lhInTag) fn.$lhInTag = true;
+  if (node.$lhAttr) fn.$lhAttr = node.$lhAttr;
   if (node.$lhBinding) fn.$lhBinding = node.$lhBinding;
   return { fn, p };
 }
@@ -4010,7 +4136,7 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
   // `resolveValue` returns them). NotReady escalations are absorbed into
   // h/p (the caller decides pending semantics); real errors propagate.
   function resolveHoleValue(hole) {
-    const result = { t: [""], h: [], p: [], rows: null };
+    const result = { t: [""], h: [], p: [], rows: null, $: SSR_NODE };
     try {
       result.rows = resolveValue(holeValue(hole), result);
     } catch (err) {
@@ -4150,7 +4276,8 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
      */
     nest(hole) {
       const s = engine.scope;
-      if (!s || s.h === hole || hole.$lhSkip || (inScope && !inScope())) return undefined;
+      if (!s || s.h === hole || hole.$lhSkip || hole.$lhInTag || (inScope && !inScope()))
+        return undefined;
       engine.scope = scopeFor(hole);
       return s;
     },
@@ -4164,6 +4291,32 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
      * evaluations), or null when interception is off for this evaluation.
      */
     content(hole) {
+      // An escalated in-tag hole's retry (see `retry` below): never marked,
+      // whatever chain it rides. Under a pending capture, the tag's last
+      // retry to resolve registers the binding (the text now is what the
+      // client receives); a retry that is still pending re-wraps, keeping
+      // its capture.
+      if (hole.$lhInTag) {
+        const cap = hole.$lhAttr;
+        if (!cap || cap.adopted || engine.suppressed || engine.sweeping) return null;
+        const r = tryResolveFunctionHole(hole);
+        if (typeof r !== "string") {
+          const res = { t: [""], h: [], p: [], $: SSR_NODE };
+          appendResolvedNode(res, r);
+          return res;
+        }
+        if (--cap.waiting === 0 && !cap.closed) {
+          try {
+            cap.base = attrPartsText(cap.parts);
+          } catch (err) {
+            // A part still waits (its value moved back to pending) or failed:
+            // the tag keeps what its retries resolved to.
+            cap.base = null;
+          }
+          if (cap.base !== null) engine.attr(cap);
+        }
+        return r;
+      }
       // A retry fn of an escalated hole re-enters here on its re-pull —
       // through `ctx.ssr(pending.t, ...pending.h)` (boundary resume) or the
       // tree resolver (root holes). Its markers already ride the pending
@@ -4175,7 +4328,7 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
       // sweep — a sweep's value doesn't ship, and a baseline the client
       // never saw would swallow a needed emission.
       if (hole.$lhSuppress) {
-        const r = { t: [""], h: [], p: [] };
+        const r = { t: [""], h: [], p: [], $: SSR_NODE };
         let rows = null;
         const b = hole.$lhBinding;
         const run = () => {
@@ -4331,7 +4484,7 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
         // …and a slot-tagged value resolves unmarked (suppressed, so a
         // wrapped getter isn't re-intercepted one level down).
         leave(b, prevParent, prevScope, prevVisit);
-        const r = { t: [""], h: [], p: [] };
+        const r = { t: [""], h: [], p: [], $: SSR_NODE };
         engine.suppressed++;
         try {
           resolveSSRNode(value, r);
@@ -4353,9 +4506,9 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
         closeChildren(b);
         escalated.fn.$lhSuppress = true;
         escalated.fn.$lhBinding = b;
-        res = { t: ["", ""], h: [escalated.fn], p: [escalated.p] };
+        res = { t: ["", ""], h: [escalated.fn], p: [escalated.p], $: SSR_NODE };
       } else {
-        res = { t: [""], h: [], p: [] };
+        res = { t: [""], h: [], p: [], $: SSR_NODE };
         try {
           rows = resolveValue(value, res);
         } catch (_) {
@@ -4406,12 +4559,58 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
       t[0] = open + t[0];
       t[t.length - 1] += close;
       sink.openBinding(key, b);
-      return { t, h: res.h, p: res.p };
+      return { t: t, h: res.h, p: res.p, $: SSR_NODE };
     },
     /** The shared id counter — `ssr()` mints an attr address at injection
      *  time, before its capture completes. */
     mint() {
       return nextId++;
+    },
+    /**
+     * Open an attr capture for the tag whose open ends at `off` in `text`
+     * (`ssr()`'s tag-open segment): mint its address and splice
+     * ` data-lha="N"` in, or — a boundary resume re-rendering a tag whose
+     * capture went pending (see `retry`), where the address is already on
+     * the element — take that address over, so the pending capture never
+     * registers. Returns the capture, its segment's new text on `text`.
+     */
+    open(text, off, hole) {
+      const pending = hole && hole.$lhAttr;
+      let inject;
+      let id;
+      if (pending && !pending.adopted && text.startsWith(pending.inject, off)) {
+        pending.adopted = true;
+        ({ id, inject } = pending);
+      } else {
+        id = nextId++;
+        inject = ` data-lha="${id}"`;
+        text = text.slice(0, off) + inject + text.slice(off);
+      }
+      const prefix = text.slice(off + inject.length);
+      return { id, parts: [prefix], base: prefix, inject, waiting: 0, text };
+    },
+    /**
+     * An in-tag hole that escalated (its value is still pending) resolves later
+     * as a retry fn, one of two ways. A boundary resume re-renders the open tag
+     * through `ssr(pending.t, ...pending.h)`, which captures it again. At the
+     * top of a render there is no boundary: the tree resolver pulls the retry
+     * as a function node, which it otherwise treats as content and routes
+     * through the live-hole engine, so its markers would land inside the tag
+     * (`<div<!--lh:N--> style="…"<!--lh:/N-->>`) or inside the attribute value.
+     * The retry is tagged (`$lhInTag`, carried through re-wraps) so the engine
+     * never marks it. When the tag was being captured, the capture stays open
+     * as pending (`$lhAttr`): its address stays on the element, and the engine
+     * registers its binding once the tag's last retry resolves, with the text
+     * at that moment as the baseline. A boundary resume adopts the address
+     * instead (see `open`), so the element carries one.
+     */
+    retry(fn, cap) {
+      if (typeof fn !== "function") return;
+      fn.$lhInTag = true;
+      if (cap) {
+        fn.$lhAttr = cap;
+        cap.waiting++;
+      }
     },
     /** Whether interception may arm at the current evaluation point —
      *  `ssr()` asks before opening an attr capture (the `data-lha`
@@ -4438,8 +4637,15 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
      * known only as a digest, no list — removes them too.
      */
     attr(cap) {
-      const owner = getOwner();
-      const holeCtx = sharedConfig.context;
+      // A capture still waiting on escalated retries registers when the last
+      // resolves (see `retry`), under the render's owner and context.
+      if (cap.waiting) {
+        cap.owner = getOwner();
+        cap.ctx = sharedConfig.context;
+        return;
+      }
+      const owner = cap.owner !== undefined ? cap.owner : getOwner();
+      const holeCtx = cap.ctx !== undefined ? cap.ctx : sharedConfig.context;
       const b = {
         key: "lha:" + cap.id,
         children: [],
@@ -4455,29 +4661,7 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
           engine.gateHit = false;
           let html = "";
           try {
-            let group = null;
-            let groupVal = null;
-            const run = () => {
-              for (const part of cap.parts) {
-                if (typeof part === "string") {
-                  html += part;
-                  continue;
-                }
-                let v;
-                if (part.g) {
-                  if (group !== part.g) {
-                    group = part.g;
-                    groupVal = part.g();
-                  }
-                  v = groupVal[part.i];
-                } else {
-                  v = part.f();
-                }
-                const vt = typeof v;
-                if (vt === "string" || vt === "number") html += v;
-              }
-            };
-            swept(owner, holeCtx, run);
+            swept(owner, holeCtx, () => (html = attrPartsText(cap.parts)));
           } catch (err) {
             // NotReady holds for a later commit (the end-latch sweep is the
             // floor), unless scopes this sweep created are what wait (see
@@ -4618,9 +4802,37 @@ function rowPatch(a, b) {
   }
 }
 
-export function ssr(template: string[] | string, ...nodes: any[]): { t: string };
+// The attribute text of a capture's parts (statics, re-runnable thunks,
+// group positions), as the binding's sweep and its deferred baseline build
+// it. Throws what a part throws.
+function attrPartsText(parts) {
+  let html = "";
+  let group = null;
+  let groupVal = null;
+  for (const part of parts) {
+    if (typeof part === "string") {
+      html += part;
+      continue;
+    }
+    let v;
+    if (part.g) {
+      if (group !== part.g) {
+        group = part.g;
+        groupVal = part.g();
+      }
+      v = groupVal[part.i];
+    } else {
+      v = part.f();
+    }
+    const vt = typeof v;
+    if (vt === "string" || vt === "number") html += v;
+  }
+  return html;
+}
 
 // rendering
+export function ssr(template: string[] | string, ...nodes: any[]): { t: string };
+
 export function ssr(t) {
   // Inlined hole resolution — uses `arguments` instead of a `(t, ...nodes)`
   // rest parameter to avoid the per-call holes-array allocation. Inline
@@ -4632,7 +4844,7 @@ export function ssr(t) {
   // returns an array of values for >=N hole positions. The check is at
   // the END of the typeof chain so non-function holes don't pay for it.
   const len = arguments.length;
-  if (len === 1) return { t };
+  if (len === 1) return { t: t, $: SSR_NODE };
   let s = t[0];
   let result = null;
   let lastGroup = null;
@@ -4658,24 +4870,21 @@ export function ssr(t) {
   // (started or already active). Declines when the tag-open buffer is no
   // longer the current tail (an earlier hole of this tag escalated — the
   // tag latches) or interception is off for this evaluation.
-  const captureStart = () => {
+  const captureStart = hole => {
     if (cap) return true;
     if (!lastOpen || live.suppressed || live.sweeping || !live.active()) return false;
+    // The tag opened while the output was one string and a hole of this
+    // tag has since escalated it into segments: the open is in the first.
+    if (lastOpen.r === null && result !== null && result.t.length === 1) {
+      lastOpen.r = result;
+      lastOpen.seg = 0;
+    }
     if (lastOpen.r !== result || (result !== null && lastOpen.seg !== result.t.length - 1)) {
       return false;
     }
-    const id = live.mint();
-    const inject = ` data-lha="${id}"`;
-    let prefix;
-    if (result === null) {
-      s = s.slice(0, lastOpen.off) + inject + s.slice(lastOpen.off);
-      prefix = s.slice(lastOpen.off + inject.length);
-    } else {
-      const seg = result.t[lastOpen.seg];
-      result.t[lastOpen.seg] = seg.slice(0, lastOpen.off) + inject + seg.slice(lastOpen.off);
-      prefix = result.t[lastOpen.seg].slice(lastOpen.off + inject.length);
-    }
-    cap = { id, parts: [prefix], base: prefix, at: lastOpen.seg, inject };
+    cap = live.open(result === null ? s : result.t[lastOpen.seg], lastOpen.off, hole);
+    if (result === null) s = cap.text;
+    else result.t[lastOpen.seg] = cap.text;
     return true;
   };
   for (let i = 1; i < len; i++) {
@@ -4709,7 +4918,7 @@ export function ssr(t) {
           lastGroupVal = r;
           lastGroupIdx = 0;
           if (!Array.isArray(r) && result === null) {
-            result = { t: [s], h: [], p: [] };
+            result = { t: [s], h: [], p: [], $: SSR_NODE };
             s = "";
           }
         }
@@ -4722,7 +4931,7 @@ export function ssr(t) {
           hasValue = true;
           // A group can span elements; each element captures only its own
           // positions (by dequeue index — group order is positional).
-          if (live && !hp.pos[i - 1] && captureStart()) {
+          if (live && !hp.pos[i - 1] && captureStart(hole)) {
             cap.parts.push({ g: hole, i: lastGroupIdx - 1 });
           }
         } else {
@@ -4732,11 +4941,17 @@ export function ssr(t) {
           // tag and mints its own, so a leftover would sit beside it and
           // move the element off its bound address on the first op. The
           // address is unique, so the first match is the splice.
-          if (cap) {
-            result.t[cap.at] = result.t[cap.at].replace(cap.inject, "");
-            cap = null;
+          //
+          // At the top of a render nothing re-renders the tag, so a capture
+          // stays open, pending (see the engine's `retry`): the address stays and
+          // the binding registers when the tag's retries resolve.
+          const slot = ssrGroupSlot(lastGroupVal.fn, lastGroupIdx++);
+          if (live && !hp.pos[i - 1]) {
+            const capturing = captureStart(hole);
+            if (capturing) cap.parts.push({ g: hole, i: lastGroupIdx - 1 });
+            live.retry(slot, capturing && cap);
           }
-          result.h.push(ssrGroupSlot(lastGroupVal.fn, lastGroupIdx++));
+          result.h.push(slot);
           result.p.push(lastGroupVal.p);
           result.t.push("");
         }
@@ -4759,7 +4974,7 @@ export function ssr(t) {
           if (typeof rs === "string") {
             s += rs;
           } else {
-            result = { t: [s], h: [], p: [] };
+            result = { t: [s], h: [], p: [], $: SSR_NODE };
             s = "";
             if (rs.merge !== undefined) mergeTemplateInto(result, rs.merge);
             else resolveSSRNode(rs.bail, result);
@@ -4783,37 +4998,36 @@ export function ssr(t) {
           else result.t[result.t.length - 1] += liveNode;
         } else {
           if (result === null) {
-            result = { t: [s], h: [], p: [] };
+            result = { t: [s], h: [], p: [], $: SSR_NODE };
             s = "";
           }
           resolveSSRNode(liveNode, result);
         }
       } else if (result !== null) {
         const inTag = live && !hp.pos[i - 1];
-        const capturing = inTag && captureStart();
+        const capturing = inTag && captureStart(hole);
         const li = capturing ? result.t.length - 1 : 0;
         const before = capturing ? result.t[li].length : 0;
+        const pushed = result.h.length;
         if (live) live.suppressed++;
         try {
           resolveSSRNode(hole, result);
         } finally {
           if (live) live.suppressed--;
         }
+        if (inTag) {
+          for (let k = pushed; k < result.h.length; k++) live.retry(result.h[k], capturing && cap);
+        }
         if (capturing) {
-          if (result.t.length - 1 === li) {
-            cap.base += result.t[li].slice(before);
-            cap.parts.push({ f: hole });
-          } else {
-            // The hole escalated mid-attrs: the tag latches, its address
-            // with it (see the group escalation above).
-            result.t[cap.at] = result.t[cap.at].replace(cap.inject, "");
-            cap = null;
-          }
+          // Escalated mid-attrs: the capture goes pending (see the group
+          // escalation above); its base is rebuilt when it registers.
+          if (result.t.length - 1 === li) cap.base += result.t[li].slice(before);
+          cap.parts.push({ f: hole });
         }
       } else {
         // Capture opens BEFORE the value resolves — the prefix slice must
         // stop at the hole position, not swallow its first value.
-        const capturing = live && !hp.pos[i - 1] && captureStart();
+        const capturing = live && !hp.pos[i - 1] && captureStart(hole);
         // An unminted content hole keeps its occurrence scope (`nest`).
         const scope = live && hp.pos[i - 1] && live.nest(hole);
         const r = tryResolveFunctionHole(hole);
@@ -4825,15 +5039,13 @@ export function ssr(t) {
             cap.parts.push({ f: hole });
           }
         } else {
-          // The hole escalated mid-attrs: the tag latches, its address
-          // with it (see the group escalation above).
-          if (capturing) {
-            s = s.replace(cap.inject, "");
-            cap = null;
-          }
-          result = { t: [s], h: [], p: [] };
+          // The hole escalated mid-attrs: the capture goes pending (see the
+          // group escalation above).
+          result = { t: [s], h: [], p: [], $: SSR_NODE };
           s = "";
           appendResolvedNode(result, r);
+          if (capturing) cap.parts.push({ f: hole });
+          if (live && !hp.pos[i - 1]) for (const h of result.h) live.retry(h, capturing && cap);
         }
       }
       if ("_SOLID_DEV_" && devNext !== undefined) checkUnscopedHole(devNext, t, i - 1, hole);
@@ -4846,7 +5058,7 @@ export function ssr(t) {
       } else {
         // Escalation: allocate the heavy `{ t, h, p }` result shape and
         // splice in the sync prefix we accumulated.
-        result = { t: [s], h: [], p: [] };
+        result = { t: [s], h: [], p: [], $: SSR_NODE };
         s = "";
         appendResolvedNode(result, r);
       }
@@ -4882,7 +5094,7 @@ export function ssr(t) {
     if (result === null) s += next;
     else result.t[result.t.length - 1] += next;
   }
-  if (result === null) return { t: s };
+  if (result === null) return { t: s, $: SSR_NODE };
   return result;
 }
 export function ssrClassName(value: string | { [k: string]: boolean } | Array<any>): string;
@@ -5158,9 +5370,22 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   if (link !== null && link.href !== undefined) result += ssrLinkClaim(link);
   // The hydration key is unquoted, so a void element needs the space before
   // `/>` or the slash becomes part of the key's value.
-  if (skipChildren) return { t: result + " />" };
+  if (skipChildren) return { t: result + " />", $: SSR_NODE };
   if (childOwner !== null) children = info.raw ? childOwner.children : escape(childOwner.children);
   if (typeof children === "function") children = children();
+  // `() => scope(fn)` children return the scope's evaluator: run it as resolveSSRNode would.
+  let thunk = null;
+  if (typeof children === "function" && (ctx === undefined || !ctx.liveHoles)) {
+    thunk = children;
+    ssrTextTail = false;
+    try {
+      children = thunk();
+    } catch (err) {
+      const res = { t: [""], h: [], p: [], $: SSR_NODE };
+      pushSSRAsyncHole(res, err, thunk);
+      return ssr([result + ">", info.close], res);
+    }
+  }
   // The content most elements end up with — one string (a text child, escaped
   // above or by the compiler), a number, nothing, or one finished node — joins
   // in place. That is exactly what the general path below produces for these
@@ -5170,14 +5395,24 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   // element is serialized here on every render, so that was the largest
   // single cost of the element path (profiled at a third of it on a
   // text-content-heavy page). The text-adjacency marker state
-  // (`ssrTextTail`) is not touched: the parent resets it on this element's
-  // finished node either way.
+  // (`ssrTextTail`) is left as the child left it: the parent resets it on this
+  // element's finished node either way.
   const ct = typeof children;
-  if (ct === "string" || ct === "number") return { t: result + ">" + children + info.close };
-  if (children == null || ct === "boolean") return { t: result + ">" + info.close };
-  if (ct === "object" && !children.h && typeof children.t === "string")
-    return { t: result + ">" + children.t + info.close };
-  return ssr([result + ">", info.close], resolveSSRNode(children, undefined, true));
+  if (ct === "string" || ct === "number")
+    return { t: result + ">" + children + info.close, $: SSR_NODE };
+  if (children == null || ct === "boolean") return { t: result + ">" + info.close, $: SSR_NODE };
+  if (ct === "object" && children.$ === SSR_NODE && !children.h && typeof children.t === "string")
+    return { t: result + ">" + children.t + info.close, $: SSR_NODE };
+  if (thunk === null)
+    return ssr([result + ">", info.close], resolveSSRNode(children, undefined, true));
+  // Nested, as resolveSSRNode resolves a function's value: arrays keep their separators.
+  const res = { t: [""], h: [], p: [], $: SSR_NODE };
+  try {
+    resolveSSRNode(children, res, false, true);
+  } catch (err) {
+    pushSSRAsyncHole(res, err, thunk);
+  }
+  return ssr([result + ">", info.close], res);
 }
 
 /**
@@ -5672,7 +5907,13 @@ function tryJoinPlainSSRArray(nodes) {
   let out = "";
   for (let i = 0, len = nodes.length; i < len; i++) {
     const node = nodes[i];
-    if (node == null || typeof node !== "object" || node.h || typeof node.t !== "string") {
+    if (
+      node == null ||
+      typeof node !== "object" ||
+      node.$ !== SSR_NODE ||
+      node.h ||
+      typeof node.t !== "string"
+    ) {
       return undefined;
     }
     out += node.t;
@@ -5796,7 +6037,8 @@ function assembleDocument(
   scripts,
   nonce,
   headTags,
-  onHead
+  onHead,
+  lowModules
 ) {
   const scriptTag = scripts ? `<script${nonceAttr(nonce, "script")}>${scripts}</script>` : "";
   const title = headTags ? headTags.title : null;
@@ -5853,7 +6095,7 @@ function assembleDocument(
         headPrelude +
           headTagsHtml +
           titleHtml +
-          renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce)
+          renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce, lowModules)
       );
     }
     // No head to splice into: without `onHead`, assets/preloads/styles are
@@ -5892,7 +6134,8 @@ function assembleDocument(
       headTagsHtml = `<title data-dh="title">${winner}</title>` + headTagsHtml;
     }
   }
-  const head = headTagsHtml + renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce);
+  const head =
+    headTagsHtml + renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce, lowModules);
   if (!scriptTag) return html.slice(0, headIdx) + head + html.slice(headIdx);
   const xsIdx = html.indexOf("<!--xs-->");
   if (xsIdx === -1) return html.slice(0, headIdx) + head + html.slice(headIdx) + scriptTag;
@@ -5904,7 +6147,7 @@ function assembleDocument(
 // Tracked asset links (stylesheet/modulepreload by URL) and unconsumed inline
 // styles, rendered for a head splice or an `onHead` delivery. Inline-style
 // entries are consumed (marked emitted) by whichever path renders them first.
-function renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce) {
+function renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce, lowModules) {
   let head = "";
   const styleAttr = nonceAttr(nonce, "style");
   const scriptAttr = nonceAttr(nonce, "script");
@@ -5912,7 +6155,7 @@ function renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce) {
     for (const url of emittedAssets) {
       head += isCssUrl(url)
         ? `<link rel="stylesheet" href="${url}"${styleAttr}>`
-        : `<link rel="modulepreload" href="${url}"${scriptAttr}>`;
+        : modulePreloadLink(url, scriptAttr, lowModules);
     }
   }
   if (preloadLinks) {
@@ -6110,13 +6353,13 @@ function tryResolveString(node, nested?: boolean) {
       }
       return s;
     }
-    if (node.h && node.h.length > 0) return { merge: node };
-    if (node.t === undefined) {
+    if (node.$ !== SSR_NODE) {
       // Not a template object — mirror the client's dev warn-and-skip
       // instead of crashing downstream on a malformed template shape.
       if ("_SOLID_DEV_") unrecognizedInsert(node);
       return "";
     }
+    if (node.h && node.h.length > 0) return { merge: node };
     ssrTextTail = false;
     return Array.isArray(node.t) ? node.t[0] : node.t;
   }
@@ -6140,16 +6383,7 @@ function tryResolveString(node, nested?: boolean) {
 // callers never pass it.
 export function resolveSSRNode(node: any, result?: any, top?: boolean, nested?: boolean): any;
 
-export function resolveSSRNode(
-  node,
-  result = {
-    t: [""],
-    h: [],
-    p: []
-  },
-  top,
-  nested
-) {
+export function resolveSSRNode(node, result = { t: [""], h: [], p: [], $: SSR_NODE }, top, nested) {
   if (!nested) ssrTextTail = false;
   const t = typeof node;
   if (t === "string" || t === "number") {
@@ -6175,7 +6409,9 @@ export function resolveSSRNode(
       if (slotLive) slotLive.suppressed--;
     }
   } else if (t === "object") {
-    if (node.h) {
+    if (node.$ !== SSR_NODE) {
+      if ("_SOLID_DEV_") unrecognizedInsert(node);
+    } else if (node.h) {
       result.t[result.t.length - 1] += node.t[0];
       if (node.t.length > 1) {
         result.t.push(...node.t.slice(1));
@@ -6183,10 +6419,10 @@ export function resolveSSRNode(
         result.p.push(...node.p);
       }
       ssrTextTail = false;
-    } else if (node.t !== undefined) {
+    } else {
       result.t[result.t.length - 1] += node.t;
       ssrTextTail = false;
-    } else if ("_SOLID_DEV_") unrecognizedInsert(node);
+    }
   } else if (t === "function") {
     // Function nodes reaching the tree resolver are content by construction
     // (in-tag holes route here only under `ssr()`'s suppression window), so
@@ -6210,20 +6446,25 @@ export function resolveSSRNode(
       try {
         resolveSSRNode(node(), result, false, true);
       } catch (err) {
-        const wrap = buildAsyncWrap(err, node);
-        if (wrap) {
-          if (ssrTextTail) result.t[result.t.length - 1] += "<!--!$-->";
-          result.h.push(wrap.fn);
-          result.p.push(wrap.p);
-          result.t.push("");
-          ssrTextTail = true;
-        }
+        pushSSRAsyncHole(result, err, node);
       } finally {
         if (scope) live.scope = scope;
       }
     }
   }
   return result;
+}
+
+// A suspension becomes an async hole that re-pulls `node`, counted as text on both sides.
+function pushSSRAsyncHole(result, err, node) {
+  const wrap = buildAsyncWrap(err, node);
+  if (wrap) {
+    if (ssrTextTail) result.t[result.t.length - 1] += "<!--!$-->";
+    result.h.push(wrap.fn);
+    result.p.push(wrap.p);
+    result.t.push("");
+    ssrTextTail = true;
+  }
 }
 
 function resolveSSRSync(node) {

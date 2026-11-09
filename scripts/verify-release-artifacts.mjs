@@ -65,7 +65,18 @@ for (const [name, { directory, pkg }] of directories) {
 
   const files = new Set(report.files.map(file => file.path));
   const missing = [...collectEntryFiles(pkg)].filter(entry => !files.has(entry));
-  if (missing.length > 0) {
+  // A dist built with SIGNALS_TEST_DEFINE=true carries the reader-seat
+  // shadow (`__TEST__` on): a test build, never one to publish.
+  const shadowed = [...files].filter(
+    file =>
+      /\.[cm]?js$/.test(file) &&
+      fs.readFileSync(`${directory}/${file}`, "utf8").includes("__SEAT_SHADOW__")
+  );
+  if (shadowed.length > 0) {
+    failures.push(
+      `${name}: built with SIGNALS_TEST_DEFINE=true (the seat shadow is in ${shadowed.join(", ")}); rebuild without it`
+    );
+  } else if (missing.length > 0) {
     failures.push(
       `${name}: the published tarball would be missing manifest entry points: ${missing.join(", ")}`
     );

@@ -107,10 +107,14 @@ describe("#4137: a Show branch hidden by its own lane does not re-run", () => {
     await tick();
     flush();
     expect(stale).toEqual([]);
-    // The lane lists `b`; the record, derived from what the action holds,
-    // does not have it yet: the branch shows its fallback (A15 lanes
-    // corollary — a lane sees the screen plus its own guesses).
-    expect(log).toEqual(['["a"]', '["a",null]']);
+    // The lane lists `b`, and the record has it too: the derive's pass is the
+    // lane's work (it reads the lane's rows), so its write of the new key is
+    // the lane's derivation, as a memo building the same record would be —
+    // for a leaf born after the write as for one that existed (#4478,
+    // #4451; E3). (Before #4451 the leaf was born a staging the park held,
+    // and the branch showed its fallback mid-action: `["a",null]`.)
+    // Pin flipped with #4451 (accepted by the maintainer): the store now matches its memo twin.
+    expect(log).toEqual(['["a"]', '["a","b"]']);
     release();
     await tick();
     flush();

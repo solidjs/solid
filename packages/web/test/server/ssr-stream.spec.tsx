@@ -14,7 +14,8 @@ import {
   Match,
   Errored,
   dynamic,
-  Dynamic
+  Dynamic,
+  useHead
 } from "@solidjs/web";
 import {
   NoHydration,
@@ -1442,8 +1443,12 @@ describe("SSR Streaming — Asset Discovery", () => {
     }
 
     const { shell } = await collectChunks(() => <App />, { manifest });
-    expect(shell).toContain('<link rel="modulepreload" href="/assets/Home-abc.js">');
-    expect(shell).toContain('<link rel="modulepreload" href="/assets/shared-def.js">');
+    expect(shell).toContain(
+      '<link rel="modulepreload" href="/assets/Home-abc.js" fetchpriority="low">'
+    );
+    expect(shell).toContain(
+      '<link rel="modulepreload" href="/assets/shared-def.js" fetchpriority="low">'
+    );
     expect(shell).toContain("Home Content");
   });
 
@@ -1485,8 +1490,12 @@ describe("SSR Streaming — Asset Discovery", () => {
     }
 
     const { shell } = await collectChunks(() => <App />, { manifest });
-    expect(shell).toContain('<link rel="modulepreload" href="/assets/Route-abc.js">');
-    expect(shell).toContain('<link rel="modulepreload" href="/assets/dep-def.js">');
+    expect(shell).toContain(
+      '<link rel="modulepreload" href="/assets/Route-abc.js" fetchpriority="low">'
+    );
+    expect(shell).toContain(
+      '<link rel="modulepreload" href="/assets/dep-def.js" fetchpriority="low">'
+    );
     expect(shell).toContain('<link rel="stylesheet" href="/assets/Route.css">');
     expect(shell).toContain(
       '<link rel="preload" href="/assets/Route.woff2" as="font" type="font/woff2" crossorigin="">'
@@ -1588,8 +1597,8 @@ describe("SSR Streaming — Asset Discovery", () => {
     const { shell } = await collectChunks(() => <App />, { manifest });
     const sharedCount = (shell.match(/modulepreload" href="\/assets\/shared\.js"/g) || []).length;
     expect(sharedCount).toBe(1);
-    expect(shell).toContain('<link rel="modulepreload" href="/assets/A.js">');
-    expect(shell).toContain('<link rel="modulepreload" href="/assets/B.js">');
+    expect(shell).toContain('<link rel="modulepreload" href="/assets/A.js" fetchpriority="low">');
+    expect(shell).toContain('<link rel="modulepreload" href="/assets/B.js" fetchpriority="low">');
   });
 
   test("$df remains pure DOM swap — no asset arguments", async () => {
@@ -1706,9 +1715,84 @@ describe("SSR Streaming — Asset Discovery", () => {
     }
 
     const html = await renderComplete(() => <App />, { manifest });
-    expect(html).toContain('<link rel="modulepreload" href="/assets/outer.js">');
+    expect(html).toContain(
+      '<link rel="modulepreload" href="/assets/outer.js" fetchpriority="low">'
+    );
     expect(html).toContain("Outer");
     expect(html).toContain("Inner");
+  });
+
+  test("a module hint registered after the shell flush streams at low priority", async () => {
+    const manifest = { "./Late.tsx": { file: "assets/late.js" } };
+    const LazyLate = lazy(
+      () => asyncValue({ default: () => <span>Late</span> }, 5),
+      undefined,
+      "./Late.tsx"
+    );
+    // The lazy is created only once the data lands, after the shell flush.
+    function Gate() {
+      const ready = createMemo(async () => asyncValue(true, 40));
+      return (
+        <Show when={ready()}>
+          <LazyLate />
+        </Show>
+      );
+    }
+
+    function App() {
+      return (
+        <html>
+          <head>
+            <title>Test</title>
+          </head>
+          <body>
+            <Loading fallback={<span>Loading...</span>}>
+              <Gate />
+            </Loading>
+          </body>
+        </html>
+      );
+    }
+
+    const { chunks, shell } = await collectChunks(() => <App />, { manifest });
+    const late = chunks.join("").slice(shell.length);
+    expect(shell).not.toContain("/assets/late.js");
+    expect(late).toContain('<link rel="modulepreload" href="/assets/late.js" fetchpriority="low">');
+  });
+
+  test("lowPriorityPreloads: false streams a late module hint at default priority", async () => {
+    const manifest = { "./Late.tsx": { file: "assets/late.js" } };
+    const LazyLate = lazy(
+      () => asyncValue({ default: () => <span>Late</span> }, 5),
+      undefined,
+      "./Late.tsx"
+    );
+    function Gate() {
+      const ready = createMemo(async () => asyncValue(true, 40));
+      return (
+        <Show when={ready()}>
+          <LazyLate />
+        </Show>
+      );
+    }
+
+    const { chunks, shell } = await collectChunks(
+      () => (
+        <html>
+          <head>
+            <title>Test</title>
+          </head>
+          <body>
+            <Loading fallback={<span>Loading...</span>}>
+              <Gate />
+            </Loading>
+          </body>
+        </html>
+      ),
+      { manifest, lowPriorityPreloads: false }
+    );
+    const late = chunks.join("").slice(shell.length);
+    expect(late).toContain('<link rel="modulepreload" href="/assets/late.js">');
   });
 
   test("nested fragment folding serializes inner boundary module map", async () => {
@@ -1996,8 +2080,12 @@ describe("renderToString — Asset Discovery", () => {
       ),
       { manifest }
     );
-    expect(html).toContain('<link rel="modulepreload" href="/assets/Home-abc.js">');
-    expect(html).toContain('<link rel="modulepreload" href="/assets/shared-def.js">');
+    expect(html).toContain(
+      '<link rel="modulepreload" href="/assets/Home-abc.js" fetchpriority="low">'
+    );
+    expect(html).toContain(
+      '<link rel="modulepreload" href="/assets/shared-def.js" fetchpriority="low">'
+    );
   });
 
   test("serializes module map for boundary", () => {
@@ -2024,7 +2112,7 @@ describe("renderToString — Asset Discovery", () => {
       ),
       { manifest }
     );
-    expect(html).toContain('<link rel="modulepreload" href="/assets/dep.js">');
+    expect(html).toContain('<link rel="modulepreload" href="/assets/dep.js" fetchpriority="low">');
     const scripts = html.match(/<script[^>]*>[\s\S]*?<\/script>/g) || [];
     const assetScript = scripts.find(s => s.includes("_assets"));
     expect(assetScript).toBeDefined();
@@ -2066,8 +2154,8 @@ describe("renderToString — Asset Discovery", () => {
     );
     const sharedCount = (html.match(/modulepreload" href="\/assets\/shared\.js"/g) || []).length;
     expect(sharedCount).toBe(1);
-    expect(html).toContain('<link rel="modulepreload" href="/assets/A.js">');
-    expect(html).toContain('<link rel="modulepreload" href="/assets/B.js">');
+    expect(html).toContain('<link rel="modulepreload" href="/assets/A.js" fetchpriority="low">');
+    expect(html).toContain('<link rel="modulepreload" href="/assets/B.js" fetchpriority="low">');
   });
 
   test("serializes $$f marker for deferred boundary", () => {
@@ -2185,7 +2273,9 @@ describe("Entry CSS Auto-Discovery", () => {
 
     const { shell } = await collectChunks(() => <App />, { manifest });
     expect(shell).toContain('<link rel="stylesheet" href="/assets/main.css">');
-    expect(shell).toContain('<link rel="modulepreload" href="/assets/lazy.js">');
+    expect(shell).toContain(
+      '<link rel="modulepreload" href="/assets/lazy.js" fetchpriority="low">'
+    );
   });
 
   test("entry CSS is injected into head via registerEntryAssets (renderToString)", () => {
@@ -2229,6 +2319,80 @@ describe("Entry CSS Auto-Discovery", () => {
       { manifest }
     );
     expect(html).toContain('<link rel="stylesheet" href="/assets/shared.css">');
+  });
+
+  test("the entry's static imports preload at default priority, lazy chunks at low", async () => {
+    const manifest = {
+      "src/index.tsx": { file: "assets/index.js", isEntry: true, imports: ["src/shared.tsx"] },
+      "src/shared.tsx": { file: "assets/shared.js" },
+      "./Page.tsx": { file: "assets/page.js" }
+    };
+    const LazyPage = lazy(
+      () => asyncValue({ default: () => <span>Page</span> }),
+      undefined,
+      "./Page.tsx"
+    );
+    await LazyPage.preload!();
+
+    const html = renderToString(
+      () => (
+        <html>
+          <head>
+            <title>Test</title>
+          </head>
+          <body>
+            <LazyPage />
+          </body>
+        </html>
+      ),
+      { manifest }
+    );
+    expect(html).toContain('<link rel="modulepreload" href="/assets/shared.js">');
+    expect(html).toContain('<link rel="modulepreload" href="/assets/page.js" fetchpriority="low">');
+  });
+
+  test("an authored modulepreload link comes out as written", () => {
+    function Hint() {
+      useHead({ tag: "link", props: { rel: "modulepreload", href: "/assets/authored.js" } });
+      return null;
+    }
+
+    const html = renderToString(() => (
+      <html>
+        <head>
+          <title>Test</title>
+        </head>
+        <body>
+          <Hint />
+        </body>
+      </html>
+    ));
+    expect(html).toContain('<link rel="modulepreload" href="/assets/authored.js">');
+  });
+
+  test("lowPriorityPreloads: false keeps lazy chunk hints at default priority", async () => {
+    const manifest = { "./Page.tsx": { file: "assets/page.js" } };
+    const LazyPage = lazy(
+      () => asyncValue({ default: () => <span>Page</span> }),
+      undefined,
+      "./Page.tsx"
+    );
+    await LazyPage.preload!();
+
+    const html = renderToString(
+      () => (
+        <html>
+          <head>
+            <title>Test</title>
+          </head>
+          <body>
+            <LazyPage />
+          </body>
+        </html>
+      ),
+      { manifest, lowPriorityPreloads: false }
+    );
+    expect(html).toContain('<link rel="modulepreload" href="/assets/page.js">');
   });
 
   test("no entry in manifest — no CSS injected, no crash", () => {

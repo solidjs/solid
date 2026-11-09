@@ -1,6 +1,11 @@
 import * as t from "@babel/types";
 import { addNamed } from "@babel/helper-module-imports";
-import { DOMWithState } from "../../../web/src/constants.js";
+import {
+  DOMWithState,
+  MathMLElements,
+  Namespaces,
+  SVGElements
+} from "../../../web/src/constants.js";
 import type { NodePath, Visitor } from "@babel/traverse";
 import type { PluginConfig, RendererConfig } from "../config";
 import type {
@@ -44,6 +49,19 @@ export function isStatementVariableInitializer(path: NodePath): boolean {
     (statement.isExportNamedDeclaration() || statement.isExportDefaultDeclaration()) &&
     statement.node.declaration === declaration.node
   );
+}
+
+/**
+ * The statement that generated setup for statement-position JSX goes before.
+ *
+ * For `return <JSX />` that is the return itself. `getStatementParent()` only
+ * stops at a statement inside a statement list, so for a braceless `if`,
+ * `else` or loop body it returns the whole `if` or loop: setup inserted there
+ * runs on every path, and outside the loop's bindings. Inserting before the
+ * return lets Babel wrap that body in a block.
+ */
+export function getSetupStatement(path: NodePath): NodePath | null {
+  return t.isReturnStatement(path.parent) ? path.parentPath : path.getStatementParent();
 }
 
 export function getConfig(path: NodePath): PluginConfig {
@@ -260,6 +278,68 @@ const coverageIgnoreCommentData = "solid.coverageIgnoreComments";
 
 export function getCoverageIgnoreComments(path: NodePath): t.Comment[] | undefined {
   return path.getData(coverageIgnoreCommentData) as t.Comment[] | undefined;
+}
+
+function isComponentElementPath(path: NodePath): boolean {
+  return t.isJSXElement(path.node) && isComponent(getTagName(path.node));
+}
+
+/**
+ * Coverage pragmas that should lead *this* component's `children` getter.
+ * A pragma immediately before a nested component belongs on that child's
+ * getter instead (see #2138); fragments are transparent for the hand-off.
+ */
+export function takeCoverageIgnoreCommentsForParent(
+  path: NodePath
+): t.Comment[] | undefined {
+  if (isComponentElementPath(path)) return undefined;
+  if (t.isJSXFragment(path.node)) {
+    const filtered = filterChildren(path.get("children"));
+    for (const child of filtered) {
+      const comments = takeCoverageIgnoreCommentsForParent(child);
+      if (comments?.length) return comments;
+      if (isComponentElementPath(child)) return undefined;
+      break;
+    }
+    return undefined;
+  }
+  return getCoverageIgnoreComments(path);
+}
+
+/**
+ * Pragmas handed to a nested component that never built a `children` getter
+ * stay on that component path (or under a transparent fragment). Reclaim them
+ * for the parent's getter (#4701).
+ *
+ * Does not call `filterChildren` — that would re-attach already-consumed
+ * pragmas onto nested components after they cleared the hand-off.
+ */
+export function reclaimCoverageIgnoreComments(
+  path: NodePath
+): t.Comment[] | undefined {
+  if (isComponentElementPath(path)) {
+    const comments = getCoverageIgnoreComments(path);
+    if (comments?.length) path.setData(coverageIgnoreCommentData, undefined);
+    return comments;
+  }
+  if (t.isJSXFragment(path.node)) {
+    for (const child of path.get("children")) {
+      const node = child.node;
+      if (t.isJSXExpressionContainer(node) && t.isJSXEmptyExpression(node.expression)) {
+        continue;
+      }
+      if (
+        t.isJSXText(node) &&
+        /^[\r\n]\s*$/.test((node.extra?.raw as string | undefined) ?? "")
+      ) {
+        continue;
+      }
+      const comments = reclaimCoverageIgnoreComments(child);
+      if (comments?.length) return comments;
+      break;
+    }
+  }
+  return undefined;
 }
 
 // remove unnecessary JSX Text nodes
@@ -968,4 +1048,64 @@ export function addAttribute(
   value: t.JSXAttribute["value"]
 ): void {
   path.get("openingElement").pushContainer("attributes", t.jsxAttribute(name, value));
+}
+
+// Start tags that leave foreign content: the HTML parser closes the open
+// `<svg>`/`<math>` and creates them as HTML elements (`font` only with
+// color/face/size, so it is left undecided).
+const foreignBreakoutTags = new Set(
+  "b,big,blockquote,body,br,center,code,dd,div,dl,dt,em,embed,h1,h2,h3,h4,h5,h6,head,hr,i,img,li,listing,menu,meta,nobr,ol,p,pre,ruby,s,small,span,strike,strong,sub,sup,table,tt,u,ul,var".split(
+    ","
+  )
+);
+// Children of these parse as HTML again: SVG's HTML integration points and
+// MathML's text integration points.
+const htmlIntegrationPoints = new Set([
+  "foreignObject",
+  "desc",
+  "title",
+  "mi",
+  "mo",
+  "mn",
+  "ms",
+  "mtext"
+]);
+
+function staticAttribute(node: t.JSXElement, name: string): string | undefined {
+  for (const attr of node.openingElement.attributes) {
+    if (!t.isJSXAttribute(attr) || t.isJSXNamespacedName(attr.name) || attr.name.name !== name)
+      continue;
+    const value = attr.value;
+    if (t.isStringLiteral(value)) return value.value;
+    if (t.isJSXExpressionContainer(value) && t.isStringLiteral(value.expression))
+      return value.expression.value;
+  }
+}
+
+/**
+ * Whether an element parses in SVG/MathML (foreign) content, where `<style>`
+ * and `<script>` are ordinary elements: their text is markup and character
+ * references, so it has to be escaped like any other text. Decided by the
+ * nearest JSX ancestor that settles the namespace; components are transparent
+ * (their children usually render in place), and an element with no deciding
+ * ancestor is HTML.
+ */
+export function isInForeignContent(path: NodePath<t.JSXElement>): boolean {
+  const ownXmlns = staticAttribute(path.node, "xmlns");
+  if (ownXmlns === Namespaces.svg || ownXmlns === Namespaces.mathml) return true;
+  for (let p: NodePath | null = path.parentPath; p; p = p.parentPath) {
+    if (!p.isJSXElement()) continue;
+    const name = getTagName(p.node);
+    if (isComponent(name)) continue;
+    if (htmlIntegrationPoints.has(name) || foreignBreakoutTags.has(name)) return false;
+    if (name === "annotation-xml") {
+      const encoding = staticAttribute(p.node, "encoding")?.toLowerCase();
+      if (encoding === "text/html" || encoding === "application/xhtml+xml") return false;
+      return true;
+    }
+    const xmlns = staticAttribute(p.node, "xmlns");
+    if (xmlns === Namespaces.svg || xmlns === Namespaces.mathml) return true;
+    if (name !== "font" && (SVGElements.has(name) || MathMLElements.has(name))) return true;
+  }
+  return false;
 }

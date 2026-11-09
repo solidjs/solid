@@ -88,7 +88,10 @@ function createProxy<P extends Record<string, any>>(
   instances: LiveInstances,
   location?: string
 ): (props: P) => SolidElement {
-  function HMRComp(props: P): SolidElement {
+  // Rest arguments are forwarded: the transform also registers PascalCase
+  // functions that are plain helpers, called directly with any number of
+  // arguments (#4513).
+  function HMRComp(props: P, ...rest: unknown[]): SolidElement {
     if (getOwner()) {
       instances.count++;
       onCleanup(() => {
@@ -108,7 +111,10 @@ function createProxy<P extends Record<string, any>>(
         () => {
           const c = source();
           if (c) {
-            return untrack(() => c(props), (c as any)[$DEVCOMP] && `<${name}>`);
+            return untrack(
+              () => (c as (...args: unknown[]) => SolidElement)(props, ...rest),
+              (c as any)[$DEVCOMP] && `<${name}>`
+            );
           }
           return undefined;
         },
@@ -118,7 +124,7 @@ function createProxy<P extends Record<string, any>>(
     // No $DEVCOMP brand means the source never went through observedComponent, so
     // this is a plain function call (e.g. a context provider called directly),
     // not a tracked component render.
-    return s(props);
+    return (s as (...args: unknown[]) => SolidElement)(props, ...rest);
   }
   // The component's own name, so a `createComponent` call the compiler did
   // not label (no `sourceNames`) still opens a `<Name>` root rather than a

@@ -50,8 +50,12 @@ test("a boundary registering after the cut releases through the rejected path", 
 
   const dispose = hydrate(() => <scenario.App />, container);
   flush();
-  await sleep(80);
-  flush();
+  // Done lands two macrotasks after hydrate(), and the first of them can
+  // outlast a fixed wait on a busy machine: wait for done itself, bounded.
+  for (let i = 0; i < 100 && !hy.done; i++) {
+    await sleep(10);
+    flush();
+  }
   expect(hy.done).toBe(true);
 
   warn.mockRestore();

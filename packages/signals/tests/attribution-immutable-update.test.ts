@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { attribution } from "../src/attribution.js";
-import { createStore, flush, reconcile, OBSERVE } from "../src/index.js";
+import { createStore, flush, markRaw, reconcile, OBSERVE } from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
 afterEach(() => {
@@ -173,5 +173,26 @@ describe("IMMUTABLE_UPDATE_IN_STORE", () => {
     flush();
     expect(hits).toHaveLength(1);
     expect(hits[0].data!.path).toBe("store.a.b");
+  });
+
+  it("does not report replacing a value in a shallow store (#4686)", () => {
+    const hits = arm();
+    const [, setStore] = createStore([{ a: 1, b: 2, c: 3 }], { shallow: true });
+    setStore(s => {
+      s[0] = { a: 1, b: 2, c: 4 };
+    });
+    flush();
+    expect(hits).toEqual([]);
+  });
+
+  it("does not report replacing a markRaw leaf (#4686)", () => {
+    const hits = arm();
+    const leaf = markRaw({ a: 1, b: 2, c: 3 });
+    const [, setStore] = createStore({ item: leaf });
+    setStore(s => {
+      s.item = { a: 1, b: 2, c: 4 };
+    });
+    flush();
+    expect(hits).toEqual([]);
   });
 });

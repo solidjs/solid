@@ -199,7 +199,14 @@ export function transformElement(
     });
 
   const config = getConfig(path);
-  if (tagName === "script" || tagName === "style") path.doNotEscape = true;
+  // HTML-namespace `<script>`/`<style>` are raw text. Under `<svg>`/`<math>`
+  // they are ordinary elements whose text parses as markup, so it escapes
+  // (marked in preprocess).
+  if (
+    (tagName === "script" || tagName === "style") &&
+    !(path.node as { _foreignContent?: boolean })._foreignContent
+  )
+    path.doNotEscape = true;
 
   // A `<select value=…>` (or a spread that could carry one) opts this module
   // into the runtime's SSR select-value resolution pass. The pass is a

@@ -28,6 +28,7 @@ import {
   traceMarker,
   type Page
 } from "./support.js";
+import { tierLoads } from "../../frames/src/frame-client.js";
 
 let page: Page | undefined;
 afterEach(async () => {
@@ -130,6 +131,10 @@ describe("C3 — hydration-done counts every hold", () => {
     expect(invocations.length).toBe(0);
     expect(page.container.textContent).toBe("1");
     expect(hydrationInProgress()).toBe(true);
+    // The tier's load is a real `import()`, and how many macrotasks the
+    // module runner needs for it varies by machine: wait for the load (it
+    // installs the tier and re-syncs the frame), then let the claim settle.
+    await tierLoads.trace;
     await quiesce();
     await quiesce();
     expect(invocations.length).toBe(1);

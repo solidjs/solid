@@ -9,6 +9,11 @@ on:
       - main
       - next
 
+# A push gets its own group, so every commit on next keeps its run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
  job:
   runs-on: ubuntu-latest
@@ -45,16 +50,23 @@ jobs:
     run: pnpm run build
 
   - name: Testing & Coverage
+    # Coveralls only reads solid-js's lcov, so signals and web skip a second run.
     run: |
       pnpm run test
-      pnpm run coverage
+      pnpm run coverage --filter=solid-js
 
   - name: Coveralls
+    # Coverage reporting is informational: an outage or a bad release of the
+    # reporter binary (checksum mismatch, a 504 on the checksum download) must
+    # not fail the required job. `fail-on-error` alone misses some install
+    # paths, so the step is also allowed to fail.
+    continue-on-error: true
     uses: coverallsapp/github-action@v2
     with:
       base-path: packages/solid
       path-to-lcov: "./packages/solid/coverage/lcov.info"
       github-token: ${{ secrets.GITHUB_TOKEN }}
+      fail-on-error: false
 
   - name: Archive production artifacts
     uses: actions/upload-artifact@v4
@@ -91,3 +103,43 @@ jobs:
   - name: Testing on Babel 8
     working-directory: packages/babel-plugin
     run: pnpm exec vitest run
+
+ # Production builds lower `<Show>` to the ternary it renders (lowerShow),
+ # while the web suites compile with dev on, so they keep the component.
+ # This runs them lowered on both compilers, so a runtime change that only
+ # breaks the lowered shape still fails a PR. Specs about the component's own
+ # dev behavior skip themselves here (LOWERED_SKIP in the vite configs).
+ lowered-show:
+  runs-on: ubuntu-latest
+  strategy:
+   fail-fast: false
+   matrix:
+    compiler: [native, babel]
+  steps:
+  - uses: actions/checkout@v4
+  - uses: pnpm/action-setup@v4
+  - uses: actions/setup-node@v4
+    with:
+      node-version-file: ".nvmrc"
+      cache: "pnpm"
+
+  - name: Installing deps
+    run: pnpm install
+
+  - uses: dtolnay/rust-toolchain@stable
+  - uses: Swatinem/rust-cache@v2
+    with:
+      workspaces: packages/compiler
+
+  - name: Building compiler binding
+    run: pnpm --filter @solidjs/compiler run build
+
+  - name: Building
+    run: pnpm run build
+
+  - name: Testing web with Show lowered
+    working-directory: packages/web
+    env:
+      LOWER_SHOW: "1"
+      JSX_COMPILER: ${{ matrix.compiler }}
+    run: pnpm run test

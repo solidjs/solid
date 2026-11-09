@@ -38,6 +38,5 @@ _$insert(_el$14, b, _el$16);
 // Safe omissions that must be preserved:
 const slotsBeforeElement = _el$14;
 var _el$17 = _tmpl$4();
-var _el$18 = _el$17.firstChild;
 _$insert(_el$17, a, null);
 const singleTrailingSlot = _el$17;

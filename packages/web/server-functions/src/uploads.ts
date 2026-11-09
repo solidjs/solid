@@ -14,6 +14,13 @@
 // index back into its part. Any other body decodes without that plugin, so
 // an index in a plain codec body fails to decode.
 //
+// A multipart part always arrives as a file: an empty type comes back as
+// `application/octet-stream`, `lastModified` is the time the server parsed
+// it, and some characters in the name are escaped. So the node also holds
+// the type, and for a file the name and `lastModified`, and the server
+// rebuilds the value from them. Clients before these fields send only the
+// index, which reads as the part.
+//
 // Ported from SolidStart (solidjs/solid-start#2359).
 
 export const UPLOAD_ARGS_PART = "args";
@@ -37,6 +44,10 @@ function isBlob(value) {
   );
 }
 
+function isFile(value) {
+  return typeof value.name === "string" && typeof value.lastModified === "number";
+}
+
 function malformed() {
   return new TypeError("Malformed server function upload");
 }
@@ -51,13 +62,29 @@ export function createUploadSerializer(files) {
     const index = files.indexOf(value);
     return index === -1 ? files.push(value) - 1 : index;
   };
+  // The fields are plain values, so the sync parser works for every mode.
+  const parse = (value, ctx) => {
+    const node = { i: ctx.parse(indexOf(value)), t: ctx.parse(value.type) };
+    if (isFile(value)) {
+      node.n = ctx.parse(value.name);
+      node.l = ctx.parse(value.lastModified);
+    }
+    return node;
+  };
   return {
     tag: UPLOAD_TAG,
     test: isBlob,
     parse: {
-      sync: (value, ctx) => ({ i: ctx.parse(indexOf(value)) }),
-      async: async (value, ctx) => ({ i: await ctx.parse(indexOf(value)) }),
-      stream: (value, ctx) => ({ i: ctx.parse(indexOf(value)) })
+      sync: parse,
+      async: async (value, ctx) => {
+        const node = { i: await ctx.parse(indexOf(value)), t: await ctx.parse(value.type) };
+        if (isFile(value)) {
+          node.n = await ctx.parse(value.name);
+          node.l = await ctx.parse(value.lastModified);
+        }
+        return node;
+      },
+      stream: parse
     },
     serialize: (node, ctx) => ctx.serialize(node.i),
     deserialize: () => {
@@ -84,7 +111,16 @@ export function createUploadDeserializer(form) {
       if (typeof index !== "number" || !Number.isSafeInteger(index) || index < 0) refuse();
       const part = form.get(UPLOAD_FILE_PART + index);
       if (!isBlob(part)) refuse();
-      return part;
+      // A client before the metadata fields sends only the index.
+      if (node.t === undefined) return part;
+      const type = ctx.deserialize(node.t);
+      if (typeof type !== "string") refuse();
+      // The new blob or file refers to the bytes of the part instead of copying them.
+      if (node.n === undefined) return new Blob([part], { type });
+      const name = ctx.deserialize(node.n);
+      const lastModified = node.l === undefined ? undefined : ctx.deserialize(node.l);
+      if (typeof name !== "string" || typeof lastModified !== "number") refuse();
+      return new File([part], name, { type, lastModified });
     }
   };
 }

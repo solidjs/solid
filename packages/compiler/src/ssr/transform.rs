@@ -19,7 +19,7 @@ use crate::shared::attr_plan::{AttrPlan, AttrPlanner, PlanValue};
 use crate::shared::bindings::BindingTable;
 use crate::shared::classify::{Classify, jsx_text_is_filtered, significant_children};
 use crate::shared::component_callee::{ComponentCalleeContext, component_callee_expression};
-use crate::shared::component_children::component_children_coverage_pragma_span;
+use crate::shared::component_children::coverage_pragma_span_for;
 use crate::shared::component_props::{
     ComponentPropContext, component_property, component_props_expression,
     component_spread_expression, flush_component_props,
@@ -137,10 +137,15 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     /// program top (`hoisted_var_names`) when nothing matches.
     var_scope_stack: std::vec::Vec<VarScope>,
     /// Native elements marked pass-through by `escapeExpression` (Babel's
-    /// `wontEscape`), identified by span.
-    wont_escape_spans: std::vec::Vec<Span>,
+    /// `wontEscape`), identified by node address, not span: the TSRX route
+    /// clears every span to the same empty one, so a span would mark every
+    /// element of the module.
+    wont_escape_elements: std::vec::Vec<*const JSXElement<'a>>,
     /// Native children of a spread raw-text element, whose templates keep their characters.
     raw_text_spans: std::vec::Vec<Span>,
+    /// `<script>`/`<style>` elements in SVG/MathML content, whose children
+    /// escape (see `ssr::foreign`).
+    pub(crate) foreign_raw_text_spans: std::vec::Vec<Span>,
     /// Span of the JSX root currently being lowered via the visitor entry.
     /// Babel keeps a raw `this` in the tag callee of the root element of each
     /// `transformJSX` call; only descendants use the `_self$` capture.
@@ -299,8 +304,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             statement_jsx_spans: std::vec::Vec::new(),
             component_child_depth: 0,
             var_scope_stack: std::vec::Vec::new(),
-            wont_escape_spans: std::vec::Vec::new(),
+            wont_escape_elements: std::vec::Vec::new(),
             raw_text_spans: std::vec::Vec::new(),
+            foreign_raw_text_spans: std::vec::Vec::new(),
             jsx_root_span: None,
             deferring: false,
             iife_callee_addrs: std::vec::Vec::new(),
@@ -894,7 +900,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         template: SsrTemplate<'a>,
     ) -> Result<Expression<'a>> {
         let span = element.span;
-        let wont_escape = self.wont_escape_spans.contains(&element.span);
+        let wont_escape = self
+            .wont_escape_elements
+            .contains(&(element as *const JSXElement<'a>));
         // The DOM `validate` pass (#3099) over the SSR markup, so templates
         // that only ever compile for the server (server components) are
         // checked too. Content holes are opaque — under an `<html>` root one
@@ -1285,7 +1293,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         }
 
         if let Some((children, dynamic, coverage_pragma_span)) =
-            self.component_children_expression(&element.children)?
+            self.component_children_expression(element.span.start, &element.children)?
         {
             if dynamic {
                 // Babel's getter-body inlining for dynamic children: unwrap a
@@ -1359,9 +1367,10 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     /// children value plus whether it is dynamic (getter-hosted).
     fn component_children_expression(
         &mut self,
+        element_start: u32,
         children: &[JSXChild<'a>],
     ) -> Result<Option<(Expression<'a>, bool, Option<Span>)>> {
-        let coverage_pragma_span = component_children_coverage_pragma_span(children, self.source);
+        let coverage_pragma_span = coverage_pragma_span_for(element_start, children, self.source);
         // `filterChildren`: drop empty expression containers and JSXText whose
         // raw starts with a newline and contains only whitespace.
         let filtered: std::vec::Vec<&JSXChild<'a>> = children
@@ -1587,7 +1596,8 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             // A spread on a select can carry `value` — arm conservatively.
             self.uses_ssr_select_values = true;
         }
-        let do_not_escape = tag_name == "script" || tag_name == "style";
+        let do_not_escape = (tag_name == "script" || tag_name == "style")
+            && !self.foreign_raw_text_spans.contains(&element.span);
         let (props, tail) = self.spread_props(
             &tag_name,
             &element.opening_element.attributes,
@@ -2096,8 +2106,10 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         {
             self.uses_ssr_select_values = true;
         }
-        // Babel: `<script>`/`<style>` contents render raw (`path.doNotEscape`).
-        let mut child_do_not_escape = tag_name == "script" || tag_name == "style";
+        // Babel: HTML-namespace `<script>`/`<style>` contents render raw
+        // (`path.doNotEscape`); under `<svg>`/`<math>` they escape.
+        let mut child_do_not_escape = (tag_name == "script" || tag_name == "style")
+            && !self.foreign_raw_text_spans.contains(&element.span);
         let mut template = SsrTemplate::new(format!("<{tag_name}"));
         if top_level && self.hydratable {
             let key_call = self.ssr_hydration_key_call(element.span);
@@ -3274,7 +3286,8 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             {
                 // The element compiles to a safe SSR node; the wrap would be
                 // a runtime no-op (Babel's `wontEscape`).
-                self.wont_escape_spans.push(element.span);
+                self.wont_escape_elements
+                    .push(&**element as *const JSXElement<'a>);
             }
             Expression::JSXFragment(fragment) if fragment_will_self_escape(fragment) => {}
             _ => {

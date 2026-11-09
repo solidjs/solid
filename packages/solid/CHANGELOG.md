@@ -1,5 +1,159 @@
 # solid-js
 
+## 2.0.0-rc.21
+
+### Patch Changes
+
+- 46ab2dd: Dev diagnostic `CAUGHT_REACTIVE_READ` (D-42 / S-47): warns once per computation when a reactive read's throw — `NotReadyError` or the source's error — was caught inside the computation's body and the pass completed with a value. An `async` computation is judged when its flight settles (a rejection is the throw continuing; a landed value is the catch). The runtime's own catches (boundaries, `isPending`, `watch`, comparator/cleanup/effect-callback routing, solid-js's hydration trace) never warn. Dev-only; no production bytes.
+- 61bb177: `createOwner` leaves solid-js's public types: it is typed only through `solid-js/internal`, like the boundary primitives behind `Errored`, `Loading` and `Reveal` (#3709). It stays a runtime export for the renderers. Solid 1.x had no `createOwner`, and application code that used it in an RC should host a scope with `createRoot()` (its `dispose` argument can be passed around as a plain function) and re-enter one with `runWithOwner()`. A detached `owner.dispose` keeps throwing, since it is a method and not part of the public API (#4444).
+- 25fb7be: fix(hydration): a content-input write made before a rejected fragment's chunks arrive recovers the hydrated `<Errored>` fallback (#4588)
+- 0d4c5e0: Hot reload: a PascalCase helper function that the refresh transform wraps now gets every argument when it is called directly, not only the first (#4513).
+- 84353de: A non-keyed `<Show>`'s or `<Match>`'s narrowed accessor read inside an `isPending()` thunk no longer throws the stale-value error for a branch that mounted in the flush its condition landed in, so the thunk's later reads link and the verdict flips (#4648). The exemption holds only inside a verdict window (`isPending` / `latest`): a plain read of the accessor while its branch's opening is held still throws, rather than hand out the committed falsy.
+- 99d9821: A stream cut short no longer hangs hydration when the client runtime starts after the parser finished (#2958). The truncation sweep only armed when `hydrate()` ran while `document.readyState` was still `"loading"`. An entry that ran later, such as one waiting on a route module that arrives after `DOMContentLoaded`, or a deferred module entry, left every unsettled `_fr` declaration pending, so its `<Loading>` kept the fallback and hydration never ended. When the document carries the in-render bootstrap (`<HydrationScript />`, which declares `_$HY.s`), a runtime that boots after parsing now runs the same sweep at boot: the records that can no longer settle leave the registry, the cut fragments are rejected, and a macrotask later the refs a keyed consumer already took are rejected. Documents with a host-placed bootstrap (`generateHydrationScript()`) are unchanged.
+- Updated dependencies [f509fe3]
+- Updated dependencies [46ab2dd]
+- Updated dependencies [9379257]
+- Updated dependencies [f17cd09]
+- Updated dependencies [65da5de]
+- Updated dependencies [689347f]
+- Updated dependencies [20c115c]
+- Updated dependencies [5315127]
+- Updated dependencies [ecf3011]
+- Updated dependencies [bb7f9b5]
+- Updated dependencies [64fedc7]
+- Updated dependencies [e49b0c7]
+- Updated dependencies [6af149e]
+- Updated dependencies [19e0951]
+- Updated dependencies [dd5f9d1]
+- Updated dependencies [ecf3011]
+- Updated dependencies [39f951b]
+- Updated dependencies [3a73a36]
+- Updated dependencies [ceb7896]
+- Updated dependencies [4235019]
+- Updated dependencies [a56b10b]
+- Updated dependencies [b773146]
+- Updated dependencies [343f007]
+- Updated dependencies [ab3e844]
+- Updated dependencies [87f3446]
+- Updated dependencies [62745f6]
+- Updated dependencies [4a4803c]
+- Updated dependencies [6ec1613]
+- Updated dependencies [d9aa8f7]
+- Updated dependencies [60d6307]
+- Updated dependencies [7135a77]
+- Updated dependencies [592a43b]
+- Updated dependencies [2ba429b]
+- Updated dependencies [c8d6fd2]
+- Updated dependencies [64625bc]
+- Updated dependencies [2ba10bd]
+- Updated dependencies [8cac5f0]
+- Updated dependencies [42924f4]
+- Updated dependencies [9c4e4a8]
+- Updated dependencies [edd3c44]
+- Updated dependencies [77be406]
+- Updated dependencies [061b013]
+- Updated dependencies [d9a97d0]
+- Updated dependencies [6e569c7]
+- Updated dependencies [f53d927]
+- Updated dependencies [97e1826]
+- Updated dependencies [eed4469]
+- Updated dependencies [71a6a75]
+- Updated dependencies [2abf27d]
+- Updated dependencies [b5077ea]
+- Updated dependencies [5315127]
+- Updated dependencies [4f9768f]
+- Updated dependencies [227a01d]
+- Updated dependencies [5f07d04]
+- Updated dependencies [ecf3011]
+- Updated dependencies [885b99b]
+- Updated dependencies [ab5b5cb]
+- Updated dependencies [9034647]
+- Updated dependencies [efd7f7d]
+- Updated dependencies [25b94f0]
+- Updated dependencies [e704cfc]
+- Updated dependencies [e56a4a0]
+- Updated dependencies [e56a4a0]
+- Updated dependencies [8a8e950]
+- Updated dependencies [74126b1]
+- Updated dependencies [2c9a1e3]
+- Updated dependencies [718ec9c]
+- Updated dependencies [643a7a7]
+- Updated dependencies [fda83a3]
+- Updated dependencies [84353de]
+- Updated dependencies [f0471e8]
+- Updated dependencies [66c6f56]
+- Updated dependencies [749b0d7]
+- Updated dependencies [404d06a]
+- Updated dependencies [50dec1b]
+- Updated dependencies [456e6d5]
+- Updated dependencies [e44f824]
+- Updated dependencies [d5cf231]
+- Updated dependencies [ecf3011]
+- Updated dependencies [7ea8706]
+- Updated dependencies [aeca8da]
+- Updated dependencies [ef0aadd]
+- Updated dependencies [d0fc285]
+- Updated dependencies [62bf4c4]
+- Updated dependencies [f8080f3]
+- Updated dependencies [663ecb0]
+- Updated dependencies [2e05808]
+- Updated dependencies [1445197]
+- Updated dependencies [ab3d2ad]
+- Updated dependencies [131ceb8]
+  - @solidjs/signals@2.0.0-rc.21
+
+## 2.0.0-rc.20
+
+### Patch Changes
+
+- 178605c: `isPending` of a derived store's key no longer reads `true` for one pass at the store's first landing. A first answer is loading, not pending, as it is for the memo the store copies. Before, a `<Show when={isPending(...)}>` over such a key could open for that pass and mount content that was never meant to show.
+- 17ec571: A derived store whose derive reads an async memo through `latest()` no longer shows its seed for one pass after it first resolves: a memo (or a second derived store) reading it now sees what the derive wrote, so a render effect downstream commits only the real value, the same as one reading the store directly (#4355).
+- 178605c: A render effect reading a derived store that errored, then recovered through `latest()` into a new flight, now re-runs when that flight lands. Before, it never re-ran: an `Errored` around it went back to its content with the value missing, or a `Loading` around it stayed on its fallback.
+- df2ba6c: The dev "multiple instances of Solid" warning now fires when two copies actually meet (a component or `useContext()` from one copy runs inside a component rendered by another, with no owner) instead of whenever a second copy loads. Isolated copies, such as a devtools panel rendering into its own root or a Solid 1 copy on the same page, no longer warn (#2549). Solid 2 no longer sets v1's `globalThis.Solid$$` flag.
+- c7f4403: A hydrated `<Errored>` showing the server's fallback no longer logs `Hydration key miss` (or builds detached elements) for content it creates lazily: children behind a context provider, a component returning a function, a `children()` accessor, or a nested `<Loading>`, `<Errored>`, `<Show>` or `<For>` resolved after the content's own run. Nothing under the boundary claims server DOM, so the fallback stays up until a content input changes or `reset()` (#4348). A nested `<Loading>` there no longer waits on a fragment the server dropped with the content.
+- ffe0c1c: Dev: warn `LOADING_ON_ACCESSOR` when a Loading boundary's `on` receives a function (`on={route}` or `on={() => route()}`). The boundary never calls it, so it never re-arms; pass the value, `on={route()}`. Dev builds only.
+- bd95616: A hydrating client never asks again for an async memo the server answered with an error, when a boundary that resumes mid-stream reads it only through another memo (#4375). The resume created a reader (`isPending(m1)` of a memo `m1` over the rejected `m0`) on a later flush round than the one the rejection landed in, so the read retried the errored memo (PJ-R35); `m0` sat in the shell, outside the boundary being claimed, and hydration took the retry for a client write and ran its compute — a real request, with nothing changed. A served rejection now re-serves in a claim window's own round, as it already does in the round a served answer lands in; a write still recomputes it.
+- 38e0c49: `<For>` / `mapArray` over a shallow store diffs the store's backing array instead of reading every slot through the proxy. A one-row write on a 1,000-row shallow store spent ~1.3 ms in per-slot trap reads; the list's diff now costs what it does over a plain array (~0.05 ms). Optimistic shallow stores, accessor slots and reads inside a setter keep the per-slot path.
+- 1f558e5: Non-keyed Show's narrowed accessor no longer throws a stale-value error when an on-screen branch re-runs during a hold that is closing it: the guard reads the condition as the reading binding sees it (the screen), as Match already does
+- 56a982c: The first draft write to a plain store array clones it with `slice()` instead of copying one property descriptor per element. A push into a 10,000-row store drops from ~10.7 ms to ~0.15 ms per write. Arrays with accessors, named keys or a non-Array prototype keep the descriptor copy.
+- 5d57e12: A `<Loading>` whose fragment was cut off by a truncated stream renders fresh on the client and adopts the records the server sent. The records the stream never settled were still in the registry at that point, so the fresh render adopted their promises, which never settle: the boundary stayed on its fallback and its reads never ran. Truncation now removes those records before any boundary resumes. Reads the server never answered compute on the client, and the values and errors it sent before the cut are still adopted.
+- Updated dependencies [c9d1eeb]
+- Updated dependencies [178605c]
+- Updated dependencies [17ec571]
+- Updated dependencies [178605c]
+- Updated dependencies [957f065]
+- Updated dependencies [3b7ea81]
+- Updated dependencies [2861ab8]
+- Updated dependencies [0f5b150]
+- Updated dependencies [e82efb0]
+- Updated dependencies [2ba8a02]
+- Updated dependencies [910abc1]
+- Updated dependencies [cddc7c3]
+- Updated dependencies [81a12d8]
+- Updated dependencies [81a12d8]
+- Updated dependencies [5f22701]
+- Updated dependencies [81a12d8]
+- Updated dependencies [9baaba3]
+- Updated dependencies [ffe0c1c]
+- Updated dependencies [b68942c]
+- Updated dependencies [7cacef2]
+- Updated dependencies [ac28157]
+- Updated dependencies [1e115b8]
+- Updated dependencies [6b7e34a]
+- Updated dependencies [822fa01]
+- Updated dependencies [2c63f41]
+- Updated dependencies [5f60713]
+- Updated dependencies [425a713]
+- Updated dependencies [38e0c49]
+- Updated dependencies [56a982c]
+- Updated dependencies [1b32ff2]
+- Updated dependencies [4d8195d]
+- Updated dependencies [7ebd4a3]
+- Updated dependencies [f94dcd5]
+- Updated dependencies [409f893]
+- Updated dependencies [85ad399]
+  - @solidjs/signals@2.0.0-rc.20
+
 ## 2.0.0-rc.19
 
 ### Patch Changes

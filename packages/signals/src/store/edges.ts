@@ -30,9 +30,9 @@ export function storeName(x: object | undefined): string | undefined {
   // Up to the root; a target on the way named as a root of its own is one
   // object in two stores.
   while (t.u !== null) {
-    if (t.fam !== null || t.ch || signalName(t) !== undefined) return undefined;
+    if (t._fam !== null || t.ch || signalName(t) !== undefined) return undefined;
     t = t.u;
   }
-  if (t.fam !== null || t.ch) return undefined;
+  if (t._fam !== null || t.ch) return undefined;
   return signalName(t) || undefined;
 }

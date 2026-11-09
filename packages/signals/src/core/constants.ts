@@ -71,8 +71,19 @@ export const REACTIVE_PROBE_UNANSWERED = 1 << 19;
 /** The pass opened a verdict window of its own (`isPending`/`latest`) — not
  * only read a verdict memo (F-6, core.ts `read`). An async memo whose pass
  * did not is D-25's hold work while its flight is up (verdict.ts
- * `holdWork`). Per pass (1 << 20 is lanes.ts's LEFT_SHOWN). */
+ * `holdWork`). Per pass. */
 export const REACTIVE_WINDOW = 1 << 21;
+/** #4544: a render effect born into a hold read a settled verdict reader's
+ * value this pass (core.ts `read`). Per pass: `recompute`'s tail keeps it as
+ * CONFIG_AHEAD. */
+export const REACTIVE_AHEAD = 1 << 20;
+/** An observation-lifecycle node found unobserved by a settle (#2934) while
+ * a pass of it was already queued — a source's landing re-enqueued the
+ * `_blocked` reader it walks (`settlePendingSource`). The release waits for
+ * that pass: a memo nobody read has still produced what the flushes it
+ * missed gave it (D-22, #4474), so the queued pass runs, then `recompute`'s
+ * tail releases the node. Survives the head wipe; the tail consumes it. */
+export const REACTIVE_RELEASE_AFTER = 1 << 22;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.
 export const CONFIG_OWNED_WRITE = 1 << 0;
@@ -221,9 +232,25 @@ export const CONFIG_KEY_BAG = 1 << 28;
  * joins nothing, so two mounts under one boundary made in separate flushes
  * keep their holds apart (D-4, S-5 rows 1′–3′, #4283). */
 export const CONFIG_FRAME = 1 << 23;
+/** A render effect created by a pass that probed (`isPending`/`latest`) —
+ * the mount a display-ahead `Show` opens (S-46, D-25). Stamped at its first
+ * pass; its first read of a hold's staging or flight is born held, not a
+ * D-3 leaf of the screen, and the verdict lane that opened it reveals with
+ * the landing (lanes.ts `mountPending`). */
+export const CONFIG_MOUNT_AHEAD = 1 << 24;
 /** The node's last answering pass registered a flight: an async memo. Kept
  * by the verdict engine alone (verdict.ts `holdWork`), which reads it. */
 export const CONFIG_ASYNC = 1 << 29;
+/** #4544: the node's last pass opened a verdict window of its own
+ * (`isPending`/`latest`) — REACTIVE_WINDOW, kept by `recompute`'s tail
+ * beside CONFIG_VERDICT and renewed by every pass. One whose posture is only
+ * inherited (it read a verdict memo) is the hold's work where it reads the
+ * hold's own write (verdict.ts `holdStaging`). */
+export const CONFIG_OWN_PROBE = REACTIVE_WINDOW << 9;
+/** #4544 (F-6): the effect's last pass read a display-ahead value
+ * (REACTIVE_AHEAD): what it went pending on does not hold its hold
+ * (scheduler.ts `blockedBy`). The sign bit: tested by `&` only. */
+export const CONFIG_AHEAD = REACTIVE_AHEAD << 11;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;

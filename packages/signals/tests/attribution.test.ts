@@ -503,9 +503,12 @@ describe("why-did-this-run attribution", () => {
       while (performance.now() < end);
     };
     const [n, setN] = createSignal(0, { name: "n" });
+    // 40 ms, not 10: self-times are wall-clock, and on a loaded CI runner a
+    // scheduling pause inside the cheap effect measured 17.9 ms against the
+    // memo's 10.1 ms. The ranking asserted below needs the gap to be wide.
     const slow = createMemo(
       () => {
-        spin(10);
+        spin(40);
         return n();
       },
       { name: "slow-memo" }

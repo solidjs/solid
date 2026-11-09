@@ -78,6 +78,31 @@ const bump = action(async function* () {
 });
 ```
 
+#### `OPTIMISTIC_WRITE_BEFORE_LOAD`
+
+**Message:** "Optimistic write to a source that has not loaded yet. Before its first answer the source is loading, not showing a value to be optimistic over. Keep the pending items in a separate list (an outbox) until the source loads, or disable the action until the source has loaded."
+
+An optimistic setter ran before its source's first answer landed: `createOptimistic(fn)` whose async `fn` has not resolved, or `createOptimisticStore(fn, seed)` whose derive has not landed (a seed does not count — it is a draft, never shown). Until then the source is loading, so there is nothing on screen to be optimistic over (ruled 2026-11-03, #4656). Dev throws at the setter and makes no guess; inside an `action` the action rejects. Production is unchanged. `createOptimistic(value)`, `createOptimisticStore(value)` and a source that has landed once are never flagged. Repair: keep the items written before the load in a separate list (an outbox) and render it beside the source, or disable the action (the input) until the source has loaded.
+
+```js
+const [todos, setTodos] = createOptimisticStore(() => api.list(), []);
+const add = action(function* (todo) {
+  setTodos(s => {
+    s.push(todo); // throws in dev while the first `api.list()` is out
+  });
+  yield api.add(todo);
+  refresh(todos);
+});
+
+// Fix: offer the action only once the list has loaded — inside the same
+// <Loading> as the list, the button is not there before the first answer…
+<Loading fallback={<p>loading</p>}>
+  <For each={todos}>{t => <li>{t.title}</li>}</For>
+  <button onClick={() => add(next())}>Add</button>
+</Loading>;
+// …or keep pre-load items in their own list (an outbox) and render both.
+```
+
 #### `STORE_WRITE_OUTSIDE_SETTER`
 
 **Message:** "Writing store property \"n\" outside its setter was ignored. Stores are read-only outside the setter's draft: use `setStore(s => { s.n = value })`."
@@ -391,6 +416,40 @@ It covers native Promise computations. Not covered: `async function*` bodies (as
 **Message:** "Reading a pending async value inside createTrackedEffect or onSettled will throw. Use createEffect instead which supports async-aware reactivity."
 
 Warns that an async value read inside `createTrackedEffect` or `onSettled` will throw if it's ever pending, because these scopes can't route not-ready reads through `Loading`. Use `createEffect` (which supports async-aware reactivity) instead.
+
+#### `CAUGHT_REACTIVE_READ`
+
+**Message (not ready):** "[owner] caught the not-ready throw of [source] and completed with a value. A reactive read is not an await: the throw is how the read suspends to a `<Loading>` boundary or holds the change, and when the source changes later this computation is marked pending and not re-run, so the catch will not fire again. Branch on readiness with isPending(), show ahead with latest(), or let the read suspend."
+
+**Message (error):** "[owner] caught the error of [source] and completed with a value. An error is the source's status, not a throw this computation owns: the computation is errored with it regardless, and today's runtime may complete with the caught value until the source is retried, when the error reaches `<Errored>` (or halts) and the catch does not fire again. Handle errors with `<Errored>` or createEffect's error option."
+
+A computation — a memo, a render effect's compute, a component body, a store derive — wrapped a reactive read in `try/catch` as it would an `await`, the read threw (`NotReadyError` because the source is loading, or the source's error), the catch swallowed it, and the computation completed with a substitute value. The throw was addressed to the graph, not to the code around the read: `NotReadyError` is how the read suspends to the nearest `<Loading>` boundary or holds the change; an error is how it reaches `<Errored>` or `createEffect`'s error arm. Swallowing it severs that channel — the first load is masked (no fallback, no hold), the error never reaches a boundary, and on the server, where there is no subscription graph to re-run the computation when the source lands, the substitute is the answer.
+
+It is also unreliable by construction: when a source goes pending or errored, its dependents are _marked_ with that status and do not run, so the catch never sees the change. It fires only on a pass that happens to run while the source is already in that state — its creation, another input of its own changing. The same code catches on one pass and is bypassed on the next. For an error the catch is inert by the rules: a reader of an errored source is errored with it whether or not it catches (F-12, #4410); today's runtime may complete with the caught value until the source is retried (#4486).
+
+```js
+// Warns: the catch masks the first load; the re-ask is held through this memo as if the catch were not there
+const label = createMemo(() => {
+  try {
+    return user().name;
+  } catch {
+    return "…";
+  }
+});
+
+// Fix: branch on readiness, or show the last value ahead of the landing
+const label = createMemo(() => (isPending(user) ? "…" : user().name));
+const label = createMemo(() => latest(() => user().name));
+
+// Fix: let the read suspend and put the placeholder in a boundary
+<Loading fallback="…">{user().name}</Loading>;
+
+// Errors: a boundary, or the effect's error arm
+<Errored fallback={e => <p>{e().message}</p>}>{user().name}</Errored>;
+createEffect(() => user().name, { effect: show, error: showError });
+```
+
+Interop layers that catch `NotReadyError` and re-throw it (`catch (e) { if (e instanceof NotReadyError) throw e; … }`) do not warn: the pass did not complete. An `async` computation is judged when its promise settles, not when the function returns: a read before the first `await` that throws turns into the promise's rejection, which is the throw continuing (no warning); a value landing after such a throw is the catch (warns). Warns once per computation. **Under-reports by design:** a catch the status propagation bypasses is not detected — the warning fires on the pass where the catch actually ran, so a computation created over an already-loaded source and never re-run while it is pending or errored stays silent. The runtime's own catches (`isPending`, `latest`, `resolve`/`until`, the boundaries) are the mechanism and never warn. Dev-only; adds nothing to production builds.
 
 #### `NO_OWNER_EFFECT`
 
@@ -955,6 +1014,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | ---------------------------------- | ---------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `REACTIVE_WRITE_IN_OWNED_SCOPE`    | error      | write          | Reactive write/invalidation inside component/computation                                                                                                          |
 | `ASYNC_STORE_SETTER`               | error      | write          | Store setter callback returned a Promise (setters are synchronous transactions)                                                                                   |
+| `OPTIMISTIC_WRITE_BEFORE_LOAD`     | error      | write          | Optimistic write to a source whose first answer has not landed; no guess is made                                                                                  |
 | `STORE_WRITE_OUTSIDE_SETTER`       | warn       | write          | Store proxy written, deleted from, or defined on outside its setter; the write is ignored (once per store object and key)                                         |
 | `PENDING_ASYNC_UNTRACKED_READ`     | error      | async          | Reading pending async outside tracking scope                                                                                                                      |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY`   | warn       | async          | Async computation outside Loading boundary (non-halting; root mount is deferred)                                                                                  |
@@ -974,6 +1034,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `STRICT_READ_UNTRACKED`            | warn       | strict-read    | Untracked reactive read in component/effect body                                                                                                                  |
 | `UNTRACKED_READ_AFTER_AWAIT`       | warn       | async          | Async computation first read a signal/memo/store key after an `await`; never a dependency (dev; V8 engines only)                                                  |
 | `PENDING_ASYNC_FORBIDDEN_SCOPE`    | warn       | async          | Pending async read in trackedEffect/onSettled                                                                                                                     |
+| `CAUGHT_REACTIVE_READ`             | warn       | async          | A computation caught a reactive read's throw (not ready, or the source's error) and completed with a value: the load is masked or the error hidden; once per node |
 | `LOADING_ON_OUTSIDE_HOLD`          | warn       | async          | `<Loading on>` changed but its data is also read outside the boundary and holds the frame: the fallback can never be seen                                         |
 | `LOADING_ON_ACCESSOR`              | warn       | async          | `<Loading on>` received a function (an accessor) instead of the dependency's value; it is never called, so the boundary never re-arms                             |
 | `NO_OWNER_EFFECT`                  | warn       | lifecycle      | Effect created without reactive owner                                                                                                                             |

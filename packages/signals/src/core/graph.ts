@@ -74,15 +74,13 @@ export function trimStaleDeps(el: Computed<any>): void {
 // Shared by unobserved() and the disposeChildren child loop. The truthy guard
 // (not `!== null`) matters: plain Owners in a child chain have no _deps field,
 // and skipping early also avoids adding one (hidden-class churn) via the
-// null-out below.
+// null-out below. With `_depsTail` cleared, `trimStaleDeps` unlinks the whole
+// list and nulls `_deps`.
 export function clearDeps(el: Computed<unknown>): void {
-  let dep = el._deps;
-  if (!dep) return;
-  do {
-    dep = unlinkSubs(dep);
-  } while (dep !== null);
-  el._deps = null;
-  el._depsTail = null;
+  if (el._deps) {
+    el._depsTail = null;
+    trimStaleDeps(el);
+  }
 }
 
 /**

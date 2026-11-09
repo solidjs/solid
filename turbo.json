@@ -7,7 +7,9 @@
       "outputLogs": "new-only"
     },
     "@solidjs/signals#build": {
-      "outputs": ["dist/**"]
+      // The pinned mangled-prop map is written back by the build when a field
+      // is added or removed (scripts/mangle-props.mjs).
+      "outputs": ["dist/**", "scripts/mangle-props.json"]
     },
     "@solidjs/signals#types": {
       "outputs": ["dist/types/**"]

@@ -12,7 +12,8 @@
  * first registration and stays for the whole file.
  */
 import * as r from "../../src/client.js";
-import { createRoot, createSignal, flush, createOwner, runWithOwner } from "solid-js";
+import { createRoot, createSignal, flush, runWithOwner } from "solid-js";
+import { createOwner } from "solid-js/internal";
 import { peekNextChildId } from "@solidjs/signals";
 
 // Registry applies on a microtask.

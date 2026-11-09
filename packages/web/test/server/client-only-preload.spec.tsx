@@ -74,7 +74,9 @@ describe("clientOnly preload hints", () => {
     );
 
     // Plain hints in the head, fallback in the body.
-    expect(html).toContain('<link rel="modulepreload" href="/assets/chart.js">');
+    expect(html).toContain(
+      '<link rel="modulepreload" href="/assets/chart.js" fetchpriority="low">'
+    );
     expect(html).toContain('<link rel="stylesheet" href="/assets/chart.css">');
     expect(html).toContain(
       '<link rel="preload" href="/assets/chart-font.woff2" as="font" type="font/woff2" crossorigin="">'

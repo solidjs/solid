@@ -91,6 +91,83 @@ describe("UNSTABLE_LIST_IDENTITY", () => {
     expect(hits).toHaveLength(1);
   });
 
+  it("does not evaluate accessors while comparing rows", () => {
+    const hits = arm();
+    const getter = vi.fn(() => "lazy");
+    const records = () =>
+      rows(10).map(row =>
+        Object.defineProperty(row, "children", {
+          enumerable: true,
+          get: getter
+        })
+      );
+    const [items, setItems] = createSignal(records());
+    const dispose = createRoot(dispose => {
+      const mapped = mapArray(items, item => item.id, { name: "rows" });
+      createMemo(() => mapped().length);
+      return dispose;
+    });
+    try {
+      flush();
+      setItems(records());
+      flush();
+
+      expect(getter).not.toHaveBeenCalled();
+      expect(hits).toHaveLength(0);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("does not read an `id` getter (prototype or own) as record identity", () => {
+    const hits = arm();
+    const protoId = vi.fn(function (this: Record_) {
+      return this.n;
+    });
+    class Record_ {
+      constructor(public n: number) {}
+      get id() {
+        return protoId.call(this);
+      }
+    }
+    const ownId = vi.fn(() => 1);
+    const instances = () => Array.from({ length: 10 }, (_, i) => new Record_(i + 1));
+    const withOwnGetter = () =>
+      rows(10).map(({ name }) =>
+        Object.defineProperty({ name }, "id", { enumerable: true, get: ownId })
+      );
+    const [items, setItems] = createSignal<object[]>(instances());
+    const dispose = createRoot(dispose => {
+      const mapped = mapArray(items, () => null, { name: "rows" });
+      createMemo(() => mapped().length);
+      return dispose;
+    });
+    try {
+      flush();
+      setItems(instances());
+      flush();
+      setItems(withOwnGetter());
+      flush();
+      setItems(withOwnGetter());
+      flush();
+      expect(protoId).not.toHaveBeenCalled();
+      expect(ownId).not.toHaveBeenCalled();
+      expect(hits).toEqual([]);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("pairs exited and entered rows by an own data `id`", () => {
+    const hits = arm();
+    const { setItems } = listFixture();
+    // Reversed: positional pairing would find no equivalent pair.
+    setItems(rows(10).reverse());
+    flush();
+    expect(hits).toHaveLength(1);
+    expect(hits[0].data!.equivalent).toBe(8);
+  });
+
   it("does not report a list keyed by a stable field", () => {
     const hits = arm();
     const { setItems, count } = listFixture(item => item.id);

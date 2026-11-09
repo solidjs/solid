@@ -81,6 +81,38 @@ describe("solid-js client artifacts", () => {
     expect(read("solid.js")).not.toContain("._name = ");
   });
 
+  // The prod artifact is left out of the first case on purpose: this file
+  // resolves @solidjs/signals to its dev build, whose bare no-owner read is a
+  // `NoOwnerError`. Prod's no-owner context read lives in prod signals and is
+  // covered against that artifact in signals' tests/dist-artifacts.test.ts.
+  test.each([
+    ["observe", observe],
+    ["dev", dev]
+  ])("%s: a component created outside any owner reads a context default", (_, artifact) => {
+    const Theme = artifact.createContext("light");
+    let seen: unknown;
+    function Badge() {
+      seen = artifact.useContext(Theme);
+      return null;
+    }
+    expect(getOwner()).toBeNull();
+    artifact.createComponent(Badge, {});
+    expect(seen).toBe("light");
+  });
+
+  test("prod: a component created under an owner runs in that owner, with no root of its own", () => {
+    let outer: unknown;
+    let inner: unknown;
+    prod.createRoot(() => {
+      outer = getOwner();
+      prod.createComponent(() => {
+        inner = getOwner();
+        return null;
+      }, {});
+    });
+    expect(inner).toBe(outer);
+  });
+
   test("the three artifacts export the same surface", () => {
     expect(Object.keys(observe).sort()).toEqual(Object.keys(prod).sort());
     expect(Object.keys(dev).sort()).toEqual(Object.keys(prod).sort());

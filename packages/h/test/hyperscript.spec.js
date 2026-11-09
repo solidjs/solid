@@ -278,4 +278,33 @@ describe("Test HyperScript", () => {
     expect(el.classList.contains("sel")).toBe(true);
     expect(el.classList.contains("opt")).toBe(true);
   });
+
+  test("a getter class is merged with selector classes and stays reactive", () => {
+    // A component that forwards its props to a selector-class element
+    // receives a zero-arity `class` prop as a getter.
+    const [active, setActive] = createSignal(false);
+    const Button = props => h("button.btn", props);
+    const el = mount(() => h(Button, { class: () => (active() ? "on" : "off") }));
+    expect(el.className).toBe("btn off");
+
+    setActive(true);
+    flush();
+    expect(el.className).toBe("btn on");
+  });
+
+  test("a hand-written class getter is merged with selector classes", () => {
+    const [cls, setCls] = createSignal("off");
+    const el = mount(() =>
+      h("div.card", {
+        get class() {
+          return cls();
+        }
+      })
+    );
+    expect(el.className).toBe("card off");
+
+    setCls("on");
+    flush();
+    expect(el.className).toBe("card on");
+  });
 });

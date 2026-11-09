@@ -9,6 +9,15 @@
 // staging (D-22's frame read is for a pass that has a value to re-derive
 // on). Reading the staging there committed an answer that threw later, and
 // the grouped leaf ended on `[ROOT-E]` where the split one shows `[F]`.
+// After the write `s0 = 1`, `m0`'s new flight is up: `isPending(m0)` is
+// `true` (F-9), so the `Show` opens at once — but its mount's first pass
+// reads the flight plainly, so it is born held (S-46, D-25: a mount under a
+// display-ahead reader is not a D-3 leaf of the screen) and the fallback
+// stays until the flight lands, where `isPending` is `false` again and the
+// screen settles on `[F]`. Before S-46 was built (2026-11-07) the mount
+// attached with the committed values (`m0` = 1, `latest(m2)` = 4) for that
+// step — S-46's ✗ row; before #4439 the pin recorded `[F]` for the other
+// reason (the condition memo ran only at the landing).
 import { expect, test } from "vitest";
 import fc from "fast-check";
 import { runScenario } from "./run.js";
@@ -52,11 +61,13 @@ const minimized = {
   steps: [{ t: "settle", pick: 5 }, { t: "task" }, { t: "write", s: 0, v: 1 }, { t: "task" }]
 } as any;
 
-test("minimized: grouped and split attributes show the same screens, ending on [F]", async () => {
+test("minimized: grouped and split attributes show the same screens, settling on [F]", async () => {
   const grouped = await runScenario(minimized, { grouped: true });
   const split = await runScenario(minimized, { split: true });
   expect(grouped.screens).toEqual(split.screens);
   expect(grouped.screens.at(-1)).toBe("[F]");
+  expect(grouped.final).toBe("[F]");
+  expect(split.final).toBe("[F]");
 });
 
 test("the generated case: grouped, split, default and latest-through-a-memo agree", async () => {

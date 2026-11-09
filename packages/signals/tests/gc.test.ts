@@ -13,6 +13,7 @@ import {
   latest,
   mapArray
 } from "../src/index.js";
+import { flushTransaction, type Transaction } from "../src/core/scheduler.js";
 
 function gc() {
   return new Promise(resolve =>
@@ -88,6 +89,48 @@ it("releases an unobserved reader queued by an idle cross-root rejection", async
   } finally {
     source.dispose();
   }
+});
+
+it("releases the transaction a latest() read of an unheld refetch opened once it lands", async () => {
+  // F-6, D-23 (#4453): `pendingVerdict` marks the flush's transaction a
+  // `latest` read of an unheld flight opened. It holds nothing of the
+  // flight and lands at that flush's seam — after which nothing may keep it.
+  const asks: ((v: number) => void)[] = [];
+  const [s, setS] = createSignal(1);
+  let armed = false,
+    opened: Transaction | null = null;
+  const dispose = createRoot(dispose => {
+    const m = createMemo(() => {
+      s();
+      return new Promise<number>(resolve => asks.push(resolve));
+    });
+    createRenderEffect(
+      () => {
+        const v = `${latest(m)} ${isPending(m)}`;
+        if (armed) opened ??= flushTransaction;
+        return v;
+      },
+      () => {}
+    );
+    return dispose;
+  });
+  flush();
+  await new Promise<void>(r => setTimeout(r, 0));
+  asks.shift()!(1);
+  await new Promise<void>(r => setTimeout(r, 0));
+  flush();
+  armed = true;
+  setS(2);
+  flush();
+  expect(opened).not.toBeNull();
+  const ref = new WeakRef(opened!);
+  opened = null;
+  asks.shift()!(2);
+  await new Promise<void>(r => setTimeout(r, 0));
+  flush();
+  dispose();
+  await collectGarbage();
+  expect(ref.deref()).toBeUndefined();
 });
 
 if (global.gc) {

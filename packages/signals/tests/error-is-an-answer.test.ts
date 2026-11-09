@@ -10,8 +10,8 @@
  * the mirror (D-39), and recovering to the last good value is still a new
  * answer, held or not.
  *
- * The derived-store case at the end is D-41's open deviation, pinned
- * `it.fails`.
+ * The derived-store case at the end was D-41's open deviation (an untracked
+ * read threw the held rejection before its frame), closed by #4489.
  */
 import { expect, it } from "vitest";
 import { createStore } from "../src/index.js";
@@ -217,10 +217,9 @@ it("recovering to the last good value after an async rejection reaches the effec
   }
 });
 
-// Open deviation: the effect and the screen wait, but an untracked read of a
-// derived store's property throws a held rejection before its frame (the
-// family publishes the error at once).
-it.fails("D-41 deviation: a derived store's held rejection waits for its frame", async () => {
+// A derived store's held rejection is staged like a memo's (#4489): the
+// effect, the screen and an untracked read all wait for its frame.
+it("D-41: a derived store's held rejection waits for its frame", async () => {
   let request = deferred<{ v: number }>();
   let sibling = deferred<number>();
   const [count, setCount] = createSignal(1);

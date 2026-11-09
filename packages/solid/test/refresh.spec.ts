@@ -174,6 +174,14 @@ describe("$$component proxy owner paths", () => {
     const { proxies } = executeModule(hot, { Counter: { impl: () => null } });
     expect(proxies.Counter.name).toBe("Counter");
   });
+
+  test("a PascalCase helper called directly gets every argument (#4513)", () => {
+    const { hot } = createViteHot();
+    const { proxies } = executeModule(hot, {
+      GlobalTest: { impl: ((...arr: number[]) => arr) as any }
+    });
+    expect((proxies.GlobalTest as any)(1, 2, 3)).toEqual([1, 2, 3]);
+  });
 });
 
 describe("$$component proxy swapping (vite mode)", () => {

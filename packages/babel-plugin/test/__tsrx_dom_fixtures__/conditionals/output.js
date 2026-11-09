@@ -9,23 +9,9 @@ var _tmpl$ = /*#__PURE__*/ _$template(`<span>Visible`),
   _tmpl$5 = /*#__PURE__*/ _$template(`<em>anonymous`),
   _tmpl$6 = /*#__PURE__*/ _$template(`<strong>`);
 export function Badge({ show }) {
-  return _$createComponent(_$Show, {
-    when: show,
-    get children() {
-      return _tmpl$();
-    }
-  });
+  return show ? _tmpl$() : void 0;
 }
-export const Toggle = ({ on }) =>
-  _$createComponent(_$Show, {
-    when: on,
-    get fallback() {
-      return _tmpl$3();
-    },
-    get children() {
-      return _tmpl$2();
-    }
-  });
+export const Toggle = ({ on }) => (on ? _tmpl$2() : _tmpl$3());
 export function WithSetup({ user }) {
   var _el$4 = _tmpl$4();
   _$insert(

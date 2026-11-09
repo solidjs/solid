@@ -22,8 +22,18 @@ import type {
 // Cycle note: core.ts imports this module; we read its live `context` binding
 // only at call time (emitDiagnostic's default subject), never during module
 // evaluation, so the cycle is inert — same shape as the attribution.ts edge.
-import { callbackDepth, context, disposalDepth, resetDisposalDepth } from "./core.js";
-import type { Computed, Link, Owner, Signal } from "./types.js";
+import {
+  callbackDepth,
+  context,
+  disposalDepth,
+  resetDisposalDepth,
+  runWithOwner,
+  setSignal as writeSignal,
+  untrack
+} from "./core.js";
+import { CONFIG_SLOT_NODE, STATUS_UNINITIALIZED } from "./constants.js";
+import { NotReadyError } from "./error.js";
+import type { Computed, Link, Owner, Root, Signal } from "./types.js";
 
 export interface DevHooks {
   onOwner?: (owner: Owner) => void;
@@ -69,6 +79,7 @@ export type DiagnosticCode =
   | "MISSING_EFFECT_FN"
   | "SYNC_NODE_RECEIVED_ASYNC"
   | "UNTRACKED_READ_AFTER_AWAIT"
+  | "CAUGHT_REACTIVE_READ"
   | "REACTIVITY_HALTED"
   | "INVARIANT_VIOLATION"
   | "HUGE_FAN_OUT"
@@ -88,6 +99,7 @@ export type DiagnosticCode =
   | "FALLBACK_FLASH"
   | "STACKED_HOLDS"
   | "OPTIMISTIC_REVERTED"
+  | "OPTIMISTIC_WRITE_BEFORE_LOAD"
   | "EFFECT_WRITES_OWN_SOURCE"
   | "EFFECT_RELAY_TEAR"
   | "IMMUTABLE_UPDATE_IN_STORE"
@@ -509,6 +521,16 @@ export interface Dev {
   getParent: typeof getParent;
   getSources: typeof getSources;
   getObservers: typeof getObservers;
+  /**
+   * Write a signal or store-slot node from outside the app's setters —
+   * for example from a devtools state editor that only holds the node from
+   * `getSignals` / `getSources`. Runs as an unowned write (devtools UI
+   * events are not owned scopes). Store property slots go through the
+   * store setter path so `onStoreNodeUpdate` and backing state stay in sync.
+   *
+   * @see https://github.com/solidjs/solid/issues/4679
+   */
+  setSignal: typeof setDevSignal;
   /** Console face of an emitted event — see `reportDiagnostic`. */
   report(entry: DiagnosticEvent): void;
   /**
@@ -522,6 +544,32 @@ export interface Dev {
    * cost every observe build would pay.
    */
   guideUrl(code: DiagnosticCode): string;
+}
+
+type DevStoreSlotWriter = (node: Signal<any>, value: unknown) => void;
+let writeDevStoreSlot: DevStoreSlotWriter | undefined;
+
+/**
+ * @internal The store package registers the slot-write path so this module
+ * does not import the store (avoids a core ↔ store cycle).
+ */
+export function registerDevStoreSlotWriter(fn: DevStoreSlotWriter): void {
+  writeDevStoreSlot = fn;
+}
+
+/**
+ * Devtools write entry for a reactive node. Prefer the app's own setters in
+ * application code; this exists for tools that only have the node.
+ */
+export function setDevSignal(node: Signal<any>, value: unknown): void {
+  if (!__DEV__) return;
+  runWithOwner(null, () => {
+    if (node._config & CONFIG_SLOT_NODE && writeDevStoreSlot) {
+      writeDevStoreSlot(node, value);
+      return;
+    }
+    writeSignal(node, value as any);
+  });
 }
 
 // A dev build without the wiring is a build whose checks emit into a channel
@@ -752,6 +800,7 @@ export const DEV: Dev = __DEV__
       getParent,
       getSources,
       getObservers,
+      setSignal: setDevSignal,
       report: reportDiagnostic,
       guideUrl(code) {
         return GUIDE_URL + code.toLowerCase().replace(/_/g, "-");
@@ -831,6 +880,32 @@ function locationOf(subject: DiagnosticSubject | null | undefined): string | und
  * subject walk (hosts whose owners are not signals' owners compute their
  * own). Console output is a separate, dev-tier step — see `reportDiagnostic`.
  */
+const OPTIMISTIC_WRITE_BEFORE_LOAD_MESSAGE =
+  "[OPTIMISTIC_WRITE_BEFORE_LOAD] Optimistic write to a source that has not loaded yet. " +
+  "Before its first answer the source is loading, not showing a value to be optimistic over. " +
+  "Keep the pending items in a separate list (an outbox) until the source loads, " +
+  "or disable the action until the source has loaded.";
+
+/** DEV (ruled 2026-11-03, #4656): an optimistic write to a derived
+ * optimistic store whose first answer has not landed (`source`: the
+ * store's derive). An optimistic memo no longer guards (S-56, 2026-11-07:
+ * a guess before the first answer is the newest value the node produced
+ * and shows); the store form keeps the guard until the store engine can
+ * show such a guess — today its screen stays loading while an untracked
+ * read sees the guess. Called under `__DEV__` only. */
+export function devGuardOptimisticBeforeLoad(source: Computed<any> | null | undefined): void {
+  if (source && source._statusFlags & STATUS_UNINITIALIZED) {
+    emitDiagnostic({
+      code: "OPTIMISTIC_WRITE_BEFORE_LOAD",
+      kind: "write",
+      severity: "error",
+      message: OPTIMISTIC_WRITE_BEFORE_LOAD_MESSAGE,
+      data: { operation: "optimistic" }
+    });
+    throw new Error(OPTIMISTIC_WRITE_BEFORE_LOAD_MESSAGE);
+  }
+}
+
 export function emitDiagnostic(
   event: Omit<DiagnosticEvent, "sequence">,
   subject: DiagnosticSubject | null | undefined = context
@@ -1324,6 +1399,148 @@ export function checkPostAwaitRead(
           `or wrap the read in untrack() if a one-time value is intended.`,
         ownerId: el.id,
         ownerName: (el as any)._name,
+        nodeName
+      },
+      el
+    )
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CAUGHT_REACTIVE_READ (D-42 / S-47): a reactive read's throw — `NotReadyError`
+// or a source's error — is addressed to the graph, not to the code around the
+// read. A dependent of a source that goes pending or errored is MARKED, not
+// run (`propagateStatus`), so a `try/catch` around the read is bypassed on
+// the change and fires only on a pass that happens to run while the source
+// is already in that state; when it does fire it masks the first load, hides
+// the error from `<Errored>`, and on a server build (no subscription graph)
+// the substitute is the answer. The detectable half: a pass whose `_fn`
+// RETURNED after a read threw into it — the catch ran and swallowed. The
+// bypass has nothing to detect, so this under-reports by design.
+//
+// Mechanism: `read()`'s throw sites record the throw against the running
+// pass (`noteThrownRead`); `recompute` clears the slot at the pass's head
+// (`clearThrownRead`) and inspects it when `_fn` returns (`checkCaughtRead`).
+// A body that returned a FLIGHT (a thenable or an async iterable) is judged
+// when the flight settles instead (`caughtReadFlightSettled`): an `async`
+// function turns the synchronous throw of a read before its first `await`
+// into its rejection, so the body returning is not the catch having run —
+// a rejection is the throw continuing (a wrapped rethrow included, as a sync
+// body's rethrow never reaches the check), a landed value is the catch. The
+// runtime's own sanctioned catches — a `<Loading>` boundary's output and its
+// `on` computed, `isPending`'s probe, `watch`'s error arm, a comparator
+// throw, a cleanup's, an effect callback's escalation, solid-js's hydration
+// trace — forget the slot (`forgetThrownRead`) before completing.
+// Module-level and weak: no node field, nothing outlives the node.
+// ---------------------------------------------------------------------------
+
+interface ThrownRead {
+  error: unknown;
+  source: Signal<any> | Computed<any>;
+  /** The flight whose settle judges this record, else undefined. */
+  flight: object | undefined;
+}
+const thrownReads = new WeakMap<Computed<any>, ThrownRead>();
+const caughtReadReported = new WeakSet<Computed<any>>();
+
+/** The pass a read's throw lands in: `context`, through a root to the
+ * computed that created it (as `read()` resolves `c`). `untrack` does not
+ * null it: an untracked read inside a pass still throws into that pass. */
+function runningPass(): Computed<any> | null {
+  const c = context;
+  return ((c as Root)?._root ? (c as Root)._parentComputed : c) as Computed<any> | null;
+}
+
+/** A reactive read threw `error` (NotReady or `source`'s error) into the
+ * running pass. Called at `read()`'s throw sites, dev only. */
+export function noteThrownRead(source: Signal<any> | Computed<any>, error: unknown): void {
+  const c = runningPass();
+  if (c !== null) thrownReads.set(c, { error, source, flight: undefined });
+}
+
+/** The runtime's own catch swallowed (or re-routed) the last throw into the
+ * running pass: it is the mechanism, not a user catch. Dev only.
+ * @internal Also solid-js's: its hydration trace runs a compute whose
+ * throws the tracer, not user code, observes. */
+export function forgetThrownRead(): void {
+  if (!__DEV__) return;
+  const c = runningPass();
+  if (c !== null) thrownReads.delete(c);
+}
+
+/** The head of `el`'s pass: whatever an earlier pass left is not this one's. */
+export function clearThrownRead(el: Computed<any>): void {
+  thrownReads.delete(el);
+}
+
+/** Flight shape, as `handleAsync` probes it (untracked: a store proxy's
+ * `then` is a read). */
+function isFlight(result: unknown): result is object {
+  if (typeof result !== "object" || result === null) return false;
+  return untrack(
+    () => !!(result as any)[Symbol.asyncIterator] || typeof (result as any).then === "function"
+  );
+}
+
+/** `el`'s `_fn` returned `result`. A throw still recorded against the pass
+ * was caught inside the body — unless `result` is the flight the body
+ * became (an `async` function's rejected promise where a sync body would
+ * have thrown): then the flight's settle judges it (`caughtReadFlightSettled`).
+ * Called before `handleAsync` sees the result: a pending flight throws
+ * NotReady out of it, and the verdict must already be pinned to the flight. */
+export function checkCaughtRead(el: Computed<any>, result: unknown): void {
+  const thrown = thrownReads.get(el);
+  if (thrown === undefined) return;
+  if (thrown.flight === undefined && isFlight(result)) {
+    thrown.flight = result;
+    return;
+  }
+  if (thrown.flight !== undefined) return;
+  thrownReads.delete(el);
+  reportCaughtRead(el, thrown);
+}
+
+/** The flight `el`'s body became settled (async.ts; the caller has checked
+ * it is still `el`'s registered flight). `landed`: a value — the body
+ * swallowed the read's throw and answered. A rejection is the throw
+ * continuing: forgotten. A record never pinned is this flight's too: the
+ * pass registered it after the throw and then threw out (a projection's
+ * self-registration suspending, an async iterable's live first pull) — a
+ * later pass would have cleared the record at its head. */
+export function caughtReadFlightSettled(el: Computed<any>, flight: object, landed: boolean): void {
+  const thrown = thrownReads.get(el);
+  if (thrown === undefined || (thrown.flight !== undefined && thrown.flight !== flight)) return;
+  thrownReads.delete(el);
+  if (landed) reportCaughtRead(el, thrown);
+}
+
+function reportCaughtRead(el: Computed<any>, thrown: ThrownRead): void {
+  if (caughtReadReported.has(el)) return;
+  caughtReadReported.add(el);
+  const ownerName = (el as any)._name as string | undefined;
+  const nodeName = (thrown.source as any)._name as string | undefined;
+  const owner = ownerName ? `"${ownerName}"` : "A computation";
+  const source = nodeName ? `"${nodeName}"` : "a reactive value";
+  const message =
+    thrown.error instanceof NotReadyError
+      ? `[CAUGHT_REACTIVE_READ] ${owner} caught the not-ready throw of ${source} and completed with a value. ` +
+        `A reactive read is not an await: the throw is how the read suspends to a <Loading> boundary or holds the change, ` +
+        `and when the source changes later this computation is marked pending and not re-run, so the catch will not fire again. ` +
+        `Branch on readiness with isPending(), show ahead with latest(), or let the read suspend.`
+      : `[CAUGHT_REACTIVE_READ] ${owner} caught the error of ${source} and completed with a value. ` +
+        `An error is the source's status, not a throw this computation owns: the computation is errored with it regardless, ` +
+        `and today's runtime may complete with the caught value until the source is retried, ` +
+        `when the error reaches <Errored> (or halts) and the catch does not fire again. ` +
+        `Handle errors with <Errored> or createEffect's error option.`;
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "CAUGHT_REACTIVE_READ",
+        kind: "async",
+        severity: "warn",
+        message,
+        ownerId: el.id,
+        ownerName,
         nodeName
       },
       el

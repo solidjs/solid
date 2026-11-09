@@ -1,9 +1,9 @@
 import { template as _$template } from "r-dom";
 import { insert as _$insert } from "r-dom";
+import { memo as _$memo } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { mergeProps as _$mergeProps } from "r-dom";
 import { For as _$For } from "r-dom";
-import { Show as _$Show } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<span>`);
 var _tmpl$2 = /* @__PURE__ */ _$template(`<div><!><!><!><!><!><!><!>`);
 import { Child, Ui, Row } from "./components";
@@ -35,14 +35,17 @@ _$insert(_el$, _$createComponent(_$For, {
 	},
 	children: (item) => _$createComponent(Row, { item }, "Row", "components.jsx:12:33")
 }, "For", "components.jsx:12:5"), _el$6);
-_$insert(_el$, _$createComponent(_$Show, {
-	get when() {
-		return visible();
-	},
-	get children() {
-		return _$createComponent(Child, {}, "Child", "components.jsx:14:7");
-	}
-}, "Show", "components.jsx:13:5"), _el$7);
+_$insert(_el$, (() => {
+	var _c$ = _$memo(() => {
+		return !!visible();
+	});
+	return () => {
+		return _c$() ? _$createComponent(Child, {}, "Child", "components.jsx:14:7") : void 0;
+	};
+})(), _el$7, undefined, {
+	name: "div.children",
+	loc: "components.jsx:13:5"
+});
 _$insert(_el$, _$createComponent(_self$.Row, {}, "this.Row", "components.jsx:16:5"), _el$8);
 _$insert(_el$, _$createComponent(Comp, { children: () => _$createComponent(Child, {}, "Child", "components.jsx:17:18") }, "Comp", "components.jsx:17:5"), _el$9);
 const template = (() => {

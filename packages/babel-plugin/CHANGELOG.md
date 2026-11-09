@@ -1,5 +1,17 @@
 # @solidjs/babel-plugin
 
+## 2.0.0-rc.21
+
+### Patch Changes
+
+- d815fd4: Keep a returned element's setup inside a braceless `if`, `else` or loop body. `if (c) return <span>{x.join()}</span>;` emitted the template clone and `insert` before the `if`, so they ran (and `x.join()` threw) when `c` was false, a loop body's setup read its loop variable out of scope, and a hydrating `getNextElement` claimed a node for a branch not taken. The setup is now inserted before the `return`, and Babel wraps the body in a block.
+
+## 2.0.0-rc.20
+
+### Patch Changes
+
+- 56683ea: SSR templates write characters above U+00FF in static text and quoted attribute values as numeric character references (`→` becomes `&#8594;`), as do the static attributes baked into a spread element's attribute string. One character above U+00FF in a template made V8 store the whole rendered page as a two-byte string, which roughly doubled the cost of flattening and UTF-8 encoding the response (#4328). Latin-1 characters stay literal. Tag internals, comments, raw-text bodies such as `<script>` and `<style>`, and the children of a spread `<script>` or `<style>` keep their characters, since browsers do not decode references there. Client output is unchanged.
+
 ## 2.0.0-rc.19
 
 ### Patch Changes

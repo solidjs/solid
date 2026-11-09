@@ -16,7 +16,7 @@
 // - #4400's "m0:5 asked twice" is a number collision under `1 + latest(s) +
 //   s()`: the lane question for s=3 and the frame question for s=2 are both
 //   5. With a distinct encoding each question is asked once.
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createLoadingBoundary,
   createMemo,
@@ -30,9 +30,15 @@ import {
 } from "../src/index.js";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+// Fake timers: the gaps between writes are part of each scenario, and on a
+// loaded runner (CI coverage) a real 3 ms gap outlived a 10 ms ask, landing
+// it before the second write (#4400 asked `m1:23`).
+const wait = (ms: number) => vi.advanceTimersByTimeAsync(ms);
+beforeEach(() => void vi.useFakeTimers());
+afterEach(() => void vi.useRealTimers());
 async function settle() {
   for (let i = 0; i < 4; i++) {
-    await sleep(15);
+    await wait(15);
     flush();
   }
 }
@@ -78,7 +84,7 @@ async function run(reader: Reader, gap: number) {
   out.length = 0;
   setS(2);
   flush();
-  await sleep(gap);
+  await wait(gap);
   flush();
   setT(1);
   flush();
@@ -114,33 +120,34 @@ describe("#4393: two latest() readers under one async memo, t written during the
   const notReDerived = async (reader: "value" | "beside") => {
     const { asks, out, values } = await run(reader, 12);
     expect(new Set(asks).size, asks.join(" ")).toBe(asks.length);
-    expect(asks.slice(-2)).toEqual(["m1:1122", "m1:1123"]);
-    expect(values).toEqual(["1122", "1123"]);
-    if (reader === "beside") {
-      const shown = out.indexOf("c1101");
-      expect(out.indexOf("v1122"), out.join(" ")).toBeLessThan(shown);
-      expect(out.slice(shown).filter(v => v[0] === "v")).toEqual(["v1123"]);
-    }
+    // F-2's producer clause (2026-11-07, S-51): `m1` asks once, of the truth;
+    // `m1:1122` was its question over `m0b`'s stale value.
+    expect(asks.slice(-2)).toEqual(["m0b:1100", "m1:1123"]);
+    expect(values).toEqual(["1123"]);
+    // `latest(m2)` reveals m0b's answer ahead (`c1101`) in the frame that
+    // lands `m1`'s one question, not before it.
+    if (reader === "beside")
+      expect(out.filter((v, i) => v !== out[i - 1])).toEqual(["c1", "v1123", "c1101"]);
   };
   it("m1's lane pass is not re-derived over a staging that lands with it (value)", () =>
     notReDerived("value"));
-  // F-6 (amended 2026-10-28: the parent waits for the lane's flights) and
-  // D-26. Fails with #4397 merged (#4393 alone passed): #4397 makes `m1` a
-  // verdict reader between its flights (D-25), so m0's lane pass re-derives
-  // it into the s lane early; the lane is unshown when `m1:22` lands, nothing
-  // holds the t transaction, and `c1101` shows while `m1:1122` is in flight.
-  // A row for the reader-seat carve: telling "its hold re-runs it" (D-25)
-  // apart at that landing needs a per-pass check.
-  it.fails("m1's lane pass is not re-derived over a staging that lands with it (beside)", () =>
-    notReDerived("beside")
-  );
+  // #4408 — F-6 (amended 2026-10-28: the parent waits for the lane's
+  // flights) and D-26: the lane's readers show its answer together, so
+  // `c1101` never shows before `v1122`. `m1` waits on `m0`'s flight as the
+  // hold's work (D-25, verdict.ts `holdWork`): it is not re-derived into the
+  // s lane early, the lane shows, and `m1:22`'s landing holds the frame
+  // `m0b:1100` lands into. Re-derived early (#4397's verdict reader between
+  // its flights), the lane was unshown when `m1:22` landed, nothing held
+  // that frame, and `c1101` showed while `m1:1122` was in flight.
+  it("m1's lane pass is not re-derived over a staging that lands with it (beside, #4408)", () =>
+    notReDerived("beside"));
 
   // Its lane's own render effect shows m1 (pair): the staging's transaction
   // lands at the very seam, so the pass read the screen (one run).
   it("m1's lane pass is not re-derived when the staging's transaction lands at the seam", async () => {
     const { asks, values } = await run("pair", 12);
     expect(new Set(asks).size, asks.join(" ")).toBe(asks.length);
-    expect(asks.slice(-2)).toEqual(["m1:1122", "m1:1123"]);
+    expect(asks.slice(-2)).toEqual(["m0b:1100", "m1:1123"]);
     expect(values.at(-1)).toBe("1123");
   });
 });
@@ -190,13 +197,15 @@ describe("#4400: a second write during the hold, distinct encoding", () => {
     out.length = 0;
     setS(2);
     flush();
-    await sleep(3);
+    await wait(3);
     flush();
     setS(3);
     flush();
     for (let i = 0; i < 4; i++) await settle();
     dispose();
-    expect(asks).toEqual(["m0:23", "m0:22", "m0:32", "m1:33", "m0:34", "m1:35"]);
+    // F-2's producer clause (2026-11-07, S-51): no question over the screen's
+    // stale `s` (`m0:22`, `m0:32`, and `m1:33` over the latter).
+    expect(asks).toEqual(["m0:23", "m0:34", "m1:35"]);
     expect(out.at(-1)).toBe(reader === "pair" ? "false,35" : "pfalse");
   });
 });
@@ -252,13 +261,15 @@ describe("#4393: a latest() reader's lane answer reaches the screen", () => {
       setS(2);
       setW(2);
       flush();
-      await sleep(25);
+      await wait(25);
       flush();
-      expect(out).toEqual(["v22"]);
+      // F-2's producer clause (2026-11-07, S-51): `m0` asks of the truth and
+      // is the frame's — nothing shows ahead of X's flight.
+      expect(out).toEqual([]);
       await settle();
       await settle();
       dispose();
-      expect(out).toEqual(["v22", "v23"]);
+      expect(out).toEqual(["v23"]);
     });
 
   // An async memo over `latest(s)*10 + s()*100`, held only by its own
@@ -301,7 +312,8 @@ describe("#4393: a latest() reader's lane answer reaches the screen", () => {
       await settle();
       await settle();
       dispose();
-      expect(out).toEqual(["v120", "v220"]);
+      // F-2's producer clause (2026-11-07, S-51): no `v120` over the stale `s`.
+      expect(out).toEqual(["v220"]);
     });
 
   // A sync memo over `latest(s) + s()` under an unrelated hold, read as
@@ -340,7 +352,7 @@ describe("#4393: a latest() reader's lane answer reaches the screen", () => {
     setS(2);
     setW(2);
     flush();
-    await sleep(25);
+    await wait(25);
     flush();
     expect(out).toEqual(["false,22"]);
     await settle();

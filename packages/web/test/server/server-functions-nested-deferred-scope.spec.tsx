@@ -272,6 +272,180 @@ describe("nested deferred work on the direct SSR road (#3241)", () => {
     expect(returned.self).toBe(returned);
   });
 
+  it("binds a body behind leaf slots and keeps leaf carriers by identity", async () => {
+    const seen: string[] = [];
+    let returned: any;
+    const reference = createServerReference({
+      id: "nested-direct-leaf-siblings",
+      fn: () => {
+        async function* more() {
+          seen.push(`resume:${(getRequestEvent() as any)?.derived === true ? "call" : "ambient"}`);
+          yield "one";
+        }
+        (getRequestEvent() as any).derived = true;
+        const shared = { id: 1, tags: ["a", "b"] };
+        returned = { total: 2, rows: [shared, { id: 2 }], shared, more: more() };
+        return returned;
+      }
+    } as any) as () => any;
+
+    const result = await requestContext.run(eventFor("RENDER"), async () => {
+      const value = reference();
+      await drain(value.more);
+      return value;
+    });
+
+    expect(seen).toEqual(["resume:call"]);
+    expect(result).not.toBe(returned);
+    expect(result.total).toBe(2);
+    expect(result.rows).toBe(returned.rows);
+    expect(result.shared).toBe(returned.shared);
+    expect(result.shared.tags).toBe(returned.shared.tags);
+  });
+
+  it("binds a plain object that carries its own iterator hook", async () => {
+    const seen: string[] = [];
+    let returned: any;
+    const reference = createServerReference({
+      id: "nested-direct-own-hook",
+      fn: () => {
+        (getRequestEvent() as any).derived = true;
+        returned = [
+          {
+            id: 1,
+            async *[Symbol.asyncIterator]() {
+              seen.push(
+                `resume:${(getRequestEvent() as any)?.derived === true ? "call" : "ambient"}`
+              );
+              yield "one";
+            }
+          }
+        ];
+        return returned;
+      }
+    } as any) as () => any;
+
+    await requestContext.run(eventFor("RENDER"), async () => {
+      const value = reference();
+      expect(value).not.toBe(returned);
+      await drain(value[0]);
+    });
+
+    expect(seen).toEqual(["resume:call"]);
+  });
+
+  it("does not invoke accessors and keeps their descriptors on a rebuild", async () => {
+    let reads = 0;
+    let returned: any;
+    const reference = createServerReference({
+      id: "nested-direct-accessor",
+      fn: () => {
+        async function* more() {
+          yield "one";
+        }
+        returned = {
+          get lazy() {
+            reads++;
+            return { id: 1 };
+          },
+          more: more()
+        };
+        Object.defineProperty(returned, "hidden", { value: { id: 2 }, enumerable: false });
+        return returned;
+      }
+    } as any) as () => any;
+
+    const result = await requestContext.run(eventFor("RENDER"), async () => reference());
+
+    // compared by hand: the matchers format their operands, which reads the getter
+    expect(reads).toBe(0);
+    expect(result === returned).toBe(false);
+    expect(typeof Object.getOwnPropertyDescriptor(result, "lazy")!.get).toBe("function");
+    expect(Object.getOwnPropertyDescriptor(result, "hidden")).toEqual({
+      value: returned.hidden,
+      writable: false,
+      enumerable: false,
+      configurable: false
+    });
+  });
+
+  it("binds a proxied carrier whose iterator hook comes from its get trap", async () => {
+    const seen: string[] = [];
+    const reference = createServerReference({
+      id: "nested-direct-proxy-hook",
+      fn: () => {
+        (getRequestEvent() as any).derived = true;
+        async function* rows() {
+          seen.push(`resume:${(getRequestEvent() as any)?.derived === true ? "call" : "ambient"}`);
+          yield "one";
+        }
+        const source = new Proxy(
+          { id: 1 },
+          {
+            get: (target, property, receiver) =>
+              property === Symbol.asyncIterator ? rows : Reflect.get(target, property, receiver)
+          }
+        );
+        return [source];
+      }
+    } as any) as () => any;
+
+    await requestContext.run(eventFor("RENDER"), async () => {
+      const value = reference();
+      await drain(value[0]);
+    });
+
+    expect(seen).toEqual(["resume:call"]);
+  });
+
+  it("rebuilds from the descriptors a carrier had before authored hooks ran", async () => {
+    let returned: any;
+    const reference = createServerReference({
+      id: "nested-direct-hook-mutates-parent",
+      fn: () => {
+        async function* rows() {
+          yield "one";
+        }
+        const more = {};
+        Object.defineProperty(more, Symbol.asyncIterator, {
+          get() {
+            Object.defineProperty(returned, "more", { writable: false });
+            returned.late = "added";
+            return rows;
+          }
+        });
+        returned = { more };
+        return returned;
+      }
+    } as any) as () => any;
+
+    const result = await requestContext.run(eventFor("RENDER"), async () => reference());
+
+    expect(result === returned).toBe(false);
+    expect(Object.getOwnPropertyDescriptor(result, "more")!.writable).toBe(true);
+    expect("late" in result).toBe(false);
+    expect(await drain(result.more)).toEqual(["one"]);
+  });
+
+  it("probes plain objects again once a shared prototype defines a hook", async () => {
+    const marker = { rows: [{ id: 1 }] };
+    const reference = createServerReference({
+      id: "nested-direct-polluted-prototype",
+      fn: () => marker
+    } as any) as () => typeof marker;
+    (Object.prototype as any)[Symbol.asyncIterator] = async function* () {};
+    let result: any;
+    try {
+      result = await requestContext.run(eventFor("RENDER"), async () => reference());
+    } finally {
+      delete (Object.prototype as any)[Symbol.asyncIterator];
+    }
+
+    // every plain object now reads as an async iterable, so the walk wraps
+    // it exactly as it wraps an authored one
+    expect(result).not.toBe(marker);
+  });
+
   it("pins Set members and frozen slots as out of the carrier set", async () => {
     // RULED OUT OF SCOPE (#3241): the supported carriers are plain objects
     // and arrays only. A generator reached through a Set member or a
@@ -290,20 +464,23 @@ describe("nested deferred work on the direct SSR road (#3241)", () => {
         event.derived = true;
         return {
           inSet: new Set([witness("set")]),
-          frozen: Object.freeze({ rows: witness("frozen") })
+          frozen: Object.freeze({ rows: witness("frozen") }),
+          frozenList: Object.freeze([1, witness("frozen-list")])
         };
       }
     } as any) as () => {
       inSet: Set<AsyncIterable<string>>;
       frozen: { rows: AsyncIterable<string> };
+      frozenList: readonly [number, AsyncIterable<string>];
     };
 
     await requestContext.run(eventFor("RENDER"), async () => {
       const result = reference();
       await drain([...result.inSet][0]);
       await drain(result.frozen.rows);
+      await drain(result.frozenList[1]);
     });
 
-    expect(seen).toEqual(["set:ambient", "frozen:ambient"]);
+    expect(seen).toEqual(["set:ambient", "frozen:ambient", "frozen-list:ambient"]);
   });
 });

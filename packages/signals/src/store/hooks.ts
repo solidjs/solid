@@ -27,7 +27,7 @@ export interface OptHooks {
   has(t: StoreTarget, key: PropertyKey): boolean | undefined;
   /** A guessed key's descriptor (`null`: removed; `undefined`: no guess). */
   descriptor(t: StoreTarget, key: PropertyKey): PropertyDescriptor | null | undefined;
-  /** The flush's commit: targets no lane holds leave `overlaid`. */
+  /** The flush's commit: targets no lane holds leave `_overlaid`. */
   sweep(): void;
   /** The container comparator's lane arm: an arrangement guess against a
    * landing (or another arrangement), by row identity. */
@@ -40,8 +40,8 @@ export interface OptHooks {
   pair(t: StoreTarget, pb: Record<PropertyKey, any>): void;
   /** The derive of `fam` went in flight (#4336): a new question asked over
    * the family's guesses is judged by its reads (`stands`) and at the seam
-   * (`park`). */
-  ask(fam: StoreFamily): void;
+   * (`park`). Returns, for a `refresh()`, the leaves its wake skips. */
+  ask(fam: StoreFamily): ((n: any) => unknown) | void;
   /** The flush parks with `t`: a guess a frame still reads, over a family
    * asked a new question this flush, holds `t` with its action (D-34). */
   park(t: Transaction): void;

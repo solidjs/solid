@@ -837,10 +837,12 @@ DOM; nothing per-mount survives unmount.
   any `_fr` declaration still unsettled then is marked rejected with a truncation
   error, releasing its boundary through the normal rejection path and its
   document-adoption waiters through the ledger (closes solidjs/solid#2958 for
-  documents). The sweep arms only when the runtime booted while the document was
-  still streaming — a late-loaded runtime can't tell a completed page from a
-  truncated one. Frame-stream truncation (pump ends without the root's `complete`
-  chunk) lands with the `:error` content-state records above, not before them.
+  documents). A runtime that boots after parsing sweeps at boot, but only under
+  the in-render bootstrap (`_$HY.s`): every declaration and settle there is a
+  parser-inserted script, so a declaration still pending can no longer settle.
+  Under a host-placed bootstrap a late runtime stays out. Frame-stream truncation
+  (pump ends without the root's `complete` chunk) lands with the `:error`
+  content-state records above, not before them.
 
 ### 5.6 Head and assets
 

@@ -175,6 +175,40 @@ describe("broadcast server components", () => {
     await tick();
   });
 
+  it("a late joiner is sent each live range once, as it shows now", async () => {
+    const { rooms } = declareRoom("bc-join-once");
+    const a = tap(await handle(get("bc-join-once", ["lobby"])));
+    await tick();
+    rooms.get("lobby")!.push("first-value");
+    await tick();
+    rooms.get("lobby")!.push("second-value");
+    await tick();
+    const b = tap(await handle(get("bc-join-once", ["lobby"])));
+    await tick();
+    // The root carries the range's latest content: no stale first render
+    // followed by the hole re-sent whole.
+    const records = b.messages.filter(m => m.r).flatMap(m => Object.entries(m.r));
+    expect(records.map(([k]) => k)).toEqual([""]);
+    const [, root] = records[0] as [string, any];
+    expect(root.value).toContain("second-value");
+    expect(root.value).not.toContain("first-value");
+    expect(root.digest).toBe(a.messages.find(m => m.r && m.r[""]).r[""].digest);
+    // Its ledger is what it holds: a reconnect with it is sent nothing.
+    const c = tap(
+      await handle(get("bc-join-once", ["lobby"], { "X-Frame-Have": haveOf(b.messages) }))
+    );
+    await tick();
+    expect(c.messages.filter(m => m.r)).toEqual([]);
+
+    rooms.get("lobby")!.push("third-value");
+    await tick();
+    expect(sent(b)).toContain("third-value");
+    a.cancel();
+    b.cancel();
+    c.cancel();
+    await tick();
+  });
+
   it("different arguments render separately", async () => {
     const { renders } = declareRoom("bc-args");
     const a = tap(await handle(get("bc-args", ["red"])));

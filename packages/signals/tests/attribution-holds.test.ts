@@ -325,7 +325,7 @@ describe("SILENT_HOLD", () => {
   });
 
   it("tiers by duration: below infoMs nothing, between info and warn an advisory", async () => {
-    const { events, warn } = arm({ infoMs: 20, warnMs: 10_000 });
+    const { events, warn } = arm({ infoMs: 200, warnMs: 10_000 });
     const feed = pagedFeed();
     createRoot(() => feed.reading());
     flush();
@@ -343,7 +343,9 @@ describe("SILENT_HOLD", () => {
     // Slow round-trip: advisory only — structured event, no console.
     feed.setPage(3);
     flush();
-    await wait(40);
+    // Past infoMs by a clear margin; the fast page stays well under it even
+    // when a loaded CI runner stretches the 5 ms polls.
+    await wait(250);
     feed.resolve("c");
     await until(() => feed.shown.includes("c-p3"), "slow page");
     expect(attribution.history("hold")).toHaveLength(2);
@@ -536,7 +538,7 @@ describe("LONG_HOLD", () => {
   });
 
   it("tiers: below infoMs nothing, between info and warn an advisory", async () => {
-    const { longEvents, warn } = arm(NEVER, { infoMs: 20, warnMs: 10_000 });
+    const { longEvents, warn } = arm(NEVER, { infoMs: 200, warnMs: 10_000 });
     const feed = pagedFeed();
     createRoot(() => {
       feed.reading();
@@ -558,7 +560,9 @@ describe("LONG_HOLD", () => {
 
     feed.setPage(3);
     flush();
-    await wait(40);
+    // Past infoMs by a clear margin; the fast page stays well under it even
+    // when a loaded CI runner stretches the 5 ms polls.
+    await wait(250);
     feed.resolve("c");
     await until(() => feed.shown.includes("c-p3"), "slow page");
     expect(longEvents).toHaveLength(1);

@@ -16,18 +16,28 @@
 import {
   Errored,
   Loading,
+  NotReadyError,
   Show,
   action,
   createMemo,
+  createOptimistic,
   createSignal,
   createStore,
   flush,
   isPending,
   latest,
+  refresh,
   resetErrorHalt
 } from "solid-js";
 import { createComponent, effect, insert, render, setAttribute } from "../../src/index.js";
-import { describeScenario, type Node, type Read, type Scenario, type SrcRef } from "./scenario.js";
+import {
+  describeScenario,
+  type Node,
+  type Read,
+  type Scenario,
+  type SrcRef,
+  type Write
+} from "./scenario.js";
 
 export type Finding = {
   oracle: "safety" | "liveness" | "equivalence";
@@ -48,6 +58,11 @@ export type Finding = {
  * `latestDerive` reads every `latest(x)` through a memo of it (E9).
  */
 export type Variant = {
+  /** Render each `show` as a hand-written gate instead of `<Show>`: `"memo"`
+   * is one memo whose own pass reads `when` and mounts the branch (the
+   * single-memo gate, zero hops); `"cond"` is a truthiness memo over `when`
+   * and a branch memo reading it (one hop — `<Show>` has two). */
+  gate?: "memo" | "cond";
   split?: boolean;
   grouped?: boolean;
   identity?: boolean;
@@ -66,10 +81,26 @@ export interface Result {
   settled: boolean[];
   /** Whether nothing was in flight at each screen. */
   quiet: boolean[];
+  /** At each screen, what the passes last did (see `Passes`). */
+  passes: Passes[];
   final: string;
   expected: string;
   description: string;
+  /** Per step, the label of the flight a `settle` step landed (null for
+   * other steps or when nothing was open). Rulings render it. */
+  settles: (string | null)[];
 }
+/**
+ * `held`: each grouped attribute effect (by leaf path) whose last pass ended
+ * on a first load (NotReady from a memo the tree has not read a value of
+ * yet), with the memos its unread later bindings read. `memos`: how each
+ * memo's last computation ended (`error` also for a rejected flight,
+ * `pending` for a flight or a NotReady read). Used by E1's D-28 check.
+ */
+export type Passes = {
+  held: Record<string, number[]>;
+  memos: Record<number, "value" | "error" | "pending">;
+};
 
 type Flight = {
   label: string;
@@ -111,55 +142,125 @@ function buildApp(
   fresh: boolean,
   flights: Flight[],
   variant: Variant,
-  errors: string[]
+  errors: string[],
+  passes: Passes = { held: {}, memos: {} },
+  staleAsks: string[] = []
 ) {
-  const sigs = values.map(v => createSignal(v));
+  // An optimistic signal's setter is a guess; the fresh render (truth only)
+  // uses plain signals.
+  const sigs = values.map((v, i) =>
+    sc.optimistic?.includes(i) && !fresh ? createOptimistic(v) : createSignal(v)
+  );
   const memos: (() => any)[] = [];
-  const get = (r: SrcRef): (() => any) => (r.k === "s" ? sigs[r.i][0] : memos[r.i]);
+  /** The setter of an optimistic memo (`guess` writes), by memo index. */
+  const guessers: ((v: any) => void)[] = [];
+  const get = (r: SrcRef): (() => any) => {
+    const x = r.k === "s" ? sigs[r.i][0] : memos[r.i];
+    if (x === undefined)
+      throw new Error(
+        `async-gen: ${r.k}${r.i} is not created yet (an owned memo read outside its branch?)`
+      );
+    return x;
+  };
+  /** Memos a `show` branch owns: created when the branch opens, not up front. */
+  const ownedBy = new Set<number>();
+  {
+    const walk = (n: Node) => {
+      if (n.t === "group") n.kids.forEach(walk);
+      else if (n.t !== "leaf") {
+        if (n.t === "show") n.owns?.forEach(i => ownedBy.add(i));
+        walk(n.child);
+      }
+    };
+    walk(sc.tree);
+  }
   // What the tree reads a memo through: the memo, an identity memo of it, or
   // a derived store's `v`.
   const views: (() => any)[] = [];
+  // Memos the tree has read a value of (`x()` or `latest(x)` returned).
+  const shown = new Set<number>();
+  const ended = (i: number, e: unknown) =>
+    (passes.memos[i] = e instanceof NotReadyError ? "pending" : "error");
   const view = (r: SrcRef): (() => any) => (r.k === "s" ? sigs[r.i][0] : views[r.i]);
-  const makeMemos = () =>
-    sc.memos.forEach((m, i) => {
-      const input = () =>
-        m.deps.reduce(
-          (acc, d) => acc + Number(d.how === "latest" ? latest(get(d.src)) : get(d.src)()),
-          1
-        );
-      if (m.async && !fresh) {
-        memos.push(
-          createMemo(() => {
-            const v = input();
-            return new Promise<number>((resolve, reject) => {
-              flights.push({
-                label: `m${i}:${v}`,
-                value: v,
-                rejects: poisoned(m.poison, v),
-                resolve,
-                reject
-              });
-            });
-          })
-        );
-      } else {
-        memos.push(
-          createMemo(() => {
-            const v = input();
-            if (poisoned(m.poison, v)) throw new Error(`m${i}:${v}`);
-            return v;
-          })
-        );
+  const makeMemo = (i: number) => {
+    const m = sc.memos[i];
+    // The plain signal reads of the pass, for the truth-asks oracle (F-2's
+    // producer clause): an async memo whose pass read a signal's screen value
+    // while the script had already written a newer truth asked a question
+    // of a value the engine knew was stale. Guesses are not truth (F-11).
+    const reads: [number, number][] = [];
+    const input = () =>
+      m.deps.reduce((acc, d) => {
+        if (d.when && !get(d.when)()) return acc;
+        const x = get(d.src);
+        const v = Number(d.how === "latest" ? latest(x) : d.how === "pending" ? isPending(x) : x());
+        if (d.how === "plain" && d.src.k === "s" && !sc.optimistic?.includes(d.src.i))
+          reads.push([d.src.i, v]);
+        return acc + v;
+      }, 1);
+    // `createOptimistic(fn)` is a memo whose setter writes guesses; the
+    // fresh render has no guesses, so a plain memo stands in.
+    const mk = (fn: () => any): (() => any) => {
+      if (m.optimistic && !fresh) {
+        const [g, set] = createOptimistic(fn);
+        guessers[i] = set as (v: any) => void;
+        return g;
       }
-      const x = memos[i];
-      if (variant.identity) views.push(createMemo(() => x()));
-      else if (variant.store) {
-        const [store] = createStore<{ v?: number }>(d => {
-          d.v = x();
-        }, {});
-        views.push(() => store.v);
-      } else views.push(x);
-    });
+      return createMemo(fn);
+    };
+    if (m.async && !fresh) {
+      memos[i] = mk(() => {
+        let v: number;
+        reads.length = 0;
+        try {
+          v = input();
+        } catch (e) {
+          ended(i, e);
+          throw e;
+        }
+        for (const [si, sv] of reads)
+          if (sv !== values[si])
+            staleAsks.push(`m${i}:${v} asked with s${si} = ${sv} while ${values[si]} is held`);
+        passes.memos[i] = "pending";
+        return new Promise<number>((resolve, reject) => {
+          flights.push({
+            label: `m${i}:${v}`,
+            value: v,
+            rejects: poisoned(m.poison, v),
+            resolve: v => {
+              passes.memos[i] = "value";
+              resolve(v);
+            },
+            reject: e => {
+              passes.memos[i] = "error";
+              reject(e);
+            }
+          });
+        });
+      });
+    } else {
+      memos[i] = mk(() => {
+        try {
+          const v = input();
+          if (poisoned(m.poison, v)) throw new Error(`m${i}:${v}`);
+          passes.memos[i] = "value";
+          return v;
+        } catch (e) {
+          ended(i, e);
+          throw e;
+        }
+      });
+    }
+    const x = memos[i];
+    if (variant.identity) views[i] = createMemo(() => x());
+    else if (variant.store) {
+      const [store] = createStore<{ v?: number }>(d => {
+        d.v = x();
+      }, {});
+      views[i] = () => store.v;
+    } else views[i] = x;
+  };
+  const makeMemos = () => sc.memos.forEach((_, i) => ownedBy.has(i) || makeMemo(i));
   // E9: `latest(x)` read in a derivation instead of at the leaf.
   const latestViews = new Map<string, () => any>();
   const makeLatestViews = () => {
@@ -173,6 +274,7 @@ function buildApp(
       else if (n.t === "group") n.kids.forEach(walk);
       else {
         if (n.t === "show" && n.when.how === "latest") srcs.push(n.when.src);
+        if (n.t === "loading") n.on?.forEach(r => r.how === "latest" && srcs.push(r.src));
         walk(n.child);
       }
     };
@@ -193,42 +295,96 @@ function buildApp(
   }
   const read = (r: Read) => {
     const x = view(r.src);
-    if (r.how === "latest" && variant.latestDerive)
-      return latestViews.get(`${r.src.k}${r.src.i}`)!();
-    return r.how === "plain" ? x() : r.how === "latest" ? latest(x) : isPending(x);
+    const v =
+      r.how === "latest" && variant.latestDerive
+        ? latestViews.get(`${r.src.k}${r.src.i}`)!()
+        : r.how === "plain"
+          ? x()
+          : r.how === "latest"
+            ? latest(x)
+            : r.how === "pending"
+              ? isPending(x)
+              : isPending(() => latest(x));
+    if (r.src.k === "m" && (r.how === "plain" || r.how === "latest")) shown.add(r.src.i);
+    return v;
   };
   const [epoch, setEpoch] = createSignal(1);
-  const prefix = { plain: "v", latest: "l", pending: "p" } as const;
+  const prefix = { plain: "v", latest: "l", pending: "p", pendingLatest: "q" } as const;
   const text = (r: Read) => `${prefix[r.how]}${r.src.k}${r.src.i}:${String(read(r))} `;
 
-  function renderNode(n: Node): any {
+  // A grouped effect's pass: the same reads in order, noting a pass that a
+  // first load ends before its later bindings are read (rethrows as is).
+  const groupPass = (id: string, attrs: Read[]) => {
+    let j = 0;
+    try {
+      const vals: string[] = [];
+      for (; j < attrs.length; j++) vals.push(text(attrs[j]));
+      delete passes.held[id];
+      return vals;
+    } catch (e) {
+      const src = attrs[j].src;
+      if (e instanceof NotReadyError && src.k === "m" && !shown.has(src.i))
+        passes.held[id] = attrs
+          .slice(j + 1)
+          .filter(r => r.how !== "pending" && r.src.k === "m")
+          .map(r => r.src.i);
+      else delete passes.held[id];
+      throw e;
+    }
+  };
+
+  function renderNode(n: Node, id = "r"): any {
     switch (n.t) {
-      case "loading":
-        return createComponent(Loading, {
+      case "loading": {
+        const props: any = {
           fallback: "[L]",
           get children() {
-            return renderNode(n.child);
+            return renderNode(n.child, `${id}.0`);
           }
-        });
+        };
+        // Defined, not spread: a getter in a spread is read at spread time,
+        // and `Loading` tests `"on" in props`.
+        if (n.on)
+          Object.defineProperty(props, "on", {
+            enumerable: true,
+            get: () => n.on!.map(read)
+          });
+        return createComponent(Loading, props);
+      }
       case "errored":
         return createComponent(Errored, {
           fallback: (e: () => any) => (errors.push(errText(e)), "[E]"),
           get children() {
-            return renderNode(n.child);
+            return renderNode(n.child, `${id}.0`);
           }
         });
-      case "show":
+      case "show": {
+        if (variant.gate) {
+          const branch = (open: unknown) =>
+            open
+              ? (n.owns?.forEach(makeMemo), renderNode(n.child, `${id}.0`))
+              : n.fallback
+                ? "[F]"
+                : undefined;
+          if (variant.gate === "memo") return createMemo(() => branch(read(n.when)));
+          const cond = createMemo(() => read(n.when), { equals: (a, b) => !a === !b });
+          return createMemo(() => branch(cond()));
+        }
         return createComponent(Show, {
           get when() {
             return read(n.when);
           },
           fallback: n.fallback ? "[F]" : undefined,
           get children() {
-            return renderNode(n.child);
+            // Memos the branch owns are born with it (re-created when it
+            // re-opens), so a branch opened under a hold mounts them held.
+            n.owns?.forEach(makeMemo);
+            return renderNode(n.child, `${id}.0`);
           }
         } as any);
+      }
       case "group":
-        return n.kids.map(renderNode);
+        return n.kids.map((k, i) => renderNode(k, `${id}.${i}`));
       case "leaf": {
         const span = document.createElement("span");
         for (const r of n.text) {
@@ -239,7 +395,7 @@ function buildApp(
         const grouped = variant.split ? false : variant.grouped ? true : n.grouped;
         if (grouped && n.attrs.length) {
           effect(
-            () => n.attrs.map(text),
+            () => groupPass(id, n.attrs),
             (vals: string[], prev?: string[]) => {
               vals.forEach((v, j) => v !== prev?.[j] && setAttribute(span, `data-a${j}`, v));
             }
@@ -285,7 +441,15 @@ function buildApp(
         } as any);
       }
     });
-  return { sigs, app, remount: () => setEpoch(e => e + 1) };
+  /** The setter a guess write targets: an optimistic signal's, or an
+   * optimistic memo's. */
+  const guessOf = (o: SrcRef): ((v: any) => void) => {
+    const g =
+      o.k === "s" ? (sc.optimistic?.includes(o.i) ? sigs[o.i][1] : undefined) : guessers[o.i];
+    if (!g) throw new Error(`async-gen: ${o.k}${o.i} is not optimistic`);
+    return g as (v: any) => void;
+  };
+  return { sigs, memos, guessOf, app, remount: () => setEpoch(e => e + 1) };
 }
 
 // ── driving ─────────────────────────────────────────────────────────────────
@@ -301,10 +465,11 @@ async function drain(guard: (law: string, fn: () => void) => void) {
   guard("throw", flush);
 }
 
-function settleAt(flights: Flight[], index: number) {
+function settleAt(flights: Flight[], index: number): string {
   const [f] = flights.splice(index, 1);
   if (f.rejects) f.reject(new Error(f.label));
   else f.resolve(f.value);
+  return f.label;
 }
 
 export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<Result> {
@@ -312,9 +477,14 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
   const screens: string[] = [];
   const settled: boolean[] = [];
   const quiet: boolean[] = [];
+  const passes: Passes[] = [];
+  const settles: (string | null)[] = [];
+  const last: Passes = { held: {}, memos: {} };
+  const snapshot = () => passes.push(structuredClone(last));
   const flights: Flight[] = [];
   const values = [...sc.signals];
   const errors: string[] = [];
+  const staleAsks: string[] = [];
   let step = -1;
 
   const origError = console.error;
@@ -355,19 +525,37 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
   let final = "";
   let expected = "";
   try {
-    const { sigs, app, remount } = buildApp(sc, values, false, flights, variant, errors);
-    const act = action(function* (s: number, v: number) {
-      sigs[s][1](v);
-      yield new Promise<number>(resolve => {
-        flights.push({
-          label: `act:s${s}=${v}`,
-          value: v,
-          rejects: false,
-          resolve,
-          reject: () => {}
-        });
-      });
-    });
+    const { sigs, memos, guessOf, app, remount } = buildApp(
+      sc,
+      values,
+      false,
+      flights,
+      variant,
+      errors,
+      last,
+      staleAsks
+    );
+    // A truth write updates `values` (the fresh render's inputs); a guess —
+    // a write to an optimistic signal, or to an optimistic memo — never does.
+    const truth = (w: Write) => "s" in w && !sc.optimistic?.includes(w.s);
+    const apply = (w: Write) => ("s" in w ? sigs[w.s][1](w.v) : guessOf(w.o)(w.v));
+    let acts = 0;
+    const act = (
+      label: string,
+      before: Write[],
+      after: Write[] = [],
+      refreshes: number[] = [],
+      sync = false
+    ) =>
+      action(function* () {
+        before.forEach(apply);
+        if (!sync)
+          yield new Promise<number>(resolve => {
+            flights.push({ label, value: 0, rejects: false, resolve, reject: () => {} });
+          });
+        after.forEach(apply);
+        refreshes.forEach(i => refresh(memos[i] as any));
+      })();
     guard("throw", () => {
       dispose = render(app, el);
       flush();
@@ -375,6 +563,7 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
     screens.push(serialize(el));
     settled.push(true);
     quiet.push(flights.length === 0);
+    snapshot();
 
     for (step = 0; step < sc.steps.length; step++) {
       const st = sc.steps[step];
@@ -387,12 +576,21 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
           });
           break;
         case "settle":
-          if (flights.length) settleAt(flights, st.pick % flights.length);
+          settles[step] = flights.length ? settleAt(flights, st.pick % flights.length) : null;
           break;
-        case "action":
-          values[st.s] = st.v;
+        case "action": {
+          const a = "s" in st ? { before: [{ s: st.s, v: st.v }], after: [], refresh: [] } : st;
+          for (const w of [...a.before, ...(a.after ?? [])])
+            if (truth(w)) values[(w as { s: number }).s] = w.v;
+          const label = "s" in st ? `act:s${st.s}=${st.v}` : `act#${++acts}`;
           guard("throw", () => {
-            const p = act(st.s, st.v) as Promise<unknown>;
+            const p = act(
+              label,
+              a.before,
+              a.after,
+              a.refresh,
+              "sync" in a && a.sync
+            ) as Promise<unknown>;
             p?.catch?.((e: any) =>
               findings.push({
                 oracle: "safety",
@@ -401,6 +599,15 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
                 detail: String(e?.message ?? e)
               })
             );
+          });
+          break;
+        }
+        case "guess":
+          guard("throw", () => guessOf(st.o)(st.v));
+          break;
+        case "refresh":
+          guard("throw", () => {
+            refresh(memos[st.m] as any);
           });
           break;
         case "flush":
@@ -415,10 +622,13 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
           break;
       }
       if (variant.autoFlush) guard("throw", flush);
+      for (const detail of staleAsks.splice(0))
+        findings.push({ oracle: "safety", law: "truth-asks", step, detail });
       const screen = serialize(el);
       screens.push(screen);
       settled.push(st.t === "task");
       quiet.push(flights.length === 0);
+      snapshot();
       // A read of an async value is its value or a throw (NotReady, the
       // error) — never undefined. NaN is undefined + 1 in a memo.
       if (/NaN|undefined/.test(screen) && !findings.some(f => f.law === "undefined-value"))
@@ -471,5 +681,15 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
     console.error = origError;
     console.warn = origWarn;
   }
-  return { findings, screens, settled, quiet, final, expected, description: describeScenario(sc) };
+  return {
+    findings,
+    screens,
+    settled,
+    quiet,
+    passes,
+    final,
+    expected,
+    description: describeScenario(sc),
+    settles
+  };
 }

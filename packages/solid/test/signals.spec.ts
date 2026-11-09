@@ -496,6 +496,57 @@ describe("create and use context", () => {
       expect(useContext(OptNull)).toBeNull();
     });
   });
+
+  // The provider has no owner of its own: the value sits on the two memos
+  // that resolve its children. Getter children, function children, and
+  // their re-runs all read it; siblings of the provider do not.
+  test("a provider scopes its value to getter and function children, across re-runs", () => {
+    const Ctx = createContext<string>("outside");
+    const [show, setShow] = createSignal(true);
+    const [label, setLabel] = createSignal("a");
+    const seen: string[] = [];
+    let created = 0;
+    let value: unknown;
+    let sibling!: string;
+    createRoot(() => {
+      const out = (Ctx as any)({
+        value: "inside",
+        get children() {
+          created++;
+          seen.push("getter:" + useContext(Ctx));
+          return [() => (show() ? (seen.push("fn:" + useContext(Ctx)), "shown") : "hidden"), label];
+        }
+      });
+      sibling = useContext(Ctx);
+      createRenderEffect(out, v => {
+        value = v;
+      });
+    });
+    flush();
+    expect(value).toEqual(["shown", "a"]);
+    expect(sibling).toBe("outside");
+    setShow(false);
+    flush();
+    expect(value).toEqual(["hidden", "a"]);
+    setShow(true);
+    setLabel("b");
+    flush();
+    expect(value).toEqual(["shown", "b"]);
+    // Nested accessors re-run without re-creating the children.
+    expect(created).toBe(1);
+    expect(seen).toEqual(["getter:inside", "fn:inside", "fn:inside"]);
+  });
+
+  test("a provider works without an owner above it", () => {
+    const Ctx = createContext<number>();
+    const out = (Ctx as any)({
+      value: 1,
+      get children() {
+        return useContext(Ctx);
+      }
+    });
+    expect(out()).toBe(1);
+  });
 });
 
 describe("runWithOwner", () => {

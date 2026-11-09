@@ -24,19 +24,21 @@
  * 2026-08-31b continuation half) is not built here; the matrix decides.
  */
 import {
-  CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
+  CONFIG_HELD,
   CONFIG_OVERRIDE,
   CONFIG_SLOT_NODE,
   EFFECT_RENDER,
   NOT_PENDING,
-  REACTIVE_REASK,
-  STATUS_PENDING
+  STATUS_PENDING,
+  REACTIVE_REASK
 } from "../core/constants.js";
-import { computed, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
-import { laneValueOf, optimisticWrite, pendingGuessOf, take } from "../core/lanes.js";
-import { getOwner } from "../core/owner.js";
+import { context, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
+import { link } from "../core/graph.js";
+import { devGuardOptimisticBeforeLoad } from "../core/dev.js";
+import { latestOf, optimisticWrite, pendingGuessOf, setLaneValue, take } from "../core/lanes.js";
+import { covered } from "../core/truth.js";
 import {
   clock,
   GlobalQueue,
@@ -49,12 +51,13 @@ import {
   passLane,
   resolveTx,
   schedule,
+  staleReader,
   txOf,
   type Transaction
 } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
-import { runProjectionComputed } from "./projection.js";
+import { createProjectionInternal } from "./projection.js";
 import { reconcileState } from "./reconcile.js";
 import {
   cloneRaw,
@@ -63,13 +66,13 @@ import {
   getHasNode,
   getNode,
   LaneView,
-  nameStore,
+  linkedTo,
   resolveChainedRaw,
   sameKey,
   storeSetter,
   targetsEqual,
   unwrapValue,
-  wrap
+  follow
 } from "./store.js";
 import { installOptHooks } from "./hooks.js";
 import { $OWNER, lookupTarget, type StoreFamily, type StoreTarget } from "./target.js";
@@ -77,7 +80,6 @@ import {
   $TARGET,
   $TRACK,
   isWrappable,
-  markRawIngest,
   type NoArray,
   type NoFn,
   type ProjectionOptions,
@@ -102,9 +104,7 @@ const optStaged: Map<StoreTarget, Record<PropertyKey, any>> = new Map();
 function writerBacking(t: StoreTarget): Record<PropertyKey, any> {
   const base = committed(t);
   const inner: StoreTarget | undefined = (base as any)[$TARGET];
-  return inner === undefined
-    ? base
-    : optimisticView(inner, writerBacking(inner), laneValueOf, true);
+  return inner === undefined ? base : optimisticView(inner, writerBacking(inner), latestOf, true);
 }
 
 /** The user's draft on an optimistic family: a clone of the view the user
@@ -114,7 +114,7 @@ function writerBacking(t: StoreTarget): Record<PropertyKey, any> {
  * guesses go over it, it stays the truth beneath. */
 function optimisticDraft(t: StoreTarget): Record<PropertyKey, any> {
   if (t.pb !== null) optStaged.set(t, t.pb);
-  return cloneRaw(optimisticView(t, writerBacking(t), laneValueOf, true), t);
+  return cloneRaw(optimisticView(t, writerBacking(t), latestOf, true), t);
 }
 
 export function notifyOptimisticWrites(
@@ -124,7 +124,7 @@ export function notifyOptimisticWrites(
   // The view the user saw: the committed frame (a staging adopted eagerly
   // is not it) with the lanes' values and the tick's own guesses over it.
   const base = writerBacking(t);
-  const old = optimisticView(t, base, laneValueOf, true);
+  const old = optimisticView(t, base, latestOf, true);
   const isArr = Array.isArray(pb);
   // A chained target's nodes are links (§7b): their committed value is
   // never served and never learns the inner store's commits — yet a guess
@@ -132,7 +132,7 @@ export function notifyOptimisticWrites(
   // inner store's truth for its key before guessing over it.
   const inner = t.ch ? (t.v as Record<PropertyKey, any>) : null;
   const guess = (node: Signal<any>, key: PropertyKey, presence: boolean, nv: unknown): void => {
-    if (inner !== null) node._value = presence ? key in base : unwrapValue(base[key as any]);
+    if (inner !== null) follow(node, presence ? key in base : unwrapValue(base[key as any]));
     // By value: a function leaf is a value, not an updater (#3017).
     optimisticWrite(node, () => nv);
   };
@@ -170,25 +170,49 @@ export function notifyOptimisticWrites(
   }
   if (structural) {
     const rows = isArr ? (pb as any[]).map(unwrapValue) : shallowKeys(pb);
-    // The rows the setter removed from the view it saw, by key: a later
-    // re-base over another action's truth must not bring them back. A set
-    // (empty or not) marks a keyed arrangement guess (`fold`).
+    // The keys of the view the setter saw that are not the guess's own
+    // rows, which a re-base over another truth takes from that truth
+    // (`_laneRebase`): the rows the setter removed, which it never brings
+    // back, and the rows it only carried over from the truth beneath (the
+    // committed row itself), which the new truth decides. Rows it added, or carried from another action's guess,
+    // are the guesses' own: their landings judge them. A set (empty or not)
+    // marks a keyed arrangement guess (`fold`).
     let removed: Set<unknown> | null = null;
-    const keyFn = t.fam!.key;
+    const keyFn = t._fam!.key;
     if (isArr && keyFn !== null && keyFn !== undefined) {
       removed = new Set();
       const kept = new Set<unknown>();
+      const truth = new Set(base as any[]);
       for (let i = 0; i < rows.length; i++) {
         const k = isWrappable(rows[i]) ? keyFn(rows[i]) : undefined;
         if (k !== undefined) kept.add(k);
       }
-      for (let i = 0; i < (old as any[]).length; i++) {
-        const r = unwrapValue((old as any[])[i]);
+      // The view's rows, then the truth's: a truth row the view lacked was
+      // removed by another action's guess, whose landing judges it — a
+      // re-base never brings it back beside that guess (F-11, #4656).
+      const n = (old as any[]).length;
+      const all = [...(old as any[]), ...(base as any[])];
+      for (let i = 0; i < all.length; i++) {
+        const r = unwrapValue(all[i]);
         const k = isWrappable(r) ? keyFn(r) : undefined;
-        if (k !== undefined && !kept.has(k)) removed.add(k);
+        if (k !== undefined && (!kept.has(k) || (i < n && truth.has(r)))) removed.add(k);
       }
     }
-    optimisticWrite(getContainerNode(t), new LaneView(rows, base, removed) as any);
+    const view = new LaneView(rows, base, removed);
+    // Written while the derive asks a new question (an input changed, not a
+    // `refresh()`): the guess's base answers the old one, so the rows it only
+    // carried over are that answer's — the new answer re-bases it like an
+    // older truth instead of folding beneath it (`_laneRebase`, F-1, #4525).
+    // A refresh's flight already up (`_reask`, the pass consumed the flag)
+    // asks nothing new either (D-34 ¶3, #4656).
+    const d = t._fam!.node;
+    if (
+      removed &&
+      d?._statusFlags! & STATUS_PENDING &&
+      !(d!._flags & REACTIVE_REASK || d!._x?._reask)
+    )
+      view.g = null;
+    optimisticWrite(getContainerNode(t), view as any);
   }
   if (t.dk !== null) optimisticWrite(t.dk, {} as any);
   markOverlaid(t);
@@ -207,7 +231,7 @@ function arrangement(t: StoreTarget, a: any, b: any): boolean {
   const av = a instanceof LaneView;
   const bv = b instanceof LaneView;
   if (!av && !bv) return false;
-  return arrangementEqual(av ? a.rows : a, bv ? b.rows : b, t.fam!);
+  return arrangementEqual(av ? a.rows : a, bv ? b.rows : b, t._fam!);
 }
 
 function rowSame(a: any, b: any, fam: StoreFamily): boolean {
@@ -339,7 +363,7 @@ GlobalQueue._slotTake = (n, back) => {
         ? getHasNode(t!, k)
         : getNode(t!, k);
   }
-  const d = t?.fam?.node?._x?._transaction;
+  const d = t?._fam?.node?._x?._transaction;
   const g = txOf(n);
   if (!d?._lane || sameAction(d, g)) return false;
   // The re-ask takes the target's guess whole: the slot is the lane's
@@ -350,30 +374,38 @@ GlobalQueue._slotTake = (n, back) => {
 };
 /** Q-D (plan sec. 39): an OLDER question's truth landed beneath an arrangement
  * guess (`laneWrite` held it — another action's landing is not this guess's
- * answer). The guess is re-based over it: order from the guess, rows from
- * the truth by key (a guessed row the truth has is the truth's object — the
- * row target adopted it, its proxy survives), guessed rows the truth lacks
- * kept (the guess's own landing judges them), truth rows the guess lacks
- * appended. The composed arrangement becomes the lane's value on every
+ * answer). The guess's edit is re-based over it: order from the guess, rows
+ * from the truth by key (a guessed row the truth has is the truth's object —
+ * the row target adopted it, its proxy survives), rows the guess added — or
+ * carried from another action's guess — kept (their landings judge them),
+ * truth rows the guess lacks appended unless it removed them. A row the
+ * guess only carried over from the truth it was written on is that truth's,
+ * not the guess's: the new truth decides it, so after a new question the
+ * old list's rows never show beside the new one's (F-1, D-35, #4482;
+ * `removed`). The composed arrangement becomes the lane's value on every
  * index whose row the committed backing does not already show — compared
  * BY KEY, never by raw identity: the same key's new object is the same row
  * (its target adopted it) and the slot stays the committed backing's — (a
  * node is born for it as the lane's derivation), on `length` only when the
  * committed length differs, and as the `LaneView`'s base for structural
  * reads. Unkeyed families compose
- * positionally — the guess stands as written (the documented residue). */
+ * positionally — the guess stands as written (the documented residue).
+ * A current truth re-bases, the same way, a guess written while its
+ * question was being asked (`g` null, #4525): asked before the guess, it is
+ * the older question; its rows are held beneath the guess. True: the lane
+ * holds the landing (`laneWrite`). */
 GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
-  if (!older) return fold(el, truth);
   const t = (el as any)._host as StoreTarget | undefined;
-  if (t === undefined || (el as any)._key !== $TRACK) return;
-  const view = el._x!._lane;
+  if (!older && (laneOf(t?.k) as LaneView)?.g !== null) return fold(el, truth);
+  if (!t || (el as any)._key !== $TRACK) return true;
+  const view = latestOf(el);
   if (!(view instanceof LaneView)) return;
   if (!Array.isArray(truth) || !Array.isArray(view.rows)) {
     view.base = truth as Record<PropertyKey, any>;
     return;
   }
-  const keyFn = t.fam?.key ?? null;
-  if (keyFn === null) return;
+  const keyFn = t._fam?.key;
+  if (!keyFn) return;
   const byKey = new Map<unknown, any>();
   for (let i = 0; i < truth.length; i++) {
     const r = truth[i];
@@ -381,8 +413,16 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
     if (k !== undefined && !byKey.has(k)) byKey.set(k, r);
   }
   const used = new Set<unknown>();
+  const removed = view.removed!;
   const rows: any[] = [];
-  const guessed = view.rows as any[];
+  // From the guess as written, not an earlier re-base's composition: a
+  // derive's landing writes key by key, and a truth row one partial write
+  // showed must not stay appended once the landing drops it (#4441).
+  // The #4525 re-base (`g` null): the lane's rows are the new question's
+  // answer now; its work reads that question's hold as the hold's own
+  // flush does (core.ts `frameRead`, F-1, #4536).
+  if (view.g === null) txOf(el).over = t._fam!.node!._x!._transaction!;
+  const guessed = (view.g ??= view.rows as any[]);
   for (let i = 0; i < guessed.length; i++) {
     const g = guessed[i];
     const k = isWrappable(g) ? keyFn(g) : undefined;
@@ -390,13 +430,12 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
     if (tr !== undefined) {
       rows.push(tr);
       used.add(k);
-    } else rows.push(g);
+    } else if (!removed.has(k)) rows.push(g);
   }
-  const removed = view.removed;
   for (let i = 0; i < truth.length; i++) {
     const r = truth[i];
     const k = isWrappable(r) ? keyFn(r) : undefined;
-    if (k !== undefined && !used.has(k) && (removed === null || !removed.has(k))) rows.push(r);
+    if (k !== undefined && !used.has(k) && !removed.has(k)) rows.push(r);
   }
   view.rows = rows;
   view.base = rows;
@@ -410,7 +449,7 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
     // key's new object is the same row, its target adopted it).
     if (node === undefined) {
       if (!sameRow(base[i], rows[i], keyFn)) laneSet(getNode(t, i), rows[i], lane);
-    } else if (!sameRow(node._config & CONFIG_OVERRIDE ? node._x!._lane : base[i], rows[i], keyFn))
+    } else if (!sameRow(node._config & CONFIG_OVERRIDE ? latestOf(node) : base[i], rows[i], keyFn))
       laneSet(node, rows[i], lane);
   }
   if (nodes !== null) {
@@ -423,6 +462,7 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
     if (len !== undefined && (len._config & CONFIG_OVERRIDE || base.length !== rows.length))
       laneSet(len, rows.length, lane);
   }
+  return true;
 };
 
 /** D-34 for a keyed arrangement guess: rows by key, not positions. A
@@ -437,13 +477,15 @@ function fold(el: Signal<any>, truth: unknown): boolean {
   const l = txOf(el);
   // A guess the screen never showed is void at the correction (D-34); a
   // keyed arrangement guess's view carries its removed-keys set.
-  if (!l._shown || !(k?._config! & CONFIG_OVERRIDE) || !(k!._x!._lane as LaneView)?.removed)
-    return false;
-  const guess = el._x!._lane;
-  if ((!el._equals || !el._equals(guess, truth)) && !GlobalQueue._echoes!(guess, truth)) {
+  if (!l._shown || !(laneOf(k) as LaneView)?.removed) return false;
+  const guess = latestOf(el);
+  if ((!el._equals || !el._equals(guess, truth)) && !GlobalQueue._echoes!(guess, truth))
     l.folded = foldedRead;
-    insertSubs(el);
-  } else GlobalQueue._confirmed?.(l);
+  else GlobalQueue._confirmed?.(l);
+  // A folded lane's `latest()` serves the truth beneath the guess
+  // (`foldedRead`): every truth landing there is news to its readers, a
+  // confirming one too — they re-derive from it (D-34, F-6).
+  if (l.folded) insertSubs(el);
   joinFuture(resolveTx(l._parent ?? l));
   return true;
 }
@@ -463,14 +505,14 @@ function foldedRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): u
       passLane !== null ||
       (c as any)._type === EFFECT_RENDER ||
       c._config & CONFIG_CHILDREN_FORBIDDEN ||
-      (el as any)._host?.fam?.node === c
+      (el as any)._host?._fam?.node === c
     )
       return NOT_PENDING;
     const l = txOf(el);
     joinPassAt(c, resolveTx(l._parent ?? l));
   }
   if (el._pendingValue !== NOT_PENDING) return el._pendingValue;
-  return el._config & CONFIG_SLOT_NODE ? GlobalQueue._slotCovered!(el) : el._value;
+  return covered(el);
 }
 
 function sameRow(a: unknown, b: unknown, keyFn: (item: any) => any): boolean {
@@ -484,16 +526,16 @@ function sameRow(a: unknown, b: unknown, keyFn: (item: any) => any): boolean {
  * node that was not the lane's becomes its derivation (its committed value
  * untouched beneath; the lane's end commits the latest). */
 function laneSet(node: Signal<any>, value: unknown, lane: ReturnType<typeof txOf>): void {
-  const x = ext(node);
   if (!(node._config & CONFIG_OVERRIDE)) {
     node._config |= CONFIG_OVERRIDE;
     list(node, lane);
-  } else if (x._lane === value) return;
-  x._lane = value;
-  if (node._subs !== null) {
-    insertSubs(node);
-    laneDirty(node, lane);
-  }
+  } else if (latestOf(node) === value) return;
+  setLaneValue(node, lane, value);
+  if (node._subs !== null) laneDirty(node, lane);
+}
+/** A lane's value of a node, NOT_PENDING for a node that is no lane's. */
+function laneOf(k: Signal<any> | null | undefined): unknown {
+  return k != null && k._config & CONFIG_OVERRIDE ? latestOf(k) : NOT_PENDING;
 }
 
 /** D-34 for a per-key guess (#4329): the derive's draft wrote new objects
@@ -504,8 +546,8 @@ function laneSet(node: Signal<any>, value: unknown, lane: ReturnType<typeof txOf
  * a guessed row keeps its target, and its leaves are judged against their
  * guesses. Rows nothing guessed are left as the draft wrote them. */
 function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
-  const keyFn = t.fam!.key;
-  for (let c of t.fam!.overlaid ?? []) {
+  const keyFn = t._fam!.key;
+  for (let c of t._fam!._overlaid ?? []) {
     // The guessed row, or its ancestor directly under `t` (none: skip).
     while (c.u !== t) if ((c = c.u!) === null) break;
     if (c === null) continue;
@@ -515,7 +557,7 @@ function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
       : pb[c.pk!];
     // A new object only: not `c`'s own, nor one another row serves
     // (pairing it would alias the two).
-    if (isWrappable(nv) && !lookupTarget(nv, t.fam)) reconcileState(nv, c.px, keyFn, true);
+    if (isWrappable(nv) && !lookupTarget(nv, t._fam)) reconcileState(nv, c.px, keyFn, true);
   }
 }
 
@@ -526,12 +568,12 @@ installOptHooks({
   arrangement,
   reconcile: reconcileDraft,
   view: (t, src, writer = false) =>
-    writer ? optimisticView(t, src, laneValueOf, true) : optimisticView(t, src),
+    writer ? optimisticView(t, src, latestOf, true) : optimisticView(t, src),
   has: optimisticHas,
   descriptor: optimisticOwnDescriptor,
   sweep: sweepOverlaid,
   // A new question (not a `refresh()`) asked over guesses an earlier frame
-  // opened, which answer the old one (D-34, #4336). Stamped on `fam.asked`
+  // opened, which answer the old one (D-34, #4336). Stamped on `fam._asked`
   // with this flush's `clock`, so it lapses when the flush ends: `clock + 1`
   // from mainline over a live guess — a frame still reading a guess at the
   // seam shows it beside the new input, so the flush holds with the guess's
@@ -539,41 +581,92 @@ installOptHooks({
   // no live guess left — the lane waits for its answer (F-6), as for a
   // guessed `createOptimistic` (lanes `laneStage`). The guess's own lane
   // asks nothing new and stamps nothing.
+  // A `refresh()` re-asks the guesses' own question (D-34 ¶3): a guess
+  // stands in for its flight (A17), so a leaf lane work reads is kept off
+  // the wake — the lane shows its guesses and the flight holds the lane's
+  // parent, not the lane (F-11, #4656).
   ask: fam => {
-    if (fam.node!._flags & REACTIVE_REASK || !fam.overlaid?.size) return;
+    if (!fam._overlaid?.size) return;
+    if (fam.node!._flags & REACTIVE_REASK) return (n: any) => n._subs._sub._x?._transaction?._lane;
     // Stamped with the flush (`clock`): it lapses when the flush ends.
     let a = ~clock;
-    for (const g of fam.overlaid) {
+    for (const g of fam._overlaid) {
       const n = laneNodeOf(g);
       if (n) {
         if (passLane === null) a = clock + 1;
         else if (sameAction(txOf(n), passLane)) return;
       }
     }
-    if ((fam.asked = a) > 0) joinFuture(null);
+    if ((fam._asked = a) > 0) joinFuture(null);
   },
-  // Over a new question the guesses do not answer (`asked`): from mainline
+  // Over a new question the guesses do not answer (`_asked`): from mainline
   // only a target carrying a guess stands in — a read of one with none is an
   // ordinary pending read (F-2), so a keyed store's other keys wait for their
   // answer, not for the guess's action; in a lane with no guess of its own,
   // or with no live guess left, none does (F-6).
+  // A reader already observing the flight (linked) keeps observing it:
+  // served the guess, a re-run (the guess's own, the seam) would drop its
+  // link and release the hold beside a guess over the previous answer
+  // (F-1, #4536) — the ordinary read serves its committed frame or keeps it
+  // pending. So does a reader in the frame's hold pending on a flight a list
+  // guess was written over (`g` null, the #4525 mark; D-34: the guess does
+  // not answer it): a render effect is read here, as `pullFamily`'s own read
+  // would, since the frame's guard there returns early for an unlinked one.
+  // A derivation a pending render effect reads (#4561), through any chain
+  // of derivations (`held`), keeps observing a held flight as a stale reader
+  // of its hold — linked, re-derived at the landing, so the hold still sees
+  // its frame (`blockedBy`) — and is served the guess like lane work (a
+  // `<For>` keeps showing it, #4525), its every read this pass (D-34 ¶3:
+  // however the reads are grouped); a flight no transaction holds (a
+  // `Loading on` fallback) it reads plainly.
   stands: t => {
-    const o = t.fam!.overlaid;
-    const a = t.fam!.asked;
-    return !!o?.size && (a !== clock + 1 || passLane !== null || o.has(t)) && a !== ~clock;
+    const f = t._fam!;
+    const o = f._overlaid;
+    const a = f._asked;
+    const d = f.node!;
+    const c: any = context;
+    if (!o?.size || (a === clock + 1 && passLane === null && !o.has(t)) || a === ~clock)
+      return false;
+    // Linked by this pass's hold (below): its other reads keep the guess.
+    const j = heldC === c && heldAt === clock;
+    if (linkedTo(c, d)) return j && heldV > 1;
+    if ((laneOf(t.k) as LaneView)?.g === null && c?._statusFlags & STATUS_PENDING)
+      if (c._type === EFFECT_RENDER) readNode(d);
+      else if (j ? heldV : ((heldC = c), (heldAt = clock), (heldV = held(c))))
+        d._x?._transaction ? (link(d, c), staleReader(c, txOf(d)), (heldV = 2)) : readNode(d);
+    return true;
   },
   // Mainline hold (`clock + 1`): the flush joins the action of each guess a
   // reader still reads at the seam; a reader that moved off it (a keyed
   // store's other key) holds nothing.
   park: t => {
     for (const fam of overlaidFamilies)
-      if (fam.asked === clock + 1)
-        for (const g of fam.overlaid!) {
+      if (fam._asked === clock + 1)
+        for (const g of fam._overlaid!) {
           const n = laneNodeOf(g, true);
           if (n) merge(txOf(n)._parent!, t);
         }
   }
 });
+
+/** A derivation in the frame's hold (scheduler.ts `blockedBy`): one a
+ * pending render effect reads, through any chain of pending derivations
+ * (#4561: memo -> memo -> binding, `mapArray` -> memo -> binding). Each
+ * derivation is walked once (`seen`): a diamond graph stays linear. */
+function held(c: any, seen = new Set()): true | undefined {
+  for (let s = c._subs; s; s = s._nextSub) {
+    const r: any = s._sub;
+    if (
+      r._statusFlags & STATUS_PENDING &&
+      (r._type === EFFECT_RENDER || (!r._type && !seen.has(r) && (seen.add(r), held(r, seen))))
+    )
+      return true;
+  }
+}
+/** The last reader judged (`heldC`) this pass (`heldAt`, the pass's `clock`)
+ * and its verdict (`heldV`: 2 once this pass linked it): a reader's key reads
+ * come in one run, so each does not re-walk its subscribers. */
+let heldC: any, heldAt: number, heldV: any;
 
 /** Two lanes of one action (their parents resolved through merges). */
 function sameAction(a: Transaction, b: Transaction): boolean {
@@ -588,21 +681,21 @@ function shallowKeys(o: Record<PropertyKey, any>): Record<PropertyKey, any> {
 
 /** Families with a target carrying a lane value — swept at the flush's
  * commit (`sweepOverlaid`): a target none of whose nodes is a lane's any
- * more leaves its family's `overlaid`. (Not on the read path: a guess is
+ * more leaves its family's `_overlaid`. (Not on the read path: a guess is
  * pending between the setter and the seam, and a read in between must not
  * take the target for clean.) */
 const overlaidFamilies: Set<StoreFamily> = new Set();
 
 function markOverlaid(t: StoreTarget): void {
-  const fam = t.fam!;
-  (fam.overlaid ??= new Set()).add(t);
+  const fam = t._fam!;
+  (fam._overlaid ??= new Set()).add(t);
   overlaidFamilies.add(fam);
 }
 
 export function sweepOverlaid(): void {
   if (overlaidFamilies.size === 0) return;
   for (const fam of overlaidFamilies) {
-    const set = fam.overlaid!;
+    const set = fam._overlaid!;
     for (const t of set)
       if (!laneNodeOf(t)) {
         set.delete(t);
@@ -660,7 +753,7 @@ function rebaseChained(t: StoreTarget): void {
     k._notifiedAt !== notifyEpoch
   ) {
     const rows = Array.isArray(inner) ? untrack(() => (inner as any[]).map(unwrapValue)) : inner;
-    if (!arrangementEqual(k._value.rows, rows, t.fam!)) {
+    if (!arrangementEqual(k._value.rows, rows, t._fam!)) {
       insertSubs(k);
       changed = true;
     }
@@ -686,8 +779,8 @@ function laneNodeOf(t: StoreTarget, read?: boolean): Signal<any> | undefined {
 }
 
 function overlaid(t: StoreTarget): boolean {
-  const fam = t.fam;
-  return fam !== null && fam.opt === true && fam.overlaid !== undefined && fam.overlaid.has(t);
+  const fam = t._fam;
+  return fam !== null && fam.opt === true && fam._overlaid !== undefined && fam._overlaid.has(t);
 }
 
 /** What a lane node shows an untracked reader here: core's rule (`read`
@@ -746,9 +839,18 @@ export function optimisticView(
       const node = nodes[key as any];
       let ov: unknown;
       if (node._config & CONFIG_OVERRIDE) ov = pick(node);
-      else if (!writer || (ov = pendingGuessOf(node)) === NOT_PENDING) continue;
+      // The writer composes on the screen: a node a correction left held
+      // shows what it showed until the commit (D-34, D-37, #4656).
+      else if (
+        !writer ||
+        ((ov = pendingGuessOf(node)) === NOT_PENDING &&
+          !((ov = node._value), node._config & CONFIG_HELD))
+      )
+        continue;
       if (key === "length" && Array.isArray(src)) {
-        if ((src as any[]).length !== ov) (ensure() as any[]).length = ov as number;
+        // Against the clone: a removal guess already written past the
+        // source's end extends it (#4642).
+        if ((out ?? src).length !== ov) (ensure() as any[]).length = ov as number;
       } else if (!isEqual(src[key as any], ov) || !hasOwn.call(src, key)) {
         ensure()[key as any] = ov;
       }
@@ -775,7 +877,7 @@ export function latestView(
   t: StoreTarget,
   src: Record<PropertyKey, any>
 ): Record<PropertyKey, any> {
-  return optimisticView(t, src, laneValueOf);
+  return optimisticView(t, src, latestOf);
 }
 
 export function createOptimisticStore<T extends object = {}>(
@@ -798,42 +900,19 @@ export function createOptimisticStore<T extends object = {}>(
   third?: ProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   const derived = typeof first === "function";
-  const options = (derived ? third : second) as ProjectionOptions | undefined;
-  // Seedless derived form: the root starts as an empty record (see
-  // createProjectionInternal).
-  const initialValue = (derived ? second || {} : first) as T;
-  const keyOption = options?.key === undefined ? "id" : options.key;
-  const fam: StoreFamily = {
-    map: new WeakMap(),
-    node: null,
-    live: new Set(),
-    shallow: !!options?.shallow,
-    opt: true,
-    key:
-      typeof keyOption === "function"
-        ? keyOption
-        : keyOption === null
-          ? null
-          : (row: any) => (isWrappable(row) ? row[keyOption] : undefined)
-  };
-  const store = wrap(initialValue as any, null, null, fam) as Store<T>;
-  if (__OBSERVE__) nameStore(store, options?.name, options?.loc);
-  if (fam.shallow) {
-    ((store as any)[$TARGET] as StoreTarget).s = true;
-    markRawIngest(initialValue);
-  }
-  if (derived) {
-    const fn = first as (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>;
-    let nodeOptions: { name?: string; loc?: string; loadingValue?: void } | undefined;
-    if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
-    if (__OBSERVE__ && (options?.name || options?.loc))
-      nodeOptions = { ...nodeOptions, name: options.name, loc: options.loc };
-    const node = computed(() => {
-      if (!fam.node) fam.node = getOwner() as Computed<any>;
-      runProjectionComputed(store, fn, keyOption);
-    }, nodeOptions) as Computed<void>;
-    node._config &= ~CONFIG_AUTO_DISPOSE;
-    fam.node = node;
-  }
-  return [store, ((fn: (draft: T) => void) => storeSetter(store, fn)) as StoreSetter<T>];
+  // A derived store's family (projection.ts): the derive's status reaches
+  // its leaves' readers as for `createStore(fn)` (F-12, #4437).
+  const store = createProjectionInternal(
+    (derived ? first : null) as any,
+    (derived ? second : first) as T,
+    (derived ? third : second) as ProjectionOptions,
+    true
+  );
+  return [
+    store,
+    ((fn: (draft: T) => void) => (
+      __DEV__ && derived && devGuardOptimisticBeforeLoad((store as any)[$TARGET]._fam.node),
+      storeSetter(store, fn)
+    )) as StoreSetter<T>
+  ];
 }

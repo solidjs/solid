@@ -1,5 +1,51 @@
 # @solidjs/web
 
+## 2.0.0-rc.21
+
+### Patch Changes
+
+- 32163a9: A stylesheet released while it is still loading no longer hangs a gate that warmed it again inside the removal grace. The release schedules the element's removal 100 ms later; a mount in between (a `useHead` stylesheet under `<Loading>`) warmed the same registry entry and waited on that element's load, and the removal took the element out before it loaded. A removed link fires neither load nor error, so the boundary stayed on its fallback. The removal now settles a pending load the way an error does, and the gate warms the sheet again on a new element and waits on that one.
+- bb51da6: `AssetManifest` admits a manifest that sets `_base` (#4502). It was `Record<string, Entry> & { _base?: string }`, and since `_base` also falls under the string index signature it had to be an entry too, so a manifest literal with `_base: "/"` did not type-check. The index signature now carries entries, metadata strings (`_base`, and any an integration stamps, such as the vite plugin's `_entry`) and `undefined`, so a read by key is an entry once narrowed (`typeof entry === "object"`). The server renderer narrows the same way: a metadata key enumerated while registering entry assets, or asked for by `resolveAssets`, is skipped instead of throwing.
+- 3c47d06: A broadcast live read with a plain form query (`?room=a`, no `?args=`) is now keyed by that query, so viewers of different queries no longer share one source.
+- 61bb177: `createOwner` leaves solid-js's public types: it is typed only through `solid-js/internal`, like the boundary primitives behind `Errored`, `Loading` and `Reveal` (#3709). It stays a runtime export for the renderers. Solid 1.x had no `createOwner`, and application code that used it in an RC should host a scope with `createRoot()` (its `dispose` argument can be passed around as a plain function) and re-enter one with `runWithOwner()`. A detached `owner.dispose` keeps throwing, since it is a method and not part of the public API (#4444).
+- 62745f6: Shrink the compiled and hand-written floors: the dependent walks, dependency clearing, status writes, effect-run queueing, flatten's thunk walk and the delegated-event parent hop share their code (no behavior change).
+- 551ef0d: An awaited `renderToStream()` that re-pulls root holes — as happens when a `lazy()` component's first load is shared across concurrent renders — now restores the render's `sharedConfig.context` first, the same restore the streamed path already performs in `doShell`. Without it the resumed render body runs under whichever concurrent render set the global last, so an async memo created there records into (and adopts from) another render's slot store and concurrent requests can read each other's values (#4595).
+- 6b6b4da: Server-rendered `<link rel="modulepreload">` hints for modules outside the entry's static import closure (lazy and route chunks, and modules registered later through `registerAsset("module")`, streamed hints included) now carry `fetchpriority="low"`, so they yield bandwidth to the modules hydration waits on. The entry's static imports and modulepreload links written through the head API keep their default priority. `renderToString` and `renderToStream` take `lowPriorityPreloads: false` to turn the hint off. In an rc.15 app (Tailwind, five entry imports, four route chunks) patched the same way, Chrome under Lighthouse's devtools throttling hydrated about 310 ms sooner with an unchanged first paint.
+- 3c47d06: A no-JS form post answered by `respond(value, { headers })`, returned or thrown, now keeps the envelope's `Set-Cookie` headers on the redirect.
+- b656418: A direct server-function call no longer enters the request scope or copies property descriptors for each plain object and array in its result. The walk that binds deferred bodies now skips `bindDeferredBody`'s scoped promise probe for a plain object or array that has no own iterator or `Symbol.toStringTag` hook, reads each slot's descriptor on its own, and allocates a frame only for a container whose slots hold an object. Descriptors are still snapshotted before any authored code can run. A call returning 1,000 plain rows walks in 0.11 ms instead of 0.55 ms.
+- 6262453: The server `ssrElement` joins a compiled dynamic child in place. The compiler emits a spread element's dynamic child as `() => scope(() => expr)`, and `ssrScope` returns a function in both modes, so after `ssrElement`'s one call the child was still a function and every such element fell to `resolveSSRNode` plus `ssr()`'s hole loop. Outside a live-hole render, `ssrElement` now calls the scope's evaluator once more, as `resolveSSRNode` would, and joins a string or number result directly. Other values resolve nested as before, and a suspension becomes the same async hole through a shared `pushSSRAsyncHole`. Server output is byte-identical. On a prod build, `spread-static-tail` renders 7–14% faster (500 rows).
+- 5ae39fc: Fail `renderToStream` when an asynchronous value cannot be serialized after its key was handed to the default serializer, if that happens before the first flush (an awaited render, or before the shell went out). The render tears down without calling `onCompleteAll` and nothing is sent (#4647). Synchronous serialization failures and custom serializers keep their existing behavior.
+- ccfc7ea: Aborting `renderToStream`'s `signal` now settles and ends every streaming consumer. Before, the promise from `pipeTo` could stay pending forever after an abort, the `readable` view and a `createSSRResponse` body never closed, and a `pipe` sink was never ended, which kept the request alive. Now nothing more is written and each surface ends cleanly, as a close and not an error, since the bytes already sent stay sent: `pipe` ends its sink, `pipeTo` closes its writable and resolves without rejecting, and `readable` closes. `createSSRResponse` ends its `200` body after the shell and still resolves with a bodyless `500` before it. `onError` and `onCompleteAll` are not called. The awaited form rejects with `signal.reason` (see the companion changeset) (#4646).
+- ccfc7ea: Reject `renderToStream` thenable consumers with `signal.reason` when its `signal` aborts, including consumers registered after cancellation. Render failures still resolve with the available HTML.
+- 5ae39fc: `renderToStream`: an async value that resolves to something the serializer cannot handle after the first flush (midstream) now rejects its key on the client instead of leaving it pending forever (#4647) — and with it every promise or async iterable inside the value that already went out (a nested promise, an async iterable's later items), and every other key on the same value. The failure is still reported as `{ kind: "render", handling: "serialize" }` and the render completes; the payload settles the key's promise with an error that says it is a serialization failure and names the key (the failure's own text stays on the server). The hydrating read throws into the nearest `<Errored>`, whose fallback replaces the server-rendered content until `reset()` or an input change reruns the computation as a client fetch. With no `<Errored>` above, it is uncaught like any rejected key. Before the first flush the render fails instead (see the other changeset).
+- b7e4f16: Keep the metadata of files and blobs sent to server functions with `enableRichArguments()`. A blob arrives as a `Blob` instead of a `File` named `blob`, an empty type stays empty instead of `application/octet-stream`, and a file keeps its exact name and its `lastModified`. The server still reads uploads from clients that send only the part index.
+- Updated dependencies [46ab2dd]
+- Updated dependencies [61bb177]
+- Updated dependencies [25fb7be]
+- Updated dependencies [0d4c5e0]
+- Updated dependencies [84353de]
+- Updated dependencies [99d9821]
+  - solid-js@2.0.0-rc.21
+
+## 2.0.0-rc.20
+
+### Patch Changes
+
+- 122797e: A direct server-function call no longer copies every plain object and array in its result. The carrier walk that binds deferred bodies to the call's request scope now builds a container's shallow-rebuilt shell only when a value inside it is bound or a cycle reaches it. Before, it built one for every container up front and discarded it when nothing changed. A call returning 1,000 plain rows walks in 0.56 ms instead of 0.91 ms.
+- 56eb192: A hydrating client that boots mid-stream shows a `<Loading>`'s streamed content once when the boundary's fallback was a bare string (#4374). The hole holding the fallback kept it as a raw string, which tracks no node, so the hole never noticed that the fragment had swapped in and reconciled against a fallback it no longer had: a text node of the server's content stayed beside the client's copy (a nested `<Errored>`'s fallback drawn twice, text after an element repeated), or was replaced instead of adopted. While hydrating, a hole holding a raw string now re-claims its region, as it does when the nodes it tracks are gone.
+- Updated dependencies [178605c]
+- Updated dependencies [17ec571]
+- Updated dependencies [178605c]
+- Updated dependencies [df2ba6c]
+- Updated dependencies [c7f4403]
+- Updated dependencies [ffe0c1c]
+- Updated dependencies [bd95616]
+- Updated dependencies [38e0c49]
+- Updated dependencies [1f558e5]
+- Updated dependencies [56a982c]
+- Updated dependencies [5d57e12]
+  - solid-js@2.0.0-rc.20
+
 ## 2.0.0-rc.19
 
 ### Patch Changes

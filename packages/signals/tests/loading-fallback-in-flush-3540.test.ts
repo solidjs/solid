@@ -407,7 +407,9 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
   // its pending status is caught again by the normal path: one reader more
   // than next on each boundary passed until the commit, none after it. A
   // render effect born held (content bound) is recorded at its staging, as
-  // one in flight is: held or in flight alike.
+  // one in flight is: held or in flight alike. A memo left pending is held
+  // but never caught (no reader of its own, D-12, #4542): in flight, as
+  // held, the memo content counts as its binding alone.
   const expected: Record<string, string[]> = {
     // The ancestor catches, as pre-L2 (which also runs the binding behind
     // the fallback: `text fresh 0` — L2 holds a run behind a fallback,
@@ -426,13 +428,13 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
       "gate gate · open p · outer outer · text fresh 1"
     ],
     "unrevealed flight memo": [
-      " | o3 i2",
+      " | o2 i1",
       "holder 1 | o1 i0",
       " | o1 i0",
       "gate gate · open fresh 1 · outer outer"
     ],
     "unrevealed flight bound": [
-      " | o3 i2",
+      " | o2 i1",
       "holder 1 | o1 i0",
       " | o1 i0",
       "gate gate · open p · outer outer · text fresh 1"
@@ -456,13 +458,13 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
       ""
     ],
     "rearmed outer flight memo": [
-      "outer outer fallback | o2 i2",
+      "outer outer fallback | o1 i1",
       "holder 1 · open fresh 1 · outer outer | o0 i0",
       " | o0 i0",
       ""
     ],
     "rearmed outer flight bound": [
-      "outer outer fallback | o2 i2",
+      "outer outer fallback | o1 i1",
       "holder 1 · open p · outer outer · text fresh 1 | o0 i0",
       " | o0 i0",
       ""
@@ -482,13 +484,13 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
       ""
     ],
     "rearmed flight memo": [
-      "inner inner fallback | i2",
+      "inner inner fallback | i1",
       "holder 1 · inner inner · open fresh 1 | i0",
       " | i0",
       ""
     ],
     "rearmed flight bound": [
-      "inner inner fallback | i2",
+      "inner inner fallback | i1",
       "holder 1 · inner inner · open p · text fresh 1 | i0",
       " | i0",
       ""
@@ -500,13 +502,13 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
     // (The born-held memo the mounting flush's hold owns is not recorded:
     // nothing catches it, D-13.)
     "plain held bound": [" | i1", "open p · text fresh 1 · x 1 | i0", " | i0", ""],
-    "plain flight memo": [" | i2", "holder 1 · open fresh 1 | i0", " | i0", ""],
-    "plain flight bound": [" | i2", "holder 1 · open p · text fresh 1 | i0", " | i0", ""],
+    "plain flight memo": [" | i1", "holder 1 · open fresh 1 | i0", " | i0", ""],
+    "plain flight bound": [" | i1", "holder 1 · open p · text fresh 1 | i0", " | i0", ""],
     "revealed held memo": [" | o1 i1", "open fresh 1 · x 1 | o0 i0", " | o0 i0", ""],
     "revealed held bound": [" | o1 i1", "open p · text fresh 1 · x 1 | o0 i0", " | o0 i0", ""],
-    "revealed flight memo": [" | o2 i2", "holder 1 · open fresh 1 | o0 i0", " | o0 i0", ""],
+    "revealed flight memo": [" | o1 i1", "holder 1 · open fresh 1 | o0 i0", " | o0 i0", ""],
     "revealed flight bound": [
-      " | o2 i2",
+      " | o1 i1",
       "holder 1 · open p · text fresh 1 | o0 i0",
       " | o0 i0",
       ""
@@ -676,14 +678,14 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
         expect(out).toEqual(
           withInner
             ? [
-                "inner inner fallback · open true | o0 f2",
-                `${x1} | o0 f2`,
+                "inner inner fallback · open true | o0 f1",
+                `${x1} | o0 f1`,
                 "inner p · text fresh 1 | o0 f0",
                 " | o0 f0"
               ]
             : [
-                " | o2 f2",
-                " | o2 f2",
+                " | o1 f1",
+                " | o1 f1",
                 [x1, "open p", "text fresh 1"].sort().join(" · ") + " | o0 f0",
                 " | o0 f0"
               ]
@@ -736,11 +738,11 @@ describe("#3540: the boundary scope — committed content, held mounts, no catch
   // committed or staged value (`content 0` in a flush, a tear under A29;
   // `content 1` from mainline); `next` reports the boundary pending while
   // it holds the mount. (Readers: the content's catch walk records it once
-  // more than the normal path, until the commit; in flight every first pass
-  // under the boundary — the memo, the children, the tree — is caught and
-  // held with the hold, D-12.)
+  // more than the normal path, until the commit; in flight the first passes
+  // under the boundary are held with the hold, and only render effects are
+  // caught — a pending memo is no reader of its own, D-12, #4542.)
   const observe = (source: Source, x1: string) => [
-    `view fallback | readers=${source === "held" ? 2 : 3} view=false m=false latest=${source === "held" ? "content 1" : "throws NotReadyError"}`,
+    `view fallback | readers=${source === "held" ? 2 : 1} view=false m=false latest=${source === "held" ? "content 1" : "throws NotReadyError"}`,
     `${[x1, "view content 1"].sort().join(" · ")} | readers=0 view=false m=false latest=content 1`,
     " | readers=0 view=false m=false latest=content 1"
   ];

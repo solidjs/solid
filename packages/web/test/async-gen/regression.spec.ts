@@ -39,6 +39,7 @@ test(
     const improvements: string[] = [];
     const scenarios = fc.sample(scenarioArb(), { seed: SEED, numRuns: CASES });
     for (let i = 0; i < scenarios.length; i++) {
+      (globalThis as any).__SEAT_SHADOW_CASE__ = `seed ${SEED} #${i}`;
       const r = await runScenario(scenarios[i]);
       const laws = [...new Set(r.findings.map(f => `${f.oracle}/${f.law}`))].sort();
       if (laws.length) failing[i] = laws;

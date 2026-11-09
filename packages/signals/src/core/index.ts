@@ -16,7 +16,8 @@ export {
   setSnapshotCapture,
   markSnapshotScope,
   releaseSnapshotScope,
-  clearSnapshots
+  clearSnapshots,
+  verdict
 } from "./core.js";
 export {
   enableExternalSource,
@@ -67,6 +68,8 @@ export {
   DEV,
   OBSERVE,
   setConsoleFooter,
+  registerDevStoreSlotWriter,
+  setDevSignal,
   type AttributionSlot,
   type Dev,
   type Observe,

@@ -1,4 +1,4 @@
-import { onCleanup, untrack, type Setter } from "@solidjs/signals";
+import { forgetThrownRead, onCleanup, untrack, type Setter } from "@solidjs/signals";
 import type { Element as SolidElement } from "../types.js";
 import type { Component, ComponentProps } from "./component.js";
 import { $DEVCOMP, IS_DEV } from "./core.js";
@@ -89,6 +89,8 @@ export function dynamicCore(
   // stale binds the fresh mount to the first call's resident store (the SSR
   // payload) while the refetched response warms a store nothing reads.
   let deliveredAddress: string | undefined;
+  // The value a resolution just kept (and delivered past), for the gate.
+  let kept: any;
   const resolveBinding = (next: any, prev: any) => {
     const binding = bindingOf(next);
     if (!binding) return next;
@@ -96,6 +98,9 @@ export function dynamicCore(
     const prevBinding = bindingOf(prev);
     if (prevBinding && prevBinding.component === binding.component) {
       for (const deliver of sites) deliver(binding.address);
+      // Delivered: the gate that sees this kept value next must not read
+      // its (first-resolution) address as a new one.
+      kept = prev;
       return prev;
     }
     return next;
@@ -116,12 +121,22 @@ export function dynamicCore(
   // nothing delivered (no site mounted) a differing address is a plain
   // change — nothing is kept, so nothing is lost by swapping.
   const sameInstance = (prev: any, next: any) => {
-    if (prev === next) return true;
+    if (next === kept) {
+      kept = undefined;
+      if (prev === next) return true;
+    }
     const held = bindingOf(prev);
     const incoming = bindingOf(next);
-    if (!held || !incoming || held.component !== incoming.component) return false;
-    if (held.address === incoming.address) return true;
-    if (deliveredAddress === undefined) return false;
+    if (!held || !incoming || held.component !== incoming.component) return prev === next;
+    // Nothing delivered yet: the held address is the one showing.
+    if (deliveredAddress === undefined) return held.address === incoming.address;
+    // Otherwise the delivered address is, and the held one says nothing: an
+    // instance that moved away from its first call and comes back to it
+    // receives a binding whose address equals the held one, and must still
+    // be delivered there — often as the very binding object it holds (one
+    // per address), so identity says nothing either. (A windowed live view
+    // scrolling back to the slice the page was served with stayed on the
+    // slice it had scrolled to.)
     if (incoming.address !== deliveredAddress) {
       deliveredAddress = incoming.address;
       for (const deliver of sites) deliver(incoming.address);
@@ -174,7 +189,9 @@ export function dynamicCore(
       try {
         untrack(cached);
       } catch {
-        // The value memo observes the NotReady on its own read.
+        // The value memo observes the NotReady on its own read. (D-42, dev:
+        // the runtime's catch, not the enclosing pass's — not a caught read.)
+        if (IS_DEV) forgetThrownRead();
       }
     }
     let latest = 0;

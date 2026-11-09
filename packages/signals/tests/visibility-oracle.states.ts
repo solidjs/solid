@@ -90,7 +90,11 @@ export function supersededGraph(initDownstream: boolean) {
     async supersede() {
       const run = action(function* () {
         setValue(1); // new question → refetch
-        setDouble(3); // wrong guess; truth will be 2
+        // Wrong guess; truth will be 2. Before the first commit (the
+        // `initDownstream: false` state) the guess is written (S-56,
+        // 2026-11-07; the 2026-11-03 DEV guard, #4656, is gone for memos)
+        // and voided at the correction, its lane never shown (D-34).
+        setDouble(3);
         yield never();
       });
       run();
@@ -281,13 +285,13 @@ export const STATES: State[] = [
       return built;
     },
     expect: {
-      // Lanes (2026-10-01/02): the guess was written in the frame that
-      // re-asked its source and re-fetched its derivation, so its lane was
-      // blocked and the guess never displayed; "a correction while blocked
-      // voids the never-shown guess" (§16). A18 (c)'s "the display keeps the
-      // override until the commit" is about a displayed override — there is
-      // none here: direct reads see the committed value, the truth is staged
-      // under the action, a fresh reader of it is born held.
+      // Never committed: the guess (`supersede` above; S-56) is written in
+      // the frame that re-asked its source and voided at the correction,
+      // its lane never shown (D-34). The reads are the void guess's (lanes 2026-10-01/02:
+      // written in the frame that re-asked its source, its lane blocked and
+      // never displayed, §16): there is no displayed override — direct reads
+      // see the committed value, the truth is staged under the action, a
+      // fresh reader of it is born held.
       untracked: rule(
         0,
         "lanes: the never-shown guess is void at the correction; the truth is staged"
@@ -315,13 +319,13 @@ export const STATES: State[] = [
       return built;
     },
     expect: {
-      // Lanes (2026-10-01/02): the guess was written in the frame that
-      // re-asked its source and re-fetched its derivation, so its lane was
-      // blocked and the guess never displayed; "a correction while blocked
-      // voids the never-shown guess" (§16). A18 (c)'s "the display keeps the
-      // override until the commit" is about a displayed override — there is
-      // none here: direct reads see the committed value, the truth is staged
-      // under the action, a fresh reader of it is born held.
+      // Never committed: the guess (`supersede` above; S-56) is written in
+      // the frame that re-asked its source and voided at the correction,
+      // its lane never shown (D-34). The reads are the void guess's (lanes 2026-10-01/02:
+      // written in the frame that re-asked its source, its lane blocked and
+      // never displayed, §16): there is no displayed override — direct reads
+      // see the committed value, the truth is staged under the action, a
+      // fresh reader of it is born held.
       // Never committed: no value to serve a direct read (A19 exc. 1 —
       // loading, not pending), `latest` tunnels to the staged truth.
       untracked: rule(

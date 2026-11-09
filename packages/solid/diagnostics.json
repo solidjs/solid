@@ -54,6 +54,15 @@
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/async-waterfall"
   },
   {
+    "code": "CAUGHT_REACTIVE_READ",
+    "kind": ["async"],
+    "severity": ["warn"],
+    "category": "async",
+    "trigger": "A computation caught a reactive read's throw (not ready, or the source's error) and completed with a value: the load is masked or the error hidden; once per node",
+    "repair": "A computation wrapped a reactive read in `try/catch` as it would an `await`, the read threw (not ready, or the source's error), the catch swallowed it, and the computation completed with a substitute value.",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/caught-reactive-read"
+  },
+  {
     "code": "CLEANUP_IN_FORBIDDEN_SCOPE",
     "kind": ["lifecycle"],
     "severity": ["error"],
@@ -322,6 +331,15 @@
     "trigger": "An optimistic value the screen showed was replaced by a different one — reverted at settle, or superseded by the truth (attribution enabled)",
     "repair": "An optimistic value the screen showed was replaced by a different one: the person saw the guess, then the correction.",
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/optimistic-reverted"
+  },
+  {
+    "code": "OPTIMISTIC_WRITE_BEFORE_LOAD",
+    "kind": ["write"],
+    "severity": ["error"],
+    "category": "write",
+    "trigger": "Optimistic write to a source whose first answer has not landed; no guess is made",
+    "repair": "An optimistic setter ran before its source's first answer landed (`createOptimistic(async fn)`, or `createOptimisticStore(fn, seed)` whose derive has not landed — the seed does not count).",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/optimistic-write-before-load"
   },
   {
     "code": "PENDING_ASYNC_FORBIDDEN_SCOPE",

@@ -8,9 +8,17 @@ import fc from "fast-check";
 
 /** A signal (`s`) or a memo (`m`), by index. */
 export type SrcRef = { k: "s" | "m"; i: number };
-/** How a hole reads its source: `x()`, `latest(x)` or `isPending(x)`. */
-export type How = "plain" | "latest" | "pending";
+/** How a hole reads its source: `x()`, `latest(x)`, `isPending(x)` or
+ * `isPending(() => latest(x))` (`pendingLatest`: the verdict of the latest
+ * channel, A8). */
+export type How = "plain" | "latest" | "pending" | "pendingLatest";
 export type Read = { how: How; src: SrcRef };
+
+/** A memo input: `x()`, `latest(x)` or `isPending(x)` (counted as 0/1).
+ * `when`: the input is read only while that signal is non-zero — a probe a
+ * memo makes on one run and not the next (S-50). Rulings only; the random
+ * generator never emits `pending` or `when`. */
+export type Dep = { src: SrcRef; how: "plain" | "latest" | "pending"; when?: SrcRef };
 
 /**
  * A memo over earlier sources. Its value is the sum of its deps plus one. An
@@ -20,19 +28,31 @@ export type Read = { how: How; src: SrcRef };
  */
 export type MemoDef = {
   async: boolean;
-  deps: { src: SrcRef; how: "plain" | "latest" }[];
+  deps: Dep[];
   poison: number | null;
+  /** `createOptimistic(fn)` instead of `createMemo(fn)`: its setter is the
+   * target of `guess` writes (rulings only). */
+  optimistic?: true;
 };
 
 export type Node =
-  | { t: "loading"; child: Node }
+  /** `on`: the boundary's dependency list (`<Loading on={[...]}>`); the reads
+   * are made, the values never compared (rulings only). */
+  | { t: "loading"; child: Node; on?: Read[] }
   | { t: "errored"; child: Node }
-  | { t: "show"; when: Read; child: Node; fallback: boolean }
+  /** `owns`: memos created inside this branch when it opens — born held when
+   * the branch opens under a hold (rulings only; D-2). */
+  | { t: "show"; when: Read; child: Node; fallback: boolean; owns?: number[] }
   | { t: "group"; kids: Node[] }
   /** A `<span>` with one inserted text hole per `text` read and one
    * `data-a<n>` attribute per `attrs` read — in ONE compiled effect when
    * `grouped`, one effect per attribute otherwise (pair E1). */
   | { t: "leaf"; text: Read[]; attrs: Read[]; grouped: boolean };
+
+/** A write inside an action: a truth write to signal `s`, or a guess to an
+ * optimistic source `o` (an optimistic signal's setter, or an optimistic
+ * memo's). A truth write to an optimistic signal is a guess too. */
+export type Write = { s: number; v: number } | { o: SrcRef; v: number };
 
 export type Step =
   | { t: "write"; s: number; v: number }
@@ -40,6 +60,14 @@ export type Step =
   | { t: "settle"; pick: number }
   /** An action: writes s = v, then yields on a flight the script settles. */
   | { t: "action"; s: number; v: number }
+  /** An action (rulings only): `before` writes, a yield on a flight the
+   * script settles, then `after` writes and `refresh(memos[i])` calls.
+   * `sync`: no yield — the body ends inside the call (S-52). */
+  | { t: "action"; before: Write[]; after?: Write[]; refresh?: number[]; sync?: true }
+  /** A guess outside an action (rulings only). */
+  | { t: "guess"; o: SrcRef; v: number }
+  /** `refresh(memos[m])` from outside any hold (rulings only). */
+  | { t: "refresh"; m: number }
   | { t: "flush" }
   | { t: "micro" }
   | { t: "task" };
@@ -51,6 +79,10 @@ export interface Scenario {
   steps: Step[];
   /** Memos created inside the root component instead of at module level. */
   owned?: boolean;
+  /** Signals created with `createOptimistic(v)` (rulings only). */
+  optimistic?: number[];
+  /** Names for rendering a ruling's document block; the runner ignores them. */
+  names?: Record<string, string>;
 }
 
 const VALUES = 4;
@@ -176,18 +208,20 @@ const rd = (r: Read) =>
     ? `${ref(r.src)}()`
     : r.how === "latest"
       ? `latest(${ref(r.src)})`
-      : `isPending(${ref(r.src)})`;
+      : r.how === "pending"
+        ? `isPending(${ref(r.src)})`
+        : `isPending(() => latest(${ref(r.src)}))`;
 
 export function describeNode(n: Node): string {
   switch (n.t) {
     case "leaf":
       return `<span${n.attrs.length ? ` ${n.grouped ? "fx" : "split"}[${n.attrs.map(rd).join(",")}]` : ""}>${n.text.map(rd).join(" ")}</span>`;
     case "loading":
-      return `<Loading>${describeNode(n.child)}</Loading>`;
+      return `<Loading${n.on ? ` on=[${n.on.map(rd).join(",")}]` : ""}>${describeNode(n.child)}</Loading>`;
     case "errored":
       return `<Errored>${describeNode(n.child)}</Errored>`;
     case "show":
-      return `<Show when=${rd(n.when)}${n.fallback ? " fb" : ""}>${describeNode(n.child)}</Show>`;
+      return `<Show when=${rd(n.when)}${n.fallback ? " fb" : ""}${n.owns?.length ? ` owns=[${n.owns.map(i => `m${i}`).join(",")}]` : ""}>${describeNode(n.child)}</Show>`;
     case "group":
       return n.kids.map(describeNode).join("");
   }
@@ -197,9 +231,10 @@ export function describeScenario(s: Scenario): string {
   const memos = s.memos
     .map(
       (m, i) =>
-        `m${i}=${m.async ? "async" : "memo"}(${m.deps.map(d => (d.how === "latest" ? `latest(${ref(d.src)})` : ref(d.src))).join("+")}${m.poison !== null ? ` !%4=${m.poison}` : ""})`
+        `m${i}=${m.optimistic ? "opt:" : ""}${m.async ? "async" : "memo"}(${m.deps.map(d => `${d.how === "latest" ? `latest(${ref(d.src)})` : d.how === "pending" ? `isPending(${ref(d.src)})` : ref(d.src)}${d.when ? `?${ref(d.when)}` : ""}`).join("+")}${m.poison !== null ? ` !%4=${m.poison}` : ""})`
     )
     .join(" ");
+  const w = (x: Write) => ("s" in x ? `s${x.s}=${x.v}` : `guess ${ref(x.o)}=${x.v}`);
   const steps = s.steps
     .map(st =>
       st.t === "write"
@@ -207,13 +242,19 @@ export function describeScenario(s: Scenario): string {
         : st.t === "settle"
           ? `S${st.pick}`
           : st.t === "action"
-            ? `A(s${st.s}=${st.v})`
-            : st.t === "flush"
-              ? "f"
-              : st.t === "micro"
-                ? "m"
-                : "t"
+            ? "s" in st
+              ? `A(s${st.s}=${st.v})`
+              : `A(${st.before.map(w).join(",")}${st.after?.length ? ` | after ${st.after.map(w).join(",")}` : ""}${st.refresh?.length ? ` | refresh ${st.refresh.map(i => `m${i}`).join(",")}` : ""})`
+            : st.t === "guess"
+              ? `G(${ref(st.o)}=${st.v})`
+              : st.t === "refresh"
+                ? `R(m${st.m})`
+                : st.t === "flush"
+                  ? "f"
+                  : st.t === "micro"
+                    ? "m"
+                    : "t"
     )
     .join(" ");
-  return `${s.owned ? "owned " : ""}[${s.signals.map((v, i) => `s${i}=${v}`).join(" ")}${memos ? " " + memos : ""}] ${describeNode(s.tree)} :: ${steps}`;
+  return `${s.owned ? "owned " : ""}[${s.signals.map((v, i) => `${s.optimistic?.includes(i) ? "opt:" : ""}s${i}=${v}`).join(" ")}${memos ? " " + memos : ""}] ${describeNode(s.tree)} :: ${steps}`;
 }

@@ -23,8 +23,7 @@ const leading = _tmpl$2();
 
 /* prettier-ignore */
 const extraSpaces = _tmpl$3();
-var _el$4 = _tmpl$(),
-  _el$5 = _el$4.firstChild;
+var _el$4 = _tmpl$();
 _$insert(_el$4, name, null);
 const trailingExpr = _el$4;
 var _el$6 = _tmpl$2(),
@@ -45,8 +44,7 @@ var _el$1 = _tmpl$5(),
   _el$10 = _el$1.firstChild,
   _el$13 = _el$10.nextSibling,
   _el$11 = _el$13.nextSibling,
-  _el$14 = _el$11.nextSibling,
-  _el$12 = _el$14.nextSibling;
+  _el$14 = _el$11.nextSibling;
 _$insert(_el$1, greeting, _el$13);
 _$insert(_el$1, name, _el$14);
 const multiExprSpaced = _el$1;
@@ -55,8 +53,7 @@ const multiExprSpaced = _el$1;
 var _el$15 = _tmpl$6(),
   _el$16 = _el$15.firstChild,
   _el$18 = _el$16.nextSibling,
-  _el$19 = _el$18.nextSibling,
-  _el$17 = _el$19.nextSibling;
+  _el$19 = _el$18.nextSibling;
 _$insert(_el$15, greeting, _el$18);
 _$insert(_el$15, name, _el$19);
 const multiExprTogether = _el$15;
@@ -96,8 +93,7 @@ const trailingSpaceComp = _$createComponent(Comp, {
   children: expr
 });
 const trailingSpaceFrag = expr;
-var _el$30 = _tmpl$12(),
-  _el$31 = _el$30.firstChild;
+var _el$30 = _tmpl$12();
 _$insert(_el$30, expr, null);
 const leadingSpaceElement = _el$30;
 const leadingSpaceComponent = _$createComponent(Div, {
@@ -121,8 +117,7 @@ const escapeCompAttribute = _$createComponent(Div, {
   normal: "Search\u2026",
   title: "Search&hellip;"
 });
-var _el$35 = _tmpl$14(),
-  _el$36 = _el$35.firstChild;
+var _el$35 = _tmpl$14();
 _$insert(_el$35, expr, null);
 const lastElementExpression = _el$35;
 const messwithTemplates = _tmpl$15();

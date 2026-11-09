@@ -43,6 +43,7 @@ import {
   createRoot as coreRoot,
   getContext,
   setContext,
+  forgetThrownRead,
   type Context
 } from "@solidjs/signals";
 import type { Element as SolidElement } from "../types.js";
@@ -574,6 +575,17 @@ export function subFetch<T>(fn: (prev?: T) => any, prev?: T) {
     // (#2997: server-rejected async adopted on the client) must be observed
     // here or it surfaces as an unhandled rejection.
     if (result && typeof result.then === "function") result.then(undefined, noop);
+    // D-42 (dev, CAUGHT_REACTIVE_READ): a flight-shaped trace result carries
+    // a read's throw as its rejection (an async body's, a generator's first
+    // pull) — the throw continuing, not a catch — and the discarded flight
+    // never settles against the node, so the served answer the wrapper
+    // returns instead must not be judged as the body's own.
+    if (
+      IS_DEV &&
+      result &&
+      (typeof result.then === "function" || typeof result[Symbol.asyncIterator] === "function")
+    )
+      forgetThrownRead();
     return result;
   } finally {
     window.fetch = ogFetch;
@@ -594,9 +606,9 @@ export function syncThenable(value: any) {
 /**
  * A served pass: `write(x)` lands a served answer — the server's answer for a
  * node arriving (the async runtime writes it and flushes, synchronously),
- * or a boundary's fresh render (its trigger; `adopt`: hydrating, so what it
- * creates adopts its server answer by id, claiming nothing) — and the
- * flush round that carries it is
+ * or a boundary's fresh render (its trigger; `adopt`: the boundary's owner,
+ * hydrating, so what it creates adopts its server answer by id, claiming
+ * nothing) — and the flush round that carries it is
  * hydration's own pass over served answers (`_claimOwner`, that round). A
  * node that adopted its own server answer re-runs there because the
  * server's answer for something it reads arrived, not because a client
@@ -606,15 +618,22 @@ export function syncThenable(value: any) {
  * the flush, where a node it reaches computes. Runs from a settled promise,
  * outside any claim window.
  */
-const servedPass = (write: (x?: any) => void, adopt?: boolean) => (x?: any) => {
+const servedPass = (write: (x?: any) => void, adopt?: Owner | false) => (x?: any) => {
   flush();
   // Adopting, hydration is on but nothing claims: the render is a client
-  // render, so it opens no snapshot scope either (the `hydrating` setter,
-  // which would release one, is bypassed here). A scope left open would hold
-  // every write made in it — a client-only node's gate (a <Portal>) never
-  // opening.
-  _hydratingValue = _snapshotRootOwner = adopt as any;
+  // render, and opens no claim's scope (the `hydrating` setter, which would
+  // release one, is bypassed here). The boundary's owner is the pass's
+  // snapshot scope, released with it below: what the render adopts answers
+  // the inputs the server rendered with, so a client write made before the
+  // fragment arrived — none of its readers existed then — is served the
+  // snapshot here, marks its readers stale, and replays at the release: they
+  // compute against the client's value, as a claimed resume's do (D8,
+  // #4588). Not a refetch: the input changed (#4273). A scope left open
+  // would hold every write made in it — a client-only node's gate (a
+  // <Portal>) never opening.
+  _hydratingValue = _snapshotRootOwner = !!adopt as any;
   _claimOwner = ~clock;
+  if (adopt) markSnapshotScope(adopt);
   // An uncaught error (no client boundary for a served error) leaves the
   // flush by throwing: the pass still ends, and hydration still completes
   // — a boundary's fresh render is its resume, done all the same. (Outside
@@ -625,6 +644,7 @@ const servedPass = (write: (x?: any) => void, adopt?: boolean) => (x?: any) => {
     flush();
   } finally {
     _claimOwner = _hydratingValue = _snapshotRootOwner = null as any;
+    if (adopt) releaseSnapshotScope(adopt);
     checkHydrationComplete();
   }
 };
@@ -2381,7 +2401,7 @@ function resumeBoundaryHydration(
       // for it, if any (#4287), or an uncaught error — instead of asking
       // again. What the server never sent (a truncated ref is dropped from
       // the registry) computes.
-      servedPass(set, shouldHydrate === 0)();
+      servedPass(set, shouldHydrate === 0 && o)();
   flush();
   checkHydrationComplete();
 }
@@ -2646,34 +2666,45 @@ function subscribeFragments(cb: (id: string, parent?: ParentNode) => void): () =
 // unsettled then can never settle, because the script that would resolve it
 // executes during parse. Each one becomes a rejected fragment: an
 // error-class write, distinguishable from a server-sent rejection by its
-// error, surfaced through the boundary's normal rejection path. The sweep
-// only arms when the runtime booted while the document was still streaming;
-// a runtime loaded after parse can't tell a completed page from a truncated
-// one and stays out of it.
+// error, surfaced through the boundary's normal rejection path. A runtime
+// that boots while the document is still streaming sweeps at
+// DOMContentLoaded. One that boots after the parser finished (an entry that
+// waits on a route module, a deferred entry) sweeps at boot, but only under
+// the in-render bootstrap (`_$HY.s`, #3971): every declaration and settle in
+// that document is a parser-inserted script, so the transport has already
+// closed. Both passes then run before hydrate()'s claim walk: the records
+// that can no longer settle leave the registry, boundaries register against
+// rejected declarations, and only the rejection of consumed refs waits its
+// macrotask. Without the ledger (a host-placed bootstrap, a
+// hand-built `_$HY`) nothing says the parser carried the records, and a late
+// runtime stays out.
 function watchTruncation(hy: any) {
-  if (typeof document === "undefined" || document.readyState !== "loading") return;
-  document.addEventListener(
-    "DOMContentLoaded",
-    () => {
-      if (!hy.r) return;
-      for (const key in hy.r) {
-        if (key.length <= 3 || !key.endsWith("_fr")) continue;
-        const ref = hy.r[key];
-        if (ref && typeof ref === "object" && !ref.s) markTruncated(hy, key.slice(0, -3));
-      }
-      // A macrotask later, on purpose: the fragment rejections above release
-      // their boundaries through microtask chains (abort race -> resume ->
-      // fresh render), and that teardown disposes the computations that
-      // adopted pending owner-id refs while hydrating. Rejecting those refs
-      // synchronously would race the disposal and land an unhandled error in
-      // a still-live computation, halting the reactive system. After the
-      // boundaries have released, whoever still holds a pending ref (keyed
-      // consumers like the router's query channel, boundaries waiting on a
-      // sync-serialized data ref) is exactly who needs the rejection.
-      setTimeout(() => rejectTruncatedRefs(hy));
-    },
-    { once: true }
-  );
+  const sweep = () => {
+    if (!hy.r) return;
+    // First, before any boundary below resumes: a cut fragment's fresh
+    // render adopts by id, so the records that can no longer settle must
+    // already be gone from the registry when it reads them.
+    const consumed = dropTruncatedRefs(hy);
+    for (const key in hy.r) {
+      if (key.length <= 3 || !key.endsWith("_fr")) continue;
+      const ref = hy.r[key];
+      if (ref && typeof ref === "object" && !ref.s) markTruncated(hy, key.slice(0, -3));
+    }
+    // A macrotask later, on purpose: the fragment rejections above release
+    // their boundaries through microtask chains (abort race -> resume ->
+    // fresh render), and that teardown disposes the computations that
+    // adopted pending owner-id refs while hydrating. Rejecting refs
+    // synchronously would race the disposal and land an unhandled error in
+    // a still-live computation, halting the reactive system. After the
+    // boundaries have released, whoever still holds a consumed ref (keyed
+    // consumers like the router's query channel) is exactly who needs the
+    // rejection.
+    setTimeout(() => rejectTruncatedRefs(consumed));
+  };
+  if (typeof document === "undefined") return;
+  if (document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", sweep, { once: true });
+  else if (hy.s) sweep();
 }
 
 // The fragment pass above releases BOUNDARIES, but the registry also carries
@@ -2686,28 +2717,31 @@ function watchTruncation(hy: any) {
 // arrays for scoped renders) is dead. What each one needs depends on who is
 // left holding its promise:
 //
+// - A ref STILL in the registry either was adopted by a live reactive
+//   computation (owner-id channel — never deleted) or awaits a late reader,
+//   a cut fragment's fresh render among them. Rejecting those promises raw
+//   lands an unhandled error inside live computations (no boundary routes
+//   it — the fragment pass already released the boundaries) and halts the
+//   reactive system. Deleting the entry instead makes every future presence
+//   check (`sharedConfig.has`) fall through to a fresh compute/fetch —
+//   recovery, not failure — while already-adopted computations keep their
+//   pre-existing stall until their sources re-run. A delete notifies no
+//   one, so it runs at the cut itself (dropTruncatedRefs), before the
+//   fragment pass resumes any boundary: a fresh render that read the entry
+//   first would adopt the dead promise and never ask.
 // - A ref GONE from the registry was consumed one-shot by a keyed consumer
 //   (the router deletes `_$HY.r[key]` on load) — that consumer holds the
 //   bare promise and hangs permanently unless it actually rejects, and its
-//   `.then` chain is built for rejections. Reject through the resolver.
-//   Walking the resolvers rather than the registry keys is what reaches
-//   these at all.
-// - A ref STILL in the registry either was adopted by a live reactive
-//   computation (owner-id channel — never deleted) or awaits a late reader.
-//   Rejecting those promises raw lands an unhandled error inside live
-//   computations (no boundary routes it — the fragment pass already
-//   released the boundaries) and halts the reactive system. Deleting the
-//   entry instead makes every future presence check (`sharedConfig.has`)
-//   fall through to a fresh compute/fetch — recovery, not failure — while
-//   already-adopted computations keep their pre-existing stall until their
-//   sources re-run.
+//   `.then` chain is built for rejections. Reject through the resolver, a
+//   macrotask later (rejectTruncatedRefs). Walking the resolvers rather
+//   than the registry keys is what reaches these at all.
 //
 // Settled promises carry the status stamp (`.s`) the settle helpers write,
-// and the fragment pass stamps rejected `_fr` declarations before this
-// runs, so both are skipped.
-function rejectTruncatedRefs(hy: any) {
+// so they are skipped. The `_fr` declarations are the fragment pass's.
+function dropTruncatedRefs(hy: any): any[] {
+  const consumed: any[] = [];
   const R = (globalThis as any).$R;
-  if (!R || typeof R !== "object") return;
+  if (!R || typeof R !== "object") return consumed;
   let registryKeys: Map<any, string> | undefined;
   const sweep = (entry: any) => {
     if (
@@ -2724,10 +2758,20 @@ function rejectTruncatedRefs(hy: any) {
       for (const key in hy.r) registryKeys.set(hy.r[key], key);
     }
     const key = registryKeys.get(entry.p);
-    if (key !== undefined) {
-      delete hy.r[key];
-      return;
-    }
+    if (key === undefined) consumed.push(entry);
+    else if (!key.endsWith("_fr")) delete hy.r[key];
+  };
+  for (const key in R) {
+    const value = R[key];
+    if (Array.isArray(value)) for (const entry of value) sweep(entry);
+    else sweep(value);
+  }
+  return consumed;
+}
+
+function rejectTruncatedRefs(consumed: any[]) {
+  for (const entry of consumed) {
+    if (entry.p.s) continue;
     const err = new Error("Hydration value was truncated: the stream ended before it settled.");
     // Mirror seroval's failure helper: reject through the resolver and stamp
     // the promise's status for status-based readers.
@@ -2737,11 +2781,6 @@ function rejectTruncatedRefs(hy: any) {
     // Guard the harness itself against an unhandled-rejection report; the
     // consumer observes the rejection through its own chain.
     entry.p.then(undefined, noop);
-  };
-  for (const key in R) {
-    const value = R[key];
-    if (Array.isArray(value)) for (const entry of value) sweep(entry);
-    else sweep(value);
   }
 }
 

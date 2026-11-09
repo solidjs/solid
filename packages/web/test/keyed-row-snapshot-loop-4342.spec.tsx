@@ -31,6 +31,10 @@ it("#4342: switching the parent key does not spin the flush loop", async () => {
       let e = cache.get(k);
       if (!e) {
         cache.set(k, (e = { p: fetcher().then(d => ((e.d = d), { value: d })) }));
+        // The #4342 shape as reported: the cache probes its sibling keys
+        // and swallows one that is not ready. Load-bearing for the repro
+        // (rethrowing changes the outcome), and the reason this spec logs
+        // CAUGHT_REACTIVE_READ in dev — a true positive about this code.
         for (const other of keys) {
           try {
             untrack(other);

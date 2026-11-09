@@ -48,7 +48,7 @@ export function repoll(
     if (!(sub as any)._type) repoll(sub, seen, readers);
     // A derived store's derive: its leaves' readers derive from it too
     // (store/projection.ts; a live target's property, has and keys nodes).
-    const fam = (sub as any).fam;
+    const fam = (sub as any)._fam;
     if (fam)
       for (const t of fam.live)
         for (const o of [t.n, t.h, { k: t.k, d: t.dk }])
@@ -69,7 +69,7 @@ function marked(el: Marked, seen: Set<Marked>): boolean {
   if (c._statusFlags & STATUS_ERROR || seen.has(el)) return false;
   seen.add(el);
   if (c._config & CONFIG_SLOT_NODE) {
-    const derive: Marked | null | undefined = (c as any)._host?.fam?.node;
+    const derive: Marked | null | undefined = (c as any)._host?._fam?.node;
     return derive != null && marked(derive, seen);
   }
   const tail = c._flags & REACTIVE_RECOMPUTING_DEPS ? c._depsTail : undefined;

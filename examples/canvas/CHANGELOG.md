@@ -1,5 +1,52 @@
 # canvas-example
 
+## 0.0.1-rc.2
+
+### Patch Changes
+
+- Updated dependencies [32163a9]
+- Updated dependencies [bb51da6]
+- Updated dependencies [3c47d06]
+- Updated dependencies [46ab2dd]
+- Updated dependencies [61bb177]
+- Updated dependencies [25fb7be]
+- Updated dependencies [62745f6]
+- Updated dependencies [551ef0d]
+- Updated dependencies [6b6b4da]
+- Updated dependencies [3c47d06]
+- Updated dependencies [b656418]
+- Updated dependencies [0d4c5e0]
+- Updated dependencies [84353de]
+- Updated dependencies [6262453]
+- Updated dependencies [5ae39fc]
+- Updated dependencies [ccfc7ea]
+- Updated dependencies [ccfc7ea]
+- Updated dependencies [99d9821]
+- Updated dependencies [5ae39fc]
+- Updated dependencies [b7e4f16]
+  - @solidjs/web@2.0.0-rc.21
+  - solid-js@2.0.0-rc.21
+
+## 0.0.1-rc.1
+
+### Patch Changes
+
+- Updated dependencies [178605c]
+- Updated dependencies [17ec571]
+- Updated dependencies [178605c]
+- Updated dependencies [df2ba6c]
+- Updated dependencies [c7f4403]
+- Updated dependencies [122797e]
+- Updated dependencies [ffe0c1c]
+- Updated dependencies [bd95616]
+- Updated dependencies [38e0c49]
+- Updated dependencies [1f558e5]
+- Updated dependencies [56a982c]
+- Updated dependencies [56eb192]
+- Updated dependencies [5d57e12]
+  - solid-js@2.0.0-rc.20
+  - @solidjs/web@2.0.0-rc.20
+
 ## 0.0.1-rc.0
 
 ### Patch Changes

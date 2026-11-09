@@ -101,6 +101,29 @@ which cannot suspend — it throws. Use `createEffect` (separate compute and
 effect phases) which is async-aware: put the async read in the compute
 function.
 
+### CAUGHT_REACTIVE_READ
+
+A computation wrapped a reactive read in `try/catch` as it would an `await`,
+the read threw (not ready, or the source's error), the catch swallowed it,
+and the computation completed with a substitute value. The throw was
+addressed to the graph: `NotReadyError` is how the read suspends to the
+nearest `<Loading>` boundary or holds the change, and an error is how it
+reaches `<Errored>` or `createEffect`'s error arm — the catch masks the first
+load, hides the error, and on the server the substitute is the answer. It is
+also unreliable: when the source goes pending or errored later, this
+computation is marked with that status and not re-run, so the catch will not
+fire again. Remove the `try/catch`. Branch on readiness with
+`isPending(source)`, show the last value ahead of the landing with
+`latest(() => …)`, or let the read suspend to a `<Loading>` boundary; handle
+errors with `<Errored>` or `createEffect`'s `error` option. An interop layer
+that must catch should re-throw `NotReadyError`
+(`catch (e) { if (e instanceof NotReadyError) throw e; … }`), which does not
+warn. An `async` computation is judged when its promise settles: a read before
+the first `await` that throws becomes the rejection (the throw continuing, no
+warning); a value landing after such a throw is the catch. Reported once per
+computation, on the pass where the catch ran; a catch the status propagation
+bypasses is not detected.
+
 ## Write/imperative-code placement mistakes
 
 ### REACTIVE_WRITE_IN_OWNED_SCOPE
@@ -119,6 +142,16 @@ before the first `await` were in it; the rest are lost. Move the async
 orchestration into an `action()` and call the setter synchronously from
 inside it (`yield` to re-enter the transaction after an `await`). Signals
 are not subject to this rule — a signal may hold a promise as its value.
+
+### OPTIMISTIC_WRITE_BEFORE_LOAD
+
+An optimistic setter ran before its source's first answer landed
+(`createOptimistic(async fn)`, or `createOptimisticStore(fn, seed)` whose
+derive has not landed — the seed does not count). Before its first answer
+the source is loading: there is nothing on screen to be optimistic over
+(ruled 2026-11-03). Dev throws and makes no guess (an action rejects).
+Repair: keep the pending items in a separate list (an outbox) until the
+source loads, or disable the action (the input) until the source has loaded.
 
 ### STORE_WRITE_OUTSIDE_SETTER
 

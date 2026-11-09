@@ -19,6 +19,8 @@
 import {
   OBSERVE,
   createMemo,
+  // @ts-expect-error `createOwner` is `@internal` in solid-js's declarations (typed in
+  // solid-js/internal); importing it from solid-js keeps it one binding in the bundle.
   createOwner,
   createRenderEffect,
   createSignal,

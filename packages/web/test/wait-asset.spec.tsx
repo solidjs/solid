@@ -13,7 +13,8 @@
  * allocated after the call).
  */
 import { describe, expect, test } from "vitest";
-import { createRoot, createOwner, runWithOwner, getNextChildId, flush } from "solid-js";
+import { createRoot, runWithOwner, getNextChildId, flush } from "solid-js";
+import { createOwner } from "solid-js/internal";
 import { effect } from "../src/render.js";
 import { waitAsset } from "../src/client.js";
 

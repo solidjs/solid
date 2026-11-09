@@ -2,6 +2,8 @@ import { NOT_PENDING } from "./constants.js";
 import {
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_HELD,
+  CONFIG_OVERRIDE,
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
@@ -22,7 +24,12 @@ import {
   setEffectStatusNotify
 } from "./core.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { emitDiagnostic, reportDiagnostic, type DiagnosticSubject } from "./dev.js";
+import {
+  emitDiagnostic,
+  forgetThrownRead,
+  reportDiagnostic,
+  type DiagnosticSubject
+} from "./dev.js";
 import { StatusError, unwrapStatusError } from "./error.js";
 import { trimStaleDeps } from "./graph.js";
 import { enqueueSub } from "./heap.js";
@@ -30,14 +37,19 @@ import {
   _hitUnhandledAsync,
   GlobalQueue,
   globalQueue,
+  queueEffectRun,
   haltReactivity,
   haltReactivityAt,
+  notifyEpoch,
+  txOf,
   resetUnhandledAsync,
   schedule,
   setTrackedQueueCallback,
   setEffectCallback,
   heldRunHook,
-  queueEvent
+  attachHook,
+  queueEvent,
+  applyStaged
 } from "./scheduler.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
 
@@ -72,15 +84,22 @@ export function effect<T>(
   recompute(node, true);
   // A first pass that read a staged value was staged itself (recompute: born
   // staged); the flush's commit replays this effect. Its first run is not this
-  // creation's (A29). A lane's node likewise: its run is the lane's, queued
-  // by the pass and released at the reveal (lanes.ts).
-  !options?.defer &&
-    node._pendingValue === NOT_PENDING &&
-    !node._x?._transaction?._lane &&
-    (node._type === EFFECT_USER || options?.schedule
-      ? globalQueue.enqueue(node._type, runEffect.bind(null, node))
-      : // Type 0: the synchronous first render, not a queued run (D-19).
-        runEffect(node, 0));
+  // creation's (A29). A lane's node's run is the lane's: queued, not run
+  // now — into its own pass's lane (its transaction: the creator's lane, or
+  // the one a lane read moved the pass into, F-6/F-7) — and released at the
+  // reveal (lanes.ts). Not a lane's node: the creator's (`enqueue`'s default
+  // for no transaction; the frame for a transaction's).
+  // `defer` skips the first run, whoever owes it. A node born staged
+  // (#4543): its staged first value applies now, so the commit replays
+  // nothing and the next pass gets it as `prev`, as on a plain mount (#4556;
+  // D-13). A lane's node (#4557): it queues none.
+  options?.defer
+    ? applyStaged(node)
+    : node._pendingValue === NOT_PENDING &&
+      (node._x?._transaction?._lane || node._type === EFFECT_USER || options?.schedule
+        ? globalQueue.enqueue(node._type, runEffect.bind(null, node), node._x?._transaction)
+        : // Type 0: the synchronous first render, not a queued run (D-19).
+          runEffect(node, 0));
   if (__DEV__ && !node._parent) {
     const message =
       "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed";
@@ -113,19 +132,17 @@ function notifyEffectStatus(this: Effect<any>): void {
       // and the runner dispatches on them, so a recovery before the effect
       // phase takes the success arm instead. (Re-read: the boundary
       // notify above can run a redraw.)
-      if (this._statusFlags & STATUS_ERROR) {
-        this._modified = true;
-        globalQueue.enqueue(this._type, (this._boundRunEffect ??= runEffect.bind(null, this)));
-      }
+      if (this._statusFlags & STATUS_ERROR) queueEffectRun(this);
       return;
     }
     // Dev locates the halt at the node that threw: the StatusError's
-    // source, upstream of this effect when a computed failed.
+    // source, upstream of this effect when a computed failed. The rethrow is
+    // the user's error, not the wrapper: the wrapper's `source` is a node, and
+    // a reporter that serializes the throw walks the reactive graph.
     escalate(
       this,
       unwrapStatusError(actualError),
-      actualError,
-      __DEV__ && actualError instanceof StatusError ? actualError.source : this
+      __DEV__ && actualError instanceof StatusError ? actualError.source : undefined
     );
   } else if (this._type === EFFECT_RENDER) {
     globalQueue.notify(this, STATUS_PENDING | STATUS_ERROR, actualStatus, actualError);
@@ -157,16 +174,12 @@ function notifyEffectStatus(this: Effect<any>): void {
 }
 
 /** An effect's error no boundary takes halts the system (boundary-or-halt):
- * halted with `cause`, `thrown` rethrown; dev locates it at `subject`. */
-function escalate(
-  node: Effect<any>,
-  cause: unknown,
-  thrown: unknown = cause,
-  subject: DiagnosticSubject = node
-): void {
+ * halted with `cause` and rethrown; dev locates it at `subject` (default:
+ * the effect). */
+function escalate(node: Effect<any>, cause: unknown, subject?: DiagnosticSubject): void {
   if (!globalQueue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
-    __DEV__ ? haltReactivityAt(cause, subject) : haltReactivity(cause);
-    throw thrown;
+    __DEV__ ? haltReactivityAt(cause, subject ?? node) : haltReactivity(cause);
+    throw cause;
   }
 }
 
@@ -183,6 +196,9 @@ function runEffect(node: Effect<any>, type: number): void {
   // (#4343). `_modified` stays set; the boundary re-queues the run
   // (`release`).
   if (type && heldRunHook?.(node)) return;
+  // An attach whose subtree holds a hole born into an open hold waits for
+  // that hold (#4574, verdict.ts `attachWaits`).
+  if (type && attachHook?.(node)) return;
   // Error arm (#2840), user effects only: a compute-phase error that is still
   // the node's settled state at effect time runs the bundle's error handler in
   // this same imperative, writable scope. Unwrap the StatusError used for
@@ -206,6 +222,9 @@ function runEffect(node: Effect<any>, type: number): void {
           })
         : console.error(err);
     } catch (error) {
+      // (D-42, dev: escalated, not caught — and the running pass, if any, is
+      // the effect's creator, not a catcher.)
+      if (__DEV__) forgetThrownRead();
       escalate(node, error);
     }
     return;
@@ -241,6 +260,8 @@ function runEffect(node: Effect<any>, type: number): void {
     // The final cleanup is invoked by disposeChildren at true disposal.
     node._cleanup = nextCleanup as (() => void) | undefined;
   } catch (error) {
+    // (D-42, dev: as above — a boundary takes it or the system halts.)
+    if (__DEV__) forgetThrownRead();
     ext(node)._error = new StatusError(node, error);
     node._statusFlags |= STATUS_ERROR;
     escalate(node, error);
@@ -278,6 +299,11 @@ export interface TrackedEffect extends Computed<void> {
  * Uses stale reads.
  */
 export function trackedEffect(fn: () => void | (() => void), options?: NodeOptions<any>): void {
+  // A run owed at a hold's landing (#4607): `land`, made on first need, is
+  // queued with the hold's stashed runs; `owed` dedups it, and a later run
+  // that reads nothing held clears it.
+  let owed = false,
+    land: (() => void) | undefined;
   const run = () => {
     // `_modified` is NOT redundant with the heap: the heap dedups within a
     // pass, but several passes in one flush each enqueue `_run` into the same
@@ -285,11 +311,53 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
     if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
     if (heldRunHook?.(node)) return;
     if (__DEV__) setTrackedQueueCallback(true);
+    const epoch = notifyEpoch;
+    owed = false;
     try {
       node._modified = false;
       recompute(node);
     } finally {
       if (__DEV__) setTrackedQueueCallback(false);
+    }
+    // A dep this run was served the committed value of (D-29) while a
+    // different value is staged commits without a notify to it: its
+    // subscriber walk predates the link. Re-run where that value commits
+    // (F-1). Writes that net to the committed value stage no change.
+    for (let d = node._deps; d !== null; d = d._nextDep) {
+      const dep = d._dep;
+      if (
+        dep._pendingValue !== NOT_PENDING &&
+        !(dep._config & CONFIG_OVERRIDE) &&
+        (dep._pendingValue !== dep._value || !Object.is(dep._pendingValue, dep._value))
+      ) {
+        // Held: it commits at its hold's landing, which runs the hold's
+        // stashed runs — but a run during the hold, for another dep, had
+        // consumed the one queued for it (#4607). Re-run there, as A15's
+        // stale reader would be; effect-phase code holds nothing (D-29).
+        if (dep._config & CONFIG_HELD) {
+          if (!owed) {
+            owed = true;
+            txOf(dep)._queues[EFFECT_USER - 1].push(
+              (land ||= () => {
+                if (owed) {
+                  node._modified = true;
+                  run();
+                }
+              })
+            );
+          }
+        }
+        // Staged this flush: the next round commits it. A memo is staged
+        // by this run's own pull (`read` links, then pulls), whose walk
+        // the recomputing run refuses (#4606); a signal written since the
+        // epoch is the run's own write, never observed (#3006).
+        else if (dep._notifiedAt <= epoch || (dep as Computed<unknown>)._fn) {
+          enqueueSub(node);
+          schedule();
+          // The re-run re-checks every dep, held ones included.
+          break;
+        }
+      }
     }
   };
 

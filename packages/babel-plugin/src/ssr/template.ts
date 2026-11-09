@@ -1,5 +1,10 @@
 import * as t from "@babel/types";
-import { getConfig, isStatementVariableInitializer, registerImportMethod } from "../shared/utils";
+import {
+  getConfig,
+  getSetupStatement,
+  isStatementVariableInitializer,
+  registerImportMethod
+} from "../shared/utils";
 import type { NodePath } from "@babel/traverse";
 import type {
   LinkAttrsRecord,
@@ -134,7 +139,7 @@ export function createTemplate(
   const isVarInit = isStatementVariableInitializer(path);
 
   if (isReturnArg || isVarInit) {
-    path.getStatementParent()?.insertBefore(
+    getSetupStatement(path)?.insertBefore(
       t.variableDeclaration(
         "var",
         declarators.map(d => t.variableDeclarator(d.id, d.init))

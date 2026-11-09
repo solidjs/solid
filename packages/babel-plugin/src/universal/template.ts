@@ -2,6 +2,7 @@ import * as t from "@babel/types";
 import {
   getConfig,
   getNumberedId,
+  getSetupStatement,
   isStatementVariableInitializer,
   registerImportMethod,
   wrapForEffect
@@ -38,7 +39,7 @@ export function createTemplate(
       const isVarInit = isStatementVariableInitializer(path);
 
       if (isReturnArg || isVarInit) {
-        path.getStatementParent()?.insertBefore(stmts as t.Statement[]);
+        getSetupStatement(path)?.insertBefore(stmts as t.Statement[]);
         return result.id;
       }
 

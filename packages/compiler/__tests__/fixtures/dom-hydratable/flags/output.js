@@ -9,7 +9,6 @@ var _el$3 = _el$2.nextSibling;
 var [_el$4, _el$5] = _$getNextMarker(_el$3.nextSibling);
 var _el$6 = _el$4.nextSibling;
 var [_el$7, _el$8] = _$getNextMarker(_el$6.nextSibling);
-var _el$9 = _el$7.nextSibling;
 _$insert(_el$, _$createComponent(Component, {}), _el$4, _el$5);
 _$insert(_el$, _$scope(() => {
 	return state.interpolation;

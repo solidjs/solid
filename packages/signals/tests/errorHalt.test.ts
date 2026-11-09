@@ -212,6 +212,32 @@ describe("uncaught effect errors halt the reactive system (A5)", () => {
     expect((haltCall![1] as Error).message).toBe("halt cause");
   });
 
+  it("rethrows the user's error, not the status wrapper, when a computed's error halts", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const [a, setA] = createSignal(0);
+    const boom = new Error("upstream boom");
+    createRoot(() => {
+      const m = createMemo(() => {
+        if (a() === 1) throw boom;
+        return a();
+      });
+      createRenderEffect(m, () => {});
+    });
+    flush();
+
+    let thrown: unknown;
+    try {
+      setA(1);
+      flush();
+    } catch (e) {
+      thrown = e;
+    }
+    // The wrapper's own `source` is a node: an error reporter serializing it
+    // walks the whole graph (vitest ran out of memory on it).
+    expect(thrown).toBe(boom);
+    expect(Object.keys(thrown as object)).toEqual([]);
+  });
+
   it("a Loading boundary cannot silently swallow an unhandled error (#2884)", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 

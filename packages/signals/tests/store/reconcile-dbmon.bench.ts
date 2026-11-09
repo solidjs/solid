@@ -15,7 +15,7 @@
 //
 // Full ticks change every non-name cell (nothing skippable — the worst case
 // for fine-grained diffing); partial ticks reuse 90% of row objects by
-// reference and exercise the identity skip on both paths.
+// reference and exercise the identity skip on the deep path.
 import { afterAll, bench } from "vitest";
 import { createRenderEffect, createRoot, createStore, flush, reconcile } from "../../src/index.js";
 
@@ -62,9 +62,10 @@ function subscribeRow(read: (q: number) => any, name: () => any, count: () => an
 
 function setup(shallow: boolean) {
   let applyTick!: (fresh: any[]) => void;
+  const initial = makeData(ROWS, 0);
   const dispose = createRoot(d => {
     if (shallow) {
-      const [state, setState] = createStore(makeData(ROWS, 0), { shallow: true });
+      const [state, setState] = createStore(initial, { shallow: true });
       for (let i = 0; i < ROWS; i++) {
         subscribeRow(
           q => () => state[i].queries[q],
@@ -75,7 +76,7 @@ function setup(shallow: boolean) {
       }
       applyTick = fresh => setState(reconcile(fresh, null));
     } else {
-      const [state, setState] = createStore({ rows: makeData(ROWS, 0) });
+      const [state, setState] = createStore({ rows: initial });
       for (let i = 0; i < ROWS; i++) {
         const db = state.rows[i];
         subscribeRow(
@@ -93,17 +94,21 @@ function setup(shallow: boolean) {
     return d;
   });
   flush();
-  return { applyTick, dispose };
+  return { applyTick, dispose, last: initial };
 }
 
-function runTicks(applyTick: (fresh: any[]) => void, partial: boolean) {
+type Lane = { applyTick: (fresh: any[]) => void; last: any[] };
+
+function runTicks(lane: Lane, partial: boolean) {
   for (let frame = 1; frame <= 5; frame++) {
-    let fresh = makeData(ROWS, frame);
+    let fresh: any[];
     if (partial) {
-      const prev = makeData(ROWS, frame - 1);
-      fresh = prev.map((row, i) => (i < ROWS / 10 ? fresh[i] : row));
-    }
-    applyTick(fresh);
+      // Reuse the row objects the store holds now, so the other 90% hit the identity skip.
+      const changed = makeData(ROWS / 10, frame);
+      fresh = lane.last.map((row, i) => (i < changed.length ? changed[i] : row));
+    } else fresh = makeData(ROWS, frame);
+    lane.applyTick(fresh);
+    lane.last = fresh;
     flush();
   }
 }
@@ -112,15 +117,15 @@ const deep = setup(false);
 const shallowStore = setup(true);
 
 bench("dbmon full tick — deep reconcile", () => {
-  runTicks(deep.applyTick, false);
+  runTicks(deep, false);
 });
 
 bench("dbmon full tick — shallow reconcile", () => {
-  runTicks(shallowStore.applyTick, false);
+  runTicks(shallowStore, false);
 });
 
 bench("dbmon partial tick — deep reconcile", () => {
-  runTicks(deep.applyTick, true);
+  runTicks(deep, true);
 });
 
 afterAll(() => {

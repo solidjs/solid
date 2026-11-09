@@ -30,7 +30,10 @@
  *
  * Readers under a posture: untracked, memo (its pass value and what a render
  * effect over it publishes), effect (a render effect reading `x` DIRECTLY —
- * the reporter shape the fuzzer's P1 reduction used), latest, isPending.
+ * the reporter shape the fuzzer's P1 reduction used), latest, isPending, and
+ * memoInheritedUntracked (a memo whose verdict posture is only inherited —
+ * it reads a verdict memo over an unrelated signal — reading `x` untracked:
+ * D-25 #4544's reader, posture-store-parity S9).
  *
  * This is the discovery pass: no cell is pinned. Every cell is recorded to
  * VISIBILITY_POSTURE_REPORT (a markdown table per state) so red cells can be
@@ -109,6 +112,7 @@ const READERS = [
   "untracked",
   "memo",
   "memoUntracked",
+  "memoInheritedUntracked",
   "effect",
   "effectUntracked",
   "latest",
@@ -238,10 +242,14 @@ async function cell(state: State, posture: Posture, reader: Reader): Promise<Row
         served = classify(() => isPending(x));
         break;
       case "memo":
-      case "memoUntracked": {
+      case "memoUntracked":
+      case "memoInheritedUntracked": {
         const d = createRoot(d => {
+          const [quiet] = createSignal(0);
+          const verdict = reader === "memoInheritedUntracked" && createMemo(() => latest(quiet));
           const m = createMemo(() => {
             if (gated && !show()) return "gated";
+            if (verdict) verdict();
             let v: Cell;
             try {
               v = rd();

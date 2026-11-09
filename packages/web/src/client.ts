@@ -413,19 +413,17 @@ export function render(code, element, init, options = {}) {
         // machinery is retained only by a boundary or the app's own
         // `configureClientErrors` import (see signals' error-hooks).
         if (options.onError) getOwner()[ROOT_ERROR_HOOK] = options.onError;
-        if (element === document) {
-          const tree = code();
+        const tree = code();
+        if (element === document)
           effect(
             () => flatten(tree),
             () => {}
           );
-        } else {
-          const tree = code();
+        else
           insert(element, () => tree, element.firstChild ? null : undefined, init, {
             ...options.insertOptions,
             schedule: true
           });
-        }
       },
       { id: options.renderId }
     );
@@ -463,7 +461,8 @@ function create(html, bypassGuard, flag) {
     );
   const t = document.createElement("template");
   t.innerHTML = html;
-  return flag === 2 ? t.content.firstChild.firstChild : t.content.firstChild;
+  const node = t.content.firstChild;
+  return flag === 2 ? node.firstChild : node;
 } /**
  * Compiler-emitted primitive; not for hand-written code.
  * @param flag
@@ -487,8 +486,7 @@ export function template(html, flag) {
 export function delegateEvents(eventNames: string[]): void;
 
 export function delegateEvents(eventNames) {
-  for (let i = 0, l = eventNames.length; i < l; i++) {
-    const name = eventNames[i];
+  for (const name of eventNames) {
     if (!delegatedEvents.has(name)) {
       delegatedEvents.add(name);
       delegatedContainers.forEach((state, container) =>
@@ -635,9 +633,13 @@ export function getDelegatedRoot(node: MountableElement): MountableElement | und
 export function getDelegatedRoot(node) {
   while (node) {
     if (delegatedContainers.get(node)?.roots) return node;
-    node = node._$host || node.parentNode || node.host;
+    node = parentOf(node);
   }
 }
+
+// The delegated walk's next hop: a portal's mount host, the DOM parent, or a
+// shadow root's host.
+const parentOf = node => node._$host || node.parentNode || node.host;
 
 function findOwner(target, state) {
   let node = target;
@@ -645,7 +647,7 @@ function findOwner(target, state) {
   while (node) {
     if (state.owners.has(node)) return { owner: node, distance };
     distance++;
-    node = node._$host || node.parentNode || node.host;
+    node = parentOf(node);
   }
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function setProperty(node: Element, name: string, value: any): void;
@@ -1828,10 +1830,10 @@ function trackAssetLoad(entry, adopted) {
   }
   entry.loadState = "pending";
   entry.loadPromise = new Promise(resolve => {
-    const settle = state => {
+    const settle = (entry.settle = state => {
       entry.loadState = state;
       resolve();
-    };
+    });
     el.addEventListener("load", () => settle("loaded"), { once: true });
     el.addEventListener("error", () => settle("errored"), { once: true });
   });
@@ -1966,6 +1968,11 @@ export function acquireAsset(descriptor) {
     entry.timer = setTimeout(() => {
       assetRegistry.delete(key);
       entry.element && entry.element.remove();
+      // A removed element fires neither load nor error, so a gate that
+      // warmed this entry inside the grace would wait on it forever. Release
+      // it the way an error does; its retry warms the sheet again, on a new
+      // entry.
+      if (entry.loadState === "pending") entry.settle("errored");
     }, ASSET_REMOVAL_GRACE);
   };
 }
@@ -3002,11 +3009,10 @@ function eventHandler(e, container, state) {
       retarget(node.host);
     return true;
   };
+  // The walk ends at the owner, the boundary of event delegation.
+  const atOwner = () => node === owner || node.parentNode === owner;
   const walkUpTree = () => {
-    while (node && handleNode()) {
-      if (node === owner || node.parentNode === owner) break;
-      node = node._$host || node.parentNode || node.host;
-    }
+    while (node && handleNode() && !atOwner()) node = parentOf(node);
   };
 
   // simulate currentTarget; the owner is the boundary of the walk
@@ -3019,8 +3025,7 @@ function eventHandler(e, container, state) {
   if (resumeNode) {
     // If the boundary was the target, the inner walk already fired it.
     // Resume above it so boundary handlers do not run twice.
-    if (resumeNode === e.target)
-      node = resumeNode._$host || resumeNode.parentNode || resumeNode.host;
+    if (resumeNode === e.target) node = parentOf(resumeNode);
     if (node && node !== owner) walkUpTree();
   } else if (e.composedPath) {
     const path = e.composedPath();
@@ -3035,9 +3040,7 @@ function eventHandler(e, container, state) {
           walkUpTree();
           break;
         }
-        if (node === owner || node.parentNode === owner) {
-          break; // don't bubble above root of event delegation
-        }
+        if (atOwner()) break; // don't bubble above root of event delegation
       }
     } else walkUpTree();
   }

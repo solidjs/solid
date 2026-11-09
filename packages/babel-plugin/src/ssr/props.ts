@@ -391,11 +391,17 @@ function hoistSite(p: NodePath<t.ObjectExpression>, state: HoistState): void {
     const fnBody = t.blockStatement([...aliases(m), ...m.node.body.body]);
     if (m.node.kind === "get") {
       const descriptor = scope.generateUidIdentifier("d$");
+      // Carry authored coverage pragmas from the props getter onto the
+      // shared descriptor's `get()` (#2138).
+      const getMethod = t.objectMethod("method", t.identifier("get"), [], fnBody);
+      if (m.node.leadingComments?.length) {
+        getMethod.leadingComments = [...m.node.leadingComments];
+      }
       descriptors.push(
         t.variableDeclarator(
           descriptor,
           t.objectExpression([
-            t.objectMethod("method", t.identifier("get"), [], fnBody),
+            getMethod,
             t.objectProperty(t.identifier("enumerable"), t.booleanLiteral(true)),
             t.objectProperty(t.identifier("configurable"), t.booleanLiteral(true))
           ])

@@ -10,12 +10,18 @@ const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
 
 function refsIn(sc: Scenario): SrcRef[] {
   const out: SrcRef[] = [];
-  sc.memos.forEach(m => m.deps.forEach(d => out.push(d.src)));
+  sc.memos.forEach(m =>
+    m.deps.forEach(d => {
+      out.push(d.src);
+      if (d.when) out.push(d.when);
+    })
+  );
   const walk = (n: Node) => {
     if (n.t === "leaf") [...n.text, ...n.attrs].forEach(r => out.push(r.src));
     else if (n.t === "group") n.kids.forEach(walk);
     else {
       if (n.t === "show") out.push(n.when.src);
+      if (n.t === "loading") n.on?.forEach(r => out.push(r.src));
       walk(n.child);
     }
   };
@@ -25,12 +31,18 @@ function refsIn(sc: Scenario): SrcRef[] {
 
 function mapRefs(sc: Scenario, f: (r: SrcRef) => SrcRef): Scenario {
   const c = clone(sc);
-  c.memos.forEach(m => m.deps.forEach(d => (d.src = f(d.src))));
+  c.memos.forEach(m =>
+    m.deps.forEach(d => {
+      d.src = f(d.src);
+      if (d.when) d.when = f(d.when);
+    })
+  );
   const walk = (n: Node) => {
     if (n.t === "leaf") [...n.text, ...n.attrs].forEach(r => (r.src = f(r.src)));
     else if (n.t === "group") n.kids.forEach(walk);
     else {
       if (n.t === "show") n.when.src = f(n.when.src);
+      if (n.t === "loading") n.on?.forEach(r => (r.src = f(r.src)));
       walk(n.child);
     }
   };
@@ -66,6 +78,7 @@ function treeEdits(n: Node): Node[] {
       break;
     default:
       out.push(n.child);
+      if (n.t === "loading" && n.on) out.push({ ...n, on: undefined });
       if (n.t === "show") {
         if (n.fallback) out.push({ ...n, fallback: false });
         if (n.when.how !== "plain") out.push({ ...n, when: { ...n.when, how: "plain" } });

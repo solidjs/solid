@@ -234,6 +234,8 @@ describe("ASYNC_MEMO_ELEMENT — the finding and what the detection refuses", ()
     const values: unknown[] = [
       { t: "plain" },
       { t: "<b>markup in data</b>", id: 1 },
+      JSON.parse('{"t":"<b>only key</b>"}'),
+      JSON.parse('{"t":["<b>","</b>"],"h":[],"p":[]}'),
       [{ t: "plain" }, "<p>", 3, [{ t: "<i>", n: 1 }]],
       "<p>a string</p>",
       new Date(0),
@@ -250,11 +252,13 @@ describe("ASYNC_MEMO_ELEMENT — the finding and what the detection refuses", ()
     }
     // A class instance is never inspected: whether it crosses is the
     // serializer's (and its plugins') call, as before — seroval has no
-    // encoding for this one and says so itself.
+    // encoding for this one and says so itself, and the key it leaves
+    // pending on the client fails the render: it failed before the first
+    // flush (#4647; maintainer ruling, 2026-11-03).
     const instance = await land(() => tick().then(() => new Point("<b>")), {
       show: v => `landed:${typeof v}`
     });
-    expect(instance.html).toContain("landed:object");
+    expect(instance.html).toBe("");
     expect(instance.errors.map(e => String(e))).toEqual([
       expect.stringContaining("cannot be parsed/serialized")
     ]);

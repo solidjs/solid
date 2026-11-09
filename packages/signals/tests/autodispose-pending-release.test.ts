@@ -58,11 +58,14 @@ describe("#2934: derivatively-pending lazy memo release", () => {
     flush();
     expect(derivedRuns).toBe(1); // pending exemption kept it alive, no rerun yet
 
-    // Upstream settles with no subscribers: release, not recompute.
+    // Upstream settles with no subscribers: the landing's settle walk had
+    // already queued the blocked node's retry, and that one pass runs — a
+    // memo nobody read has still produced what the flush gave it (D-22,
+    // #4474) — then the node is released at the pass's tail.
     resolvers[0](5);
     await tick();
     flush();
-    expect(derivedRuns).toBe(1);
+    expect(derivedRuns).toBe(2);
 
     // Released for real: further upstream changes never recompute it.
     setSig(1);
@@ -75,12 +78,12 @@ describe("#2934: derivatively-pending lazy memo release", () => {
     resolvers[2]?.(9);
     await tick();
     flush();
-    expect(derivedRuns).toBe(1);
+    expect(derivedRuns).toBe(2);
 
     // Fresh subscriber recomputes from scratch.
     const unsubscribe2 = subscribe(derived);
     flush();
-    expect(derivedRuns).toBe(2);
+    expect(derivedRuns).toBe(3);
     unsubscribe2();
   });
 

@@ -90,6 +90,9 @@ export default defineConfig(({ mode }) => {
       globals: true,
       dir: "./tests",
       pool: "threads",
+      // Reader-seat shadow (S0): per-file mismatch report when
+      // SEAT_SHADOW_REPORT=<file> is set (documentation/plans/reader-seat-rebuild.md §4).
+      setupFiles: process.env.SEAT_SHADOW_REPORT ? ["./tests/setup/seat-shadow-report.ts"] : [],
       // The dist is loaded by Node itself, not re-transformed by vite-node:
       // the prod build preserves modules, and vite-node's SSR transform
       // would turn every one of its cross-module imports back into a

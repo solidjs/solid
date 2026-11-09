@@ -14,28 +14,35 @@ import type { Node, Read, Scenario, SrcRef } from "./scenario.js";
 export interface AppContext {
   values: number[];
   ask(name: string, v: number, poison: number | null): unknown;
+  /** Called just before memo `name` is created (the client half reads the
+   * hydration id it will take). */
+  id?(name: string): void;
 }
 
 const ref = (r: SrcRef) => (r.k === "s" ? `S[${r.i}][0]` : `M[${r.i}]`);
 const name = (r: SrcRef) => `${r.k}${r.i}`;
-const prefix = { plain: "v", latest: "l", pending: "p" } as const;
+const prefix = { plain: "v", latest: "l", pending: "p", pendingLatest: "q" } as const;
 
 function readExpr(r: Read): string {
   return r.how === "plain"
     ? `${ref(r.src)}()`
     : r.how === "latest"
       ? `latest(${ref(r.src)})`
-      : `isPending(${ref(r.src)})`;
+      : r.how === "pending"
+        ? `isPending(${ref(r.src)})`
+        : `isPending(() => latest(${ref(r.src)}))`;
 }
 const textExpr = (r: Read) => `T("${prefix[r.how]}${name(r.src)}", () => ${readExpr(r)})`;
 
 function node(n: Node): string {
   switch (n.t) {
     case "loading":
-      return `<Loading fallback="[L]">${node(n.child)}</Loading>`;
+      return `<Loading fallback="[L]"${n.on ? ` on={[${n.on.map(readExpr).join(", ")}]}` : ""}>${node(n.child)}</Loading>`;
     case "errored":
       return `<Errored fallback={(e: unknown) => "[E]"}>${node(n.child)}</Errored>`;
     case "show":
+      if (n.owns?.length)
+        throw new Error("emitApp: `owns` (branch-owned memos) is not emitted; rulings only");
       return `<Show when={${readExpr(n.when)}}${n.fallback ? ` fallback="[F]"` : ""}>${node(n.child)}</Show>`;
     case "group":
       return `<>${n.kids.map(node).join("")}</>`;
@@ -47,6 +54,21 @@ function node(n: Node): string {
 }
 
 export function emitApp(sc: Scenario): string {
+  // Ruling-only grammar has no hydration twin yet: fail loudly rather than
+  // emit an app that means something else.
+  if (
+    sc.optimistic?.length ||
+    sc.memos.some(m => m.optimistic || m.deps.some(d => d.when || d.how === "pending"))
+  )
+    throw new Error(
+      "emitApp: optimistic sources, `when` and `pending` inputs are not emitted; rulings only"
+    );
+  if (
+    sc.steps.some(
+      st => st.t === "guess" || st.t === "refresh" || (st.t === "action" && !("s" in st))
+    )
+  )
+    throw new Error("emitApp: guess / refresh / rich action steps are not emitted; rulings only");
   const memos = sc.memos
     .map((m, i) => {
       const input = m.deps
@@ -56,8 +78,8 @@ export function emitApp(sc: Scenario): string {
         .join(" + ");
       const poison = m.poison === null ? "null" : String(m.poison);
       return m.async
-        ? `  M[${i}] = createMemo(() => { const v = 1 + ${input}; return ctx.ask("m${i}", v, ${poison}); });`
-        : `  M[${i}] = createMemo(() => { const v = 1 + ${input}; if (${poison} !== null && v % 4 === ${poison}) throw new Error("m${i}:" + v); return v; });`;
+        ? `  ctx.id?.("m${i}");\n  M[${i}] = createMemo(() => { const v = 1 + ${input}; return ctx.ask("m${i}", v, ${poison}); });`
+        : `  ctx.id?.("m${i}");\n  M[${i}] = createMemo(() => { const v = 1 + ${input}; if (${poison} !== null && v % 4 === ${poison}) throw new Error("m${i}:" + v); return v; });`;
     })
     .join("\n");
   return `/**

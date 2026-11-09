@@ -59,7 +59,7 @@ export function storeMarks(t: StoreTarget, key: PropertyKey | undefined): Marked
   const entry = scopeOf(node, key);
   if (key === undefined) {
     const found: Marked[] = [node];
-    walk(t.px, entry, found, t.fam, new Set());
+    walk(t.px, entry, found, t._fam, new Set());
     return found;
   }
   entry._scope.add(t.v);
@@ -87,7 +87,7 @@ function walk(
   if (t !== undefined) {
     if (t.pb !== null) entry._scope.add(t.v);
     // The writer's view: the tick's own unflushed guesses are in motion too.
-    if (optHooks && t.fam?.opt === true) raw = optHooks.view(t, raw, true);
+    if (optHooks && t._fam?.opt === true) raw = optHooks.view(t, raw, true);
     const nodes = t.n;
     if (nodes !== null)
       for (const k of Reflect.ownKeys(nodes))
@@ -98,7 +98,7 @@ function walk(
     if (has !== null) for (const k of Reflect.ownKeys(has)) found.push(has[k as any]);
     if (t.k !== null) found.push(t.k);
     if (t.dk !== null) found.push(t.dk);
-    fam = t.fam ?? fam;
+    fam = t._fam ?? fam;
   }
   for (const k of Reflect.ownKeys(raw))
     if (k !== $OWNER) {
