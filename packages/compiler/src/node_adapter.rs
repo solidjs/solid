@@ -290,6 +290,7 @@ fn core_options(options: TransformOptions) -> Result<CompileOptions> {
         inline_styles: options.inline_styles.unwrap_or(true),
         effect_wrapper: wrapper(options.effect_wrapper),
         wrap_conditionals: options.wrap_conditionals.unwrap_or(true),
+        lower_show: options.lower_show.unwrap_or(!options.dev.unwrap_or(false)),
         memo_wrapper: wrapper(options.memo_wrapper),
         static_marker: options.static_marker.unwrap_or_else(|| "@static".into()),
         require_import_source: options.require_import_source,

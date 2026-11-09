@@ -137,8 +137,10 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     /// program top (`hoisted_var_names`) when nothing matches.
     var_scope_stack: std::vec::Vec<VarScope>,
     /// Native elements marked pass-through by `escapeExpression` (Babel's
-    /// `wontEscape`), identified by span.
-    wont_escape_spans: std::vec::Vec<Span>,
+    /// `wontEscape`), identified by node address, not span: the TSRX route
+    /// clears every span to the same empty one, so a span would mark every
+    /// element of the module.
+    wont_escape_elements: std::vec::Vec<*const JSXElement<'a>>,
     /// Native children of a spread raw-text element, whose templates keep their characters.
     raw_text_spans: std::vec::Vec<Span>,
     /// `<script>`/`<style>` elements in SVG/MathML content, whose children
@@ -302,7 +304,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             statement_jsx_spans: std::vec::Vec::new(),
             component_child_depth: 0,
             var_scope_stack: std::vec::Vec::new(),
-            wont_escape_spans: std::vec::Vec::new(),
+            wont_escape_elements: std::vec::Vec::new(),
             raw_text_spans: std::vec::Vec::new(),
             foreign_raw_text_spans: std::vec::Vec::new(),
             jsx_root_span: None,
@@ -898,7 +900,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         template: SsrTemplate<'a>,
     ) -> Result<Expression<'a>> {
         let span = element.span;
-        let wont_escape = self.wont_escape_spans.contains(&element.span);
+        let wont_escape = self
+            .wont_escape_elements
+            .contains(&(element as *const JSXElement<'a>));
         // The DOM `validate` pass (#3099) over the SSR markup, so templates
         // that only ever compile for the server (server components) are
         // checked too. Content holes are opaque — under an `<html>` root one
@@ -3272,7 +3276,8 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             {
                 // The element compiles to a safe SSR node; the wrap would be
                 // a runtime no-op (Babel's `wontEscape`).
-                self.wont_escape_spans.push(element.span);
+                self.wont_escape_elements
+                    .push(&**element as *const JSXElement<'a>);
             }
             Expression::JSXFragment(fragment) if fragment_will_self_escape(fragment) => {}
             _ => {

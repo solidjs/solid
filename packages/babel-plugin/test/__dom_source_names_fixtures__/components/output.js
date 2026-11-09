@@ -1,5 +1,5 @@
 import { template as _$template } from "r-dom";
-import { Show as _$Show } from "r-dom";
+import { memo as _$memo } from "r-dom";
 import { For as _$For } from "r-dom";
 import { mergeProps as _$mergeProps } from "r-dom";
 import { insert as _$insert } from "r-dom";
@@ -99,25 +99,24 @@ _$insert(
 );
 _$insert(
   _el$,
-  _$createComponent(
-    _$Show,
-    {
-      get when() {
-        return visible();
-      },
-      get children() {
-        return _$createComponent(
-          Child,
-          {},
-          "Child",
-          "test/__dom_source_names_fixtures__/components/code.js:14:7"
-        );
-      }
-    },
-    "Show",
-    "test/__dom_source_names_fixtures__/components/code.js:13:5"
-  ),
-  _el$7
+  (() => {
+    var _c$ = _$memo(() => !!visible());
+    return () =>
+      _c$()
+        ? _$createComponent(
+            Child,
+            {},
+            "Child",
+            "test/__dom_source_names_fixtures__/components/code.js:14:7"
+          )
+        : void 0;
+  })(),
+  _el$7,
+  undefined,
+  {
+    name: "div.children",
+    loc: "test/__dom_source_names_fixtures__/components/code.js:13:5"
+  }
 );
 _$insert(
   _el$,

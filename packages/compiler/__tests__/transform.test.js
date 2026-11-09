@@ -100,6 +100,8 @@ describe("@solidjs/compiler transform", () => {
       const result = transform(fs.readFileSync(path.join(coveragePragmasDir, "code.js"), "utf8"), {
         filename: "coveragePragmas.jsx",
         moduleName: "r-dom",
+        // `<Show>` stands in for any component here: keep it a component.
+        lowerShow: false,
         generate
       });
 

@@ -6,11 +6,12 @@
  * the error before `m` did, so `<Errored>`, which waits on what threw, let it
  * go as settled; at the commit the leaf re-derived and reached the boundary
  * again, the memo's reader did not (an equal status re-notifies nobody) and
- * kept `m`'s last value. With a held write the same: the leaf shows the
- * error at the reveal, the derivation never did. Fixed by #4364's `prune`
+ * kept `m`'s last value. With a held write the leaf originally showed the
+ * error at the reveal, while the derivation never did. Fixed by #4364's `prune`
  * change (#4387): a staged error on an error boundary's source keeps the
  * boundary waiting, so the commit that publishes it finds the boundary still
- * waiting on `m`. These pin it.
+ * waiting on `m`. The held cases now also pin D-41's value/error symmetry:
+ * latest publishes the error ahead; an ordinary read waits for the reveal.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -66,7 +67,7 @@ describe("a memo over latest(m) shows m's sync error as the leaf does (#4377)", 
       expect(s.screen()).toBe("[ERR]");
     });
 
-    it(`${shape}: a held write shows the error at the reveal`, async () => {
+    it(`${shape}: a held error follows the selected value publication`, async () => {
       const s = scene(shape);
       let release!: () => void;
       action(function* () {
@@ -75,7 +76,7 @@ describe("a memo over latest(m) shows m's sync error as the leaf does (#4377)", 
       })();
       flush();
       await tick();
-      expect(s.screen()).toBe(0);
+      expect(s.screen()).toBe(shape === "plain" ? 0 : "[ERR]");
       release();
       await tick();
       await tick();
