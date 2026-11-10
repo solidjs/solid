@@ -863,8 +863,18 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
     // A memo over an error boundary's output is a plain reader of it (F-3:
     // where the memo sits does not matter); marked, it threw the error past
     // the boundary that caught it, and the commit halted (#4640).
+    // A lane reader of a guess in its own lane reads the guess: the truth
+    // staged beneath it is the hold's, not the lane's display (F-11, D-34),
+    // and the lane's seam would publish it now (D-41, #4751).
     for (let d = node._deps; d; d = d._nextDep)
-      if (d._dep._config & CONFIG_STAGED_ERROR) {
+      if (
+        d._dep._config & CONFIG_STAGED_ERROR &&
+        !(
+          d._dep._config & CONFIG_GUESS &&
+          node._x?._transaction?._lane &&
+          d._dep._x!._transaction === node._x._transaction
+        )
+      ) {
         node._pendingValue = el._pendingValue;
         node._config |= CONFIG_STAGED_ERROR;
         queuePendingNode(node);
