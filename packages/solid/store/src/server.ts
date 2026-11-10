@@ -115,7 +115,7 @@ export function updatePath(current: any, path: any[], traversed: PropertyKey[] =
   } else setProperty(current, part, value);
 }
 
-export function createStore<T>(state: T | Store<T>): StoreReturn<T> {
+export function createStore<T = {}>(state: T | Store<T> = {} as T): StoreReturn<T> {
   const isArray = Array.isArray(state);
   function setStore(...args: any[]): void {
     isArray && args.length === 1 ? updateArray(state, args[0]) : updatePath(state, args);
