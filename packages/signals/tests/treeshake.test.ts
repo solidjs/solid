@@ -87,6 +87,7 @@ describe("pay-for-use tree-shaking (#2883)", { timeout: 30_000 }, () => {
         "deferred.ts",
         "core/verdict.ts",
         "core/lanes.ts",
+        "core/guesses.ts",
         "core/action.ts",
         "core/context.ts"
       ])
@@ -478,6 +479,7 @@ describe("pay-for-use tree-shaking (#2883)", { timeout: 30_000 }, () => {
       retainedFrom(retained, [
         "core/verdict.ts",
         "core/lanes.ts",
+        "core/guesses.ts",
         "affects.ts",
         "boundaries.ts",
         "map.ts"
@@ -510,7 +512,12 @@ describe("pay-for-use tree-shaking (#2883)", { timeout: 30_000 }, () => {
     const { retained } = await bundleFixture(
       `export { createSignal, createEffect, createRoot, flush, createOptimistic } from "sigsrc";`
     );
-    expect(retainedFrom(retained, ["core/lanes.ts"])).toEqual(["core/lanes.ts"]);
+    // The lane engine and its guess layer (guesses.ts: the written guess —
+    // `optimisticWrite`, `applyGuesses`, `supersede`, `laneCorrections`).
+    expect(retainedFrom(retained, ["core/lanes.ts", "core/guesses.ts"])).toEqual([
+      "core/lanes.ts",
+      "core/guesses.ts"
+    ]);
   });
 
   it("createDeferred loads the deferred module and the mark core, and nothing else new", async () => {
@@ -532,6 +539,7 @@ describe("pay-for-use tree-shaking (#2883)", { timeout: 30_000 }, () => {
         "affects.ts",
         "core/verdict.ts",
         "core/lanes.ts",
+        "core/guesses.ts",
         "core/action.ts"
       ])
     ).toEqual([]);
@@ -559,7 +567,12 @@ describe("pay-for-use tree-shaking (#2883)", { timeout: 30_000 }, () => {
     // lanes, and if a future round decouples the verdict lane from the
     // engine this expectation is the one to flip to an exclusion.
     expect(retainedFrom(retained, ["core/lanes.ts"])).toEqual(["core/lanes.ts"]);
-    expect(retainedFrom(retained, ["store/", "boundaries.ts", "map.ts", "affects.ts"])).toEqual([]);
+    // Not the guess layer: a verdict lane is the core's, and nothing in a
+    // bundle without `createOptimistic` writes a guess (pay-for-use; the
+    // split measured -531 B brotli on `+ isPending/latest`, 2026-11-10).
+    expect(
+      retainedFrom(retained, ["core/guesses.ts", "store/", "boundaries.ts", "map.ts", "affects.ts"])
+    ).toEqual([]);
   });
 
   // ---- dist-artifact assertions ----
@@ -637,6 +650,7 @@ describe("pay-for-use tree-shaking (#2883)", { timeout: 30_000 }, () => {
           "affects.js",
           "core/verdict.js",
           "core/lanes.js",
+          "core/guesses.js",
           "core/action.js",
           "core/context.js"
         ])
