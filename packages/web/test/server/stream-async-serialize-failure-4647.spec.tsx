@@ -16,8 +16,8 @@
  *   error that says it is a serialization failure and names the key, so the
  *   reading computation throws into the nearest `<Errored>`, and the render
  *   completes (the hydration side is errored-unserializable-hydration-4647).
- * A value that fails as it is handed over never reaches the client and still
- * completes (#4227); a custom serializer's late failure is its own to settle.
+ * Synchronous serialization failures also fail before the first flush (#4709).
+ * A custom serializer's late failure is its own to settle.
  */
 import vm from "node:vm";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
