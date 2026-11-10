@@ -1,5 +1,19 @@
 # solid-js
 
+## 1.9.19
+
+### Patch Changes
+
+- 965e5a5: Initialize an empty server store when the initial value is omitted or undefined.
+- 64010be: Release disposed transition sources during a pending Suspense transition so keyed store reconciles cannot retain unbounded memory.
+- Recover when a source has observers but no `observerSlots`, which an allocation failure in the middle of a subscription could leave behind, instead of throwing in `cleanNode` (#4680).
+- f24b303: Preserve own and derived class property descriptors when wrapping instances with `createMutable`.
+- 08c4a36: Support null-prototype objects in server store producers, reconciliation, and nested partial updates.
+- d4245ab: Read the `when` prop of `<Show>` once per server render instead of twice
+- 176c651: Resolve nested arrays and accessors in Switch children on the server.
+- ed991e9: Preserve reconciled client array length when trailing entries are undefined or missing.
+- 9f4460c: Update DOM Expressions to 0.40.14. The server build now escapes `<style>` and `<script>` children inside MathML (#4704), and string literals in a ternary branch, after `&&`, or returned from a function child (#4710).
+
 ## 1.9.18
 
 ### Patch Changes
