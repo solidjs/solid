@@ -998,3 +998,120 @@ The next decision is not a PR. It is whether to rebuild the seam / reveal /
 hold layer — the place the bytes and the regressions both live — and it is
 to be decided on these numbers (§8.1, §8.3) and a measured proposal (§8.5),
 not started.
+## 9. Size pass (2026-11-10)
+
+Run on `next` @ c98168082 (#4729 merged), branch `tembo/size-seat-measure`
+(no code change lands from this section). Method as §8.5: every "live /
+dead" verdict below rests on the signals suite with the seat shadow, the
+web rulings and regression gate, and a 50k differential (seed 3289)
+against a recording of this `next`; the three recordings (7, 3289, 91501)
+were re-made on c98168082 first. Every byte is a `scripts/size` number
+from a scratch build (`/tmp/size-next-ref.json` is the reference).
+
+Where the growth is, `signals: + isPending/latest` (the chunk every
+`isPending`/`latest` app pays), brotli / minified:
+
+| tree                        | brotli | minified |
+| --------------------------- | -----: | -------: |
+| L2 (1b9ceb679)              |  9,438 |   26,678 |
+| rc.19 (d2323b077)           | 10,376 |   28,809 |
+| rc.20 / §8 base (5e68925cc) | 11,026 |   30,408 |
+| today (c98168082)           | 12,786 |   35,679 |
+
+Per module in today's chunk (`scripts/size/attribute.mjs`): core 8,780,
+lanes 7,252, scheduler 6,114, verdict 4,483, async 3,987; against the
+`+ until/refresh` chunk (no lanes, no verdict: 21,732) the isPending/latest
+surface is ≈ 14 KB minified, of which lanes + verdict are 11.7 KB. The
+44 commits that touched `lanes.ts` / `verdict.ts` since 5e68925cc are
+all rulings (#4408 … #4732, S-51 … S-59); none is a mechanism-only change.
+
+### 9.1 Dead-arm audit — nothing is dead
+
+Each candidate arm was stubbed (set site removed, the consumers left in
+place) on a scratch build and judged by the full battery:
+
+| arm                                            | signals suite                                               | shadow (base 6) | web rulings             | 50k × seed 3289 | verdict                          |
+| ---------------------------------------------- | ----------------------------------------------------------- | --------------: | ----------------------- | --------------: | -------------------------------- |
+| `REACTIVE_AHEAD` set (core.ts, #4544)          | 4 fail — `verdict-memo-held-branch-4544`                    |               7 | green                   |        0 differ | **live** — held by its pin alone |
+| `CONFIG_INPUTS_PUBLISHED` (3 set sites, #3305) | 10 fail — 3648, 4362 ×4, reveal-carve-out, settle-diamond … |               7 | `regression.spec` fails |       21 differ | **live**                         |
+| `ahead` list push (verdict.ts, #4661)          | 4 fail — `latest-stale-branch-hold-4661`                    |               7 | green                   |        1 differ | **live**                         |
+
+So the bytes are not dead code; they are rulings' arms. One coverage
+finding: the #4544 arm is reached by nothing in 50,000 generator cases —
+the grammar has no render effect that reads a settled verdict reader
+under a held memo. That is a generator gap to close (a scenario row),
+not a deletion.
+
+### 9.2 Hook plumbing — leave it
+
+Two mechanisms carry the feature modules' entry points into the core:
+30 `let … Hook` bindings filled by six `install*Hooks` functions, and
+19 `GlobalQueue._x` statics assigned directly (mangled by the `_` prop
+pass). Measured per use with esbuild: a binding costs `h&&h(t)` (7
+chars), a static `Q.t&&Q.t(t)` (11); per hook, a binding costs its
+declaration plus an install parameter and assignment (≈ 16–18 B), a static
+≈ 4 B. Break-even is three uses. Today's split already follows that line:
+the high-use hooks (`laneStageHook` 31 uses, `observeFlightHook` 27,
+`holdWorkHook` 15) are bindings, the one-use ones are mostly statics.
+Moving the 17 bindings with ≤ 3 uses to statics and the two statics with
+≥ 4 uses (`_update`, `_runEffect`) to bindings would save on the order of
+80 B minified by that model — not built, not worth a PR against a
+7-byte floor budget. A single "feature object" (one `hooks.x` per entry
+point) is the expensive shape: every use pays the property access and
+the names are not mangled unless `_`-prefixed. **No plumbing change.**
+
+### 9.3 The split — measured again, still a trade worth taking
+
+§8.6's `salvage/lanes-split` (b3926358b, 2026-10-29) moved the guess
+layer out of `lanes.ts` behind `installOptimisticHooks` / `installGuessHooks`
+and measured −539 B brotli on `+ isPending/latest`, +49 B on the one
+scenario that uses both halves. The lanes module has since grown from
+≈ 11.9 KB to 16.5 KB standalone-minified, so the split was re-measured
+on today's tree in its cheapest form: only the three guess-only hooks
+`installLaneHooks` carries (`laneOutcome`, `applyGuessesAt`,
+`laneCorrections`) stubbed, nothing moved, nothing else behind a hook —
+a lower bound on what the full port removes from a no-optimism chunk:
+
+| scenario                               |   today br / min | stubbed br / min | delta br / min                                                                                                              |
+| -------------------------------------- | ---------------: | ---------------: | --------------------------------------------------------------------------------------------------------------------------- |
+| signals: core floor                    |   7,425 / 19,806 |   7,425 / 19,806 | 0 / 0                                                                                                                       |
+| signals: + isPending/latest            |  12,786 / 35,679 |  12,442 / 34,605 | −344 / −1,074                                                                                                               |
+| page: live server components           | 40,906 / 123,427 | 40,568 / 122,355 | −338 / −1,072                                                                                                               |
+| app: hydrating + every store primitive | 34,213 / 103,718 | 33,890 / 102,696 | (not comparable: the stub removes live behaviour there; the port keeps it and pays the indirection, +49 B br on 2026-10-29) |
+
+The full port — `take`, `covered`/`guessFlights`, `laneWrite`'s guess
+arm, the revert landing, `supersede`'s callers, and now the carrier's
+`_slotTake`/`_laneRebase` seams, all behind the optimistic installer —
+should land between the −344 B floor above and the −539 B of 10-29
+scaled to today's larger layer. The carrier (#4729) is the precedent for
+its gate: +214 B on `every store primitive` was accepted against 0 B on
+plain stores because the bytes followed the feature. The split's shape is
+the same: `isPending`/`latest` apps stop paying for `createOptimistic`.
+
+**Proposal:** port b3926358b onto today's `lanes.ts` as its own PR,
+gated as §8.5 asks — 50k × 3 against the three fresh recordings, the
+shadow at 6 classes, and a `scripts/size` table — with a
+`Size-Exception:` for `app: hydrating + every store primitive family`
+only. Expect `+ isPending/latest` to leave its cap with ≈ 350–550 B of
+room, which the next lane ruling will otherwise take from a 24-byte
+budget.
+
+### 9.4 The seam / reveal / hold layer — no byte claim
+
+Today's layer (`dissolveLane` 1,543, `laneSeams` 1,370, `laneSeam` 873,
+`endLanes` 572, `heldMountUnder` 514, `enterLane` 510, `walk` 504,
+`entered` 486, `heldBy` 419, `lanesBlocked` 385, `laneWait` 331,
+`adoptParked` 279, `collectMounts` 247 B standalone-minified) is ≈ 8 KB
+of the 16.5 KB module, and it is where §8.3's three regressions and most
+of the 44 commits landed. §8.5 forbids a byte estimate without a scratch
+build of the proposal's shape, and there is no shape yet: the one
+rebuild tried (S1) replaced deciders, not this layer, and was additive.
+What this pass can say is the order of work. The split first (9.3): it
+is measured, rule-neutral and moves no screen. Then, if the layer is to
+be rebuilt, the shape to measure is a lane lifecycle written once —
+open, stage, seam, reveal, land or dissolve — with each of today's
+thirteen functions reading the lane's state at a named transition
+instead of recomputing it (`entered`/`heldBy`/`under`/`inFlight` are four
+answers to "where is this lane relative to that hold"), built as a
+scratch on the split tree and judged by the same gate before anything
+is written down as a decision.
