@@ -1,4 +1,5 @@
 import {
+  CONFIG_SLOT_NODE,
   CONFIG_AHEAD,
   CONFIG_FRAME,
   CONFIG_HELD,
@@ -914,10 +915,12 @@ export class GlobalQueue implements IQueue {
    * `back`: the slot's node now, for a guess that comes back (lanes.ts
    * `endLanes`). */
   declare static _slotTake: ((n: Signal<any>, back?: boolean) => any) | undefined;
-  /** The value a slot node's guess covered: its committed value — a chained
-   * link's refreshed from the inner store, whose commits it never learned
-   * while the guess served the reads (store/store.ts, §7b). */
-  declare static _slotCovered: ((n: Signal<any>, v: unknown) => unknown) | undefined;
+  /** A lane dirtied a store's guess carrier: the readers of the leaves of
+   * the keys it changed re-derive as the lane's work (optimistic.ts). */
+  declare static _slotDirty: ((n: Signal<any>, l: Transaction) => void) | undefined;
+  /** A lane re-derives a store's guess carrier's readers at `t`'s landing
+   * (lanes `rerun`): the readers of the leaves of the keys it changed. */
+  declare static _slotRerun: ((n: Signal<any>, t: Transaction) => void) | undefined;
   /** The store's row judgment for a guessed slot (optimistic.ts): the truth
    * is the guess's echo when reconcile would write nothing into it. */
   declare static _echoes: ((guess: unknown, truth: unknown) => boolean) | undefined;
@@ -1452,6 +1455,9 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
  * `laneRead` re-derives it on the screen if that lane holds (`entered`). */
 export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): void {
   insertSubs(node);
+  // A store's guess carrier: the readers of the keys it changed read their
+  // leaves — dirtied as the lane's work too (store/optimistic.ts).
+  if (node._config & CONFIG_SLOT_NODE) GlobalQueue._slotDirty?.(node as Signal<any>, l);
   const display = l._parent!._verdict === l;
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const c = s._sub;

@@ -41,10 +41,7 @@ const leadingCommentsThenGetChildren = new RegExp(
   String.raw`((?:(?:${comment})\s*)*)get children\(\)`,
   "y"
 );
-const leadingCommentsThenBareGet = new RegExp(
-  String.raw`((?:(?:${comment})\s*)*)get\(`,
-  "y"
-);
+const leadingCommentsThenBareGet = new RegExp(String.raw`((?:(?:${comment})\s*)*)get\(`, "y");
 
 function commentsIn(group) {
   if (!group) return [];

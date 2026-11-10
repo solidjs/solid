@@ -8,13 +8,12 @@ import {
   CONFIG_AUTHORITATIVE,
   CONFIG_GUESS,
   CONFIG_OVERRIDE,
-  CONFIG_SLOT_NODE,
   NOT_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { NotReadyError } from "./error.js";
 import { enqueueSub } from "./heap.js";
-import { GlobalQueue, txOf, type Transaction } from "./scheduler.js";
+import { GlobalQueue, type Transaction } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
 /** A lane's record of a node beside the node's two slots: its guess until
@@ -36,13 +35,9 @@ export function latestOf(el: Signal<any> | Computed<any>): unknown {
       : el._value;
 }
 /** The value a guess covered: the committed value until the lane reveals
- * the guess, the lane's record of it after (`under`) — a store slot's asked
- * of the store (a chained link follows the inner store's commits). */
+ * the guess, the lane's record of it after (`under`) */
 export function covered(n: Signal<any> | Computed<any>): unknown {
-  const v = n._x!._shown ? covers.get(n) : n._value;
-  return n._config & CONFIG_SLOT_NODE && GlobalQueue._slotCovered !== undefined
-    ? GlobalQueue._slotCovered(n, v)
-    : v;
+  return n._x!._shown ? covers.get(n) : n._value;
 }
 /** The truth beneath a guess: a landing staged there — the parent's (lanes.ts
  * `landBeneath`), or the same tick's — else the value it covered. */

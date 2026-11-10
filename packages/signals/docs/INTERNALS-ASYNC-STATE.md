@@ -325,6 +325,60 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
 
 ## 7. Decision log
 
+- 2026-11-09: **A store guess is one node — the guess carrier** (S2's
+  shape, ported onto `next` without S1's staging; D-33's point-of-write
+  clause, S-59, #4724). Before, an optimistic setter was scattered into the
+  lane engine as one guess per written leaf, presence key and index, plus a
+  `LaneView` arrangement snapshot on the container node; a whole-array
+  rewrite with one changed row escalated to a guess on the list, which two
+  actions then shared — the second action's guess joined the first's lane
+  (blocked on its refresh) and the two holds merged, so the refresh's
+  failure landed in a hold that could not commit (#4724's three rows). Now
+  `store/optimistic.ts` makes one `$PATCH` slot node per target per lane
+  (`t.kg`, oldest first) whose lane value is the setter's draft, with the
+  keys it changed recorded on it (`wk`, `del`; a keyed list's rows as
+  written and its removed keys when the membership changed). A row the
+  setter carried over is not a write: the draft's rows are clones, so a
+  carried row is the view's own object again in the frame (`echoes`, #3898),
+  and its proxy identity holds. Reads of a guessed key go through the
+  carrier, tracked (store.ts `guessFor`: the record, and for a read every
+  index and the length of an arrangement guess — a list reader enters the
+  lane through them); the key's leaf stays the reader's subscription point
+  but is silent at a landing while the guess covers the key (`leafSet`,
+  `notifyWrites`: only keys the guess changed — a carried key's leaf tells
+  its readers as ever, or a `repeat` over a derived store published the
+  appended row one flush late). Enumeration, presence and descriptors read
+  the carrier's frame (the descriptor arm ahead of the presence node). A
+  landing reaches each live carrier as a snapshot of the truth frame
+  (`judgeGuesses`, from `notifyWrites` and `adoptPB` — a returned-rows
+  derive never passes the former), judged by `patchEquals` over the guess's
+  keys: confirmed beneath, re-based over an older truth, folded (D-34), or
+  a correction. The snapshot matters: a derive rewrites its backing in
+  place, and a truth staged by reference compared equal to the next landing
+  and never re-staged (#4690's whole cause here). Every carrier arm sits
+  behind the optimistic hooks (`read`, `has`, `descriptor`, `frame`,
+  `covers`, `judge`), and the carrier list lives in the optimistic module,
+  not on the target: a plain store pays `optHooks !== null && t.o` on its read
+  path and nothing else — the hook's null check first, then one field
+  (`t.o`, an optimistic family's target, set at creation), never a call.
+  Both halves matter: with the hooks installed by one
+  `createOptimisticStore` anywhere, a call per read on every plain store
+  showed on CodSpeed as −6 to −11% on the store microbenches (review of
+  #4729, second round); and in a bundle with no optimistic store the
+  hook is a `let` nothing assigns, so the minifier folds the null check
+  to false and deletes the arm — gating on the field alone kept 0.85 KB
+  minified of carrier arms in every plain-store bundle (review of #4729: the first cut had
+  the arms inline in store.ts, +206 B brotli on `+ createStore`; behind the
+  hooks that scenario falls 174 B, since the LaneView and chained-link
+  code it used to carry is gone). Core gained two hook calls, `_slotDirty`
+  in `laneDirty` and `_slotRerun` in the landing re-run, so a carrier's
+  readers of its keys' leaves re-derive as the lane's; the chained-link
+  `follow`/`_slotCovered` plumbing went (no leaf carries a lane value), and
+  `OPTIMISTIC_REVERTED` fans a carrier out per guessed key. Gates: signals suite whole, shadow six, web configs whole;
+  the #4724 pin green through both setters. Size against `next`: core 0,
+  compiled floor 0; plain-store scenarios −0.17 to −0.23 KB brotli; the
+  scenario carrying optimistic stores +0.2 KB (the parked S branch was
+  +0.7–1.0 KB on the same scenarios).
 - 2026-11-08: **A display-ahead gate is the same mainline mount with any
   number of memos between the probe and the branch** (S-58, D-25's third
   sentence; prompted by PR 4708, closed). S-46's plain row was built on

@@ -84,6 +84,8 @@ export type NoArray<T> = Extract<T, readonly unknown[]> extends never ? unknown 
 
 /** Brand keys the proxy answers directly (never user data). */
 export const $TRACK = Symbol(__DEV__ ? "STORE_TRACK" : 0),
+  /** A store target's guess carrier (optimistic.ts, S2): one per lane. */
+  $PATCH = Symbol(__DEV__ ? "STORE_PATCH" : 0),
   $TARGET = Symbol(__DEV__ ? "STORE_TARGET" : 0),
   $PROXY = Symbol(__DEV__ ? "STORE_PROXY" : 0),
   $RECORD = Symbol(__DEV__ ? "VIEW_RECORD" : 0);

@@ -3097,6 +3097,18 @@ function checkOptimisticRevert(
   // derived override promotes rather than reverts. Same predicate the hold
   // census uses to skip them.
   if (!options.optimisticReverts || isCompanion(el)) return;
+  // A store's guess carrier (store/optimistic.ts, S2): the finding is per
+  // guessed key, named for the key's leaf — the carrier is the engine's unit,
+  // the key is the author's.
+  if ((el as any).guess) {
+    const t = (el as any)._host;
+    for (const key of (el as any).wk ?? []) {
+      const leaf = t.n?.[key];
+      if (leaf !== undefined)
+        checkOptimisticRevert(leaf, (shown as any)?.[key], (truth as any)?.[key], how);
+    }
+    return;
+  }
   // Method call, as every commit path does: store slot nodes share one
   // comparator that reads `this._host` (#3687).
   const equals = (el as { _equals?: false | ((a: unknown, b: unknown) => boolean) })._equals;

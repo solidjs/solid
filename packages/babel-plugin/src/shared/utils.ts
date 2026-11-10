@@ -289,9 +289,7 @@ function isComponentElementPath(path: NodePath): boolean {
  * A pragma immediately before a nested component belongs on that child's
  * getter instead (see #2138); fragments are transparent for the hand-off.
  */
-export function takeCoverageIgnoreCommentsForParent(
-  path: NodePath
-): t.Comment[] | undefined {
+export function takeCoverageIgnoreCommentsForParent(path: NodePath): t.Comment[] | undefined {
   if (isComponentElementPath(path)) return undefined;
   if (t.isJSXFragment(path.node)) {
     const filtered = filterChildren(path.get("children"));
@@ -314,9 +312,7 @@ export function takeCoverageIgnoreCommentsForParent(
  * Does not call `filterChildren` — that would re-attach already-consumed
  * pragmas onto nested components after they cleared the hand-off.
  */
-export function reclaimCoverageIgnoreComments(
-  path: NodePath
-): t.Comment[] | undefined {
+export function reclaimCoverageIgnoreComments(path: NodePath): t.Comment[] | undefined {
   if (isComponentElementPath(path)) {
     const comments = getCoverageIgnoreComments(path);
     if (comments?.length) path.setData(coverageIgnoreCommentData, undefined);
@@ -328,10 +324,7 @@ export function reclaimCoverageIgnoreComments(
       if (t.isJSXExpressionContainer(node) && t.isJSXEmptyExpression(node.expression)) {
         continue;
       }
-      if (
-        t.isJSXText(node) &&
-        /^[\r\n]\s*$/.test((node.extra?.raw as string | undefined) ?? "")
-      ) {
+      if (t.isJSXText(node) && /^[\r\n]\s*$/.test((node.extra?.raw as string | undefined) ?? "")) {
         continue;
       }
       const comments = reclaimCoverageIgnoreComments(child);

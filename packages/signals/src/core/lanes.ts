@@ -232,6 +232,9 @@ export function take(n: Signal<any>, l: Transaction, d?: boolean): void {
 /** `n`'s readers are stale readers of `t` (re-derived at its landing). */
 function rerun(n: Signal<any>, t: Transaction): void {
   for (let s = n._subs; s !== null; s = s._nextSub) staleReader(s._sub, t);
+  // A store's guess carrier: the readers of the keys it changed read their
+  // leaves (store/optimistic.ts).
+  if (n._config & CONFIG_SLOT_NODE) GlobalQueue._slotRerun?.(n, t);
 }
 export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   // What the user sees: an unflushed guess to the same node, else the lane's

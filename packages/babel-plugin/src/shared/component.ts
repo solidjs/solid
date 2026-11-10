@@ -356,10 +356,7 @@ export default function transformComponent(
         [],
         t.isExpression(body) ? t.blockStatement([t.returnStatement(body)]) : body
       );
-      const coverageComments = [
-        ...(beforeComponentComments ?? []),
-        ...(childResult[2] ?? [])
-      ];
+      const coverageComments = [...(beforeComponentComments ?? []), ...(childResult[2] ?? [])];
       if (coverageComments.length) {
         getter.leadingComments = coverageComments;
         // Consumed — parent must not also fall back these onto its getter.
