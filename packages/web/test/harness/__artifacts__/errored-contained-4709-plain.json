@@ -1,0 +1,4 @@
+{
+  "shell": "<main _hk=1><p _hk=30 class=\"fb\">x</p></main><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;($R=>{const e=new Error(\"x\");for(const i of[1,2]){const v=$R[i];v&&(v.f?(v.f(e),v.p.s||(v.p.s=2,v.p.v=e)):v.throw&&v.throw(e))}})($R);_$HY.r[\"2\"]=$R[5]=new Error(\"x\");</script>",
+  "chunks": []
+}
