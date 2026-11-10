@@ -93,7 +93,7 @@ export let laneAdoptHook: ((r: Computed<any>) => boolean) | null = null;
  * committed value (lanes.ts `laneServed`). */
 export let laneServedHook: ((c: Computed<any>, el: Signal<any> | Computed<any>) => void) | null =
   null;
-/** A guess was written (lanes.ts `optimisticWrite`): the arms only a guess
+/** A guess was written (guesses.ts `optimisticWrite`): the arms only a guess
  * reaches (CONFIG_GUESS) — a build without `createOptimistic` or
  * `createOptimisticStore` never sets it, and its bundler folds them. */
 export let guessing = false;
@@ -103,11 +103,8 @@ export function armGuessing(): void {
 export function installLaneHooks(
   read: NonNullable<typeof laneReadHook>,
   stage: NonNullable<typeof laneStageHook>,
-  outcome: NonNullable<typeof laneOutcomeHook>,
   write: NonNullable<typeof laneWriteHook>,
-  applyGuesses: NonNullable<typeof applyGuessesHook>,
   seams: NonNullable<typeof laneSeamsHook>,
-  corrections: NonNullable<typeof laneCorrectionsHook>,
   end: NonNullable<typeof endLanesHook>,
   blocked: NonNullable<typeof lanesBlockedHook>,
   adopt: NonNullable<typeof laneAdoptHook>,
@@ -115,15 +112,26 @@ export function installLaneHooks(
 ): void {
   laneReadHook = read;
   laneStageHook = stage;
-  laneOutcomeHook = outcome;
   laneWriteHook = write;
-  applyGuessesHook = applyGuesses;
   laneSeamsHook = seams;
-  laneCorrectionsHook = corrections;
   endLanesHook = end;
   lanesBlockedHook = blocked;
   laneAdoptHook = adopt;
   laneServedHook = served;
+}
+// The guess layer (guesses.ts; installed when `createOptimistic` or
+// `createOptimisticStore` is imported): a written guess's own pass judged
+// (`laneOutcome`, core.ts `recompute`), the seam's guesses opening their
+// lanes (`applyGuessesAt`), the body-end corrections (`laneCorrections`).
+// Null without it: every site tolerates it.
+export function installGuessHooks(
+  outcome: NonNullable<typeof laneOutcomeHook>,
+  applyGuesses: NonNullable<typeof applyGuessesHook>,
+  corrections: NonNullable<typeof laneCorrectionsHook>
+): void {
+  laneOutcomeHook = outcome;
+  applyGuessesHook = applyGuesses;
+  laneCorrectionsHook = corrections;
 }
 // Boundaries (boundaries.ts): the display consumers between an observer
 // and the root. `catch` — status from a frame reader, nearest boundary
@@ -393,13 +401,6 @@ export function setPassLane(l: Transaction | null): void {
  * schedules the seam that consumes it: membership is the tick's — the same
  * synchronous frame — and the next tick's writes are not this one's. */
 export let flushTransaction: Transaction | null = null;
-/** The flush's transaction while only a `latest()` read of a staging opened
- * it (verdict.ts `provisionalVerdict`): it holds nothing, and a verdict
- * reader's plain read of a staging in it is the frame's read (D-22). */
-export let latestOpened: Transaction | null = null;
-export function openedByLatest(): void {
-  latestOpened = flushTransaction;
-}
 /** The transaction the passes running OUTSIDE a flush this tick derive from
  * (a mainline mount, a mainline re-pass): the passes' own (A29, creation-
  * time form — "the entry is the pass's alone"): their results are staged
@@ -1005,7 +1006,7 @@ export class GlobalQueue implements IQueue {
     // pure round — the parent's flights before the parent is judged below.
     if (laneCorrectionsHook?.()) runHeap(dirtyQueue, GlobalQueue._update);
     const joined = flushTransaction;
-    flushTransaction = latestOpened = null;
+    flushTransaction = null;
     // The frame's verdict is in: the guesses written since the last seam
     // open their lane under the frame's transaction, or are dropped — the
     // frame commits, and there is nothing to be optimistic over. (A lane is

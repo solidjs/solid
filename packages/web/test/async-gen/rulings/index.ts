@@ -22,6 +22,7 @@ import S55 from "./S-55.js";
 import S56 from "./S-56.js";
 import S57 from "./S-57.js";
 import S58 from "./S-58.js";
+import S60 from "./S-60.js";
 
 export const RULINGS: Ruling[] = [
   S3,
@@ -46,5 +47,6 @@ export const RULINGS: Ruling[] = [
   S55,
   S56,
   S57,
-  S58
+  S58,
+  S60
 ];

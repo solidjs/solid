@@ -493,9 +493,13 @@ const storePark = (t: Transaction): void => {
   optHooks?.park(t);
 };
 
+// Set where the only deep node is created, so a bundle without deep() folds its guards away.
+export let deepUsed = false;
+
 function getDeepNode(target: StoreTarget): Signal<number> {
   let dk = target.dk;
   if (dk === null) {
+    deepUsed = true;
     dk = target.dk = slotSignal<number>(0, never, target, $DEEP, false);
     if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(dk, target);
     noteNode(target, dk, $DEEP);
@@ -1262,7 +1266,7 @@ function notifyWrites(t: StoreTarget): void {
       }
     }
   }
-  if (t.dk !== null) {
+  if (deepUsed && t.dk !== null) {
     if (t.del?.size) bumpDeep(t);
     else
       for (const key of writtenKeys ?? Reflect.ownKeys(pb)) {
@@ -1466,7 +1470,7 @@ export function notifyFold(
   old: Record<PropertyKey, any>,
   neu: Record<PropertyKey, any>
 ): void {
-  if (t.dk !== null && old !== neu) bumpDeep(t);
+  if (deepUsed && t.dk !== null && old !== neu) bumpDeep(t);
   const nodes = t.n;
   if (nodes !== null) {
     for (const key of Reflect.ownKeys(nodes)) notifyKeyDiff(nodes[key as any], key, old, neu);

@@ -116,7 +116,7 @@ export function describeTsx(sc: Scenario, names: Record<string, string>): string
   });
   sc.memos.forEach((m, i) => {
     const n = names[`m${i}`] ?? `m${i}`;
-    const body = `1 + ${m.deps.map(d => depText(d, names)).join(" + ")}`;
+    const body = m.deps.length ? `1 + ${m.deps.map(d => depText(d, names)).join(" + ")}` : "1";
     const poison = m.poison !== null ? ` // throws when the input % 4 === ${m.poison}` : "";
     const ctor = m.optimistic ? "createOptimistic" : "createMemo";
     const lhs = m.optimistic ? `const [${n}, ${setterOf(n)}]` : `const ${n}`;

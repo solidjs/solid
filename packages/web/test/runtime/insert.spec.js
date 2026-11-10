@@ -1114,6 +1114,7 @@ describe("r.insert with host option", () => {
   // Crucially the mount parent is a REAL element (no proxy wrapper), so the
   // slot-ownership checks in cleanChildren/reconcileArrays behave normally —
   // these tests cover the runtime side of solidjs/solid#2757 and #2758.
+  r.installHostTagging();
 
   it("tags top-level nodes (including created text nodes) with a live _$host getter", () => {
     const mount = document.createElement("div");

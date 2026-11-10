@@ -340,7 +340,7 @@ function ssrLoadingBoundary(
       throwerOf(err, ctx._errorScope) ?? o
     );
   };
-  let serializeBuffer: [string, any, boolean?][] = [];
+  let serializeBuffer: [string, any, boolean?, boolean?][] = [];
   // Once this boundary has flushed, it never buffers again (resets only happen
   // during retry discovery, before the first flush). A chained async source can
   // resolve *after* the boundary commits — e.g. `b` depends on `a`, so `b`
@@ -349,9 +349,14 @@ function ssrLoadingBoundary(
   // in a buffer that will never flush again (which would orphan the fragment).
   let flushed = false;
   const bufferedCtx = Object.create(ctx) as typeof ctx;
-  bufferedCtx.serialize = (id: string, value: any, deferStream?: boolean) => {
-    if (flushed) ctx.serialize(id, value, deferStream);
-    else serializeBuffer.push([id, value, deferStream]);
+  bufferedCtx.serialize = (
+    id: string,
+    value: any,
+    deferStream?: boolean,
+    errorRecord?: boolean
+  ) => {
+    if (flushed) ctx.serialize(id, value, deferStream, errorRecord);
+    else serializeBuffer.push([id, value, deferStream, errorRecord]);
   };
   // Asset attribution (`_currentBoundaryId`) is NOT set here. The property is
   // an accessor inherited from the root context over a single shared tracking
@@ -363,7 +368,7 @@ function ssrLoadingBoundary(
   // `runWithBoundaryErrorContext`, which sets and restores it around the run.
 
   function flushSerializeBuffer() {
-    for (const args of serializeBuffer) ctx.serialize(args[0], args[1], args[2]);
+    for (const args of serializeBuffer) ctx.serialize(args[0], args[1], args[2], args[3]);
     serializeBuffer = [];
     flushed = true;
   }
