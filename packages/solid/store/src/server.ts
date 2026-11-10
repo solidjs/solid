@@ -18,10 +18,11 @@ export type {
 export const $RAW = Symbol("state-raw");
 
 export function isWrappable(obj: any) {
+  let proto;
   return (
     obj != null &&
     typeof obj === "object" &&
-    (Object.getPrototypeOf(obj) === Object.prototype || Array.isArray(obj))
+    (!(proto = Object.getPrototypeOf(obj)) || proto === Object.prototype || Array.isArray(obj))
   );
 }
 
