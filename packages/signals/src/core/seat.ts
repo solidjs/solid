@@ -75,7 +75,6 @@ import {
   observeFlightHook,
   globalQueue,
   GlobalQueue,
-  latestOpened,
   passLane,
   blocked,
   liveTx,
@@ -905,13 +904,10 @@ export function slot(
     }
     return p;
   };
-  const latestOnly =
-    flushTransaction !== null && flushTransaction === latestOpened && !inSeat && !cUninit;
   /** `stagedScreen`: a verdict reader's plain read of a staging is the
-   * screen's once the frame has a hold (not one a `latest()` alone
-   * opened), unless born into it. */
-  const stagedScreen =
-    flushTransaction !== null && !seatBornInto(seat, flushTransaction) && !latestOnly;
+   * screen's once the frame has a hold, unless born into it. (`latest()`
+   * opens no transaction, #4393; the "latest only" hold is gone.) */
+  const stagedScreen = flushTransaction !== null && !seatBornInto(seat, flushTransaction);
 
   // Error (D-41 #2897): the error — the retry re-reads (compared on its
   // own). The hold arms run first (`read`'s L2 block): a derivation of a
