@@ -922,6 +922,63 @@ describe("runWithOwner", () => {
   });
 });
 
+describe("Missing observerSlots recovery", () => {
+  test("Disposing an observer recovers when a source has observers but null observerSlots", () => {
+    const [count, setCount] = createSignal(0);
+    let observer: any;
+    let effectRuns = 0;
+    const disposeBroken = createRoot(dispose => {
+      createComputed(() => {
+        observer = getOwner();
+        count();
+      });
+      return dispose;
+    });
+    createRoot(() => {
+      createEffect(() => {
+        count();
+        effectRuns++;
+      });
+    });
+    expect(effectRuns).toBe(1);
+    // Simulate the state left behind when readSignal's second array
+    // allocation fails: the source has observers but observerSlots is null.
+    observer.sources[0].observerSlots = null;
+    expect(() => disposeBroken()).not.toThrow();
+    // The surviving observer is still subscribed: writes still reach it.
+    setCount(1);
+    expect(effectRuns).toBe(2);
+  });
+
+  test("Reading a source with null observerSlots recovers instead of throwing", () => {
+    const [count, setCount] = createSignal(0);
+    let observer: any;
+    let runs = 0;
+    const disposeBroken = createRoot(dispose => {
+      createComputed(() => {
+        observer = getOwner();
+        count();
+      });
+      return dispose;
+    });
+    observer.sources[0].observerSlots = null;
+    // A new subscription must not throw on observerSlots.push().
+    expect(() =>
+      createRoot(() => {
+        createComputed(() => {
+          count();
+          runs++;
+        });
+      })
+    ).not.toThrow();
+    expect(runs).toBe(1);
+    expect(() => disposeBroken()).not.toThrow();
+    // The new observer is still subscribed after the broken one is disposed.
+    setCount(1);
+    expect(runs).toBe(2);
+  });
+});
+
 describe("createReaction", () => {
   test("Create and trigger a Reaction", () =>
     new Promise(done => {

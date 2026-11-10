@@ -1306,6 +1306,25 @@ export function enableExternalSource(
 }
 
 // Internal
+
+// Rebuild a source's `observerSlots` from its observers' back-pointers.
+// A source can end up with observers but no (or out-of-sync) slots when an
+// array allocation fails midway through `readSignal` (see #4680); without
+// this, `cleanNode` and a later `readSignal` throw on the missing array.
+// Each observer subscribes to a source at most once, so the slot for
+// `observers[i]` is the index of the source in that observer's `sources`.
+function repairObserverSlots(source: SignalState<any> | Memo<any>) {
+  source.observerSlots = source.observers!.map((observer, slot) => {
+    const sources = observer.sources;
+    if (!sources) return -1;
+    for (let i = sources.length - 1; i >= 0; i--) {
+      if (sources[i] === source && observer.sourceSlots && observer.sourceSlots[i] === slot)
+        return i;
+    }
+    return sources.lastIndexOf(source);
+  });
+}
+
 export function readSignal(this: SignalState<any> | Memo<any>) {
   const runningTransition = Transition && Transition.running;
   if (
@@ -1326,16 +1345,28 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
     if (!observers || observers[observers.length - 1] !== Listener) {
       const sSlot = observers ? observers.length : 0;
       if (!Listener.sources) {
-        Listener.sources = [this];
-        Listener.sourceSlots = [sSlot];
+        // Build both arrays before assigning either, so an allocation
+        // failure cannot leave `sources` set while `sourceSlots` is null.
+        const sources = [this];
+        const sourceSlots = [sSlot];
+        Listener.sources = sources;
+        Listener.sourceSlots = sourceSlots;
       } else {
         Listener.sources.push(this);
         Listener.sourceSlots!.push(sSlot);
       }
       if (!observers) {
-        this.observers = [Listener];
-        this.observerSlots = [Listener.sources.length - 1];
+        // Build both arrays before assigning either, so an allocation
+        // failure cannot leave `observers` set while `observerSlots` is null.
+        const newObservers = [Listener];
+        const newObserverSlots = [Listener.sources.length - 1];
+        this.observers = newObservers;
+        this.observerSlots = newObserverSlots;
       } else {
+        // The slot array may be missing or out of sync if an earlier
+        // allocation failed; rebuild it from the back-pointers first.
+        if (!this.observerSlots || this.observerSlots.length !== observers.length)
+          repairObserverSlots(this);
         observers.push(Listener);
         this.observerSlots!.push(Listener.sources.length - 1);
       }
@@ -1719,6 +1750,8 @@ function cleanNode(node: Owner, recompute?: boolean) {
         index = (node as Computation<any>).sourceSlots!.pop()!,
         obs = source.observers;
       if (obs && obs.length) {
+        if (!source.observerSlots || source.observerSlots.length !== obs.length)
+          repairObserverSlots(source);
         const n = obs.pop()!,
           s = source.observerSlots!.pop()!;
         if (index < obs.length) {
