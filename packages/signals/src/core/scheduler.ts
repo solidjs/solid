@@ -93,7 +93,7 @@ export let laneAdoptHook: ((r: Computed<any>) => boolean) | null = null;
  * committed value (lanes.ts `laneServed`). */
 export let laneServedHook: ((c: Computed<any>, el: Signal<any> | Computed<any>) => void) | null =
   null;
-/** A guess was written (lanes.ts `optimisticWrite`): the arms only a guess
+/** A guess was written (guesses.ts `optimisticWrite`): the arms only a guess
  * reaches (CONFIG_GUESS) — a build without `createOptimistic` or
  * `createOptimisticStore` never sets it, and its bundler folds them. */
 export let guessing = false;
@@ -103,11 +103,8 @@ export function armGuessing(): void {
 export function installLaneHooks(
   read: NonNullable<typeof laneReadHook>,
   stage: NonNullable<typeof laneStageHook>,
-  outcome: NonNullable<typeof laneOutcomeHook>,
   write: NonNullable<typeof laneWriteHook>,
-  applyGuesses: NonNullable<typeof applyGuessesHook>,
   seams: NonNullable<typeof laneSeamsHook>,
-  corrections: NonNullable<typeof laneCorrectionsHook>,
   end: NonNullable<typeof endLanesHook>,
   blocked: NonNullable<typeof lanesBlockedHook>,
   adopt: NonNullable<typeof laneAdoptHook>,
@@ -115,15 +112,26 @@ export function installLaneHooks(
 ): void {
   laneReadHook = read;
   laneStageHook = stage;
-  laneOutcomeHook = outcome;
   laneWriteHook = write;
-  applyGuessesHook = applyGuesses;
   laneSeamsHook = seams;
-  laneCorrectionsHook = corrections;
   endLanesHook = end;
   lanesBlockedHook = blocked;
   laneAdoptHook = adopt;
   laneServedHook = served;
+}
+// The guess layer (guesses.ts; installed when `createOptimistic` or
+// `createOptimisticStore` is imported): a written guess's own pass judged
+// (`laneOutcome`, core.ts `recompute`), the seam's guesses opening their
+// lanes (`applyGuessesAt`), the body-end corrections (`laneCorrections`).
+// Null without it: every site tolerates it.
+export function installGuessHooks(
+  outcome: NonNullable<typeof laneOutcomeHook>,
+  applyGuesses: NonNullable<typeof applyGuessesHook>,
+  corrections: NonNullable<typeof laneCorrectionsHook>
+): void {
+  laneOutcomeHook = outcome;
+  applyGuessesHook = applyGuesses;
+  laneCorrectionsHook = corrections;
 }
 // Boundaries (boundaries.ts): the display consumers between an observer
 // and the root. `catch` — status from a frame reader, nearest boundary

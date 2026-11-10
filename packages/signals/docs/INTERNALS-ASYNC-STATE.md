@@ -325,6 +325,35 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
 
 ## 7. Decision log
 
+- 2026-11-10: **The lane engine split along the guess boundary** (the
+  §8.6 split, b3926358b, ported onto today's `lanes.ts`; a module boundary,
+  no rule). `lanes.ts` keeps the sub-hold core every lane needs — the lane
+  record (`newLane`, `verdictLane`), link / blocked / reveal / landing
+  (`linkLanes`, `laneSeam`, `laneSeams`, `endLanes`, `dissolveLane`,
+  `lanesBlocked`, `heldMountUnder`, `laneWait`), the lane read and a lane
+  pass's tail (`laneRead`, `enterLane`, `laneStage`), `laneWrite`'s
+  derivation arm, `adoptParked`, `laneServed` — installed by verdict.ts's
+  verdict lanes as before. The new `guesses.ts` carries what only a written
+  guess reaches: `optimisticWrite` and the unflushed guesses, the seam's
+  `applyGuesses`, `take` and the `kept` give-back, `supersede` and the
+  correction round (`laneCorrections`), `laneOutcome` with the provenance
+  test (`stale`, `answered`), a write landing on a guess (`guessWrite`,
+  `laneWrite`'s old guess arm) and a revert landing's give-back
+  (`revertLanding`, `endLanes`' old `kept` loop). The core reaches them
+  through `installGuessLayer` (lanes.ts: `take`, `guessWrite`,
+  `revertLanding`, each site behind CONFIG_GUESS or `guessed`) and
+  `installGuessHooks` (scheduler.ts: `laneOutcome`, `applyGuessesAt`,
+  `laneCorrections`, every site null-tolerant); `guessed` stays the core's
+  flag, armed by the layer (`armGuessed`) so a bundle without it folds the
+  arms, and `markJudged` is the core's side of `applyGuessesAt`. `marked`,
+  `inFlight`, `guessFlights`, `rerun`, `landBeneath` stay in the core
+  (`dissolveLane`, `lanesBlocked`, `laneSeams` read them with no guess
+  written). Measured (scripts/size, next @ 083a0bd78): `+ isPending/latest`
+  −531 B brotli / −1,551 B minified, the three live pages −454 to −533 B,
+  every floor and plain-store scenario 0 B, `hydrating + every store
+primitive family` (both halves) +15 B brotli / +157 B minified. Suites,
+  the seat shadow and 50k × 3 seeds against `next`'s recording: no screen
+  moves (documentation/plans/reader-seat-rebuild.md §9.3).
 - 2026-11-09: **A store guess is one node — the guess carrier** (S2's
   shape, ported onto `next` without S1's staging; D-33's point-of-write
   clause, S-59, #4724). Before, an optimistic setter was scattered into the
