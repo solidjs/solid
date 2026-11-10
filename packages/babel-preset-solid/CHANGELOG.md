@@ -1,5 +1,21 @@
 # babel-preset-solid
 
+## 1.9.19
+
+### Patch Changes
+
+- 9f4460c: Update DOM Expressions to 0.40.14. The server build now escapes `<style>` and `<script>` children inside MathML (#4704), and string literals in a ternary branch, after `&&`, or returned from a function child (#4710).
+- Updated dependencies [965e5a5]
+- Updated dependencies [64010be]
+- Updated dependencies
+- Updated dependencies [f24b303]
+- Updated dependencies [08c4a36]
+- Updated dependencies [d4245ab]
+- Updated dependencies [176c651]
+- Updated dependencies [ed991e9]
+- Updated dependencies [9f4460c]
+  - solid-js@1.9.19
+
 ## 1.9.16
 
 ### Patch Changes

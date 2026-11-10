@@ -1,5 +1,21 @@
 # test-integration
 
+## 1.9.19
+
+### Patch Changes
+
+- Updated dependencies [965e5a5]
+- Updated dependencies [64010be]
+- Updated dependencies
+- Updated dependencies [f24b303]
+- Updated dependencies [08c4a36]
+- Updated dependencies [d4245ab]
+- Updated dependencies [176c651]
+- Updated dependencies [ed991e9]
+- Updated dependencies [9f4460c]
+  - solid-js@1.9.19
+  - babel-preset-solid@1.9.19
+
 ## 1.9.18
 
 ### Patch Changes
