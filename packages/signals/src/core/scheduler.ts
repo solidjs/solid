@@ -393,13 +393,6 @@ export function setPassLane(l: Transaction | null): void {
  * schedules the seam that consumes it: membership is the tick's — the same
  * synchronous frame — and the next tick's writes are not this one's. */
 export let flushTransaction: Transaction | null = null;
-/** The flush's transaction while only a `latest()` read of a staging opened
- * it (verdict.ts `provisionalVerdict`): it holds nothing, and a verdict
- * reader's plain read of a staging in it is the frame's read (D-22). */
-export let latestOpened: Transaction | null = null;
-export function openedByLatest(): void {
-  latestOpened = flushTransaction;
-}
 /** The transaction the passes running OUTSIDE a flush this tick derive from
  * (a mainline mount, a mainline re-pass): the passes' own (A29, creation-
  * time form — "the entry is the pass's alone"): their results are staged
@@ -1005,7 +998,7 @@ export class GlobalQueue implements IQueue {
     // pure round — the parent's flights before the parent is judged below.
     if (laneCorrectionsHook?.()) runHeap(dirtyQueue, GlobalQueue._update);
     const joined = flushTransaction;
-    flushTransaction = latestOpened = null;
+    flushTransaction = null;
     // The frame's verdict is in: the guesses written since the last seam
     // open their lane under the frame's transaction (a lane's own flush
     // parents a nested lane to it), or are dropped — the frame commits, and
