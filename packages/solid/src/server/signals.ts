@@ -4314,6 +4314,7 @@ export function createErrorBoundary<T, U>(
       ctx && ctx.errorPolicy,
       ctx && ctx._errorScope
     );
+    if (ctx && ctx.contained) ctx.contained(err, wire);
     if (defer) deferredWire = wire;
     else serializeError(wire);
     fallbackResult = renderFallback(wire);

@@ -127,6 +127,13 @@ export type HydrationContext = {
    */
   _errorScope?: object;
   /**
+   * @internal Tells the renderer that an `<Errored>` contained `error` and
+   * sends `wire` in its place. A rejection the renderer cannot encode does
+   * not fail the render when its reason is one of the two. Set by
+   * @solidjs/web's renderToStream.
+   */
+  contained?: (error: unknown, wire: unknown) => void;
+  /**
    * @internal Whether the shell has flushed — a fragment that fails now
    * rejects to the client (`handling: "client"`) rather than failing the
    * request or inlining into a parent's fallback. Set by @solidjs/web's

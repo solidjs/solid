@@ -2367,38 +2367,79 @@ export function renderToStream(code, options = {}) {
   // `onCompleteAll` does not fire. After it, published values reject through
   // `rejectUnserializedKey` (#4647); a synchronous failure that published
   // nothing still omits the value and lets the render complete (#4227).
-  // An error record (an `<Errored>` record, a deferStream source's rejection)
-  // never fails the render: its error was contained, or fails the render on
-  // its own. One the default serializer cannot encode is sent as a plain
-  // `Error` with its message; another record of the same error gets the same
-  // replacement without a second report.
+  // An error an `<Errored>` contained never fails the render: its record,
+  // and the rejection of the source it came from, go out as a plain `Error`
+  // with its message when the default serializer cannot encode them. Another
+  // record of the same error gets the same replacement without a second
+  // report. A rejection nothing contained fails the render like any value:
+  // one that fails ahead of its boundary waits in `unclaimed` for the shell,
+  // by when the root holes were pulled again.
   let stranded = false;
   let writingRecord = false;
   let recordFailed = false;
   const plainRecords = new WeakMap();
-  const handOver = (id, value, errorRecord) => {
-    if (!errorRecord || options.serializer) return serializer.write(id, value);
-    const known = value !== null && typeof value === "object" && plainRecords.get(value);
-    if (known) return serializer.write(id, known);
-    recordFailed = false;
-    writingRecord = true;
-    try {
-      serializer.write(id, value);
-    } finally {
-      writingRecord = false;
+  // What this render's `<Errored>` boundaries contained (`context.contained`):
+  // each error caught, and the value sent in its place.
+  const caught = new Set();
+  let unclaimed = null;
+  // The reason each serialized promise rejected with, by key: what a write
+  // of that key fails on when seroval cannot encode it.
+  const rejected = new Map();
+  const REJECTION = 2;
+  const plainMessage = (id, value) =>
+    value != null && typeof value.message === "string"
+      ? value.message
+      : `The error record for key ${JSON.stringify(id)} could not be serialized on the server`;
+  const plainFor = (id, value) => {
+    const keyed = value !== null && typeof value === "object";
+    let plain = keyed && plainRecords.get(value);
+    if (!plain) {
+      plain = new Error(plainMessage(id, value));
+      if (keyed) plainRecords.set(value, plain);
     }
-    if (!recordFailed) return;
-    const plain = new Error(
-      value != null && typeof value.message === "string"
-        ? value.message
-        : `The error record for key ${JSON.stringify(id)} could not be serialized on the server`
-    );
-    if (value !== null && typeof value === "object") plainRecords.set(value, plain);
-    serializer.write(id, plain);
+    return plain;
   };
-  const write = (id, value, errorRecord) => {
-    if (stableOrder && !dead) (parkedWrites ||= []).push([id, value, errorRecord]);
-    else handOver(id, value, errorRecord);
+  const claim = () => {
+    if (unclaimed) {
+      for (const reason of unclaimed) if (!caught.has(reason)) stranded = true;
+      unclaimed = null;
+    }
+    return stranded;
+  };
+  const claimLater = reason => {
+    if (firstFlushed || stranded || caught.has(reason)) return;
+    if (!unclaimed) {
+      unclaimed = new Set();
+      // A pending sibling must not hold a failed render open. A root hole
+      // still pending may be the boundary that contains it: the shell decides.
+      deferFlush(() => {
+        if (!rootHoles && claim()) abandon();
+      });
+    }
+    unclaimed.add(reason);
+  };
+  // `error`: true for an `<Errored>` record, REJECTION for the reason a
+  // deferStream source rejected with.
+  const handOver = (id, value, error) => {
+    if (!error || options.serializer) return serializer.write(id, value);
+    let plain = value !== null && typeof value === "object" && plainRecords.get(value);
+    if (!plain) {
+      recordFailed = false;
+      writingRecord = true;
+      try {
+        serializer.write(id, value);
+      } finally {
+        writingRecord = false;
+      }
+      if (!recordFailed) return;
+      plain = plainFor(id, value);
+    }
+    serializer.write(id, plain);
+    if (error === REJECTION) claimLater(value);
+  };
+  const write = (id, value, error) => {
+    if (stableOrder && !dead) (parkedWrites ||= []).push([id, value, error]);
+    else handOver(id, value, error);
   };
   const flushParkedWrites = () => {
     if (!parkedWrites) return;
@@ -2439,7 +2480,7 @@ export function renderToStream(code, options = {}) {
     writeTasks();
     // A key that failed before the first flush: nothing went out, and the
     // render fails as a rejection there would, already reported (#4647).
-    if (stranded) return abandon();
+    if (claim()) return abandon();
     // Every blocker has settled by definition here (the render is complete),
     // so doShell's growth gate has nothing to wait for: align its baseline
     // rather than let a stale flush-loop snapshot hold a finished shell.
@@ -2584,10 +2625,18 @@ export function renderToStream(code, options = {}) {
     // throws from its promise callback and never reaches `onDone` — the
     // render would stay pending. Heard as `handling: "serialize"` by the
     // render's hook, else the ambient one, else `console.error`.
-    onError: err => {
-      reportFailure(err, "serialize");
+    onError: (err, key) => {
+      // The key's own rejection, met after the write returned: an error
+      // whose record already failed was heard then.
+      const rejection = !options.serializer && !writingRecord && rejected.has(key);
+      const reason = rejection && rejected.get(key);
+      if (!rejection || reason === null || typeof reason !== "object" || !plainRecords.has(reason))
+        reportFailure(err, "serialize");
       if (writingRecord) recordFailed = true;
-      else if (!options.serializer && !firstFlushed && !stranded) {
+      else if (rejection) {
+        plainFor(key, reason);
+        claimLater(reason);
+      } else if (!options.serializer && !firstFlushed && !stranded) {
         stranded = true;
         // Let the current write and render initialization finish. The normal
         // flush may abandon first; a pending sibling must not hold it open.
@@ -2596,7 +2645,12 @@ export function renderToStream(code, options = {}) {
     },
     // After the first flush: rejects on the client what the failed write
     // left pending (#4647). Only here, so `renderToString` does not carry it.
-    late: rejectUnserializedKey
+    // Before it, a key's own rejection goes out as the plain `Error` its
+    // boundary's record is; the render fails instead when none contained it.
+    late: (serialize, refs, onData, scopeId) =>
+      rejectUnserializedKey(serialize, refs, onData, scopeId, key =>
+        !firstFlushed && rejected.has(key) ? plainMessage(key, rejected.get(key)) : undefined
+      )
   } as any);
   let rootAssetsSerialized = false;
   const serializeRootAssets = () => {
@@ -2759,7 +2813,10 @@ export function renderToStream(code, options = {}) {
     // rejection arm also keeps an abandoned-then-rejected source from
     // surfacing as an unhandled rejection (seroval only sees the race).
     const drop = () => pendingSerialized.delete(id);
-    p.then(drop, drop);
+    p.then(drop, reason => {
+      drop();
+      rejected.set(id, reason);
+    });
     return raced;
   };
   // A fragment settling with an error abandons its subtree: descendant
@@ -3005,7 +3062,7 @@ export function renderToStream(code, options = {}) {
       if (p && typeof p === "object" && typeof p.then === "function") {
         if (!firstFlushed && deferStream) {
           blockingPromises.add(p);
-          p.then(d => write(id, d)).catch(e => write(id, e, true));
+          p.then(d => write(id, d)).catch(e => write(id, e, REJECTION));
           return;
         }
         // Every pending promise handed to seroval joins the abandonment
@@ -3201,6 +3258,10 @@ export function renderToStream(code, options = {}) {
   // fails the request.
   context.errorPolicy = options.onError;
   context._errorScope = errorScope;
+  context.contained = (error, wire) => {
+    caught.add(error);
+    caught.add(wire);
+  };
   context.flushed = () => firstFlushed;
   // The trace this render belongs to (see `getTraceContext`): the request's
   // under a request scope, the render's own otherwise. Set before the render
@@ -3523,7 +3584,7 @@ export function renderToStream(code, options = {}) {
           }
           if (!shellCompleted) return flush();
           // A key failed to serialize before the shell went out (#4647).
-          if (stranded) return abandon();
+          if (claim()) return abandon();
           const encoder = new TextEncoder();
           const writer = w.getWriter();
           // Writes are chained and awaited before the lock is released.
@@ -3714,7 +3775,7 @@ export function renderToStream(code, options = {}) {
             }
             if (!shellCompleted) return flush();
             // A key failed to serialize before the shell went out (#4647).
-            if (stranded) return abandon();
+            if (claim()) return abandon();
             const sink = guardSink(w);
             buffer = writable = coalesceWrites(sink.write, sink.end);
             buffer.write(tmp);

@@ -3,13 +3,13 @@
  *
  * A failure an `<Errored>` already contained, whose error the default
  * serializer cannot encode (#4709 review). Since #4709 a value that fails to
- * serialize before the first flush fails the render. An error record is not
- * such a value: the boundary's record and a deferStream source's rejection
- * belong to a failure that was contained, or that fails the render on its
- * own. So the render keeps the fallback and completes, the record goes out
- * as a plain `Error` with the message, and the hook hears the serializer's
- * failure once, however many records carry the same error. A value that
- * fails to serialize still fails the render, inside a boundary too.
+ * serialize before the first flush fails the render. An error an `<Errored>`
+ * contained is not such a value: the render keeps the fallback and
+ * completes, the boundary's record and the rejection of the source it came
+ * from (deferStream or streamed) go out as a plain `Error` with the message,
+ * and the hook hears the serializer's failure once, however many records
+ * carry the same error. A rejection nothing contained fails the render, and
+ * so does a value that fails to serialize, inside a boundary too.
  *
  * The source runs as the dev tier (fidelity: the original is the wire). The
  * production tier is the built artifacts' (stream-contained-error-serialize-
@@ -35,6 +35,9 @@ import { createMemo } from "solid-js";
 import { settle, watchEscapes } from "./stream-settle-harness.js";
 
 const unserializable = (message = "x") => Object.assign(new Error(message), { fn() {} });
+/** A rejection that lands after the render pass, as a fetch's does. */
+const later = () =>
+  new Promise<never>((_, reject) => setTimeout(() => reject(unserializable()), 10));
 
 /** The hydration registry the page's scripts build, run as a browser would. */
 function registry(html: string) {
@@ -47,13 +50,24 @@ function registry(html: string) {
   for (const [, src] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
     vm.runInContext(src, sandbox);
   }
-  return sandbox._$HY.r as Record<string, unknown>;
+  const records = sandbox._$HY.r as Record<string, any>;
+  // A rejected record is read off its mark; nothing here awaits it.
+  for (const record of Object.values(records))
+    if (tag(record) === "Promise") record.catch(() => {});
+  return records;
 }
+const tag = (v: unknown) => Object.prototype.toString.call(v).slice(8, -1);
+const shape = (e: any) => ({ message: e.message, keys: Object.keys(e) });
 /** Each Error record as the client reads it: its message and own keys. */
 const errorRecords = (html: string) =>
   Object.values(registry(html))
-    .filter(v => Object.prototype.toString.call(v) === "[object Error]")
-    .map((e: any) => ({ message: e.message, keys: Object.keys(e) }));
+    .filter(v => tag(v) === "Error")
+    .map(shape);
+/** Each promise the page rejected, read off seroval's mark as the hydrating client reads it. */
+const rejections = (html: string) =>
+  Object.values(registry(html))
+    .filter(v => tag(v) === "Promise" && v.s === 2)
+    .map(v => shape(v.v));
 const main = (html: string) =>
   /<main[\s\S]*?<\/main>/.exec(html.replace(/ _hk=[^\s>]*/g, ""))?.[0] ?? "";
 
@@ -61,31 +75,77 @@ interface Rendered {
   html: string;
   completed: boolean;
   heard: string[];
+  /** The response's, when `createSSRResponse` consumed the stream. */
+  status?: number;
 }
-async function stream(code: () => any): Promise<Rendered> {
+const consumers = ["await", "pipe", "pipeTo", "response"] as const;
+type Consume = (typeof consumers)[number];
+type ErrorMap = (error: unknown, context: ServerErrorContext) => unknown;
+async function stream(
+  code: () => any,
+  consume: Consume = "await",
+  map?: ErrorMap
+): Promise<Rendered> {
   const heard: string[] = [];
   let completed = false;
+  let status: number | undefined;
   let result: { state: string; html: string } | undefined;
+  const render = () =>
+    renderToStream(code, {
+      onError(error: unknown, c: ServerErrorContext) {
+        heard.push(`${c.kind}/${c.handling}`);
+        return map?.(error, c);
+      },
+      onCompleteAll() {
+        completed = true;
+      }
+    });
+  const consumed = (): PromiseLike<string> => {
+    if (consume === "await") return render();
+    const chunks: string[] = [];
+    if (consume === "pipe")
+      return new Promise(resolve =>
+        render().pipe({
+          write: (chunk: string) => void chunks.push(String(chunk)),
+          end: () => resolve(chunks.join(""))
+        })
+      );
+    if (consume === "pipeTo")
+      return render()
+        .pipeTo(
+          new WritableStream({
+            write: chunk => void chunks.push(new TextDecoder().decode(chunk))
+          })
+        )
+        .then(() => chunks.join(""));
+    const event = createRequestEvent(new Request("https://example.com/"));
+    return provideRequestEvent(event, async () => {
+      const response = await createSSRResponse(render(), event);
+      status = response.status;
+      return response.text();
+    });
+  };
   const escaped = await watchEscapes(async () => {
-    result = await settle(
-      renderToStream(code, {
-        onError: (_: unknown, c: ServerErrorContext) => void heard.push(`${c.kind}/${c.handling}`),
-        onCompleteAll() {
-          completed = true;
-        }
-      })
-    );
+    result = await settle(consumed());
   });
   expect(escaped).toEqual([]);
   expect(result!.state).toBe("settled");
-  return { html: result!.html, completed, heard };
+  return { html: result!.html, completed, heard, status };
 }
 
 const plain = (message: string) => ({ message, keys: [] });
-const contained: [
-  string,
-  { code: () => any; main: string | RegExp; records: unknown[]; heard: string[] }
-][] = [
+interface Contained {
+  code: () => any;
+  main: string | RegExp;
+  records: unknown[];
+  /** The promises the page rejected, when the source is streamed. */
+  rejected?: unknown[];
+  heard: string[];
+  map?: ErrorMap;
+}
+const mapFallback: ErrorMap = (_, context) =>
+  context.handling === "fallback" ? new Error("mapped") : undefined;
+const contained: [string, Contained][] = [
   [
     "a deferStream rejection (the review's repro)",
     {
@@ -124,17 +184,108 @@ const contained: [
     }
   ],
   [
-    "getHydrationWriter().write of a rejected deferStream promise",
+    "a streamed rejection (no deferStream)",
     {
       code: () => {
-        getHydrationWriter()!.write("lib:rejected", Promise.reject(unserializable()), {
-          deferStream: true
-        });
-        return <main>page</main>;
+        const data = createMemo(() => Promise.reject(unserializable()));
+        return (
+          <main>
+            <Errored fallback={<p>fallback</p>}>{data()}</Errored>
+          </main>
+        );
       },
-      main: "<main>page</main>",
+      main: "<main><p>fallback</p></main>",
+      // The boundary's record; the source's promise rejects with the same replacement.
       records: [plain("x")],
-      heard: ["render/serialize"]
+      rejected: [plain("x")],
+      heard: ["render/fallback", "render/serialize"]
+    }
+  ],
+  [
+    "a deferStream rejection that lands after the render pass",
+    {
+      code: () => {
+        const data = createMemo(later, { deferStream: true });
+        return (
+          <main>
+            <Errored fallback={<p>fallback</p>}>{data()}</Errored>
+          </main>
+        );
+      },
+      main: "<main><p>fallback</p></main>",
+      records: [plain("x"), plain("x")],
+      heard: ["render/fallback", "render/serialize"]
+    }
+  ],
+  [
+    "a streamed rejection that lands after the render pass",
+    {
+      code: () => {
+        const data = createMemo(later);
+        return (
+          <main>
+            <Errored fallback={<p>fallback</p>}>{data()}</Errored>
+          </main>
+        );
+      },
+      main: "<main><p>fallback</p></main>",
+      records: [plain("x")],
+      rejected: [plain("x")],
+      heard: ["render/fallback", "render/serialize"]
+    }
+  ],
+  [
+    "a streamed rejection two boundaries read",
+    {
+      code: () => {
+        const data = createMemo(() => Promise.reject(unserializable()));
+        return (
+          <main>
+            <Errored fallback={<p>one</p>}>{data()}</Errored>
+            <Errored fallback={<p>two</p>}>{data()}</Errored>
+          </main>
+        );
+      },
+      main: /^<main>(<!--\$-->)?<p>one<\/p>(<!--\/-->)?(<!--\$-->)?<p>two<\/p>(<!--\/-->)?<\/main>$/,
+      records: [plain("x"), plain("x")],
+      rejected: [plain("x")],
+      heard: ["render/fallback", "render/serialize"]
+    }
+  ],
+  [
+    "a hook's mapping: the deferStream source keeps its own error",
+    {
+      code: () => {
+        const data = createMemo(() => Promise.reject(unserializable()), { deferStream: true });
+        return (
+          <main>
+            <Errored fallback={(err: any) => <p>{err().message}</p>}>{data()}</Errored>
+          </main>
+        );
+      },
+      map: mapFallback,
+      main: /^<main><p>(<!--\$-->)?mapped(<!--\/-->)?<\/p><\/main>$/,
+      // The source's key carries what its channel rejected with; the record is the mapping.
+      records: [plain("x"), plain("mapped")],
+      heard: ["render/fallback", "render/serialize"]
+    }
+  ],
+  [
+    "a hook's mapping: the streamed source keeps its own error",
+    {
+      code: () => {
+        const data = createMemo(() => Promise.reject(unserializable()));
+        return (
+          <main>
+            <Errored fallback={(err: any) => <p>{err().message}</p>}>{data()}</Errored>
+          </main>
+        );
+      },
+      map: mapFallback,
+      main: /^<main><p>(<!--\$-->)?mapped(<!--\/-->)?<\/p><\/main>$/,
+      records: [plain("mapped")],
+      rejected: [plain("x")],
+      heard: ["render/fallback", "render/serialize"]
     }
   ],
   [
@@ -183,54 +334,31 @@ const contained: [
   ]
 ];
 
-describe.each(contained)("dev tier, %s", (_, scenario) => {
-  let rendered: Rendered;
-  beforeAll(async () => {
-    rendered = await stream(scenario.code);
-  });
+// The thenable hands every write over at the end, in key order, after the
+// boundaries ran. A streamed render meets the source's rejection first and
+// its boundary on the shell's pull, so the hook hears the same failures in
+// the other order.
+describe.each(consumers)("dev tier, %s", consume => {
+  const order = (heard: string[]) => (consume === "await" ? heard : [...heard].sort());
 
-  test("keeps the fallback and completes", () => {
-    expect(main(rendered.html)).toMatch(scenario.main);
-    expect(rendered.completed).toBe(true);
-  });
+  describe.each(contained)("%s", (_, scenario) => {
+    let rendered: Rendered;
+    beforeAll(async () => {
+      rendered = await stream(scenario.code, consume, scenario.map);
+    });
 
-  test("sends the record as a plain Error and hears each error once", () => {
-    expect(errorRecords(rendered.html)).toEqual(scenario.records);
-    expect(rendered.heard).toEqual(scenario.heard);
-  });
-});
+    test("keeps the fallback and completes", () => {
+      expect(main(rendered.html)).toMatch(scenario.main);
+      expect(rendered.completed).toBe(true);
+      if (consume === "response") expect(rendered.status).toBe(200);
+    });
 
-test("dev tier: createSSRResponse answers 200 with the fallback", async () => {
-  const event = createRequestEvent(new Request("https://example.com/"));
-  let status: number | undefined;
-  let result: { state: string; html: string } | undefined;
-  const escaped = await watchEscapes(async () => {
-    result = await settle(
-      provideRequestEvent(event, async () => {
-        const response = await createSSRResponse(
-          renderToStream(
-            () => {
-              const data = createMemo(() => Promise.reject(unserializable()), {
-                deferStream: true
-              });
-              return (
-                <main>
-                  <Errored fallback={<p>fallback</p>}>{data()}</Errored>
-                </main>
-              );
-            },
-            { onError: () => {} }
-          ),
-          event
-        );
-        status = response.status;
-        return response.text();
-      })
-    );
+    test("sends the record as a plain Error and hears each error once", () => {
+      expect(errorRecords(rendered.html)).toEqual(scenario.records);
+      expect(rejections(rendered.html)).toEqual(scenario.rejected ?? []);
+      expect(order(rendered.heard)).toEqual(order(scenario.heard));
+    });
   });
-  expect(escaped).toEqual([]);
-  expect(status).toBe(200);
-  expect(main(result!.html)).toBe("<main><p>fallback</p></main>");
 });
 
 // After the first flush a failed record used to be omitted (#4227); the
@@ -338,27 +466,91 @@ describe("unchanged", () => {
     expect(heard).toEqual(["render/failed"]);
   });
 
-  // The async road (#4659): seroval meets the rejection after the write
-  // returned, and a pre-flush failure there fails the render, contained or
-  // not. Only the hand-over of a record changes here.
-  test("a streamed rejection with an unserializable reason fails before the first flush", async () => {
-    const { html, completed, heard } = await stream(() => {
-      const data = createMemo(() => Promise.reject(unserializable()));
-      return (
-        <main>
-          <Errored fallback={<p>fallback</p>}>{data()}</Errored>
-        </main>
+  // What a component hands the writer no boundary reads, so nothing contains
+  // its rejection: an `<Errored>` around the component caught nothing.
+  describe.each(consumers)("a rejection nothing contains, %s", consume => {
+    const fails = ({ html, completed, heard, status }: Rendered) => {
+      expect(html).toBe("");
+      expect(completed).toBe(false);
+      expect(heard).toEqual(["render/serialize"]);
+      if (consume === "response") expect(status).toBe(500);
+    };
+
+    test.each([
+      ["a deferStream write", { deferStream: true }],
+      ["a streamed write", undefined]
+    ] as const)("%s fails the render", async (_, options) => {
+      fails(
+        await stream(() => {
+          getHydrationWriter()!.write("lib:rejected", Promise.reject(unserializable()), options);
+          return <main>page</main>;
+        }, consume)
       );
     });
+
+    test("a deferStream write under an <Errored> that does not read it fails the render", async () => {
+      const rendered = await stream(() => {
+        const Writes = () => {
+          getHydrationWriter()!.write("lib:rejected", Promise.reject(unserializable()), {
+            deferStream: true
+          });
+          return <i>written</i>;
+        };
+        return (
+          <main>
+            <Errored fallback={<p>fallback</p>}>
+              <Writes />
+            </Errored>
+          </main>
+        );
+      }, consume);
+      fails(rendered);
+    });
+  });
+});
+
+// A piped render meets the rejection before the shell pulls the root holes
+// again, which is where a boundary at the root contains it. The failure waits
+// for that pull and no longer than that.
+describe("dev tier, a rejection met ahead of its boundary", () => {
+  test.each([true, false])(
+    "contained (deferStream=%s): a slow sibling at the root does not fail it",
+    async deferStream => {
+      const { html, completed, heard } = await stream(() => {
+        const slow = createMemo(() => new Promise<string>(r => setTimeout(() => r("slow"), 30)));
+        const data = createMemo(() => Promise.reject(unserializable()), { deferStream });
+        return (
+          <main>
+            <h1>{slow()}</h1>
+            <Errored fallback={<p>fallback</p>}>{data()}</Errored>
+          </main>
+        );
+      }, "pipe");
+      expect(main(html)).toContain("slow");
+      expect(main(html)).toContain("<p>fallback</p>");
+      expect(completed).toBe(true);
+      expect([...heard].sort()).toEqual(["render/fallback", "render/serialize"]);
+    }
+  );
+
+  test("nothing contains it: a sibling that never settles does not hold the render open", async () => {
+    const { html, completed, heard } = await stream(() => {
+      const writer = getHydrationWriter()!;
+      writer.write("lib:rejected", Promise.reject(unserializable()), { deferStream: true });
+      writer.write("lib:pending", new Promise(() => {}), { deferStream: true });
+      return <main>page</main>;
+    }, "pipe");
     expect(html).toBe("");
     expect(completed).toBe(false);
-    expect(heard[0]).toBe("render/fallback");
-    expect(heard).toContain("render/serialize");
+    expect(heard).toEqual(["render/serialize"]);
   });
 });
 
 const FIXTURE = resolve(import.meta.dirname, "stream-contained-error-serialize-4709.fixture.mjs");
-type Artifacts = { isDev: boolean } & Record<"plain" | "safe" | "mapped", Rendered>;
+type Artifacts = { isDev: boolean } & Record<
+  "plain" | "safe" | "mapped" | "streamed" | "uncaught",
+  Rendered
+>;
 function artifacts(conditions: string[]): Artifacts {
   return JSON.parse(
     execFileSync(process.execPath, [...conditions.map(c => `--conditions=${c}`), FIXTURE], {
@@ -389,7 +581,9 @@ describe.each([
     // Branded safe: the original reaches the wire in every tier.
     ["markSafeError", "safe", "visible", 1],
     // The hook's mapping is the boundary's record in every tier.
-    ["a hook's mapping", "mapped", "mapped", 1]
+    ["a hook's mapping", "mapped", "mapped", 1],
+    // A streamed source: its promise rejects with the record's replacement.
+    ["markSafeError, streamed", "streamed", "visible", 1]
   ] as const)("%s", (_, key, wire, failures) => {
     test("keeps the fallback and completes", () => {
       expect(results[key].completed).toBe(true);
@@ -397,13 +591,20 @@ describe.each([
     });
 
     test("every record the client reads is a plain Error, the failure heard once", () => {
-      const records = errorRecords(results[key].html);
+      const records = [...errorRecords(results[key].html), ...rejections(results[key].html)];
       expect(records.map(r => r.message)).toContain(wire);
       expect(records.every(r => r.keys.length === 0)).toBe(true);
+      expect(rejections(results[key].html)).toEqual(key === "streamed" ? [plain(wire)] : []);
       expect(results[key].heard).toEqual([
         "render/fallback",
         ...Array(failures).fill("render/serialize")
       ]);
     });
+  });
+
+  test("a rejection nothing contains fails the render", () => {
+    expect(results.uncaught.html).toBe("");
+    expect(results.uncaught.completed).toBe(false);
+    expect(results.uncaught.heard).toEqual(["render/serialize"]);
   });
 });

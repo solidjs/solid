@@ -8,6 +8,7 @@ import {
   Errored,
   createComponent,
   escape,
+  getHydrationWriter,
   isDev,
   markSafeError,
   renderToStream,
@@ -18,22 +19,28 @@ import { createMemo } from "solid-js";
 const unserializable = message => Object.assign(new Error(message), { fn() {} });
 
 // <main><Errored fallback={err => <p>{err().message}</p>}>{data()}</Errored></main>
-// with `data` a deferStream memo that rejects with `error()`.
-function render(error, map) {
+// with `data` a memo that rejects with `error()`, deferStream unless `streamed`.
+const contained = (error, streamed) => () => {
+  const data = createMemo(() => Promise.reject(error()), { deferStream: !streamed });
+  return ssr(
+    ["<main>", "</main>"],
+    createComponent(Errored, {
+      fallback: err => ssr(['<p class="fallback">', "</p>"], escape(String(err().message))),
+      get children() {
+        return data();
+      }
+    })
+  );
+};
+// <main>page</main>, the rejection handed to the writer: no boundary reads it.
+const written = error => () => {
+  getHydrationWriter().write("lib:rejected", Promise.reject(error()), { deferStream: true });
+  return ssr("<main>page</main>");
+};
+
+function render(App, map) {
   const heard = [];
   let completed = false;
-  const App = () => {
-    const data = createMemo(() => Promise.reject(error()), { deferStream: true });
-    return ssr(
-      ["<main>", "</main>"],
-      createComponent(Errored, {
-        fallback: err => ssr(['<p class="fallback">', "</p>"], escape(String(err().message))),
-        get children() {
-          return data();
-        }
-      })
-    );
-  };
   return Promise.race([
     renderToStream(App, {
       onError(e, context) {
@@ -50,12 +57,16 @@ function render(error, map) {
 
 const results = { isDev };
 // The default policy: the original in dev, the generic Error in production.
-results.plain = await render(() => unserializable("x"));
+results.plain = await render(contained(() => unserializable("x")));
 // Branded safe: the original reaches the wire in every tier.
-results.safe = await render(() => markSafeError(unserializable("visible")));
+results.safe = await render(contained(() => markSafeError(unserializable("visible"))));
 // The hook's mapping is the boundary's wire in every tier.
 results.mapped = await render(
-  () => new Error("x"),
+  contained(() => new Error("x")),
   (_, context) => (context.handling === "fallback" ? unserializable("mapped") : undefined)
 );
+// The same error from a streamed source: seroval meets it after the write.
+results.streamed = await render(contained(() => markSafeError(unserializable("visible")), true));
+// Nothing contains a rejection handed to the writer.
+results.uncaught = await render(written(() => markSafeError(unserializable("visible"))));
 process.stdout.write(JSON.stringify(results));
