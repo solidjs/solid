@@ -1384,7 +1384,7 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
 
 function updateComputation(node: Computation<any>) {
   if (!node.fn) return;
-  cleanNode(node);
+  cleanNode(node, true);
   const time = ExecCount;
   runComputation(
     node,
@@ -1704,7 +1704,14 @@ function markDownstream(node: Memo<any>) {
   }
 }
 
-function cleanNode(node: Owner) {
+function releaseTransitionSource(node: SignalState<any> | Memo<any> | Owner) {
+  if (Transition && Transition.sources.has(node as SignalState<any>)) {
+    Transition.sources.delete(node as SignalState<any>);
+    delete (node as SignalState<any>).tValue;
+  }
+}
+
+function cleanNode(node: Owner, recompute?: boolean) {
   let i;
   if ((node as Computation<any>).sources) {
     while ((node as Computation<any>).sources!.length) {
@@ -1720,6 +1727,9 @@ function cleanNode(node: Owner) {
           source.observerSlots![index] = s;
         }
       }
+      // Drop unobserved transition copies so removed store leaves do not
+      // accumulate on a long-lived pending Suspense transition (#4728).
+      if (!recompute && (!obs || !obs.length) && Transition) releaseTransitionSource(source);
     }
   }
 
@@ -1734,6 +1744,10 @@ function cleanNode(node: Owner) {
     for (i = node.owned.length - 1; i >= 0; i--) cleanNode(node.owned[i]);
     node.owned = null;
   }
+  // Permanent disposal must drop Transition.sources entries. Recompute must not:
+  // when the transition is paused (!running), cleanNode skips the pure/reset
+  // branch above and would otherwise clear tValue before runComputation (#4728).
+  if (!recompute) releaseTransitionSource(node);
 
   if (node.cleanups) {
     for (i = node.cleanups.length - 1; i >= 0; i--) node.cleanups[i]();
@@ -1748,6 +1762,7 @@ function reset(node: Computation<any>, top?: boolean) {
   if (!top) {
     node.tState = 0;
     Transition!.disposed.add(node);
+    releaseTransitionSource(node);
   }
   if (node.owned) {
     for (let i = 0; i < node.owned.length; i++) reset(node.owned[i]);
