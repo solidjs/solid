@@ -1417,11 +1417,11 @@ function runComputation(node: Computation<any>, value: any, time: number) {
     if (node.pure) {
       if (Transition && Transition.running) {
         node.tState = STALE;
-        (node as Memo<any>).tOwned && (node as Memo<any>).tOwned!.forEach(cleanNode);
+        (node as Memo<any>).tOwned && (node as Memo<any>).tOwned!.forEach(n => cleanNode(n));
         (node as Memo<any>).tOwned = undefined;
       } else {
         node.state = STALE;
-        node.owned && node.owned.forEach(cleanNode);
+        node.owned && node.owned.forEach(n => cleanNode(n));
         node.owned = null;
       }
     }
