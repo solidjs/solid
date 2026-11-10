@@ -2193,7 +2193,9 @@ export function renderToStream(code, options = {}) {
     // The live sink wrapper (post-shell) is handed to the failure
     // completion below; pre-shell there is none yet.
     const sink = writable;
-    buffer = { write() {} };
+    // `pipe` flushes right after its first write, and that write can be what
+    // abandons the render (#4745).
+    buffer = { write() {}, flush() {} };
     writable = { end() {} };
     // The dispose contains a throwing `onCleanup` itself (#4029, #4193).
     if (dispose) {
