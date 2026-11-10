@@ -1,11 +1,13 @@
 import { memo as _$memo } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
+import { ssrAttribute as _$ssrAttribute } from "r-server";
 var _tmpl$ = ["<div>", "</div>"];
 var _tmpl$2 = "<div>Output</div>";
-var _tmpl$3 = "<span>s</span>";
-var _tmpl$4 = "<span>a</span>";
-var _tmpl$5 = "<span>b</span>";
+var _tmpl$3 = ["<div", "></div>"];
+var _tmpl$4 = "<span>s</span>";
+var _tmpl$5 = "<span>a</span>";
+var _tmpl$6 = "<span>b</span>";
 var _v$ = _$escape(simple);
 const template1 = _$ssr(_tmpl$, _v$);
 var _v$2 = () => {
@@ -389,9 +391,9 @@ var _v$32 = cond ? _$escape(_$memo(() => {
 	return state.b;
 }));
 const template45 = _$ssr(_tmpl$, _v$32);
-var _v$33 = cond && _$ssr(_tmpl$3);
+var _v$33 = cond && _$ssr(_tmpl$4);
 const template46 = _$ssr(_tmpl$, _v$33);
-var _v$34 = cond ? _$ssr(_tmpl$4) : _$ssr(_tmpl$5);
+var _v$34 = cond ? _$ssr(_tmpl$5) : _$ssr(_tmpl$6);
 const template47 = _$ssr(_tmpl$, _v$34);
 var _v$35 = cond && _$escape(Comp({}));
 // component inside fragment must keep the outer _$escape wrap because a
@@ -414,3 +416,61 @@ const template77a = _$memo(() => {
 		return !state.hidden;
 	})() && good.good;
 });
+var _v$37 = () => {
+	return state.open ? "Close" : "&lt;b>Open&lt;/b>";
+};
+// string literals in a branch are the hole's value, so they escape at compile
+// time like a literal child does (#4710)
+const template78 = _$ssr(_tmpl$, _v$37);
+var _v$38 = () => {
+	return state.open && "&lt;i>";
+};
+const template79 = _$ssr(_tmpl$, _v$38);
+var _v$39 = () => {
+	return state.open ? "&lt;i>" : 0;
+};
+const template80 = _$ssr(_tmpl$, _v$39);
+var _v$40 = (() => {
+	var _c$18 = _$memo(() => {
+		return !!state.a;
+	});
+	return () => {
+		return _c$18() ? 0 : state.b ? 1 : "&lt;i>";
+	};
+})();
+const template81 = _$ssr(_tmpl$, _v$40);
+var _v$41 = () => "&lt;i>";
+const template82 = _$ssr(_tmpl$, _v$41);
+var _v$42 = () => {
+	return _$ssrAttribute("title", state.open ? "&quot;&lt;i>" : _$escape(undefined, true));
+};
+const template83 = _$ssr(_tmpl$3, _v$42);
+// `ssrAttribute` stringifies a function value's source, so the literals in its
+// branches stay as written
+const template84 = _$ssr(_tmpl$3, _$ssrAttribute("title", () => state.open ? "\"<" : "b"));
+const template85 = _$ssr(_tmpl$3, _$ssrAttribute("title", () => state.open && "\"<"));
+var _v$43 = () => {
+	return (() => {
+		if (state.open) return "&lt;i>";
+		return "&lt;b>";
+	})();
+};
+// every `return` of a function child is the hole's value, at any depth
+const template86 = _$ssr(_tmpl$, _v$43);
+var _v$44 = () => {
+	return (() => {
+		if (state.open) return _$escape(state.text);
+		return "&lt;b>";
+	})();
+};
+const template87 = _$ssr(_tmpl$, _v$44);
+var _v$45 = () => {
+	switch (state.kind) {
+		case 1: return "&lt;i>";
+		default: {
+			const inner = () => "<u>";
+			return _$escape(inner);
+		}
+	}
+};
+const template88 = _$ssr(_tmpl$, _v$45);
