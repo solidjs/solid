@@ -44,6 +44,7 @@ import {
   CONFIG_OVERRIDE,
   CONFIG_SLOT_NODE,
   CONFIG_STAGED,
+  CONFIG_STAGED_ERROR,
   CONFIG_VERDICT,
   EFFECT_RENDER,
   NOT_PENDING,
@@ -549,7 +550,10 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
       // it: an input's truth equal to its committed value is silent).
       x._transaction = null;
       if (!effect) {
+        // A staged error is a staging too: void with it, or the commit below
+        // would publish the empty slot as the node's error (#4748).
         n._pendingValue = NOT_PENDING;
+        n._config &= ~CONFIG_STAGED_ERROR;
         if ((n as Computed<any>)._statusFlags & STATUS_PENDING) {
           x._inFlight = null;
           enqueueSub(n as Computed<any>);
