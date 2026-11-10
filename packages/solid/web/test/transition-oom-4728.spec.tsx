@@ -7,6 +7,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
   createSignal,
   createResource,
+  createComponent,
   enableScheduling,
   useTransition,
   startTransition,
@@ -40,16 +41,21 @@ describe("#4728 pending transition store retention", () => {
               resolveResource = resolve;
             })
       );
-      return (
-        <>
-          {resource()}
-          <For each={state.data}>
-            {row => (
-              <For each={["symbol", "value"]}>{column => () => (row as any)[column]}</For>
-            )}
-          </For>
-        </>
-      );
+      // Use createComponent so For children stay typed as JSX.Element (not accessors).
+      return [
+        resource as unknown as string,
+        createComponent(For as any, {
+          get each() {
+            resource();
+            return state.data;
+          },
+          children: (row: { symbol: string; value: number }) =>
+            createComponent(For as any, {
+              each: ["symbol", "value"],
+              children: (column: string) => (row as Record<string, string | number>)[column]
+            })
+        })
+      ];
     }
 
     const dispose = render(() => {
