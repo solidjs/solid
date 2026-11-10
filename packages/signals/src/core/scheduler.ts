@@ -199,7 +199,7 @@ export let holdWorkHook: ((n: Computed<any>, source: Computed<any>) => unknown) 
 /** D-41's staged-error mark (verdict.ts `stageMark`): the settle walk's
  * reached node `n` carries staged error source `el`'s staging. */
 export let stageMarkHook: ((n: Computed<any>, el: Computed<any>) => void) | null = null;
-/** #4417 (verdict.ts `keepReaders`); #4574 (verdict.ts `attachWaits`). */
+/** #4417 (verdict.ts `keepReaders`); a landing's held re-derivation run (verdict.ts `attachWaits`). */
 export let keepReadersHook: ((el: Computed<any>) => void) | null = null;
 export let attachHook: ((node: Computed<any>) => boolean) | null = null;
 /** #4544 (verdict.ts). Null without the verdict engine. */
@@ -1008,9 +1008,9 @@ export class GlobalQueue implements IQueue {
     const joined = flushTransaction;
     flushTransaction = null;
     // The frame's verdict is in: the guesses written since the last seam
-    // open their lane under the frame's transaction (a lane's own flush
-    // parents a nested lane to it), or are dropped — the frame commits, and
-    // there is nothing to be optimistic over. Their passes run next round;
+    // open their lane under the frame's transaction, or are dropped — the
+    // frame commits, and there is nothing to be optimistic over. (A lane is
+    // never the flush's transaction, D-37: lanes do not nest.) Their passes run next round;
     // a parent landing at this very seam ends the lane before they do.
     applyGuessesHook?.(joined);
     // A lane's own flush (its flight landing, its reveal) parks nothing: the

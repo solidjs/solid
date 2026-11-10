@@ -221,9 +221,9 @@ export function inFlight(n: Signal<any>): unknown {
  * and cannot show one without the other (#3335, A15 for lanes): the two
  * lanes are linked — one reveal unit, each blocked while any is — while
  * their lifetimes stay their own (#2912: a guess reverts with its own
- * action, not with the one it shares a reader with). A nested lane reading
- * through an ancestor's guess stays its own (the screen plus its own
- * guesses). */
+ * action, not with the one it shares a reader with). (Lanes never nest: a
+ * lane is never the flush's transaction, D-37, so no guess is parented to
+ * one.) */
 export function enterLane(l: Transaction, c: Computed<any>): void {
   const f = (c._flags |= REACTIVE_LANE_READ),
     p = passLane;
@@ -274,19 +274,14 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
       if (f & REACTIVE_STAGED_READ && (guessed || verdict || f & REACTIVE_JOINED)) stagedRead(c);
     }
   } else if (sameLane(p, l)) setPassLane(l);
-  else if (!under(p, l)) {
-    if (!under(l, p)) linkLanes(p, l);
+  else {
+    linkLanes(p, l);
     setPassLane(l);
   }
 }
 /** Is `l` a verdict lane (its parent's `_verdict`)? False for none. */
 function isVerdict(l: Transaction | null | undefined): boolean {
   return l?._parent?._verdict === l;
-}
-/** Is `l` nested under `a` (an ancestor lane)? */
-function under(l: Transaction, a: Transaction): boolean {
-  for (let t = l._parent; t !== null && t._lane; t = t._parent) if (t === a) return true;
-  return false;
 }
 /** One link group (a shared array) for both lanes' groups. */
 function linkLanes(a: Transaction, b: Transaction): void {
@@ -967,30 +962,6 @@ let judged = 0;
 export function markJudged(): void {
   judged = lanes.length;
 }
-/** `t` is parked by `r`'s pass alone: each node keeping it — `t`'s own, or
- * a lane's under it — is `r` itself (its flight, in the verdict lane) or a
- * render effect pending on `r` only: the frame observing the lane work that
- * read its staging. Anything else (an open action, a guess's flight,
- * another flight) holds it on its own. */
-function heldBy(t: Transaction, r: Computed<any>): boolean {
-  if (t._open !== 0 || (t._lane && linkBlocked(t))) return false;
-  for (let k = -1, u = t; u; u = lanes[++k])
-    if (u === t || resolveTx(u._parent!) === t) {
-      if (u !== t && guessFlights(u)) return false;
-      for (let i = 0; i < u._nodes.length; i++) {
-        const n = u._nodes[i] as Computed<any>;
-        if (
-          n === r ||
-          !(n._statusFlags & STATUS_PENDING) ||
-          (n._x!._transaction !== null && txOf(n) !== u)
-        )
-          continue;
-        const s = n._x!._pendingSources;
-        if ((n as any)._type !== EFFECT_RENDER || s?.size !== 1 || !s.has(r)) return false;
-      }
-    }
-  return true;
-}
 /** The effects that derive plainly from a landing this round that
  * re-derives a stale reader (A15) reading it as committed: its held runs
  * wait for the re-derivation (`land`), and these runs are that frame too —
@@ -1066,11 +1037,7 @@ const laneSeams = (t: Transaction | null): void => {
       // if the frame stays parked: a transaction landing at this seam makes
       // what it read the screen (one run). The frame is the transaction that
       // holds what it read (`t`, this flush's — not always the lane's parent:
-      // a landing that reached a frame held elsewhere joined that one). Nor
-      // when only this pass keeps it parked (`heldBy`): the frame lands with
-      // the pass's answer, so what the pass read is the screen when anything
-      // shows it — re-derived on the committed world, it would ask a question
-      // already asked, over inputs the landing replaces. A reader a
+      // a landing that reached a frame held elsewhere joined that one). A reader a
       // transaction holds that read none of its stagings (a verdict reader
       // that probed only a flight, held as the frame's pending observer or
       // its staged derivation) has nothing to re-derive: its re-run
@@ -1100,7 +1067,7 @@ const laneSeams = (t: Transaction | null): void => {
           ? (isVerdict(l) &&
               (r._config & CONFIG_VERDICT
                 ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
-                : !blocked(t!) || heldBy(t!, r))) ||
+                : !blocked(t!))) ||
             (l._links || [l]).some(u => u.over && liveTx(u.over) == t)
           : l &&
             !(
