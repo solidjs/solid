@@ -358,8 +358,16 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   and never re-staged (#4690's whole cause here). Every carrier arm sits
   behind the optimistic hooks (`read`, `has`, `descriptor`, `frame`,
   `covers`, `judge`), and the carrier list lives in the optimistic module,
-  not on the target: a plain store pays a null check on the hooks where it
-  already paid one, and nothing else (review of #4729: the first cut had
+  not on the target: a plain store pays `optHooks !== null && t.o` on its read
+  path and nothing else — the hook's null check first, then one field
+  (`t.o`, an optimistic family's target, set at creation), never a call.
+  Both halves matter: with the hooks installed by one
+  `createOptimisticStore` anywhere, a call per read on every plain store
+  showed on CodSpeed as −6 to −11% on the store microbenches (review of
+  #4729, second round); and in a bundle with no optimistic store the
+  hook is a `let` nothing assigns, so the minifier folds the null check
+  to false and deletes the arm — gating on the field alone kept 0.85 KB
+  minified of carrier arms in every plain-store bundle (review of #4729: the first cut had
   the arms inline in store.ts, +206 B brotli on `+ createStore`; behind the
   hooks that scenario falls 174 B, since the LaneView and chained-link
   code it used to carry is gone). Core gained two hook calls, `_slotDirty`

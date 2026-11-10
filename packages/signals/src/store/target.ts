@@ -98,6 +98,10 @@ export interface StoreTarget {
   /** The proxy for this target (stable outward identity). */
   px: any;
   /** Sticky descendants flag (§6d). */
+  /** An optimistic family's target (S2): the guess carrier arms apply
+   * (store.ts reads the hooks behind this one field test — a plain store's
+   * read path pays the test and nothing else). Set once at creation. */
+  o: boolean;
   d: boolean;
   /** Sticky accessors-seen flag: an own accessor property was observed on
    * this target (first-read scan, defineProperty, or clone scan). Gates the
