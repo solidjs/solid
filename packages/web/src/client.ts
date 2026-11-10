@@ -1464,6 +1464,13 @@ let hydrationRt = null;
 // The `<select value>` reapply hook (`writeSelectValue`, below); declared
 // ahead of its readers so a bundle with no select binding folds the guard.
 let selectInsert = null;
+// The `host` option's tagging (`tagHost`, below); only Portal installs it, so
+// a bundle without a Portal folds the guards in `insert`.
+let hostRt = null;
+/** Integration plumbing for Portal. @internal */
+export function installHostTagging() {
+  hostRt = tagHost;
+}
 export function installHydrationRuntime() {
   hydrationRt = {
     // insert(): claim the parent's childNodes as the initial current on
@@ -1631,7 +1638,7 @@ export function insert(parent, accessor, marker, initial, options) {
     accessor = normalize(accessor, initial, multi, true);
     if (typeof accessor !== "function") {
       insertExpression(parent, accessor, initial, marker);
-      host && tagHost(accessor, host);
+      hostRt !== null && host && hostRt(accessor, host);
       return;
     }
   }
@@ -1676,7 +1683,7 @@ export function insert(parent, accessor, marker, initial, options) {
         ),
         inner => {
           current = insertExpression(parent, inner, current, marker);
-          host && tagHost(current, host);
+          hostRt !== null && host && hostRt(current, host);
         },
         "_SOLID_DEV_" ? { ...innerOptions, _wide: true } : innerOptions
       );
@@ -1686,7 +1693,7 @@ export function insert(parent, accessor, marker, initial, options) {
     value => {
       if (value === INNER_OWNED) return;
       current = insertExpression(parent, value, current, marker);
-      host && tagHost(current, host);
+      hostRt !== null && host && hostRt(current, host);
     },
     // Only the OUTER effect takes the scope — the inner unwrapping effect
     // stays transparent so content ids keep a fixed depth per hole.
