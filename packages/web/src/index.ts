@@ -1,6 +1,7 @@
 import {
   getNextElement,
   insert,
+  installHostTagging,
   runHydrationEvents,
   spread,
   SVGElements,
@@ -176,6 +177,7 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
       // would accumulate. The owner parenting preserves context.
       const dispose = runWithOwner(owner, () =>
         createRoot(d => {
+          installHostTagging();
           insert(m, c, endMarker, undefined, { host: () => treeMarker.parentNode });
           return d;
         })
