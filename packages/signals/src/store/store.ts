@@ -1823,9 +1823,26 @@ function serveDataKey(
       } else v = nv;
     }
   }
-  return serveKeyValue(target, key, v, chained, node);
+  // The tail is `serveKeyValue`, inlined: this is every store read's path,
+  // and a call here showed on CodSpeed as −6 to −9% on the store reads
+  // (#4729, third round); the optimistic hook's carrier read takes the
+  // function.
+  if (target.s) return serveShallow(target, key, v);
+  if (target.ch && !chained && v !== null && typeof v === "object" && v[$TARGET]?.px !== v)
+    v = resolveChainedRaw(target, key, v);
+  if (node !== undefined) {
+    if ((node as any).pxv === v && v !== undefined) return draftServe(target, (node as any).px);
+    if (!isWrappable(v)) return v;
+    const p = wrap(v, target, key as any);
+    (node as any).px = p;
+    (node as any).pxv = v;
+    return draftServe(target, p);
+  }
+  if (!isWrappable(v)) return v;
+  return draftServe(target, wrap(v, target, key as any));
 }
-/** The value of `key` as the reader gets it: shallow-served, a chained raw
+/** The value of `key` as the reader gets it (the tail of `serveDataKey`, for
+ * the optimistic hook's carrier read): shallow-served, a chained raw
  * resolved to the inner store's (#3767, #3859), a wrappable wrapped (cached
  * on the key's node by value identity). */
 export function serveKeyValue(
