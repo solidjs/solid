@@ -2606,9 +2606,6 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
       const touched = [...pendingNotify];
       pendingNotify.clear();
       for (const t of touched) notifyWrites(t);
-      // Same-key list rewrites deferred as row leaf guesses (#4737): after
-      // every notifyWrites returns, still in the action's lane.
-      optHooks?.flushWrites();
       // A direct commit (a projection's creation run) folds at the setter's
       // exit, unqueued: the backing is the pre-batch one (nothing swapped).
       if (directCommit) for (const t of touched) if (t.pb !== null) foldTarget(t, t.v);
@@ -2619,13 +2616,9 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
   // side effects before its invalid-cleanup throw) and before adoption.
   if (__DEV__ && guard) devGuardStoreSetterResult(result);
   if (result !== undefined && result !== proxy && isWrappable(result)) {
-    // A returned replacement: on an optimistic family a user's is itself an
-    // optimistic edit — diffed against the view as guesses (`next` parity);
-    // otherwise it is adopted as the incoming truth.
-    if (optHooks !== null && guard && target.o && !writeOverride) {
-      optHooks.writes(target, unwrapValue(result));
-      optHooks.flushWrites();
-    } else adoptPB(target, unwrapValue(result));
+    // A returned replacement off the optimistic path is adopted as the
+    // incoming truth.
+    adoptPB(target, unwrapValue(result));
   }
   // A34 (3), #3612 — the derived store's twin of `setMemo`: a user write to
   // a derivation another transaction holds is nobody's proposal; it becomes

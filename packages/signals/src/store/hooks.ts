@@ -20,9 +20,6 @@ export interface OptHooks {
   /** The setter's exit: the draft becomes guesses; returns the staging the
    * draft set aside (`null`: none). */
   writes(t: StoreTarget, pb: Record<PropertyKey, any>): Record<PropertyKey, any> | null;
-  /** After `writes` returns (outside `notifyWrites`): apply same-key list
-   * rewrites as row leaf guesses (#4737). No-op when nothing was deferred. */
-  flushWrites(): void;
   /** `src` with the lanes' values over it (`writer`: the next write's base
    * — the unflushed guesses too). */
   view(t: StoreTarget, src: Record<PropertyKey, any>, writer?: boolean): Record<PropertyKey, any>;

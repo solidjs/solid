@@ -168,30 +168,6 @@ function carrierValue(frame: Record<PropertyKey, any>, key: PropertyKey): any {
  * restored when the setter's writes become guesses (`writes`). */
 const optStaged: Map<StoreTarget, Record<PropertyKey, any>> = new Map();
 
-/** Same-key list content edits deferred out of `writes` / `notifyWrites`
- * (fam, row, neu) — flushed as row leaf guesses after notifyWrites returns. */
-const pendingLeafEdits: any[] = [];
-
-/** Apply deferred same-key list rewrites as field-equivalent row guesses. */
-function flushOptimisticWrites(): void {
-  if (pendingLeafEdits.length === 0) return;
-  const edits = pendingLeafEdits.splice(0);
-  for (let i = 0; i < edits.length; i += 3) {
-    const fam = edits[i] as StoreFamily;
-    const row = edits[i + 1];
-    const neu = edits[i + 2] as Record<PropertyKey, any>;
-    const raw = unwrapValue(row);
-    const rt = lookupTarget(raw, fam) ?? (row as any)?.[$TARGET];
-    if (rt === undefined) continue;
-    const base = { ...unwrapValue(writerBacking(rt)) } as Record<PropertyKey, any>;
-    for (const k of Reflect.ownKeys(neu)) {
-      if (k === $OWNER) continue;
-      base[k as any] = (neu as any)[k];
-    }
-    notifyOptimisticWrites(rt, base);
-  }
-}
-
 /** The view the setter composes on (`writer`): the committed frame — a
  * chained backing resolved through the inner store's — with the lane's
  * value and the tick's own guess over it; `plain`: the committed frame
@@ -370,25 +346,9 @@ export function notifyOptimisticWrites(
           // of it: the same object wraps as the same proxy (a list keeps its
           // row identities across a structural guess, deep-chained-view).
           pb[key as any] = previous;
-        } else if (isArr) {
-          const keyFn = t._fam!.key;
-          const ok =
-            typeof keyFn === "function" && isWrappable(ov) ? keyFn(ov) : undefined;
-          const nk =
-            typeof keyFn === "function" && isWrappable(nv) ? keyFn(nv) : undefined;
-          // Same-key content edit (field-equivalent rewrite / `return d.map`):
-          // defer a leaf guess on the row (#4737 / #4724). Nested writes()
-          // from inside notifyWrites left the guest unread; flushWrites runs
-          // after notifyWrites returns, still in the action's lane.
-          if (typeof keyFn === "function" && ok !== undefined && ok === nk && isWrappable(ov)) {
-            pb[key as any] = previous;
-            pendingLeafEdits.push(t._fam!, previous, nv);
-          } else {
-            changed.add(key);
-            structural = true;
-          }
         } else {
           changed.add(key);
+          if (isArr) structural = true;
         }
       }
     }
@@ -831,7 +791,6 @@ installOptHooks({
   pair: pairRows,
   draft: optimisticDraft,
   writes: notifyOptimisticWrites,
-  flushWrites: flushOptimisticWrites,
   view: guessView,
   reconcile: reconcileDraft,
   sweep: sweepOverlaid,
