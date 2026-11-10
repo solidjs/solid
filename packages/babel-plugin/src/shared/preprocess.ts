@@ -1,4 +1,6 @@
 import config from "../config";
+import { getTagName, isInForeignContent } from "./utils";
+import { lowerShow } from "./lower-show";
 import type * as t from "@babel/types";
 import type { NodePath } from "@babel/traverse";
 import type { BabelHubWithMetadata, PluginPass } from "../types";
@@ -29,4 +31,16 @@ export default (path: NodePath<t.Program>, state: PluginPass) => {
       return;
     }
   }
+  // SSR `<script>`/`<style>` render raw only in HTML. Their namespace is read
+  // here, while every JSX ancestor is still in place: an outer template is
+  // lowered before the JSX inside its expressions.
+  if (merged.generate === "ssr")
+    path.traverse({
+      JSXElement(element) {
+        const tagName = getTagName(element.node);
+        if ((tagName === "script" || tagName === "style") && isInForeignContent(element))
+          (element.node as t.JSXElement & { _foreignContent?: boolean })._foreignContent = true;
+      }
+    });
+  if (merged.lowerShow ?? !merged.dev) lowerShow(path, merged);
 };

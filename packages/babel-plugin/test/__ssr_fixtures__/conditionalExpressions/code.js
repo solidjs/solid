@@ -155,3 +155,47 @@ const template49 = <div>{cond && <>hello {state.text}</>}</div>;
 // statically boolean left: memo value IS the expression value, logical form kept
 const template77 = <>{state.count > 5 && good()}</>;
 const template77a = <>{!state.hidden && good.good}</>;
+
+// string literals in a branch are the hole's value, so they escape at compile
+// time like a literal child does (#4710)
+const template78 = <div>{state.open ? "Close" : "<b>Open</b>"}</div>;
+const template79 = <div>{state.open && "<i>"}</div>;
+const template80 = <div>{state.open ? `<i>` : 0}</div>;
+const template81 = <div>{state.a ? 0 : state.b ? 1 : "<i>"}</div>;
+const template82 = <div>{() => "<i>"}</div>;
+const template83 = <div title={state.open ? '"<i>' : undefined} />;
+// `ssrAttribute` stringifies a function value's source, so the literals in its
+// branches stay as written
+const template84 = <div title={() => (state.open ? '"<' : "b")} />;
+const template85 = <div title={() => state.open && '"<'} />;
+// every `return` of a function child is the hole's value, at any depth
+const template86 = (
+  <div>
+    {(() => {
+      if (state.open) return "<i>";
+      return "<b>";
+    })()}
+  </div>
+);
+const template87 = (
+  <div>
+    {(() => {
+      if (state.open) return state.text;
+      return "<b>";
+    })()}
+  </div>
+);
+const template88 = (
+  <div>
+    {() => {
+      switch (state.kind) {
+        case 1:
+          return "<i>";
+        default: {
+          const inner = () => "<u>";
+          return inner;
+        }
+      }
+    }}
+  </div>
+);

@@ -355,7 +355,39 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   #3540 matrix's early fallback (hidden mounts do not keep the branch;
   memos never count, only render effects). 0 B on the core floor; +57 B
   brotli on the isPending/latest chunk (the list and its scan), caps raised
-  with ledger lines.
+  with ledger lines. The same day, the maintainer's table (S-58′): the row
+  held for a plain-only leaf and broke once the leaf's one grouped effect
+  also read ahead — `[latest(m2), m0()]`, or `[latest(m0), m0()]` of the
+  same node — under a hand-written gate: `<Show>` and a split leaf kept
+  the fallback, the gates attached with the committed `m0` beside the
+  ahead read. The born-held arm for a stamped mount sat inside core.ts
+  `frameRead`'s `!verdict` branch, so a mount whose own pass had opened a
+  window was a verdict reader first and served the screen (A10's pair,
+  which is a mainline leaf's rule, not a mount's); and `read`'s pending
+  arm handed such a reader to `observeFlight` the same way. Both now test
+  the stamp first: a mount a probing pass opened observes the flight on its
+  first pass whatever it read ahead, and is born held. −2 B brotli on the
+  core floor (the clause left the big condition), +7 B on the
+  isPending/latest chunk. Pins: S-58 case ′ (three variants) and
+  `web/test/display-ahead-gate-leaf-reads.spec.tsx`, the table itself.
+  Review (#4723): the new arm, ahead of the lane-over return and the
+  stale-reader path, also fired for lane work reading a held node that is
+  not pending — the guess's target under a zero-hop gate — and joined the
+  flush to the hold (D-37). The arm keeps the old lane guard (`!lane ||`
+  el pending). The row the review asked for (case ′ with the write inside
+  an action, a guess on `id`) found the same frame on `next` by another
+  path: under a guess lane the stamped mount's first pass read the lane's
+  pending node through lanes.ts `laneRead`'s render-effect arm, which
+  serves lane work the screen (A15's stale reader, D-28) — the mount
+  initialized with S-46's frame inside the lane's, revealed at the action's
+  landing, and kept it after the answer (F-1). The plain-only leaf tore the
+  same way; only the single-memo gate escaped, by re-creating its branch at
+  the landing. `laneRead` now returns NOT_PENDING for a stamped
+  uninitialized mount reading a pending node: it waits on the flight
+  (`read`'s throw) as in a mainline flush. Pins: S-58 cases ″ (the mixed
+  leaf) and ‴ (the plain-only leaf), each through `<Show>`, both
+  hand-written gates and a split leaf. 0 B on the core floor; +18 B brotli
+  on the isPending/latest chunk (guard and lane arm together).
 - 2026-11-07: **A question is asked only of the truth** (F-2's producer
   clause; F-6's limit). Prompted by GabbeV's `experiment/unified-updates`
   (its tests run against `next`, the differing screens tabled as S-51–S-56)

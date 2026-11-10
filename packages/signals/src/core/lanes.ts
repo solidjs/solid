@@ -782,7 +782,12 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
   }
   const status = (el as Computed<any>)._statusFlags;
   // An errored member's lane value predates its error; the error is the answer (#4106).
-  if (!guess && status & STATUS_ERROR) return NOT_PENDING;
+  if (!guess && status & STATUS_ERROR) {
+    // The error still belongs to this lane. A downstream memo must select
+    // the same update before read() throws, as it does for a lane value.
+    if (c !== null && tracking && !(c._config & CONFIG_CHILDREN_FORBIDDEN)) enterLane(l, c);
+    return NOT_PENDING;
+  }
   if (c === null) {
     if (__TEST__) shadowActual(SLOT_LV);
     return latestOf(el);
@@ -837,6 +842,13 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
         return el._pendingValue;
       }
       if (l._held || pending) {
+        // S-58 (D-25): a mount a probing pass opened (CONFIG_MOUNT_AHEAD) is
+        // born held on its first pass's plain read of the lane's flight, not
+        // served the screen: served, it initializes with S-46's frame, which
+        // the lane reveals at its landing. It waits on the flight instead
+        // (`read` throws the flight's NotReady below the lane arm).
+        if (pending && c._config & CONFIG_MOUNT_AHEAD && c._statusFlags & STATUS_UNINITIALIZED)
+          return NOT_PENDING;
         // Re-derived at the reveal; once per pass (the pass may also be a stale
         // reader of a transaction, REACTIVE_FRAME_READ — both reruns apply).
         // Before the throw below: a leaf that waits on a lane that has never

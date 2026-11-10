@@ -312,6 +312,7 @@ const nativeOptionKeys = new Set([
   "inlineStyles",
   "effectWrapper",
   "wrapConditionals",
+  "lowerShow",
   "memoWrapper",
   "requireImportSource",
   "validate",
@@ -354,6 +355,13 @@ function validateOptions(code, options) {
         throw new TypeError("@solidjs/compiler `wrapConditionals` option must be boolean");
       }
       nativeOptions.wrapConditionals = value;
+      continue;
+    }
+    if (key === "lowerShow") {
+      if (typeof value !== "boolean") {
+        throw new TypeError("@solidjs/compiler `lowerShow` option must be boolean");
+      }
+      nativeOptions.lowerShow = value;
       continue;
     }
     if (key === "validate") {

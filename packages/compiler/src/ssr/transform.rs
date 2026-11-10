@@ -19,7 +19,7 @@ use crate::shared::attr_plan::{AttrPlan, AttrPlanner, PlanValue};
 use crate::shared::bindings::BindingTable;
 use crate::shared::classify::{Classify, jsx_text_is_filtered, significant_children};
 use crate::shared::component_callee::{ComponentCalleeContext, component_callee_expression};
-use crate::shared::component_children::component_children_coverage_pragma_span;
+use crate::shared::component_children::coverage_pragma_span_for;
 use crate::shared::component_props::{
     ComponentPropContext, component_property, component_props_expression,
     component_spread_expression, flush_component_props,
@@ -137,10 +137,15 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     /// program top (`hoisted_var_names`) when nothing matches.
     var_scope_stack: std::vec::Vec<VarScope>,
     /// Native elements marked pass-through by `escapeExpression` (Babel's
-    /// `wontEscape`), identified by span.
-    wont_escape_spans: std::vec::Vec<Span>,
+    /// `wontEscape`), identified by node address, not span: the TSRX route
+    /// clears every span to the same empty one, so a span would mark every
+    /// element of the module.
+    wont_escape_elements: std::vec::Vec<*const JSXElement<'a>>,
     /// Native children of a spread raw-text element, whose templates keep their characters.
     raw_text_spans: std::vec::Vec<Span>,
+    /// `<script>`/`<style>` elements in SVG/MathML content, whose children
+    /// escape (see `ssr::foreign`).
+    pub(crate) foreign_raw_text_spans: std::vec::Vec<Span>,
     /// Span of the JSX root currently being lowered via the visitor entry.
     /// Babel keeps a raw `this` in the tag callee of the root element of each
     /// `transformJSX` call; only descendants use the `_self$` capture.
@@ -299,8 +304,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             statement_jsx_spans: std::vec::Vec::new(),
             component_child_depth: 0,
             var_scope_stack: std::vec::Vec::new(),
-            wont_escape_spans: std::vec::Vec::new(),
+            wont_escape_elements: std::vec::Vec::new(),
             raw_text_spans: std::vec::Vec::new(),
+            foreign_raw_text_spans: std::vec::Vec::new(),
             jsx_root_span: None,
             deferring: false,
             iife_callee_addrs: std::vec::Vec::new(),
@@ -894,7 +900,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         template: SsrTemplate<'a>,
     ) -> Result<Expression<'a>> {
         let span = element.span;
-        let wont_escape = self.wont_escape_spans.contains(&element.span);
+        let wont_escape = self
+            .wont_escape_elements
+            .contains(&(element as *const JSXElement<'a>));
         // The DOM `validate` pass (#3099) over the SSR markup, so templates
         // that only ever compile for the server (server components) are
         // checked too. Content holes are opaque — under an `<html>` root one
@@ -1285,7 +1293,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         }
 
         if let Some((children, dynamic, coverage_pragma_span)) =
-            self.component_children_expression(&element.children)?
+            self.component_children_expression(element.span.start, &element.children)?
         {
             if dynamic {
                 // Babel's getter-body inlining for dynamic children: unwrap a
@@ -1359,9 +1367,10 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     /// children value plus whether it is dynamic (getter-hosted).
     fn component_children_expression(
         &mut self,
+        element_start: u32,
         children: &[JSXChild<'a>],
     ) -> Result<Option<(Expression<'a>, bool, Option<Span>)>> {
-        let coverage_pragma_span = component_children_coverage_pragma_span(children, self.source);
+        let coverage_pragma_span = coverage_pragma_span_for(element_start, children, self.source);
         // `filterChildren`: drop empty expression containers and JSXText whose
         // raw starts with a newline and contains only whitespace.
         let filtered: std::vec::Vec<&JSXChild<'a>> = children
@@ -1587,7 +1596,8 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             // A spread on a select can carry `value` — arm conservatively.
             self.uses_ssr_select_values = true;
         }
-        let do_not_escape = tag_name == "script" || tag_name == "style";
+        let do_not_escape = (tag_name == "script" || tag_name == "style")
+            && !self.foreign_raw_text_spans.contains(&element.span);
         let (props, tail) = self.spread_props(
             &tag_name,
             &element.opening_element.attributes,
@@ -2096,8 +2106,10 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         {
             self.uses_ssr_select_values = true;
         }
-        // Babel: `<script>`/`<style>` contents render raw (`path.doNotEscape`).
-        let mut child_do_not_escape = tag_name == "script" || tag_name == "style";
+        // Babel: HTML-namespace `<script>`/`<style>` contents render raw
+        // (`path.doNotEscape`); under `<svg>`/`<math>` they escape.
+        let mut child_do_not_escape = (tag_name == "script" || tag_name == "style")
+            && !self.foreign_raw_text_spans.contains(&element.span);
         let mut template = SsrTemplate::new(format!("<{tag_name}"));
         if top_level && self.hydratable {
             let key_call = self.ssr_hydration_key_call(element.span);
@@ -3148,7 +3160,12 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         attr: bool,
         escape_literals: bool,
     ) -> Expression<'a> {
-        self.escape_expression_in_place(&mut value, attr, escape_literals);
+        let literals = if escape_literals {
+            Literals::Escape
+        } else {
+            Literals::Top
+        };
+        self.escape_expression_in_place(&mut value, attr, literals);
         value
     }
 
@@ -3156,7 +3173,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         &mut self,
         value: &mut Expression<'a>,
         attr: bool,
-        escape_literals: bool,
+        literals: Literals,
     ) {
         let escape_static = |text: &str| -> String {
             if attr {
@@ -3165,6 +3182,17 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 escape_html_text_expression(text)
             }
         };
+        // A literal in a branch is the hole's value, which `_$ssr` and
+        // `_$ssrAttribute` write as is, so branches escape literals.
+        let branch = literals.branch();
+        // A function's returns escape like branches, except for a function
+        // value in an attribute: `_$ssrAttribute` stringifies its source, so
+        // its literals stay as written at every depth.
+        let returns = match literals {
+            Literals::Top if attr => Literals::Keep,
+            _ => branch,
+        };
+        let escape_literals = literals == Literals::Escape;
         match value {
             Expression::StringLiteral(literal) => {
                 if escape_literals {
@@ -3179,7 +3207,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             Expression::NumericLiteral(_) => {}
             Expression::TemplateLiteral(template) if template.expressions.is_empty() => {
                 if escape_literals {
-                    let escaped = escape_static(&template.quasis[0].value.raw);
+                    let quasi = &template.quasis[0].value;
+                    let text = quasi.cooked.as_deref().unwrap_or(quasi.raw.as_str());
+                    let escaped = escape_static(text);
                     *value = self.ast().expression_string_literal(
                         template.span,
                         self.ast().str(&escaped),
@@ -3189,14 +3219,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             }
             Expression::ArrowFunctionExpression(arrow) => {
                 if let Some(expression) = arrow.get_expression_mut() {
-                    self.escape_expression_in_place(expression, attr, escape_literals);
+                    self.escape_expression_in_place(expression, attr, returns);
                 } else if let Some(body) = arrow.get_function_body_mut() {
-                    self.escape_body_returns(&mut body.statements, false, attr, escape_literals);
+                    self.escape_body_returns(&mut body.statements, attr, returns);
                 }
             }
             Expression::FunctionExpression(function) => {
                 if let Some(body) = function.body.as_mut() {
-                    self.escape_body_returns(&mut body.statements, false, attr, escape_literals);
+                    self.escape_body_returns(&mut body.statements, attr, returns);
                 }
             }
             Expression::TemplateLiteral(template) => {
@@ -3208,24 +3238,24 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     self.escape_template_quasis_for_attr(template);
                 }
                 for expression in template.expressions.iter_mut() {
-                    self.escape_expression_in_place(expression, attr, escape_literals);
+                    self.escape_expression_in_place(expression, attr, literals);
                 }
             }
             Expression::UnaryExpression(_) => {}
             Expression::BinaryExpression(binary) => {
-                self.escape_expression_in_place(&mut binary.left, attr, escape_literals);
-                self.escape_expression_in_place(&mut binary.right, attr, escape_literals);
+                self.escape_expression_in_place(&mut binary.left, attr, literals);
+                self.escape_expression_in_place(&mut binary.right, attr, literals);
             }
             Expression::ConditionalExpression(conditional) => {
-                self.escape_expression_in_place(&mut conditional.consequent, attr, escape_literals);
-                self.escape_expression_in_place(&mut conditional.alternate, attr, escape_literals);
+                self.escape_expression_in_place(&mut conditional.consequent, attr, branch);
+                self.escape_expression_in_place(&mut conditional.alternate, attr, branch);
             }
             // `&&` keeps the cheaper short-circuit path; `||`/`??` escape the
             // selected result as a whole (default wrap below).
             Expression::LogicalExpression(logical)
                 if logical.operator == oxc_ast::ast::LogicalOperator::And =>
             {
-                self.escape_expression_in_place(&mut logical.right, attr, escape_literals);
+                self.escape_expression_in_place(&mut logical.right, attr, branch);
             }
             Expression::CallExpression(call)
                 if matches!(
@@ -3233,27 +3263,19 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
                 ) =>
             {
+                // The call's result is the hole's value, so its returns
+                // escape like branches.
                 match &mut call.callee {
                     Expression::ArrowFunctionExpression(arrow) => {
                         if let Some(expression) = arrow.get_expression_mut() {
-                            self.escape_expression_in_place(expression, attr, escape_literals);
+                            self.escape_expression_in_place(expression, attr, branch);
                         } else if let Some(body) = arrow.get_function_body_mut() {
-                            self.escape_body_returns(
-                                &mut body.statements,
-                                false,
-                                attr,
-                                escape_literals,
-                            );
+                            self.escape_body_returns(&mut body.statements, attr, branch);
                         }
                     }
                     Expression::FunctionExpression(function) => {
                         if let Some(body) = function.body.as_mut() {
-                            self.escape_body_returns(
-                                &mut body.statements,
-                                false,
-                                attr,
-                                escape_literals,
-                            );
+                            self.escape_body_returns(&mut body.statements, attr, branch);
                         }
                     }
                     _ => unreachable!("guarded by matches!"),
@@ -3264,7 +3286,8 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             {
                 // The element compiles to a safe SSR node; the wrap would be
                 // a runtime no-op (Babel's `wontEscape`).
-                self.wont_escape_spans.push(element.span);
+                self.wont_escape_elements
+                    .push(&**element as *const JSXElement<'a>);
             }
             Expression::JSXFragment(fragment) if fragment_will_self_escape(fragment) => {}
             _ => {
@@ -3315,31 +3338,76 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         }
     }
 
-    /// Escapes the result positions of a function body: `return` arguments,
-    /// or the single expression statement of an expression-bodied arrow.
+    /// Escapes the `return` arguments of a function body at any depth,
+    /// without entering nested functions or classes.
     fn escape_body_returns(
         &mut self,
         statements: &mut ArenaVec<'a, Statement<'a>>,
-        expression_body: bool,
         attr: bool,
-        escape_literals: bool,
+        literals: Literals,
     ) {
         for statement in statements.iter_mut() {
-            match statement {
-                Statement::ReturnStatement(ret) => {
-                    if let Some(argument) = ret.argument.as_mut() {
-                        self.escape_expression_in_place(argument, attr, escape_literals);
-                    }
+            self.escape_statement_returns(statement, attr, literals);
+        }
+    }
+
+    fn escape_statement_returns(
+        &mut self,
+        statement: &mut Statement<'a>,
+        attr: bool,
+        literals: Literals,
+    ) {
+        match statement {
+            Statement::ReturnStatement(ret) => {
+                if let Some(argument) = ret.argument.as_mut() {
+                    self.escape_expression_in_place(argument, attr, literals);
                 }
-                Statement::ExpressionStatement(statement) if expression_body => {
-                    self.escape_expression_in_place(
-                        &mut statement.expression,
-                        attr,
-                        escape_literals,
-                    );
-                }
-                _ => {}
             }
+            Statement::BlockStatement(block) => {
+                self.escape_body_returns(&mut block.body, attr, literals);
+            }
+            Statement::IfStatement(statement) => {
+                self.escape_statement_returns(&mut statement.consequent, attr, literals);
+                if let Some(alternate) = statement.alternate.as_mut() {
+                    self.escape_statement_returns(alternate, attr, literals);
+                }
+            }
+            Statement::SwitchStatement(statement) => {
+                for case in statement.cases.iter_mut() {
+                    self.escape_body_returns(&mut case.consequent, attr, literals);
+                }
+            }
+            Statement::TryStatement(statement) => {
+                self.escape_body_returns(&mut statement.block.body, attr, literals);
+                if let Some(handler) = statement.handler.as_mut() {
+                    self.escape_body_returns(&mut handler.body.body, attr, literals);
+                }
+                if let Some(finalizer) = statement.finalizer.as_mut() {
+                    self.escape_body_returns(&mut finalizer.body, attr, literals);
+                }
+            }
+            Statement::ForStatement(statement) => {
+                self.escape_statement_returns(&mut statement.body, attr, literals);
+            }
+            Statement::ForInStatement(statement) => {
+                self.escape_statement_returns(&mut statement.body, attr, literals);
+            }
+            Statement::ForOfStatement(statement) => {
+                self.escape_statement_returns(&mut statement.body, attr, literals);
+            }
+            Statement::WhileStatement(statement) => {
+                self.escape_statement_returns(&mut statement.body, attr, literals);
+            }
+            Statement::DoWhileStatement(statement) => {
+                self.escape_statement_returns(&mut statement.body, attr, literals);
+            }
+            Statement::LabeledStatement(statement) => {
+                self.escape_statement_returns(&mut statement.body, attr, literals);
+            }
+            Statement::WithStatement(statement) => {
+                self.escape_statement_returns(&mut statement.body, attr, literals);
+            }
+            _ => {}
         }
     }
 
@@ -3790,6 +3858,29 @@ impl<'a> crate::shared::mode_lower::ModeLower<'a> for AstSsrTransform<'a, '_> {
 
     fn memo_wrap_dynamic_child(&mut self, span: Span, thunk: Expression<'a>) -> Expression<'a> {
         self.memo_wrap_fragment_child(span, thunk)
+    }
+}
+
+/// How `escape_expression_in_place` treats a string literal it reaches.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Literals {
+    /// The hole itself: the caller escapes a literal when it inlines it
+    /// into the template, so it stays as written here.
+    Top,
+    /// A position whose value the runtime writes as is: escape it.
+    Escape,
+    /// Inside a function value in an attribute: `_$ssrAttribute`
+    /// stringifies the function's source, so literals stay as written.
+    Keep,
+}
+
+impl Literals {
+    /// The mode for a branch of a conditional or the right side of `&&`.
+    fn branch(self) -> Literals {
+        match self {
+            Literals::Keep => Literals::Keep,
+            _ => Literals::Escape,
+        }
     }
 }
 

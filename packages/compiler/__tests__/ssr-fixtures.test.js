@@ -16,6 +16,7 @@ const fixtureParity = {
   insertChildren: "subset",
   jsxAttributeValues: "subset",
   keyedElements: "subset",
+  lowerShow: "subset",
   linkClaim: "subset",
   multipleClassAttributes: "subset",
   simpleElements: "subset",
@@ -65,6 +66,7 @@ describe("AST-native Babel SSR fixture reuse", () => {
       "jsxAttributeValues",
       "keyedElements",
       "linkClaim",
+      "lowerShow",
       "multipleClassAttributes",
       "simpleElements",
       "textInterpolation"
@@ -91,6 +93,7 @@ function supportedSubset(fixture) {
     case "jsxAttributeValues":
       return source;
     case "keyedElements":
+    case "lowerShow":
       return source;
     case "linkClaim":
       return source;
