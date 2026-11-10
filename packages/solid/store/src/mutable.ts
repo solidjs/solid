@@ -98,7 +98,7 @@ function wrap<T extends StoreNode>(value: T): T {
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
     const keys = Object.keys(value),
-      desc = Object.getOwnPropertyDescriptors(value);
+      desc: PropertyDescriptorMap = Object.getOwnPropertyDescriptors(value);
 
     const proto = Object.getPrototypeOf(value);
     const isClass =
@@ -111,8 +111,10 @@ function wrap<T extends StoreNode>(value: T): T {
       let curProto = proto;
       while (curProto != null) {
         const descriptors = Object.getOwnPropertyDescriptors(curProto);
-        keys.push(...Object.keys(descriptors));
-        Object.assign(desc, descriptors);
+        for (const prop of Object.keys(descriptors)) {
+          keys.push(prop);
+          if (!Object.prototype.hasOwnProperty.call(desc, prop)) desc[prop] = descriptors[prop];
+        }
         curProto = Object.getPrototypeOf(curProto);
       }
     }
