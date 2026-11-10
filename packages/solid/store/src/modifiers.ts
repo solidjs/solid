@@ -81,7 +81,7 @@ function applyState(
           setProperty(previous, j, temp[j]);
           applyState(target[j], previous, j, merge, key);
         }
-        if (previous.length > target.length) setProperty(previous, "length", target.length);
+        if (previous.length !== target.length) setProperty(previous, "length", target.length);
         return;
       }
 
@@ -117,7 +117,7 @@ function applyState(
         applyState(target[i], previous, i, merge, key);
       }
     }
-    if (previous.length > target.length) setProperty(previous, "length", target.length);
+    if (previous.length !== target.length) setProperty(previous, "length", target.length);
     return;
   }
 
