@@ -2387,7 +2387,6 @@ export function renderToStream(code, options = {}) {
   // The reason each serialized promise rejected with, by key: what a write
   // of that key fails on when seroval cannot encode it.
   const rejected = new Map();
-  const REJECTION = 2;
   const plainMessage = (id, value) =>
     value != null && typeof value.message === "string"
       ? value.message
@@ -2420,8 +2419,7 @@ export function renderToStream(code, options = {}) {
     }
     unclaimed.add(reason);
   };
-  // `error`: true for an `<Errored>` record, REJECTION for the reason a
-  // deferStream source rejected with.
+  // `error`: true for an `<Errored>` record.
   const handOver = (id, value, error) => {
     if (!error || options.serializer) return serializer.write(id, value);
     let plain = value !== null && typeof value === "object" && plainRecords.get(value);
@@ -2437,7 +2435,6 @@ export function renderToStream(code, options = {}) {
       plain = plainFor(id, value);
     }
     serializer.write(id, plain);
-    if (error === REJECTION) claimLater(value);
   };
   const write = (id, value, error) => {
     if (stableOrder && !dead) (parkedWrites ||= []).push([id, value, error]);
@@ -3064,7 +3061,17 @@ export function renderToStream(code, options = {}) {
       if (p && typeof p === "object" && typeof p.then === "function") {
         if (!firstFlushed && deferStream) {
           blockingPromises.add(p);
-          p.then(d => write(id, d)).catch(e => write(id, e, REJECTION));
+          // A rejection goes out as one (#4747): a rejected promise the
+          // client reads off its mark and rethrows, as it does a streamed
+          // source's, never the reason as the source's value. Its reason
+          // fails to encode, if it does, as a streamed rejection's does
+          // (`rejected`, the serializer's `onError`).
+          p.then(d => write(id, d)).catch(e => {
+            rejected.set(id, e);
+            const r = Promise.reject(e);
+            r.catch(() => {});
+            write(id, r);
+          });
           return;
         }
         // Every pending promise handed to seroval joins the abandonment

@@ -158,8 +158,10 @@ const contained: [string, Contained][] = [
         );
       },
       main: "<main><p>fallback</p></main>",
-      // The source's key and the boundary's record carry the one replacement.
-      records: [plain("x"), plain("x")],
+      // The boundary's record; the source's promise rejects with the same
+      // replacement, as a streamed source's does (#4747).
+      records: [plain("x")],
+      rejected: [plain("x")],
       heard: ["render/fallback", "render/serialize"]
     }
   ],
@@ -213,7 +215,8 @@ const contained: [string, Contained][] = [
         );
       },
       main: "<main><p>fallback</p></main>",
-      records: [plain("x"), plain("x")],
+      records: [plain("x")],
+      rejected: [plain("x")],
       heard: ["render/fallback", "render/serialize"]
     }
   ],
@@ -265,8 +268,9 @@ const contained: [string, Contained][] = [
       },
       map: mapFallback,
       main: /^<main><p>(<!--\$-->)?mapped(<!--\/-->)?<\/p><\/main>$/,
-      // The source's key carries what its channel rejected with; the record is the mapping.
-      records: [plain("x"), plain("mapped")],
+      // The source's promise rejects with what its channel rejected with; the record is the mapping.
+      records: [plain("mapped")],
+      rejected: [plain("x")],
       heard: ["render/fallback", "render/serialize"]
     }
   ],
@@ -302,7 +306,8 @@ const contained: [string, Contained][] = [
         );
       },
       main: "<main><p>inner</p></main>",
-      records: [plain("x"), plain("x")],
+      records: [plain("x")],
+      rejected: [plain("x")],
       heard: ["render/fallback", "render/serialize"]
     }
   ],
@@ -328,7 +333,8 @@ const contained: [string, Contained][] = [
         );
       },
       main: /^<main><p>(<!--\$-->)?outer(<!--\/-->)?<\/p><\/main>$/,
-      records: [plain("inner"), plain("outer"), plain("inner")],
+      records: [plain("outer"), plain("inner")],
+      rejected: [plain("inner")],
       heard: ["render/fallback", "render/fallback", "render/serialize", "render/serialize"]
     }
   ]
@@ -436,10 +442,9 @@ describe("unchanged", () => {
     expect(main(html)).toBe("<main><p>fallback</p></main>");
     expect(completed).toBe(true);
     expect(heard).toEqual(["render/fallback"]);
-    expect(errorRecords(html)).toEqual([
-      { message: "x", keys: ["code"] },
-      { message: "x", keys: ["code"] }
-    ]);
+    // The boundary's record, and the source's rejection (#4747).
+    expect(errorRecords(html)).toEqual([{ message: "x", keys: ["code"] }]);
+    expect(rejections(html)).toEqual([{ message: "x", keys: ["code"] }]);
   });
 
   test("a value that fails to serialize fails the render inside a boundary too (#4709)", async () => {
@@ -594,7 +599,9 @@ describe.each([
       const records = [...errorRecords(results[key].html), ...rejections(results[key].html)];
       expect(records.map(r => r.message)).toContain(wire);
       expect(records.every(r => r.keys.length === 0)).toBe(true);
-      expect(rejections(results[key].html)).toEqual(key === "streamed" ? [plain(wire)] : []);
+      // Every source rejects as a rejection (#4747), with what its channel
+      // rejected with: a hook's mapping is the boundary's record only.
+      expect(rejections(results[key].html)).toEqual([plain(key === "mapped" ? plainWire : wire)]);
       expect(results[key].heard).toEqual([
         "render/fallback",
         ...Array(failures).fill("render/serialize")
