@@ -2581,6 +2581,22 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
     // inside a projection derive) must keep tracking — they are the derive's
     // dependencies.
     result = fn(proxy);
+    // A returned replacement on an optimistic family is a user's edit, and
+    // its slot is the point of write (S-59): written into the draft as the
+    // keyed diff — a same-key row recurses into its own draft — so it makes
+    // the writes the field edit would, and the exit below notifies them.
+    if (
+      optHooks !== null &&
+      guard &&
+      target.o &&
+      !writeOverride &&
+      result !== undefined &&
+      result !== proxy &&
+      isWrappable(result)
+    ) {
+      optHooks.reconcile(proxy, unwrapValue(result), target._fam?.key ?? null);
+      result = undefined;
+    }
   } finally {
     writing--;
     writeScopes = prevScopes;
@@ -2600,12 +2616,9 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
   // side effects before its invalid-cleanup throw) and before adoption.
   if (__DEV__ && guard) devGuardStoreSetterResult(result);
   if (result !== undefined && result !== proxy && isWrappable(result)) {
-    // A returned replacement: on an optimistic family a user's is itself an
-    // optimistic edit — diffed against the view as guesses (`next` parity);
-    // otherwise it is adopted as the incoming truth.
-    if (optHooks !== null && guard && target.o && !writeOverride)
-      optHooks.writes(target, unwrapValue(result));
-    else adoptPB(target, unwrapValue(result));
+    // A returned replacement off the optimistic path is adopted as the
+    // incoming truth.
+    adoptPB(target, unwrapValue(result));
   }
   // A34 (3), #3612 — the derived store's twin of `setMemo`: a user write to
   // a derivation another transaction holds is nobody's proposal; it becomes

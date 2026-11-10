@@ -745,7 +745,8 @@ function foldedRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): u
  * reconciles the new object at its slot — in a keyed list, the one with
  * the row's key — exactly as a returned landing would: rows match by key,
  * a guessed row keeps its target, and its leaves are judged against their
- * guesses. Rows nothing guessed are left as the draft wrote them. */
+ * guesses. With no guess out, rows nothing guessed are left as the draft
+ * wrote them. */
 function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
   const keyFn = t._fam!.key;
   for (let c of t._fam!._overlaid ?? []) {
@@ -759,6 +760,24 @@ function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
     // A new object only: not `c`'s own, nor one another row serves
     // (pairing it would alias the two).
     if (isWrappable(nv) && !lookupTarget(nv, t._fam)) reconcileState(nv, c.px, keyFn, true);
+  }
+  // While guesses are out, every row of a keyed list keeps its target under
+  // the derive's new object with its key, not only a guessed one (#4738): a
+  // row whose guess settled can be guessed again, and the setter writes the
+  // committed row's target — a landing must not show a new one in its place.
+  if (keyFn && Array.isArray(pb) && t._fam!._overlaid?.size) {
+    let byKey: Map<unknown, any> | null = null;
+    for (const ov of committed(t) as any[]) {
+      const rt = isWrappable(ov) ? lookupTarget(ov, t._fam) : undefined;
+      if (rt === undefined) continue;
+      if (byKey === null) {
+        byKey = new Map();
+        for (const r of pb) if (isWrappable(r)) byKey.set(keyFn(r), r);
+      }
+      const k = keyFn(ov);
+      const nv = k === undefined ? undefined : byKey.get(k);
+      if (nv !== undefined && !lookupTarget(nv, t._fam)) reconcileState(nv, rt.px, keyFn, true);
+    }
   }
 }
 
