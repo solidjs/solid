@@ -2581,6 +2581,22 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
     // inside a projection derive) must keep tracking — they are the derive's
     // dependencies.
     result = fn(proxy);
+    // A returned replacement on an optimistic family is a user's edit, and
+    // its slot is the point of write (S-59): written into the draft as the
+    // keyed diff — a same-key row recurses into its own draft — so it makes
+    // the writes the field edit would, and the exit below notifies them.
+    if (
+      optHooks !== null &&
+      guard &&
+      target.o &&
+      !writeOverride &&
+      result !== undefined &&
+      result !== proxy &&
+      isWrappable(result)
+    ) {
+      optHooks.reconcile(proxy, unwrapValue(result), target._fam?.key ?? null);
+      result = undefined;
+    }
   } finally {
     writing--;
     writeScopes = prevScopes;
