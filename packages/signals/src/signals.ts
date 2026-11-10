@@ -42,7 +42,7 @@ import {
 } from "./core/scheduler.js";
 import { REACTIVE_JOINED, STATUS_ERROR, STATUS_PENDING } from "./core/constants.js";
 import { unwrapStatusError } from "./core/error.js";
-import { optimisticWrite } from "./core/lanes.js";
+import { optimisticWrite } from "./core/guesses.js";
 import { truthConfirmed, truthRead } from "./core/truth.js";
 
 /**

@@ -49,14 +49,8 @@ import {
 import { link } from "../core/graph.js";
 import { getObserver } from "../core/owner.js";
 import { devGuardOptimisticBeforeLoad } from "../core/dev.js";
-import {
-  guessedValueOf,
-  latestOf,
-  optimisticWrite,
-  pendingGuessOf,
-  setLaneValue,
-  take
-} from "../core/lanes.js";
+import { latestOf, setLaneValue } from "../core/lanes.js";
+import { guessedValueOf, optimisticWrite, pendingGuessOf, take } from "../core/guesses.js";
 import { covered } from "../core/truth.js";
 import {
   clock,
