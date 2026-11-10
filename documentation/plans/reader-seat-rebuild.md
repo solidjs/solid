@@ -1115,3 +1115,69 @@ instead of recomputing it (`entered`/`heldBy`/`under`/`inFlight` are four
 answers to "where is this lane relative to that hold"), built as a
 scratch on the split tree and judged by the same gate before anything
 is written down as a decision.
+### 9.5 Unreached-arm inventory (2026-11-10, coverage)
+
+The §9.1 audit judged three arms by stubbing them; this pass judges every
+arm at once by V8 statement coverage, merged across every suite and the
+generator, all resolving `@solidjs/signals` to the same source lines (the
+web and solid suites through a scratch config that aliases the package to
+`packages/signals/src`): the signals suite (6,758), web default (1,823),
+web hydrate (758), web server (2,023), solid (929), and the async
+generator at 50,000 cases × seeds 3289 / 7 / 91501. Tree: `next` @
+083a0bd78 with #4741 (the guess layer split). A statement no run executed
+is "unreached"; the generator added nine lines of `heldBy`'s loop and four
+boundary lines over the suites, nothing else in the engine.
+
+| module              | statements unreached / total | branches with an arm never taken |
+| ------------------- | ---------------------------: | -------------------------------: |
+| core/lanes.ts       |                     14 / 484 |                         25 / 518 |
+| core/guesses.ts     |                      3 / 149 |                          9 / 120 |
+| core/verdict.ts     |                     12 / 323 |                         32 / 444 |
+| core/scheduler.ts   |                      8 / 546 |                         21 / 410 |
+| core/core.ts        |                     17 / 776 |                      100 / 1,148 |
+| boundaries.ts       |                     16 / 357 |                         28 / 385 |
+| store/optimistic.ts |                     22 / 563 |                         51 / 537 |
+
+**Tier 1 — unreached, stubbed, battery green, measured.** The four arms
+below were replaced by their fall-through on a scratch build; the signals
+suite (6,758), the seat shadow (the same 7 classes), web default / hydrate
+/ server / rulings and solid all read exactly as on the unstubbed tree.
+Together, `scripts/size`: `+ isPending/latest` **−283 B brotli / −1,001 B
+minified**, `page: live server components` −273 / −1,018, `hydrating +
+every store primitive family` −104 / −458, floors 0. Bytes per arm are
+standalone-minified.
+
+| arm                                                                                                                 | claims                                                                                                                       | reached by                                                                                            | bytes | what the evidence says                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ----: | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `openedByLatest` / `latestOpened` (scheduler.ts), the `stagedScreen` arm it gates (core.ts 2690) and seat.ts's copy | D-22: a transaction only a `latest()` read opened                                                                            | nothing — **no caller since #4393** (81a12d894, "latest() opens no transaction for its verdict")      | ≈ 110 | dead by construction: `latestOpened` is only ever null, so the arm's `flushTransaction === latestOpened` test cannot pass inside a flush. Delete.             |
+| `bornHeldOpen` + `attachWaits`' tail (verdict.ts 908–963)                                                           | #4574 (S-46): a lane or verdict render effect inserting a subtree with a born-held open effect runs with that hold's landing | `bornHeldOpen` runs and never finds one; the push (961) never executes; **no test cites #4574**       | ≈ 700 | superseded by the mount stamp (S-46 / S-58, `CONFIG_MOUNT_AHEAD`), which seats such a mount before it inserts. A ruling: delete, or a row that reaches it.    |
+| `heldBy` (lanes.ts 971–989)                                                                                         | #4439: a frame parked by a verdict reader's own flight alone lands with its answer                                           | the loop runs (generator only); `return true` never — the function is `false`                         | ≈ 420 | the #4439 pin (`ispending-memo-parked-seam-4439`) passes without it; the seam's `!blocked(t) \|\| heldBy(t, r)` is `!blocked(t)`. A ruling: delete, or a row. |
+| `under` (lanes.ts 286–289) and `linkLanes`' group-merge arm (294–302)                                               | A15 for lanes (#3335): a pass already in a lane reading a second lane links the two; a nested lane stays its own             | never: no suite or case produces a nested lane or a pass that reads two lanes while seated in a third | ≈ 180 | reachable in principle (a guess written inside lane work; two actions' lanes read by one memo). The grammar has no shape for it: a row before any deletion.   |
+
+**Tier 2 — unreached, not stubbed** (each ≤ 60 B; listed so nobody
+re-finds them): lanes.ts 138 (`setLaneValue` clearing an uninitialized
+computed's flag), 462–463 (a dissolving lane that owns a verdict lane);
+guesses.ts 105 (`take`'s `d` arm — store `_slotTake(n, true)` at a revert
+landing), 265 (a lane dissolved mid-`laneCorrections`), 322 (an errored
+pass of a written guess); verdict.ts 273 / 278 (`quietPending` without
+`_x` / the `_reask` tail), 311 (`pendingVerdict` of a held node), 780
+(`verdictValue`'s untracked link), 835 (`holdWork` dropping the posture);
+scheduler.ts 474 (`merge` carrying `_marks`), 965 (`GlobalQueue.flush`
+re-entry), 1756 (`runQueue` outside an event); core.ts 2197 (`read`'s
+`verdict(el, c)` arm), 2569 (`serve` throwing NotReady), 630–632, 1998,
+1621 (`unobserved` option), `spectate` (never spectating), `setContextInternal`,
+`resetDisposalDepth`; boundaries.ts 626–633 (`arm`'s lane flip), the three
+`revealHooks._changed` sites, 578, 774–779, 794; store/optimistic.ts 264
+(`entangle` over an override), 277, 432–436, `reconcileDraft`'s array arms
+(493–528), 611, 688, 739, 961. Dev-only throws and `__OBSERVE__` wiring are
+excluded.
+
+**Method note.** Coverage subsumes the 50k differential for an unreached
+arm: a statement no case executes cannot move a screen, so the battery for
+a Tier 1 stub is the suites plus the shadow, not a new recording. The
+converse holds too — a reached arm (§9.1's three) needs the differential,
+coverage says nothing about its screens. The scratch configs
+(`packages/*/vite.config.cov*.mjs`) are not committed; the merge script is
+`/tmp/merge-cov.mjs` in the session and ≈ 60 lines: istanbul JSON summed
+per statement key across reports, ranges printed with the enclosing
+function.
