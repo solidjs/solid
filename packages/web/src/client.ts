@@ -3158,7 +3158,10 @@ function insertExpression(parent, value, current, marker) {
       if (t === "string" || t === "number") {
         const prev = currentArray ? current[i] : undefined;
         if (prev && prev.nodeType === 3) {
-          if (prev.data !== "" + item) prev.data = item;
+          // `_$d` is the last value written here: reading `.data` cost half of a text update.
+          const last = prev._$d;
+          if (last !== item && (last !== undefined || prev.data !== "" + item))
+            prev.data = prev._$d = item;
           value[i] = prev;
         } else value[i] = document.createTextNode(item);
       }
