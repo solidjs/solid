@@ -1181,3 +1181,21 @@ coverage says nothing about its screens. The scratch configs
 `/tmp/merge-cov.mjs` in the session and ≈ 60 lines: istanbul JSON summed
 per statement key across reports, ranges printed with the enclosing
 function.
+**Reachability, tried before deleting (2026-11-10, the maintainer's ask).**
+Each Tier-1 arm was instrumented to log and driven by hand-written normal
+code (actions, `createOptimistic`, `<Show when={latest(...)}>`, memos over
+pairs), several shapes each; "unreached" below means the log never printed.
+
+| arm                                 | reachable?          | evidence                                                                                                                                                                                                                                                                                                                 | outcome                                                                 |
+| ----------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `linkLanes` group merge             | **yes**             | four in-flight optimistic actions read as two pairs by two memos (two groups), then a later mount reading one lane of each: the arm fires, and with it stubbed a re-guess in the first pair shows ahead of a flight in the second (tearing across the unit)                                                              | kept; pinned by `tests/lane-link-merge-one-reveal-unit.test.ts` (#4757) |
+| `under` (nested lanes)              | no, by construction | `joinFuture` refuses a lane as the flush's transaction (D-37, #4440), so `applyGuesses` never gets a lane parent; the scheduler comment claiming a lane's own flush parents a nested lane was stale                                                                                                                      | removed (#4757)                                                         |
+| `bornHeldOpen` + `attachWaits` tail | no                  | the verdict half is seated by the mount stamp before it inserts (S-46/S-58); lane work never joins a hold (D-37), so its leaf reads the screen and is never born held; the arm never fired in the signals / web / hydrate suites of 592a43bdf, its introducing commit                                                    | removed (#4757)                                                         |
+| `heldBy` true path                  | no                  | the readers its shapes produce (an asker over a verdict memo and the staging; sync lane work pending through a refreshed flight; the #4439 pin itself) are seated in the transaction with the posture, so the seam never consults it; `return true` never ran at 81a12d894 (introducing commit), since, or in 150k cases | removed (#4757)                                                         |
+
+#4757, both trees fully built against `next` @ 78eaf88e3: `+ isPending/latest`
+−260 B brotli / −900 B minified; live page −239 / −904; compiled live −280 /
+−904; every-store −115 / −420; floors 0. With #4754 (the `latestOpened`
+arm) the inventory's deletions total ≈ −281 B brotli / −963 B minified on
+the `isPending`/`latest` chunk — the §9.3 estimate for Tier 1 less the
+merge arm that turned out to be live.
