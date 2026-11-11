@@ -783,6 +783,111 @@ describe("r.insert with migrating nodes", () => {
     }
   });
 
+  it("reconcileArrays moves one end node to the other end with a single DOM move", () => {
+    const parent = document.createElement("div");
+    const nodes = ["a", "b", "c", "d", "e"].map(t => {
+      const s = document.createElement("span");
+      s.textContent = t;
+      return parent.appendChild(s);
+    });
+    const text = () => [...parent.children].map(n => n.textContent).join("");
+    const moves = fn => {
+      let count = 0;
+      const { insertBefore, replaceChild } = parent;
+      parent.insertBefore = (...args) => (count++, insertBefore.apply(parent, args));
+      parent.replaceChild = (...args) => (count++, replaceChild.apply(parent, args));
+      fn();
+      delete parent.insertBefore;
+      delete parent.replaceChild;
+      return count;
+    };
+    const toBack = [...nodes.slice(1), nodes[0]];
+    expect(moves(() => reconcileArrays(parent, nodes, toBack))).toBe(1);
+    expect(text()).toBe("bcdea");
+    const toFront = [toBack[4], ...toBack.slice(0, 4)];
+    expect(moves(() => reconcileArrays(parent, toBack, toFront))).toBe(1);
+    expect(text()).toBe("abcde");
+    // two from the front to the back, with one removed and one added
+    const added = document.createElement("span");
+    added.textContent = "x";
+    const mixed = [toFront[2], added, toFront[4], toFront[0], toFront[1]];
+    reconcileArrays(parent, toFront, mixed);
+    expect(text()).toBe("cxeab");
+  });
+
+  it("reconcileArrays reverses a run whose ends were removed", () => {
+    const parent = document.createElement("div");
+    const nodes = ["a", "b", "c", "d", "e", "f"].map(t => {
+      const s = document.createElement("span");
+      s.textContent = t;
+      return parent.appendChild(s);
+    });
+    reconcileArrays(parent, nodes, nodes.slice(1, -1).reverse());
+    expect(parent.textContent).toBe("edcb");
+  });
+
+  it("reconcileArrays does not anchor a moved end node on a node it has taken out", () => {
+    const parent = document.createElement("div");
+    const [a, b, c, d, e, f, g, h, i, j] = [..."abcdefghij"].map(t => {
+      const s = document.createElement("span");
+      s.textContent = t;
+      return s;
+    });
+    // user code moved c past the tail, so it is the node after the list
+    parent.append(a, b, d, e, f, g, h, i, j, c);
+    const next = [a, i, b, f, h, c, d, e, j, g];
+    reconcileArrays(parent, [a, b, c, d, e, f, g, h, i, j], next);
+    expect(next.every(n => n.parentNode === parent)).toBe(true);
+  });
+
+  it("reconcileArrays places a node user code moved away when an end node moves", () => {
+    for (const [moved, next] of [
+      ["b", "bca"],
+      ["c", "bxca"]
+    ]) {
+      const parent = document.createElement("div");
+      const n = {};
+      for (const t of "abcx") (n[t] = document.createElement("span")).textContent = t;
+      parent.append(n.a, n.b, n.c);
+      document.createElement("div").append(n[moved]);
+      reconcileArrays(
+        parent,
+        [n.a, n.b, n.c],
+        [...next].map(t => n[t])
+      );
+      expect(parent.textContent).toBe(next);
+    }
+  });
+
+  it("reconcileArrays does not touch the parent when the nodes are the same", () => {
+    const parent = new Proxy(document.createElement("div"), {
+      get() {
+        throw new Error("read the parent");
+      }
+    });
+    const nodes = [document.createTextNode("a"), document.createElement("span")];
+    reconcileArrays(parent, nodes, [...nodes]);
+  });
+
+  it("reconcileArrays ignores an index stamp left by an earlier pass", () => {
+    const parent = document.createElement("div");
+    const [a, b, c, d, e, f, g, h] = ["a", "b", "c", "d", "e", "f", "g", "h"].map(t => {
+      const s = document.createElement("span");
+      s.textContent = t;
+      return parent.appendChild(s);
+    });
+    const x = document.createElement("span");
+    x.textContent = "x";
+    const text = () => [...parent.children].map(n => n.textContent).join("");
+    // stamps e, f, b, c and d with their index in this order
+    const first = [a, e, f, b, c, d, g, h];
+    reconcileArrays(parent, [a, b, c, d, e, f, g, h], first);
+    expect(text()).toBe("aefbcdgh");
+    // f, b and d are gone, and their stamps name x, a and h
+    reconcileArrays(parent, first, [e, c, x, a, g, h]);
+    expect(text()).toBe("ecxagh");
+  });
+
   // The migration rule from the slot-ownership change (May 2026): nothing
   // throws, a node moved out of the slot is never destroyed by it, and every
   // destructive op touches only nodes the slot owns. The prefix and suffix
