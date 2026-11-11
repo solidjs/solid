@@ -9,21 +9,17 @@ export default function reconcileArrays(
   marker?: Node | null
 ): void;
 export default function reconcileArrays(parentNode: any, a: any[], b: any[], marker?: any) {
-  // Moves keep the node holding focus connected with `moveBefore()` where
-  // the browser has it, so focus survives (#3997). Focus is read once per
-  // pass, and not at all without `moveBefore()` or with focus on the body.
-  // Only a connected node that holds focus takes `moveBefore()`: using it for
-  // every node cost whole-list reorders 4–8% once layout ran, and checking
-  // `isConnected` first keeps new nodes off the focus check. It throws for a
-  // detached parent, hence the `isConnected` check on the parent.
-  let active = parentNode.moveBefore && parentNode.isConnected && document.activeElement;
-  if (active === document.body) active = null;
+  // Connected nodes move with `moveBefore()` where the browser has it: the
+  // node stays connected, so focus and other node state survive (#3997), and
+  // a reorder is a place rather than a detach and reattach. Placing every
+  // node this way, and never `replaceChild()`, took dbmon's 1,000-row sort
+  // from ~2.0 ms to ~0.75 ms. New nodes are not connected and take
+  // `insertBefore()`. It throws for a detached parent, hence the parent check.
+  const mv = parentNode.moveBefore && parentNode.isConnected;
   // A markerless hole retags with its parent, so a tag from another slot never sticks.
   const slot = marker || parentNode;
   const insert = (n, ref) => {
-    active && n.isConnected && n.contains(active)
-      ? parentNode.moveBefore(n, ref)
-      : parentNode.insertBefore(n, ref);
+    mv && n.isConnected ? parentNode.moveBefore(n, ref) : parentNode.insertBefore(n, ref);
     if (marker || n[$$SLOT]) n[$$SLOT] = slot;
   };
   // First mount: skip the diff's setup, which cost spa-navigation mounts ~8%.
@@ -147,13 +143,11 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
             while (bStart < index) insert(b[bStart++], node);
           } else {
             // `replaceChild` detaches the old node, which is placed again
-            // later in this pass. While focus is in the list, insert instead
-            // and leave the old node waiting in place, so it keeps focus.
+            // later in this pass. With `moveBefore()`, insert instead and
+            // leave the old node waiting in place, connected.
             const newNode = b[bStart++],
               node = a[aStart++];
-            active && parentNode.contains(active)
-              ? insert(newNode, node)
-              : parentNode.replaceChild(newNode, node);
+            mv ? insert(newNode, node) : parentNode.replaceChild(newNode, node);
             if (marker || newNode[$$SLOT]) newNode[$$SLOT] = slot;
           }
         } else aStart++;
