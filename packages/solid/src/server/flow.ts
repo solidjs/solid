@@ -20,6 +20,11 @@ import type { Accessor, RevealOrder } from "./signals.js";
 import type { Element as SolidElement } from "../types.js";
 export type { RevealOrder };
 
+/** @internal Client-only window; identity on the server. */
+export function withApplyingRef<T>(fn: () => T): T {
+  return fn();
+}
+
 type NonZeroParams<T extends (...args: any[]) => any> = Parameters<T>["length"] extends 0
   ? never
   : T;

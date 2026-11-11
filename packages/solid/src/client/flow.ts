@@ -41,6 +41,25 @@ const narrowedError = (name: string): never => {
 };
 
 /**
+ * Set while `@solidjs/web`'s `ref()` applies a callback. A narrowed Show/Match
+ * accessor read from that callback is still the selection's own mount (#4761):
+ * optimistic settle can leave a null-owner read seeing the guess as falsy for
+ * a beat after the selection already chose the branch. Not for app code.
+ * @internal
+ */
+let applyingRef = false;
+/** @internal */
+export function withApplyingRef<T>(fn: () => T): T {
+  const prev = applyingRef;
+  applyingRef = true;
+  try {
+    return fn();
+  } finally {
+    applyingRef = prev;
+  }
+}
+
+/**
  * Creates a list of elements from a list.
  *
  * Receives a map function as its child and returns a JSX element for each
@@ -249,8 +268,17 @@ export function Show<T>(props: {
                     // `latest()`-selected first mount (#3948) — while a read
                     // after unmount sees the committed falsy and throws.
                     // `untrack(condition)` serves neither.
-                    (verdict && shown === run) || condition() || narrowedError("Show");
-                    return conditionValue();
+                    // `applyingRef && shown === run`: a `ref` callback is
+                    // ownerless, so during optimistic settle it can see the
+                    // guess as falsy after this run already mounted (#4761).
+                    // Serve the value this run selected then. A plain / async
+                    // read of a held opening still throws (#4648).
+                    const cur = condition();
+                    (verdict && shown === run) ||
+                      cur ||
+                      (applyingRef && shown === run) ||
+                      narrowedError("Show");
+                    return cur ? conditionValue() : c;
                   }),
                 IS_DEV && "<Show>"
               )
@@ -343,10 +371,13 @@ export function Switch(props: { fallback?: SolidElement; children: SolidElement 
           : untrack(
               () =>
                 (child as any)(() => {
+                  // Same `applyingRef` window as Show (#4761 / #4648).
+                  const cur = untrack(switchFunc)()?.[0] === index;
                   (verdict && shown === sel) ||
-                    untrack(switchFunc)()?.[0] === index ||
+                    cur ||
+                    (applyingRef && shown === sel) ||
                     narrowedError("Match");
-                  return conditionValue();
+                  return cur ? conditionValue() : value;
                 }),
               IS_DEV && "<Match>"
             )

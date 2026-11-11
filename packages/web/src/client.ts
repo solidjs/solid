@@ -17,7 +17,8 @@ import {
   enforceLoadingBoundary,
   resetErrorHalt,
   ROOT_ERROR_HOOK,
-  OBSERVE
+  OBSERVE,
+  withApplyingRef
 } from "solid-js";
 import type { ClientErrorHook, Owner } from "solid-js";
 import {
@@ -1398,7 +1399,10 @@ export function ref(
 
 export function ref(fn, element) {
   const resolved = untrack(fn);
-  runWithOwner(null, () => applyRef(resolved, element));
+  // Ownerless so ref callbacks own nothing (fold-into-attribute-effect is
+  // safe). `withApplyingRef` marks the window so a narrowed <Show>/<Match>
+  // accessor read here is treated as the selection's own mount (#4761).
+  runWithOwner(null, () => withApplyingRef(() => applyRef(resolved, element)));
 }
 
 /** Compiler-emitted primitive; not for hand-written code. @internal */
