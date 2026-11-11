@@ -2467,8 +2467,16 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     else if (
       passLane !== null &&
       !((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED)
-    )
+    ) {
+      // Served the committed value, the lane pass still derives from the
+      // flight: its stale reader (A15, #3494), so the frame holds on it and
+      // re-derives it at the landing. Unmarked, a pass that left the lane
+      // (its branch no longer reads the guess) was the frame's with the old
+      // answer beside the write that re-asked it, and the frame landed it (F-1).
       committed = true;
+      const u = owner._x?._transaction ? txOf(owner) : flushTransaction;
+      if (u) staleReader(c as Computed<any>, u);
+    }
   }
   if (owner._statusFlags & STATUS_PENDING && !committed) {
     // A reader landing on a pending node throws; an untracked read of an
