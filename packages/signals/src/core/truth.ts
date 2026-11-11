@@ -21,13 +21,16 @@ import type { Computed, Signal } from "./types.js";
  * value the screen showed before (a guess reverts to it at the lane's end;
  * once shown (CONFIG_SHOWN). Dropped when the node leaves its lane. */
 export const covers: WeakMap<Signal<any>, unknown> = /* @__PURE__ */ new WeakMap();
+/** A shown guess re-asked: the lane's value until its next reveal moves it to `_value`. */
+export const restaged: WeakMap<Signal<any>, unknown> = /* @__PURE__ */ new WeakMap();
 /** A lane node's latest value. A guess: the guess — the lane's record of it
  * until the reveal (`under`), the screen's value after. A derivation: its
  * staging under the lane (a lane pass's answer, until the reveal), else
  * what the screen shows — NOT_PENDING for a node with neither (born in the
  * lane, uninitialized: its reads throw NotReady, A7; #4363). */
 export function latestOf(el: Signal<any> | Computed<any>): unknown {
-  if (el._config & CONFIG_GUESS) return el._x!._shown ? el._value : covers.get(el);
+  if (el._config & CONFIG_GUESS)
+    return el._x!._shown ? (restaged.has(el) ? restaged.get(el) : el._value) : covers.get(el);
   return el._pendingValue !== NOT_PENDING
     ? el._pendingValue
     : (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED

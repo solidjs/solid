@@ -21,7 +21,7 @@ import {
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { ext } from "./core.js";
-import { covered, covers, latestOf, underOf } from "./truth.js";
+import { covered, covers, latestOf, restaged, underOf } from "./truth.js";
 import {
   armGuessing,
   clock,
@@ -54,7 +54,8 @@ import {
   markJudged,
   newLane,
   rerun,
-  setLaneValue
+  setLaneValue,
+  reguessed
 } from "./lanes.js";
 import type { Computed, Signal } from "./types.js";
 
@@ -99,7 +100,7 @@ export function take(n: Signal<any>, l: Transaction, d?: boolean): void {
   // commit, or the taker's derivation. Without one, the guess is the
   // taker's derivation.
   if (x._shown) n._value = covered(n);
-  covers.delete(n);
+  (covers.delete(n), restaged.delete(n));
   x._shown = false;
   n._config &= d ? ~(CONFIG_GUESS | CONFIG_OVERRIDE) : ~CONFIG_GUESS;
   if (d) x._transaction = null;
@@ -147,11 +148,17 @@ function applyGuesses(parent: Transaction | null): void {
       // over (its staging is void — the guess is the value now). The same
       // value re-asked renews the question; nothing to notify.
       changed = !n._equals || !n._equals(latestOf(n), v);
-      if (!(n._config & CONFIG_GUESS)) {
-        n._pendingValue = NOT_PENDING;
-        n._config |= CONFIG_GUESS;
+      // A shown guess re-asked: the lane's next reveal shows it, with the
+      // passes it re-runs — a reader outside the lane keeps the screen
+      // meanwhile (#4775; S-30, F-1).
+      if (n._config & CONFIG_GUESS && n._x!._shown) (restaged.set(n, v), reguessed.push(txOf(n)));
+      else {
+        if (!(n._config & CONFIG_GUESS)) {
+          n._pendingValue = NOT_PENDING;
+          n._config |= CONFIG_GUESS;
+        }
+        setLaneValue(n, txOf(n), v);
       }
-      setLaneValue(n, txOf(n), v);
       holder = txOf(n)._parent;
     } else {
       let l: Transaction;
@@ -238,7 +245,7 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     if (l._shown) marked.add(n);
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
     n._x!._shown = false;
-    covers.delete(n);
+    (covers.delete(n), restaged.delete(n));
     holdNode(n, parent);
     n._pendingValue = value;
     if (n._subs !== null) insertSubs(n);
