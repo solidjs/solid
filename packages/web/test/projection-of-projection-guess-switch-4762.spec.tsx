@@ -40,7 +40,7 @@ for (const copy of [false, true])
       const [closing, guessClose] = createOptimistic(() => closingTruth());
       const view = createMemo(() =>
         filter() === "open"
-          ? issues.filter(r => !closing().includes(r.id))
+          ? issues.filter((r: any) => !closing().includes(r.id))
           : copy
             ? [...issues]
             : issues
