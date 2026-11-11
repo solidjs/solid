@@ -295,6 +295,9 @@ export interface Transaction {
   /** A lane. Cleared when a blocked lane outlives its parent and continues
    * as a transaction. */
   _lane: boolean;
+  /** A lane: the clock of the seam a guess re-asked in it (guesses.ts
+   * `applyGuesses`) — judged with that guess's passes, next round (#4775). */
+  _reguessed?: number;
   /** The lane the readers of this transaction's verdicts (`isPending`,
    * `latest`) break out into — a guess the system supplies: "pending, until
    * this lands", "the proposal is the value". Opened at the first such read,

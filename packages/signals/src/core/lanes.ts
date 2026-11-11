@@ -76,7 +76,7 @@ import {
   removePendingSource,
   settlePendingSource
 } from "./async.js";
-import { covers, latestOf, restaged, underOf } from "./truth.js";
+import { covers, latestOf, underOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
 import {
   blocked,
@@ -143,8 +143,17 @@ export function setLaneValue(n: Signal<any>, l: Transaction, v: unknown): void {
 }
 /** What the screen shows of a node: NOT_PENDING when nothing (uninitialized). */
 export function screenOf(el: Signal<any> | Computed<any>): unknown {
-  return (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ? NOT_PENDING : el._value;
+  return (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED
+    ? NOT_PENDING
+    : guessScreen
+      ? guessScreen(el)
+      : el._value;
 }
+/** The guess layer's screen of a node (guesses.ts): a shown guess re-asked
+ * keeps the shown one until its lane's next reveal (#4775); `revealed`
+ * forgets it. */
+export let guessScreen: ((el: Signal<any>, revealed?: true) => unknown) | null = null;
+
 /** The lane's record of the value the screen showed `n` before the lane
  * revealed it (a guess reverts to it, `covered`) — kept once. */
 function cover(n: Signal<any>): void {
@@ -179,8 +188,10 @@ export let revertLandingHook: ((u: Transaction) => void) | null = null;
 export function installGuessLayer(
   take: NonNullable<typeof takeHook>,
   write: NonNullable<typeof guessWriteHook>,
-  revert: NonNullable<typeof revertLandingHook>
+  revert: NonNullable<typeof revertLandingHook>,
+  screen: NonNullable<typeof guessScreen>
 ): void {
+  guessScreen = screen;
   takeHook = take;
   guessWriteHook = write;
   revertLandingHook = revert;
@@ -387,7 +398,6 @@ export function laneStage(
           el._notifiedAt = LEFT_SHOWN;
         }
         covers.delete(el);
-        restaged.delete(el);
         x._shown = false;
         x._transaction = null;
       }
@@ -501,7 +511,6 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
     n._x!._shown = false;
     covers.delete(n);
-    restaged.delete(n);
     if (into === null) {
       // The parent landed: a guess lands the truth beneath it or reverts to
       // the one it covered; a derivation's latest (its staging, else what it
@@ -788,8 +797,8 @@ function laneSeam(l: Transaction, leaked: boolean): void {
     // beneath a guess stays its staging. An effect's value slot is private.
     if (!(n as any)._type)
       if (n._config & CONFIG_GUESS) {
-        if (restaged.has(n)) ((n._value = restaged.get(n)), restaged.delete(n));
-        else if (!n._x!._shown) {
+        guessScreen!(n, true);
+        if (!n._x!._shown) {
           const g = covers.get(n);
           covers.set(n, n._value);
           n._value = g;
@@ -984,8 +993,6 @@ function laneWrite<T>(el: Signal<T> | Computed<T>, v: T): T {
  * born at the seam has no work to judge yet (its passes run next round) —
  * it is neither shown nor blocked until it has. */
 let judged = 0;
-/** Lanes a guess re-asked at this seam (guesses.ts `applyGuesses`). */
-export const reguessed: Transaction[] = [];
 /** The guess layer's seam (guesses.ts `applyGuessesAt`), before its
  * guesses open their lanes. */
 export function markJudged(): void {
@@ -1150,12 +1157,11 @@ const laneSeams = (t: Transaction | null): void => {
   // A verdict lane born at this seam is judged with it: it exists only once
   // a pass routed into it — the park seam's zombie verdict readers re-run
   // as its work so that this seam reveals them (#3444).
-  // A lane re-guessed at this seam is judged with that guess's passes, next
-  // round: its reveal is whole (#4775).
+  // A lane a guess re-asked at this seam is judged with that guess's passes,
+  // next round: its reveal is whole (#4775).
   for (let k = lanes.length - 1; k >= 0; k--)
-    if ((k < judged && reguessed.indexOf(lanes[k]) === -1) || isVerdict(lanes[k]))
+    if ((k < judged && lanes[k]._reguessed !== clock) || isVerdict(lanes[k]))
       laneSeam(lanes[k], leaked.indexOf(lanes[k]) !== -1);
-  if (reguessed.length) reguessed.length = 0;
   // A verdict reader that entered a lane this seam held: its run waits with
   // the lane, and the verdict beside it would freeze — it re-derives next
   // round from the frame's seat, a stale reader of the lane (#4284).

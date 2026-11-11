@@ -21,7 +21,7 @@ import {
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { ext } from "./core.js";
-import { covered, covers, latestOf, restaged, underOf } from "./truth.js";
+import { covered, covers, latestOf, underOf } from "./truth.js";
 import {
   armGuessing,
   clock,
@@ -54,8 +54,7 @@ import {
   markJudged,
   newLane,
   rerun,
-  setLaneValue,
-  reguessed
+  setLaneValue
 } from "./lanes.js";
 import type { Computed, Signal } from "./types.js";
 
@@ -100,7 +99,7 @@ export function take(n: Signal<any>, l: Transaction, d?: boolean): void {
   // commit, or the taker's derivation. Without one, the guess is the
   // taker's derivation.
   if (x._shown) n._value = covered(n);
-  (covers.delete(n), restaged.delete(n));
+  covers.delete(n);
   x._shown = false;
   n._config &= d ? ~(CONFIG_GUESS | CONFIG_OVERRIDE) : ~CONFIG_GUESS;
   if (d) x._transaction = null;
@@ -148,17 +147,18 @@ function applyGuesses(parent: Transaction | null): void {
       // over (its staging is void — the guess is the value now). The same
       // value re-asked renews the question; nothing to notify.
       changed = !n._equals || !n._equals(latestOf(n), v);
-      // A shown guess re-asked: the lane's next reveal shows it, with the
-      // passes it re-runs — a reader outside the lane keeps the screen
-      // meanwhile (#4775; S-30, F-1).
-      if (n._config & CONFIG_GUESS && n._x!._shown) (restaged.set(n, v), reguessed.push(txOf(n)));
-      else {
-        if (!(n._config & CONFIG_GUESS)) {
-          n._pendingValue = NOT_PENDING;
-          n._config |= CONFIG_GUESS;
-        }
-        setLaneValue(n, txOf(n), v);
+      if (!(n._config & CONFIG_GUESS)) {
+        n._pendingValue = NOT_PENDING;
+        n._config |= CONFIG_GUESS;
+      } else if (n._x!._shown) {
+        // A shown guess re-asked: the screen keeps the shown one until the
+        // lane's next reveal, judged with the passes this guess re-runs —
+        // a reader outside the lane reads the screen meanwhile (#4775;
+        // S-30, F-1).
+        screens.has(n) || screens.set(n, [n._value, n._x!._transaction]);
+        txOf(n)._reguessed = clock;
       }
+      setLaneValue(n, txOf(n), v);
       holder = txOf(n)._parent;
     } else {
       let l: Transaction;
@@ -245,7 +245,7 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     if (l._shown) marked.add(n);
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
     n._x!._shown = false;
-    (covers.delete(n), restaged.delete(n));
+    covers.delete(n);
     holdNode(n, parent);
     n._pendingValue = value;
     if (n._subs !== null) insertSubs(n);
@@ -381,5 +381,19 @@ function revertLanding(u: Transaction): void {
     }
 }
 
-installGuessLayer(take, guessWrite, revertLanding);
+/** A shown guess re-asked (`applyGuesses`): what the screen showed of it,
+ * and its lane, until that lane's next reveal (#4775). */
+const screens = /* @__PURE__ */ new WeakMap<Signal<any>, [unknown, Transaction | null]>();
+installGuessLayer(take, guessWrite, revertLanding, (el, revealed) => {
+  const s = screens.get(el);
+  if (revealed) screens.delete(el);
+  // Only while the node is still that lane's shown guess.
+  return s &&
+    !revealed &&
+    el._config & CONFIG_GUESS &&
+    el._x!._shown &&
+    el._x!._transaction === s[1]
+    ? s[0]
+    : el._value;
+});
 installGuessHooks(laneOutcome, applyGuessesAt, () => lanes.length !== 0 && laneCorrections());
