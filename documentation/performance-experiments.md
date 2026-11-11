@@ -10528,3 +10528,47 @@ ssr-throughput is now 0.88× Octane, against 1.20× on the stale link.
 Octane's own gates failed on hydration-interactivity (octane-tsrx),
 recursive-context and memo-wall's survivor-work sub-harness. memo-wall's
 main ops recorded.
+
+### 20 (Vapor lane, follow-up): `moveBefore()` for every move, and dbmon's sort (2026-11-11)
+
+§19 left Solid 1.28× Octane on dbmon, and Octane's dbmon had dropped 24%
+between 0.13.8 and 0.16.7. Counting DOM calls per dbmon sort (1,000 rows, a
+wrapped `Element.prototype.moveBefore` and `Node.prototype` methods via
+`addInitScript`) showed where:
+
+| | DOM calls per sort | sort |
+| --- | --- | ---: |
+| Octane 0.16.7 | 919 `moveBefore` | 0.69 ms |
+| Vue Vapor | 919 `insertBefore` | 1.98 ms |
+| Solid `next` | 631 `replaceChild` + 369 `insertBefore` | ~2.0 ms |
+
+Octane moves every connected node with `moveBefore()`. Solid took it only for
+the focused node (#3997), on the earlier finding that using it for every node
+"cost whole-list reorders 4–8% once layout ran" (#4261). Its `replaceChild`
+path also detaches the old node, which the pass then places again.
+
+**Probe** (worktree `probe/move-before-noreplace` 99bb5b6b2): every connected
+node takes `moveBefore()`, and the `replaceChild` path inserts whenever
+`moveBefore()` exists. An earlier probe (0a76394fe) turned `active` into a
+boolean and threw on `parentNode.contains(true)`; 74bf4b7b5 kept the focus
+check and moved everything else. Against `next` on dbmon,
+js-framework-reorder, js-framework, todomvc, memo-wall and uibench, two
+rounds (`results-mb3-*`):
+
+- dbmon suite −13.8% and −15.4%, with `next` 2.8% apart from itself. Sort
+  2.02 / 2.13 ms → 0.76 / 0.73 ms, level with Octane. The probe makes
+  970–1000 `moveBefore` calls per sort.
+- js-framework-reorder −5.2% and −3.2%: shuffle 0.674 → 0.62–0.63 ms,
+  reverse ~−3%. Swap within noise.
+- todomvc noise (`next` moved −20% between its own rounds); the rest flat.
+- +18–21 B minified on the app scenarios, brotli −42 to +30 B.
+- Six-suite geomean, Solid ÷ Octane: 1.018 → 0.972 and 1.000 → 0.963; Solid
+  ÷ Vapor: 1.003 → 0.961 and 0.991 → 0.965.
+
+The #4261 cost did not reproduce with layout running in these suites.
+
+**Shipped** with the focus read removed: once every connected node moves with
+`moveBefore()`, focus survives without it, so the probe's `active` and
+`document.activeElement` read are dead. `move-before-3997.spec.tsx` now
+asserts that kept nodes are never detached and that rows move with
+`moveBefore()` with nothing focused.
