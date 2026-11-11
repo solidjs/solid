@@ -35,6 +35,7 @@ import {
   CONFIG_AUTHORITATIVE,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_FRAME,
+  CONFIG_ASYNC,
   CONFIG_GUESS,
   CONFIG_HELD,
   CONFIG_HELD_FRAME,
@@ -354,8 +355,14 @@ export function laneStage(
   // flush's staging — that ran as a lane's and asked: the flush holds on
   // that flight and reveals with the lane, whatever the async's source (the
   // lane took the only question).
-  if (!create && el._statusFlags & STATUS_PENDING && el._flags & REACTIVE_STAGED_READ)
-    laneWait(el, l);
+  if (!create && el._statusFlags & STATUS_PENDING && el._flags & REACTIVE_STAGED_READ) {
+    // Pending on a flight it waits on as the frame's work (core.ts `read`:
+    // it read the flush's staging, then the flight that staging re-asked)
+    // with none of the lane's world read: it left the lane, its pending the
+    // frame's — a boundary catches it as a mainline pass's (F-4).
+    if (!(el._flags & REACTIVE_LANE_READ) && !(el._config & CONFIG_ASYNC)) errored = false;
+    else laneWait(el, l);
+  }
   if (!(create || errored || el._flags & REACTIVE_LANE_READ || el._config & CONFIG_GUESS)) {
     const x = el._x;
     if (x !== null) {
@@ -371,7 +378,11 @@ export function laneStage(
         // outside any transaction's flush, #4367): a return to the committed
         // value notifies nobody itself, and a pass that does notify has
         // woken them (an effect has no comparator, #4557).
-        if (tx._shown && (!flushTransaction || !blocked(resolveTx(tx._parent!)))) {
+        if (
+          tx._shown &&
+          !(el._statusFlags & STATUS_PENDING) &&
+          (!flushTransaction || !blocked(resolveTx(tx._parent!)))
+        ) {
           if (el._x!._shown) el._value = covers.get(el);
           el._notifiedAt = LEFT_SHOWN;
         }
@@ -383,6 +394,19 @@ export function laneStage(
       el._pendingValue = NOT_PENDING;
     }
     el._config &= ~(CONFIG_OVERRIDE | CONFIG_HELD | CONFIG_HELD_FRAME);
+    // A store derive's pass (a projection's): the leaves it wrote in the
+    // lane's seat leave with it, what it wrote this pass the frame's staging
+    // (the screen kept until the landing, as above). Left in the lane, they
+    // revealed with it ahead of the frame they derive from (F-1, D-33).
+    if (guessed)
+      for (let i = 0; i < l._nodes.length; i++) {
+        const n = l._nodes[i] as Computed<any>;
+        if ((n as any)._host?._fam?.node === el && n._x!._transaction === l) {
+          const v = n._pendingValue;
+          laneStage(n, l, false, false);
+          if (v !== NOT_PENDING) (queuePendingNode(n), (n._pendingValue = v));
+        }
+      }
     return false;
   }
   if (!(el as any)._type) {
@@ -1161,7 +1185,36 @@ const adoptParked = (r: Computed<any>): boolean => {
  * it through `c` too: the source's own landing walk stops at `c`, which no
  * longer has it, and a render effect left marked would hold its transaction
  * on a flight that has landed (D-11, F-2, #4576; a nested action's refresh). */
-const laneServed = (c: Computed<any>, el: Signal<any> | Computed<any>): void => {
+/** The last lane pass served a flight's committed value, and that flight. */
+let served: Computed<any> | null = null,
+  servedFlight: Computed<any> | null = null;
+const laneServed = (
+  c: Computed<any>,
+  el: Signal<any> | Computed<any> | null,
+  flight?: true
+): unknown => {
+  // Lane work read a staging of the flush after it was served the committed
+  // value of a flight (core.ts `stagedRead`): it derives from the write that
+  // re-asked the flight, so it waits on it — never the new value beside the
+  // old answer (F-1, F-2; S-57).
+  if (el === null) {
+    if (served === c && servedFlight!._statusFlags & STATUS_PENDING) throw servedFlight!._x!._error;
+    return;
+  }
+  // Lane work reading a flight that is not the lane's own (core.ts `read`,
+  // A31): served its committed value — the lane breaks out of its parent's
+  // hold — unless the pass read a staging of the flush, which makes it that
+  // write's work: it waits on the flight as mainline does (F-2; S-57).
+  // Served, the pass still derives from the flight: its stale reader (A15,
+  // #3494), so the frame holds on it and re-derives it at the landing.
+  if (flight) {
+    if (c._flags & REACTIVE_STAGED_READ) return false;
+    const u = (el as Computed<any>)._x?._transaction || flushTransaction;
+    if (u) staleReader(c, resolveTx(u));
+    served = c;
+    servedFlight = el as Computed<any>;
+    return true;
+  }
   const from = (el as Computed<any>)._x?._pendingSources;
   if (from && c._x?._pendingSources)
     for (const s of from) if (removePendingSource(c, s)) settlePendingSource(c, s);
