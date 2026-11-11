@@ -109,7 +109,7 @@ async function run(shape: Shape, guesses: 1 | 2, fetchFirst: boolean): Promise<s
 
 const one = ["guess [#1][#3]", "switch loading"];
 const two = ["guess [#1][#3]", "guess [#3]", "switch loading"];
-const cases: [Shape, 1 | 2, boolean, string[], boolean?][] = [];
+const cases: [Shape, 1 | 2, boolean, string[]][] = [];
 for (const shape of ["memos", "inner", "outer", "both"] as Shape[]) {
   cases.push([shape, 1, false, [...one, "land loading", "fetch [#2][#4]"]]);
   cases.push([shape, 2, true, [...two, "fetch [#2][#4]", "land [#2][#4]", "land [#2][#4]"]]);
@@ -118,19 +118,13 @@ for (const shape of ["memos", "inner", "outer", "both"] as Shape[]) {
     2,
     false,
     // close(4)'s write joined the switch's hold; close(1) shares its slot.
-    [...two, "land loading", "fetch loading", "land [#2][#4]"],
-    // A projection over the view reveals (outer) or tears (both) at the fetch
-    // while close(1) is out (D-33, F-1): not yet fixed.
-    shape === "outer" || shape === "both"
+    [...two, "land loading", "fetch loading", "land [#2][#4]"]
   ]);
 }
 
-for (const [shape, guesses, fetchFirst, expected, fails] of cases)
-  (fails ? test.fails : test)(
-    `${shape}: ${guesses} guess${guesses === 2 ? "es" : ""} out, ${
-      fetchFirst ? "the fetch lands first" : "an action lands before the fetch"
-    }`,
-    async () => {
-      expect(await run(shape, guesses, fetchFirst)).toEqual(expected);
-    }
-  );
+for (const [shape, guesses, fetchFirst, expected] of cases)
+  test(`${shape}: ${guesses} guess${guesses === 2 ? "es" : ""} out, ${
+    fetchFirst ? "the fetch lands first" : "an action lands before the fetch"
+  }`, async () => {
+    expect(await run(shape, guesses, fetchFirst)).toEqual(expected);
+  });

@@ -394,6 +394,19 @@ export function laneStage(
       el._pendingValue = NOT_PENDING;
     }
     el._config &= ~(CONFIG_OVERRIDE | CONFIG_HELD | CONFIG_HELD_FRAME);
+    // A store derive's pass (a projection's): the leaves it wrote in the
+    // lane's seat leave with it, what it wrote this pass the frame's staging
+    // (the screen kept until the landing, as above). Left in the lane, they
+    // revealed with it ahead of the frame they derive from (F-1, D-33).
+    if (guessed)
+      for (let i = 0; i < l._nodes.length; i++) {
+        const n = l._nodes[i] as Computed<any>;
+        if ((n as any)._host?._fam?.node === el && n._x!._transaction === l) {
+          const v = n._pendingValue;
+          laneStage(n, l, false, false);
+          if (v !== NOT_PENDING) (queuePendingNode(n), (n._pendingValue = v));
+        }
+      }
     return false;
   }
   if (!(el as any)._type) {
