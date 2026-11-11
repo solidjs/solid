@@ -8,6 +8,7 @@ import {
   createRoot as root,
   onCleanup,
   untrack,
+  runRefCallback,
   merge as mergeProps,
   $PROXY,
   flatten,
@@ -1155,9 +1156,11 @@ export function spread<T>(
 // - `ref` FOLDS into the attribute effect. It is collected with the other
 //   props in the compute half and applied in the commit half only when its
 //   identity differs from the last applied one (`prevProps.ref`, recorded by
-//   assign()). `ref()` runs the callback untracked with NO owner — refs
-//   deliberately own nothing — so anything a ref callback creates survives
-//   the effect rerunning; that is what makes the fold safe.
+//   assign()). `ref()` runs the callback as a render effect's callback runs
+//   (`runRefCallback`, #4761): untracked, owning nothing — creating a
+//   primitive in it is an error in dev, and the commit half runs with no
+//   owner — so the effect rerunning has nothing of the ref's to dispose;
+//   that is what makes the fold safe.
 //
 // Sources. A single source is an object, a merge() result or a bare
 // accessor. A lone reactive spread compiles to its accessor directly: merging
@@ -1398,7 +1401,11 @@ export function ref(
 
 export function ref(fn, element) {
   const resolved = untrack(fn);
-  runWithOwner(null, () => applyRef(resolved, element));
+  // A render effect's callback at creation (#4761): untracked, in the
+  // creating pass. Dev adds the effect-callback scope (`runRefCallback`).
+  "_SOLID_DEV_"
+    ? runRefCallback(() => applyRef(resolved, element))
+    : untrack(() => applyRef(resolved, element));
 }
 
 /** Compiler-emitted primitive; not for hand-written code. @internal */

@@ -784,11 +784,21 @@ export const ANY_EVENT = {};
  * handler dispatched synchronously from that phase (`el.focus()`) runs under
  * a different event and is not in it (#4235). */
 export let effectCallbackEvent: unknown = ANY_EVENT;
+/** Dev-only: the context a callback scope runs in — null for an effect
+ * callback, the creating pass's for a ref callback (`runRefCallback`, #4761).
+ * A primitive created in that context is created in the callback; one
+ * created by a computation the callback pulls is that computation's. */
+export let effectCallbackOwner: Owner | null = null;
 
-export function setEffectCallback(value: boolean, event: unknown = ANY_EVENT) {
+export function setEffectCallback(
+  value: boolean,
+  event: unknown = ANY_EVENT,
+  owner: Owner | null = null
+) {
   if (__DEV__) {
     inEffectCallback = value;
     effectCallbackEvent = event;
+    effectCallbackOwner = owner;
   }
 }
 

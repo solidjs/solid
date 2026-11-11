@@ -212,7 +212,9 @@ run. Same fix: register it under an owner.
 ### CLEANUP_IN_FORBIDDEN_SCOPE
 
 `onCleanup` inside `createTrackedEffect` or `onSettled` is not supported —
-return a cleanup function from the callback instead.
+return a cleanup function from the callback instead. Inside a ref callback it
+throws too: register the cleanup in the factory that returns the ref (the
+component body).
 
 ### SETTLED_CLEANUP_UNOWNED
 
@@ -249,6 +251,8 @@ A memo, effect, or root was created without an owner inside an effect
 callback or its cleanup. The effect phase has no ambient owner, so those
 computations cannot be disposed or held by a parent. Create them in the
 compute phase, or attach them to an existing owner with `runWithOwner`.
+A ref callback runs like a render effect's callback and owns nothing, so
+creating one there throws too: create it in the factory that returns the ref.
 Creating a signal alone does not trigger this error.
 
 ### PRIMITIVE_IN_FORBIDDEN_SCOPE

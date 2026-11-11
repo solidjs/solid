@@ -38,6 +38,8 @@ export {
  * outside dev builds.
  */
 export { setConsoleFooter } from "./core/index.js";
+/** @internal Ref callbacks run like a render effect callback at creation (#4761): `@solidjs/web`/`@solidjs/universal` `ref()`. */
+export { runRefCallback } from "./core/index.js";
 /** @internal The verdict windows' read (core.ts): non-null while a `latest()` or `isPending()` window is open — solid-js's narrowed accessors (#4648). */
 export { verdict } from "./core/index.js";
 /** @internal The flush round counter (scheduler.ts): hydration's served pass tells its own round from a later one. */

@@ -1,12 +1,14 @@
 import { CONFIG_CHILDREN_FORBIDDEN } from "./constants.js";
 import { isThenable } from "./async.js";
-import { enterCallback, exitCallback } from "./core.js";
+import { enterCallback, exitCallback, inRefCallback } from "./core.js";
 import { getOwner } from "./owner.js";
+import type { Owner } from "./types.js";
 import { emitDiagnostic } from "./dev.js";
 import { attrHooks } from "./attribution-hooks.js";
 import {
   actionDepth,
   effectCallbackEvent,
+  effectCallbackOwner,
   enterAction,
   exitAction,
   flush,
@@ -137,7 +139,7 @@ export function action<Args extends any[], Y, R>(
     // onSettled) stay legal.
     if (__DEV__) {
       const owner = getOwner();
-      if (owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN)) {
+      if (owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN) && !inRefCallback()) {
         emitDiagnostic({
           code: "ACTION_CALLED_IN_OWNED_SCOPE",
           kind: "write",
@@ -179,22 +181,25 @@ export function action<Args extends any[], Y, R>(
         // `resolve`) is deliberate (PRIMITIVE_IN_EFFECT_CALLBACK is off).
         let effectCallback = false;
         let effectEvent: unknown;
+        let effectOwner: Owner | null = null;
         if (__DEV__) {
           enterCallback();
           effectCallback = inEffectCallback;
           effectEvent = effectCallbackEvent;
+          effectOwner = effectCallbackOwner;
           setEffectCallback(false);
         }
         try {
           r = err ? it.throw!(v) : it.next(v);
         } catch (e) {
           exitAction();
-          if (__DEV__) (exitCallback(), setEffectCallback(effectCallback, effectEvent));
+          if (__DEV__)
+            (exitCallback(), setEffectCallback(effectCallback, effectEvent, effectOwner));
           if (__OBSERVE__ && attrHooks !== null) attrHooks.actionStepEnd(it);
           return done(undefined, e, true);
         }
         exitAction();
-        if (__DEV__) (exitCallback(), setEffectCallback(effectCallback, effectEvent));
+        if (__DEV__) (exitCallback(), setEffectCallback(effectCallback, effectEvent, effectOwner));
         if (__OBSERVE__ && attrHooks !== null) attrHooks.actionStepEnd(it);
         // A rejected iterator result (async generators) means the error already
         // escaped the generator body — it is completed, and throwing back in

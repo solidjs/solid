@@ -38,6 +38,8 @@ export {
   untrack,
   configureClientErrors
 } from "@solidjs/signals";
+/** @internal — `ref()` in the web and universal runtimes (#4761). */
+export { runRefCallback } from "@solidjs/signals";
 /** @internal — the key a root owner carries `render`'s `onError` under, for the web runtime. */
 export { ROOT_ERROR_HOOK } from "@solidjs/signals";
 // `createOwner`: a bare owner, for the runtimes' own scopes (`NoHydration`,

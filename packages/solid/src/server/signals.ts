@@ -4805,6 +4805,11 @@ export function onSettled(callback: () => void | (() => void)): void {
 /** No-op on the server: there is no client flush to run after. */
 export function onFlush(_callback: () => void): void {}
 
+/** @internal Refs never run on the server; parity with the client entry (#4761). */
+export function runRefCallback(fn: () => void): void {
+  untrack(fn);
+}
+
 // NoInfer utility type (also re-exported from signals, but define for local use)
 type NoInfer<T extends any> = [T][T extends any ? 0 : never];
 

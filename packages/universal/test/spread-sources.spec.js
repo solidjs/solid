@@ -1,5 +1,5 @@
 import * as r from "./custom.js";
-import { createRoot, createSignal, flush, merge, omit, onCleanup } from "solid-js";
+import { createRoot, createSignal, flush, merge, omit } from "solid-js";
 
 // The renderer's spread() follows @solidjs/web's contract (#3388, #3419): at
 // most two reactive nodes per element, `ref` folded into the props effect,
@@ -52,23 +52,24 @@ describe("universal spread: ref folds into the props effect", () => {
     dispose();
   });
 
-  it("does not dispose what a ref created when other props change", () => {
+  it("does not re-apply a ref when other props change", () => {
     const node = document.createElement("div");
     const [title, setTitle] = createSignal("a");
-    const cleanup = vi.fn();
+    const ref = vi.fn();
     const dispose = mount(() =>
       r.spread(node, {
         get title() {
           return title();
         },
-        ref: () => onCleanup(cleanup)
+        ref
       })
     );
     setTitle("b");
     flush();
-    // A ref runs with no owner: onCleanup inside it registers nowhere the
-    // props effect can dispose.
-    expect(cleanup).not.toHaveBeenCalled();
+    // A ref owns nothing (creating a primitive or registering a cleanup in
+    // it is an error, #4761), so the fold has nothing of it to dispose.
+    expect(ref).toHaveBeenCalledTimes(1);
+    expect(node.getAttribute("title")).toBe("b");
     dispose();
   });
 

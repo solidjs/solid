@@ -9,6 +9,7 @@ import {
   createUniqueId,
   children,
   Show,
+  Errored,
   flush,
   createMemo,
   getOwner,
@@ -127,12 +128,13 @@ describe("Basic element attributes", () => {
     warn.mockRestore();
   });
 
-  test("callback ref is ownerless", () => {
-    let owner;
+  test("callback ref runs in its creator's context, like a render effect callback (#4761)", () => {
+    let owner, creator;
     createRoot(() => {
+      creator = getOwner();
       <div ref={() => (owner = getOwner())} />;
     });
-    expect(owner).toBe(null);
+    expect(owner).toBe(creator);
   });
 
   test("conditional callback prop read does not linger outside owner", () => {
@@ -169,25 +171,24 @@ describe("Basic element attributes", () => {
     expect(DEV!.getObservers(signal)).toHaveLength(0);
   });
 
-  test("onCleanup warns in callback ref", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    createRoot(() => {
-      <div
-        ref={() => {
-          onCleanup(() => {});
-        }}
-      />;
-    });
-    expect(warn).toHaveBeenCalledTimes(1);
-    warn.mockRestore();
+  test("onCleanup in a callback ref is an error (#4761)", () => {
+    expect(() =>
+      createRoot(() => {
+        <div
+          ref={() => {
+            onCleanup(() => {});
+          }}
+        />;
+      })
+    ).toThrow(/CLEANUP_IN_FORBIDDEN_SCOPE/);
   });
 
-  test("onCleanup warns for callback ref inside Show", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  test("onCleanup in a callback ref inside Show is an error when the branch opens (#4761)", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const [toggle, setToggle] = createSignal(0);
-
-    createRoot(() => {
-      return (
+    let thrown: unknown;
+    createRoot(() => (
+      <Errored fallback={e => ((thrown = typeof e === "function" ? (e as any)() : e), "")}>
         <Show when={toggle()}>
           <div
             ref={() => {
@@ -197,14 +198,13 @@ describe("Basic element attributes", () => {
             TEXT
           </div>
         </Show>
-      );
-    });
-
-    expect(warn).not.toHaveBeenCalled();
-    setToggle(v => v ^ 1);
+      </Errored>
+    ));
     flush();
-    expect(warn).toHaveBeenCalledTimes(1);
-    warn.mockRestore();
+    setToggle(1);
+    flush();
+    expect(String(thrown)).toMatch(/CLEANUP_IN_FORBIDDEN_SCOPE/);
+    error.mockRestore();
   });
 
   test("uniqueId", () => {
