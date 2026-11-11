@@ -4,6 +4,8 @@ export { action } from "./action.js";
 export {
   isEqual,
   untrack,
+  runRefCallback,
+  inRefCallback,
   runWithOwner,
   computed,
   signal,

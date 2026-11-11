@@ -3,7 +3,7 @@ import {
   createRoot as root,
   createComponent,
   untrack,
-  runWithOwner,
+  runRefCallback,
   merge as mergeProps,
   flatten,
   createMemo,
@@ -569,7 +569,7 @@ export function createRenderer({
 
   function ref(fn, element) {
     const resolved = untrack(fn);
-    runWithOwner(null, () => applyRef(resolved, element));
+    runRefCallback(() => applyRef(resolved, element));
   }
 
   return {

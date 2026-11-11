@@ -2,6 +2,7 @@ import type { Computed, Disposable, Owner, Refreshable } from "./core/index.js";
 import {
   $REFRESH,
   cleanup,
+  inRefCallback,
   computed,
   TimeoutError,
   CONFIG_AUTO_DISPOSE,
@@ -105,9 +106,10 @@ export function onCleanup(fn: Disposable): Disposable {
           message
         })
       );
-    } else if (owner._config & CONFIG_CHILDREN_FORBIDDEN) {
-      const message =
-        "[CLEANUP_IN_FORBIDDEN_SCOPE] Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead";
+    } else if (owner._config & CONFIG_CHILDREN_FORBIDDEN || inRefCallback()) {
+      const message = inRefCallback()
+        ? "[CLEANUP_IN_FORBIDDEN_SCOPE] Cannot use onCleanup inside a ref callback; register it in the factory that returns the ref (the component body)"
+        : "[CLEANUP_IN_FORBIDDEN_SCOPE] Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead";
       emitDiagnostic({
         code: "CLEANUP_IN_FORBIDDEN_SCOPE",
         kind: "lifecycle",
@@ -1273,7 +1275,7 @@ export function onSettled(callback: () => void | (() => void)): void {
 export function onFlush(callback: () => void): void {
   if (__DEV__) {
     const owner = getOwner();
-    if (owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN)) {
+    if (owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN) && !inRefCallback()) {
       const message =
         "[ON_FLUSH_IN_OWNED_SCOPE] onFlush called in an owned scope (a component body or a computation). It is meant for event handlers and effect callbacks; to run work after this scope's first stable render, use onSettled.";
       reportDiagnostic(

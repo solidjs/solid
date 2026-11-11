@@ -59,6 +59,7 @@ import {
   ownedScopeWriteMessage,
   read as readNode,
   REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE,
+  inRefCallback,
   setSignal,
   writeHook,
   slotSignal,
@@ -2519,7 +2520,12 @@ const ASYNC_STORE_SETTER_MESSAGE =
  * write violation — the user guard (`mapArray`'s pattern: the node-level
  * writes carry `ownedWrite`; the setter asks). */
 function devGuardStoreSetterWrite(): void {
-  if (context && !(context._config & CONFIG_CHILDREN_FORBIDDEN) && !disposalDepth) {
+  if (
+    context &&
+    !(context._config & CONFIG_CHILDREN_FORBIDDEN) &&
+    !disposalDepth &&
+    !inRefCallback()
+  ) {
     emitDiagnostic({
       code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
       kind: "write",
