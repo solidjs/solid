@@ -193,7 +193,7 @@ describe("onFlush", () => {
     expect(log).toEqual(["value:0", "value:10"]);
   });
 
-  it("lands after inline writes in the same frame; callbacks run in order and batch", async () => {
+  it("lands after inline writes in the same frame; callbacks run in order, each its own flush", async () => {
     const [v, setV] = createSignal(0);
     const log: number[] = [];
     createRoot(() => createRenderEffect(v, x => void log.push(x)));
@@ -215,7 +215,23 @@ describe("onFlush", () => {
     onFlush(() => setV(100));
     onFlush(() => setV(200));
     await microtasks();
-    expect(log).toEqual([200]);
+    expect(log).toEqual([100, 200]);
+  });
+
+  it("async work one callback starts does not hold another callback's write", async () => {
+    for (const order of ["async first", "async last"]) {
+      const { open, setOpen, setRoute, log, land } = menu();
+      const async = () => onFlush(() => setRoute(1));
+      if (order === "async first") async();
+      onFlush(() => setOpen(false));
+      if (order === "async last") async();
+      await microtasks();
+      expect(log, order).toEqual(["open:false"]);
+      expect(open()).toBe(false);
+      land();
+      await tick();
+      expect(log, order).toEqual(["open:false", "page:1"]);
+    }
   });
 
   describe("ON_FLUSH_IN_OWNED_SCOPE", () => {

@@ -30,6 +30,7 @@ import {
 import { emitDiagnostic, forgetThrownRead, registerGraph, reportDiagnostic } from "./core/dev.js";
 import {
   dirtyQueue,
+  flush,
   flushTransaction,
   globalQueue,
   GlobalQueue,
@@ -1253,7 +1254,8 @@ export function onSettled(callback: () => void | (() => void)): void {
  * - A write in the callback lands after any write made inline in the same
  *   frame. Don't write the same signal both inside and outside it; use a
  *   functional setter if the order matters.
- * - Several `onFlush` callbacks run in call order and batch into one flush.
+ * - Several `onFlush` callbacks run in call order, each in its own flush:
+ *   async work one callback starts does not hold another's writes.
  * - `queueMicrotask` is not a substitute: called before the frame's first
  *   write, it runs before that flush and its write joins it.
  *
@@ -1287,7 +1289,12 @@ export function onFlush(callback: () => void): void {
     }
   }
   // The frame's flush is queued (or already draining) ahead of this
-  // microtask, so the callback's writes start a flush of their own.
+  // microtask, so the callback's writes start a flush of their own. Each
+  // callback flushes before the next runs, so async work one starts never
+  // holds another's writes.
   schedule();
-  queueMicrotask(callback);
+  queueMicrotask(() => {
+    callback();
+    flush();
+  });
 }
