@@ -1810,8 +1810,8 @@ function serveDataKey(
   accKnown: -1 | 0 | 1 = -1
 ): any {
   // Read-through (§7b): the inner store's node is the truth; the outer's is
-  // a subscription point only — unless it carries a guess (an optimistic
-  // store over a store: the guess is the outer's, shown over the inner).
+  // a subscription point only (an optimistic target's guesses are served by
+  // its carrier before this, #4762).
   const chained = target.ch && src === target.v;
   let v = backingValue;
   // A write-override read (a derive's draft) serves the backing: the derive
@@ -2172,18 +2172,16 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     // serveDataKey's frame, the FORCE compare (only accessor keys ever hold
     // the sentinel), and isWrappable for primitives. ONE node-map lookup
     // serves this block and the accessor probe below. Before the backing is
-    // consulted: a deleted key's node serves `undefined` (notifyWrites), and
-    // a chained target's node carrying a GUESS is the value (A17 — the base
-    // beneath it, and any hold there, is not this reader's concern; a link
-    // without one reads through below).
+    // consulted: a deleted key's node serves `undefined` (notifyWrites). A
+    // chained target's node is a subscription point and reads through below,
+    // a lane value on it included: the derive's lane pass that wrote it
+    // predates the chain, and serving it covered the inner store's truth
+    // (#4762: `length` and a row of the old list beside the new list's
+    // rows). An optimistic target's guesses are its carrier's (above).
     const node0 = target.n?.[key as any];
     if (writeScopes === null && !writeOverride) {
       const nodeH = node0;
-      if (
-        nodeH !== undefined &&
-        (nodeH as any).acc !== true &&
-        (!target.ch || nodeH._config & CONFIG_OVERRIDE)
-      ) {
+      if (nodeH !== undefined && (nodeH as any).acc !== true && !target.ch) {
         const nv = nodeValue(nodeH, undefined, target);
         if (nv === null || typeof nv !== "object") return nv;
         if (target.s) return serveShallow(target, key, nv);
@@ -2382,8 +2380,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       const node = getHasNode(target, key);
       const present = readNode(node);
       src = readSource(target, key, true);
-      if (!present && (!target.ch || node._config & CONFIG_OVERRIDE || !(key in src)))
-        return undefined;
+      if (!present && (!target.ch || !(key in src))) return undefined;
     } else src = readSource(target, key, true);
     let desc: PropertyDescriptor | undefined;
     desc ??= visibleDescriptor(target, src, key);
