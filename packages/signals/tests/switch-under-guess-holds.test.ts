@@ -18,13 +18,19 @@ const cores: Record<string, () => Promise<any>> = {
   dev: () => import("../dist/dev.js")
 };
 
-type Variant = "ternary" | "guess read first" | "effect reads the view only" | "no guess";
+type Variant =
+  | "ternary"
+  | "guess read first"
+  | "fetch read first"
+  | "effect reads the view only"
+  | "no guess";
 
-async function run(core: any, variant: Variant): Promise<string[]> {
+async function run(core: any, variant: Variant, projected: boolean): Promise<string[]> {
   const {
     action,
     createMemo,
     createOptimistic,
+    createProjection,
     createRenderEffect,
     createRoot,
     createSignal,
@@ -53,6 +59,10 @@ async function run(core: any, variant: Variant): Promise<string[]> {
     const [closingTruth] = createSignal(() => [] as number[]);
     const [closing, guessClose] = createOptimistic(() => closingTruth());
     const view = createMemo(() => {
+      if (variant === "fetch read first") {
+        const rows = server();
+        return filter() === "open" ? rows.filter((r: any) => !closing().includes(r.id)) : rows;
+      }
       if (variant === "guess read first") {
         const c = closing();
         return filter() === "open" ? server().filter((r: any) => !c.includes(r.id)) : server();
@@ -65,9 +75,18 @@ async function run(core: any, variant: Variant): Promise<string[]> {
       guessClose((xs: number[]) => [...xs, id]);
       yield ask(`close:${id}`);
     });
+    // A keyed projection over the view (#4762): the rows reach the effect
+    // through store nodes the projection writes.
+    const rows: () => { id: number }[] = projected
+      ? (
+          (p: any) => () =>
+            p
+        )(createProjection(() => view(), [], { key: "id" }))
+      : view;
     createRenderEffect(
-      () => (variant === "effect reads the view only" ? ids(view()) : `${filter()}:${ids(view())}`),
-      (v: string) => void log.push(v)
+      () => (variant === "effect reads the view only" ? ids(rows()) : `${filter()}:${ids(rows())}`),
+      // The screen: a re-run that shows what is already shown changes nothing.
+      (v: string) => void (log[log.length - 1] !== v && log.push(v))
     );
   });
   await tick();
@@ -93,16 +112,16 @@ async function run(core: any, variant: Variant): Promise<string[]> {
 const expected: Record<Variant, string[]> = {
   "no guess": ["open:1,3,4", "| switched", "closed:2", "| landed"],
   ternary: ["open:1,3,4", "open:1,3", "| switched", "closed:2", "| landed"],
-  // The lane pass re-derives on the committed world when the frame parks (the
-  // seam's repair): the effect runs again with what it showed.
-  "guess read first": ["open:1,3,4", "open:1,3", "open:1,3", "| switched", "closed:2", "| landed"],
+  "guess read first": ["open:1,3,4", "open:1,3", "| switched", "closed:2", "| landed"],
+  "fetch read first": ["open:1,3,4", "open:1,3", "| switched", "closed:2", "| landed"],
   "effect reads the view only": ["1,3,4", "1,3", "| switched", "2", "| landed"]
 };
 
 for (const [tier, load] of Object.entries(cores))
   describe(`a write under a guess holds on the flight its lane work needs (${tier})`, () => {
     for (const variant of Object.keys(expected) as Variant[])
-      test(variant, async () => {
-        expect(await run(await load(), variant)).toEqual(expected[variant]);
-      });
+      for (const projected of [false, true])
+        test(`${variant}${projected ? ", through a projection" : ""}`, async () => {
+          expect(await run(await load(), variant, projected)).toEqual(expected[variant]);
+        });
   });
