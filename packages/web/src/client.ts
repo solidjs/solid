@@ -1401,7 +1401,11 @@ export function ref(
 
 export function ref(fn, element) {
   const resolved = untrack(fn);
-  runRefCallback(() => applyRef(resolved, element));
+  // A render effect's callback at creation (#4761): untracked, in the
+  // creating pass. Dev adds the effect-callback scope (`runRefCallback`).
+  "_SOLID_DEV_"
+    ? runRefCallback(() => applyRef(resolved, element))
+    : untrack(() => applyRef(resolved, element));
 }
 
 /** Compiler-emitted primitive; not for hand-written code. @internal */

@@ -569,7 +569,9 @@ export function createRenderer({
 
   function ref(fn, element) {
     const resolved = untrack(fn);
-    runRefCallback(() => applyRef(resolved, element));
+    "_SOLID_DEV_"
+      ? runRefCallback(() => applyRef(resolved, element))
+      : untrack(() => applyRef(resolved, element));
   }
 
   return {
