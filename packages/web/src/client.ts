@@ -1157,10 +1157,11 @@ export function spread<T>(
 //   props in the compute half and applied in the commit half only when its
 //   identity differs from the last applied one (`prevProps.ref`, recorded by
 //   assign()). `ref()` runs the callback as a render effect's callback runs
-//   (`runRefCallback`, #4761): untracked, owning nothing — creating a
+//   (`runRefCallback`, #4761 / #4767): untracked, owning nothing — creating a
 //   primitive in it is an error in dev, and the commit half runs with no
 //   owner — so the effect rerunning has nothing of the ref's to dispose;
-//   that is what makes the fold safe.
+//   that is what makes the fold safe. A born-held staged memo read there
+//   serves the staged value (A19 would throw NotReadyError and park the hold).
 //
 // Sources. A single source is an object, a merge() result or a bare
 // accessor. A lone reactive spread compiles to its accessor directly: merging
@@ -1402,10 +1403,11 @@ export function ref(
 export function ref(fn, element) {
   const resolved = untrack(fn);
   // A render effect's callback at creation (#4761): untracked, in the
-  // creating pass. Dev adds the effect-callback scope (`runRefCallback`).
-  "_SOLID_DEV_"
-    ? runRefCallback(() => applyRef(resolved, element))
-    : untrack(() => applyRef(resolved, element));
+  // creating pass. Always through `runRefCallback` so a read of a born-held
+  // staged memo serves its staged value (#4767) instead of throwing
+  // NotReadyError from the ownerless commit half. Dev also stamps the
+  // effect-callback scope (primitive creation throws).
+  runRefCallback(() => applyRef(resolved, element));
 }
 
 /** Compiler-emitted primitive; not for hand-written code. @internal */
