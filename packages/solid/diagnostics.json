@@ -560,9 +560,9 @@
   {
     "code": "STORE_WRITE_THROUGH_LOADING",
     "kind": ["write"],
-    "severity": ["error"],
+    "severity": ["warn"],
     "category": "write",
-    "trigger": "Store setter wrote inside another store still loading its first answer; the setter throws `NotReadyError`",
+    "trigger": "Store setter wrote inside another store still loading its first answer; the nested write is dropped",
     "repair": "A store setter wrote inside a value that is another store still loading its first answer (`setOuter(s => { s.child.x = 9 })`, where `outer`'s derive returned `{ child: inner }`).",
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/store-write-through-loading"
   },
