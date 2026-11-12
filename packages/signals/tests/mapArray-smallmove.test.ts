@@ -261,6 +261,39 @@ describe("mapArray small-move fast path — duplicate identities", () => {
     p.dispose();
   });
 
+  it("a displaced identity that also occurs in the common prefix still engages", () => {
+    const A = { id: 1 };
+    const head = items(100).map(i => ({ id: 1000 + i.id }));
+    const tail = items(100).map(i => ({ id: 2000 + i.id }));
+    const p = pair([A, ...head, A, ...tail]);
+    const before = hits();
+    p.set([A, ...head, ...tail, A]);
+    if (__DEV__) expect(hits()).toBe(before + 1);
+    p.agree();
+    p.dispose();
+  });
+
+  it("a displaced undefined beside a hole pairs as the general path does", () => {
+    const filler = items(100).map(i => ({ id: 1000 + i.id }));
+    // eslint-disable-next-line no-sparse-arrays
+    const [list, setList] = createSignal<any[]>([undefined, 1, , 2, ...filler]);
+    let f = 0,
+      o = 0;
+    let fast!: () => number[];
+    let oracle!: () => number[];
+    const dispose = createRoot(d => {
+      fast = mapArray(list, () => f++);
+      oracle = mapArray(list, (_item: any, _index: () => number) => o++);
+      fast();
+      oracle();
+      return d;
+    });
+    setList([1, undefined, 2, undefined, ...rotateF(filler)]);
+    flush();
+    expect(fast().slice(0, 4)).toEqual(oracle().slice(0, 4));
+    dispose();
+  });
+
   it("duplicates only among DISPLACED rows pair ascending on both sides — may engage, must agree", () => {
     const A = { id: 1 };
     const filler = items(200).map(i => ({ id: 1000 + i.id }));
