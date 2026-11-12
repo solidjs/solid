@@ -723,24 +723,22 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     ) {
       pb = target.pb = Object.create(v) as Record<PropertyKey, any>;
       target.ovl = true;
-    } else pb = target.pb = cloneRaw(v, target);
+    } else
+      try {
+        pb = target.pb = cloneRaw(v, target);
+      } catch (e) {
+        // #4808: a nested write through a chained store still loading its
+        // first answer (the clone reads it) is dropped, as a write to a
+        // loading store is — the first answer replaces it (A25) — and the
+        // outer keeps following the inner store.
+        if (!(e instanceof NotReadyError)) throw e;
+        if (__DEV__) devWriteThroughLoading(target);
+        // The write lands on a backing no one reads.
+        return {};
+      }
     if (!directCommit) stageOn(target, pb);
   }
   return pb;
-}
-
-/** The draft's pending backing for a write, or null for a nested write
- * through a chained store still loading its first answer (#4808): it is
- * dropped, as a write to a loading store is — the first answer replaces it
- * (A25) — and the outer keeps following the inner store. */
-function takePB(target: StoreTarget): Record<PropertyKey, any> | null {
-  try {
-    return ensurePB(target);
-  } catch (e) {
-    if (!(target.ch && e instanceof NotReadyError)) throw e;
-    if (__DEV__) devWriteThroughLoading(target);
-    return null;
-  }
 }
 
 /** Privatize `target`'s committed backing (and its ancestor chain — a shared
@@ -2450,8 +2448,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     }
     if (key === "__proto__") return true; // pollution guard (core R30)
     const uv = target.s ? value : unwrapValue(value);
-    const pb = takePB(target);
-    if (pb === null) return true;
+    const pb = ensurePB(target);
     // #4146 (R1: node existence is unobservable; #3706: the hold's unit is
     // the key): a user setter writing a key a HELD container's staging left
     // unchanged would write it into the held staging — read as the hold's
@@ -2498,8 +2495,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (key === "__proto__") return true;
     if (desc.get || desc.set) target.a = true;
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
-    const pb = takePB(target);
-    if (pb === null) return true;
+    const pb = ensurePB(target);
     if (target.a || !(desc.enumerable && desc.writable && desc.configurable)) target.sc = 1;
     touch(target, key);
     Object.defineProperty(pb, key, desc);
@@ -2515,8 +2511,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       if (__DEV__) warnWriteOutsideSetter(target, key, "deleteProperty");
       return true;
     }
-    const pb = takePB(target);
-    if (pb === null) return true;
+    const pb = ensurePB(target);
     touch(target, key);
     // The key count (`kc`, the overlay gate and the rebuild cap) follows a
     // delete the way it follows an add: an own key of the draft leaving — a
