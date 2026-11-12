@@ -15,6 +15,7 @@
 import {
   CONFIG_GUESS,
   CONFIG_HELD,
+  CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
   CONFIG_SLOT_NODE,
   NOT_PENDING
@@ -242,7 +243,11 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     // What the screen showed stays the screen until the parent lands (A18
     // (c): display and untracked reads keep the override until the commit)
     // — `_value` has it; the truth is the parent's staging.
-    if (l._shown) marked.add(n);
+    // A commit beneath the flight this answers (CONFIG_INPUTS_PUBLISHED, a
+    // new question asked before the guess) no longer says the committed
+    // value tears: the shown guess is the screen, and its readers keep it
+    // until the commit (#4795).
+    if (l._shown) (marked.add(n), (n._config &= ~CONFIG_INPUTS_PUBLISHED));
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
     n._x!._shown = false;
     covers.delete(n);
