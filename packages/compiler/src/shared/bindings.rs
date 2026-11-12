@@ -82,6 +82,13 @@ pub(crate) struct BindingTable {
     /// by a scope-aware pre-scan; scope resolution is position-insensitive,
     /// so a shadowing declaration later in the same scope still counts.
     pub(crate) shadowed_builtin_spans: std::collections::HashSet<u32>,
+    /// Program-level `const` initializers that evaluate statically, keyed by
+    /// name (`scan_module_constants`). A reference that resolves to no live
+    /// binding yet — a function declared above the constant, such as a
+    /// component the refresh pass hoisted — reads its value here, so the
+    /// fold does not depend on statement order (#4791): the server build,
+    /// which never reorders, and the dev client must agree on a hole.
+    module_constants: std::collections::HashMap<String, (Option<StaticValue>, Option<bool>)>,
 }
 
 impl Default for BindingTable {
@@ -93,6 +100,7 @@ impl Default for BindingTable {
             taken_names: std::collections::HashSet::new(),
             reassigned_names: std::collections::HashSet::new(),
             shadowed_builtin_spans: std::collections::HashSet::new(),
+            module_constants: std::collections::HashMap::new(),
         }
     }
 }
@@ -204,12 +212,62 @@ impl BindingTable {
     }
 
     pub(crate) fn static_value(&self, name: &str) -> Option<StaticValue> {
-        self.resolve(name)
-            .and_then(|binding| binding.static_value.clone())
+        match self.resolve(name) {
+            Some(binding) => binding.static_value.clone(),
+            None => self
+                .module_constants
+                .get(name)
+                .and_then(|(value, _)| value.clone()),
+        }
     }
 
     pub(crate) fn static_bool(&self, name: &str) -> Option<bool> {
-        self.resolve(name).and_then(|binding| binding.static_bool)
+        match self.resolve(name) {
+            Some(binding) => binding.static_bool,
+            None => self
+                .module_constants
+                .get(name)
+                .and_then(|(_, value)| *value),
+        }
+    }
+
+    /// Records the program-level `const`s whose initializer evaluates
+    /// statically, in source order (an initializer may use an earlier one).
+    /// Only names never reassigned anywhere, as `collect_variable_declaration`
+    /// requires; destructuring patterns are left out.
+    fn scan_module_constants(&mut self, program: &oxc_ast::ast::Program<'_>) {
+        for statement in &program.body {
+            let declaration = match statement {
+                Statement::VariableDeclaration(declaration) => declaration,
+                Statement::ExportDeclaration(export) => match &export.declaration {
+                    oxc_ast::ast::Declaration::VariableDeclaration(declaration) => declaration,
+                    _ => continue,
+                },
+                _ => continue,
+            };
+            if declaration.kind != VariableDeclarationKind::Const {
+                continue;
+            }
+            for declarator in &declaration.declarations {
+                let (BindingPattern::BindingIdentifier(binding), Some(init)) =
+                    (&declarator.id, &declarator.init)
+                else {
+                    continue;
+                };
+                let name = binding.name.to_string();
+                if self.is_reassigned(&name) || self.module_constants.contains_key(&name) {
+                    continue;
+                }
+                let flag = match init {
+                    oxc_ast::ast::Expression::BooleanLiteral(literal) => Some(literal.value),
+                    _ => None,
+                };
+                let value = static_expression(init, Some(self));
+                if value.is_some() || flag.is_some() {
+                    self.module_constants.insert(name, (value, flag));
+                }
+            }
+        }
     }
 
     pub(crate) fn is_taken(&self, name: &str) -> bool {
@@ -266,6 +324,7 @@ impl BindingTable {
             reassigned: &mut self.reassigned_names,
         };
         collector.visit_program(program);
+        self.scan_module_constants(program);
     }
 
     /// Scope-aware pre-scan for built-in shadowing: walks the program with a

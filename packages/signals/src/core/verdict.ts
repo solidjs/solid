@@ -31,6 +31,7 @@ import {
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
   REACTIVE_JOINED,
+  REACTIVE_MISSED_WAKE,
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
   REACTIVE_REASK,
@@ -62,6 +63,7 @@ import {
   unflushedValue,
   verdict
 } from "./core.js";
+import { adopter, setAdopter } from "./core.js";
 import { settlePendingSource } from "./async.js";
 import { forgetThrownRead, warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
@@ -73,6 +75,7 @@ import {
   blocked,
   dirtyQueue,
   clock,
+  dropFlushTx,
   flushTransaction,
   globalQueue,
   GlobalQueue,
@@ -347,10 +350,32 @@ function markVerdictReader(window: number): void {
     // (`route`); a verdict reader from its next pass. #4341: a memo born in
     // a newly opened <Match> read the screen, where its branch was closed.
     // Not such a pass: a verdict reader now.
+    // #4777 (D-25, A10: either read order): a memo's first probing pass
+    // that already read a held value plainly — joining the flush to that
+    // hold — starts over as the verdict reader it is, so its two plain
+    // reads agree. Only while the join is an adoption it can give back
+    // (`adopter`). Not an asker (CONFIG_ASYNC: the hold's, S-51), a pass
+    // born held, nor one whose creator read the future (D-27).
+    const restart =
+      c === adopter &&
+      flushTransaction &&
+      c._flags & REACTIVE_JOINED &&
+      !(c._config & (CONFIG_VERDICT | CONFIG_ASYNC)) &&
+      !(c._statusFlags & STATUS_UNINITIALIZED);
     c._flags |=
       REACTIVE_PROBED |
       REACTIVE_WINDOW |
       (creatorReads(c, 0) || ((c._config |= CONFIG_VERDICT), 0));
+    if (restart && c._config & CONFIG_VERDICT) {
+      // Thrown as a loading window's unready read: the pass parks for this
+      // instant with no visible pending (`parkLoadingWindow`), and its own
+      // tail runs it again in this flush (REACTIVE_MISSED_WAKE).
+      setAdopter(null);
+      dropFlushTx();
+      c._flags |= REACTIVE_MISSED_WAKE;
+      c._loading = true;
+      throw new NotReadyError(null);
+    }
     if (__TEST__) shadowWindow(c);
     // Observe tier: which windows this pass entered (1 `isPending`, 2
     // `latest`) — the hold census names the affordance (attribution.ts).

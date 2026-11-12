@@ -103,6 +103,12 @@ const add = action(function* (todo) {
 // …or keep pre-load items in their own list (an outbox) and render both.
 ```
 
+#### `OPTIMISTIC_WRITE_WHILE_LOADING`
+
+**Message:** "Optimistic write to a source that is loading a new question. The guess is an edit of the previous answer, and the new answer replaces it (D-34). Keep the control unavailable until the source has loaded (inside its `Loading`, or disabled while it is pending), or keep the pending change in a separate list until it lands."
+
+An optimistic setter ran while its source, which has answered before, is loading a new question because an input changed (a selection moved, a route param changed). The setter composes on the previous question's answer, so the guess is an edit of the wrong answer: a guess never shown is void when the new answer lands, and a shown one stands in place of the new answer until its action ends (ruled 2026-11-12, #4795). A `Loading on` re-arm looks like a first load on screen, but the source still holds the old answer. A guess before the first answer (the setter receives `undefined`, S-56) and a guess during a `refresh()` (the same question) are not flagged. Once per source. Production is unchanged. Repair: render the control inside the source's `Loading`, or disable it while the source is pending, or keep the pending change in a separate list until the new answer lands.
+
 #### `STORE_WRITE_OUTSIDE_SETTER`
 
 **Message:** "Writing store property \"n\" outside its setter was ignored. Stores are read-only outside the setter's draft: use `setStore(s => { s.n = value })`."
@@ -1030,6 +1036,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `REACTIVE_WRITE_IN_OWNED_SCOPE`    | error      | write          | Reactive write/invalidation inside component/computation                                                                                                          |
 | `ASYNC_STORE_SETTER`               | error      | write          | Store setter callback returned a Promise (setters are synchronous transactions)                                                                                   |
 | `OPTIMISTIC_WRITE_BEFORE_LOAD`     | error      | write          | Optimistic write to a source whose first answer has not landed; no guess is made                                                                                  |
+| `OPTIMISTIC_WRITE_WHILE_LOADING`   | warn       | write          | Optimistic write to a source that answered before and is loading a new question; the new answer replaces the guess (once per source)                              |
 | `STORE_WRITE_OUTSIDE_SETTER`       | warn       | write          | Store proxy written, deleted from, or defined on outside its setter; the write is ignored (once per store object and key)                                         |
 | `PENDING_ASYNC_UNTRACKED_READ`     | error      | async          | Reading pending async outside tracking scope                                                                                                                      |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY`   | warn       | async          | Async computation outside Loading boundary (non-halting; root mount is deferred)                                                                                  |

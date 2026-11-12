@@ -144,6 +144,7 @@ import {
   deferZombie,
   dirtyQueue,
   flushTransaction,
+  adopted,
   globalQueue,
   GlobalQueue,
   heldTrim,
@@ -1324,7 +1325,15 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
  * something not ready under a loading boundary that has not shown content:
  * the boundary collects it and shows its fallback, and the pass is the
  * boundary's, not the tick's (A29's boundary exemption, #3540). */
+/** #4777: the pass whose plain read made this flush adopt a hold (it had
+ * no transaction before): a window that pass then opens can give the hold
+ * back and start over (verdict.ts `markVerdictReader`). */
+export let adopter: Computed<any> | null = null;
+export function setAdopter(c: Computed<any> | null): void {
+  adopter = c;
+}
 export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
+  if (observeFlightHook && !flushTransaction) ((adopter = c), (adopted.length = 0));
   c._flags |= REACTIVE_JOINED;
   if (__TEST__) shadowExternalRaise(c, RAISE_H);
   // A new memo's first pass is the hold's work (born held) but not the

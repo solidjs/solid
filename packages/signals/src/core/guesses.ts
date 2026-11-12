@@ -15,12 +15,14 @@
 import {
   CONFIG_GUESS,
   CONFIG_HELD,
+  CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
   CONFIG_SLOT_NODE,
   NOT_PENDING
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { ext } from "./core.js";
+import { devWarnOptimisticWhileLoading } from "./dev.js";
 import { covered, covers, latestOf, underOf } from "./truth.js";
 import {
   armGuessing,
@@ -117,6 +119,7 @@ export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T)
   // again is no guess (the node's comparator, as for any write) — unless
   // the node already carries one: the user re-asked, and the re-ask renews
   // the guess's question and entangles its frame (#3347) without notifying.
+  if (__DEV__) devWarnOptimisticWhileLoading(n as Computed<T>);
   const prev = guessedValueOf(n);
   if (typeof v === "function") v = (v as (prev: T) => T)(prev);
   if (n._equals && n._equals(prev, v) && !(n._config & CONFIG_GUESS)) return v;
@@ -263,7 +266,11 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     // What the screen showed stays the screen until the parent lands (A18
     // (c): display and untracked reads keep the override until the commit)
     // — `_value` has it; the truth is the parent's staging.
-    if (l._shown) marked.add(n);
+    // A commit beneath the flight this answers (CONFIG_INPUTS_PUBLISHED, a
+    // new question asked before the guess) no longer says the committed
+    // value tears: the shown guess is the screen, and its readers keep it
+    // until the commit (#4795).
+    if (l._shown) (marked.add(n), (n._config &= ~CONFIG_INPUTS_PUBLISHED));
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
     n._x!._shown = false;
     covers.delete(n);
