@@ -1179,6 +1179,19 @@ const laneSeams = (t: Transaction | null): void => {
  * registration still listens to the flight, and must not land it a second
  * time. */
 const adoptParked = (r: Computed<any>): boolean => {
+  // A sync memo re-derived at a landing (a stale reader: lane work, or a
+  // verdict reader served the screen) — the held runs of its readers ran on
+  // the pass this replaces, reading it stale beside the landing: void, they
+  // re-run on it, in the landing's frame (F-1, A15). (An async memo's re-ask
+  // keeps the runs it reveals with.)
+  if (!((r as any)._type || r._config & CONFIG_ASYNC))
+    for (let s = r._subs; s !== null; s = s._nextSub) {
+      const e = s._sub as any;
+      if (e._type && e._modified) {
+        e._modified = false;
+        enqueueSub(e);
+      }
+    }
   const parked = r._x?._parked;
   if (!parked || r._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_IN_HEAP)) return false;
   r._x!._parked = undefined;
