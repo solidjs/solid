@@ -901,10 +901,25 @@ installOptHooks({
     // Linked by this pass's hold (below): its other reads keep the guess.
     const j = heldC === c && heldAt === clock;
     if (linkedTo(c, d)) return j && heldV > 1;
-    if (kgOf(t)?.some(g => (g as any).g === null) && c?._statusFlags & STATUS_PENDING)
+    if (kgOf(t)?.some(g => (g as any).g === null) && c?._statusFlags & STATUS_PENDING) {
       if (c._type === EFFECT_RENDER) readNode(d);
       else if (j ? heldV : ((heldC = c), (heldAt = clock), (heldV = held(c))))
         d._x?._transaction ? (link(d, c), staleReader(c, txOf(d)), (heldV = 2)) : readNode(d);
+    }
+    // #4786: guesses of one action standing in (A17) for a `refresh()` that
+    // another action holds (D-34 ¶3: the same question) still leave the
+    // pass derived from that refetch: a derivation reading them is a stale
+    // reader of it (A15). Linked, the refetch's hold keeps waiting for it
+    // (F-11) and it re-derives at the landing. A render effect reads its
+    // memo's frame; a new question is the branches above.
+    else if (
+      c?._depsTail !== undefined &&
+      c._type !== EFFECT_RENDER &&
+      d._x?._reask &&
+      d._x._transaction &&
+      !ownFlight(o, txOf(d))
+    )
+      (link(d, c), staleReader(c, txOf(d)));
     return true;
   },
   // Mainline hold (`clock + 1`): the flush joins the action of each guess a
@@ -938,6 +953,18 @@ function held(c: any, seen = new Set()): true | undefined {
  * and its verdict (`heldV`: 2 once this pass linked it): a reader's key reads
  * come in one run, so each does not re-walk its subscribers. */
 let heldC: any, heldAt: number, heldV: any;
+
+/** A guess in `o` (live or held) belongs to the transaction `f` that holds
+ * the flight it stands in for. */
+function ownFlight(o: Set<StoreTarget>, f: Transaction): boolean {
+  for (const t of o)
+    for (const n of [...(kgOf(t) ?? []), t.dk])
+      if (n?._x?._transaction) {
+        const l = txOf(n);
+        if (resolveTx(l._parent ?? l) === f) return true;
+      }
+  return false;
+}
 
 /** Two lanes of one action (their parents resolved through merges). */
 function sameAction(a: Transaction, b: Transaction): boolean {
