@@ -875,13 +875,16 @@ installOptHooks({
   // no live guess left — the lane waits for its answer (F-6), as for a
   // guessed `createOptimistic` (lanes `laneStage`). The guess's own lane
   // asks nothing new and stamps nothing.
-  // A `refresh()` re-asks the guesses' own question (D-34 ¶3): a guess
+  // A `refresh()` re-asks the guesses' own question (D-34 ¶3) — the
+  // derive's own, or every source it waits on re-asked (`reasked`: a
+  // refreshed memo dirties a sync derive ahead of its own refresh, #4801):
+  // a guess
   // stands in for its flight (A17), so a leaf lane work reads is kept off
   // the wake — the lane shows its guesses and the flight holds the lane's
   // parent, not the lane (F-11, #4656).
   ask: fam => {
     if (!fam._overlaid?.size) return;
-    if (fam.node!._flags & REACTIVE_REASK) return (n: any) => n._subs._sub._x?._transaction?._lane;
+    if (reasked(fam.node!)) return (n: any) => n._subs._sub._x?._transaction?._lane;
     // Stamped with the flush (`clock`): it lapses when the flush ends.
     let a = ~clock;
     for (const g of fam._overlaid) {
