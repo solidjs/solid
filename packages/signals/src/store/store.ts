@@ -52,6 +52,7 @@ import {
 import {
   captureWriteSnapshot,
   context,
+  pullComputed,
   devRead,
   disposalDepth,
   isEqual,
@@ -1935,6 +1936,13 @@ function pullFamily(target: StoreTarget): void {
     if (c && fw._config & CONFIG_STAGED_ERROR) link(fw, c);
     readNode(fw);
   } else {
+    // #4782: the pull a tracked read makes — the derive brought up to date
+    // now and the reader lifted above it — not only a woken one: a reader
+    // of the leaves carries no height from the derive (a leaf has no `_fn`),
+    // so the heap can run it first, against the derive's last answer.
+    let r: any = context;
+    if (r?._root) r = r._parentComputed;
+    if (r) pullComputed(fw, r);
     untrack(() => readNode(fw));
     // #4491: a derive that is a verdict reader only through what it reads (a
     // verdict memo's value, D-25 / F-6; no window of its own) is served the
@@ -2163,9 +2171,13 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     // read path; the arms are the optimistic hooks').
     // `optHooks !== null` first: a bundle without optimistic stores never
     // assigns the hook, and the minifier folds the whole arm away.
-    if (optHooks !== null && target.o && !inDraft(target) && !writeOverride) {
-      const v = optHooks.read(target, key);
-      if (v !== NOT_PENDING) return v;
+    // In the user's draft: a read of another action's live guess (#4788).
+    if (optHooks !== null && target.o && !writeOverride) {
+      if (inDraft(target)) optHooks.drafted(target, key);
+      else {
+        const v = optHooks.read(target, key);
+        if (v !== NOT_PENDING) return v;
+      }
     }
     // Hot inline case: existing PLAIN node (non-accessor) read outside any
     // draft — the dbmon/uibench effect re-read shape. Core's `read()` serves

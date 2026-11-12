@@ -79,7 +79,9 @@ import {
 import { covers, latestOf, underOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
 import {
+  actionDepth,
   blocked,
+  question,
   clock,
   commitPendingNode,
   flushTransaction,
@@ -143,8 +145,17 @@ export function setLaneValue(n: Signal<any>, l: Transaction, v: unknown): void {
 }
 /** What the screen shows of a node: NOT_PENDING when nothing (uninitialized). */
 export function screenOf(el: Signal<any> | Computed<any>): unknown {
-  return (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ? NOT_PENDING : el._value;
+  return (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED
+    ? NOT_PENDING
+    : guessScreen
+      ? guessScreen(el)
+      : el._value;
 }
+/** The guess layer's screen of a node (guesses.ts): a shown guess re-asked
+ * keeps the shown one until its lane's next reveal (#4775); `revealed`
+ * forgets it. */
+export let guessScreen: ((el: Signal<any>, revealed?: true) => unknown) | null = null;
+
 /** The lane's record of the value the screen showed `n` before the lane
  * revealed it (a guess reverts to it, `covered`) — kept once. */
 function cover(n: Signal<any>): void {
@@ -179,8 +190,10 @@ export let revertLandingHook: ((u: Transaction) => void) | null = null;
 export function installGuessLayer(
   take: NonNullable<typeof takeHook>,
   write: NonNullable<typeof guessWriteHook>,
-  revert: NonNullable<typeof revertLandingHook>
+  revert: NonNullable<typeof revertLandingHook>,
+  screen: NonNullable<typeof guessScreen>
 ): void {
+  guessScreen = screen;
   takeHook = take;
   guessWriteHook = write;
   revertLandingHook = revert;
@@ -622,6 +635,12 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
  * lane, the pass re-derives on the screen (`entered`, #4284) — `latest()`
  * beside the lane's nodes tears ahead of the hold however the reads are
  * grouped into effects. */
+/** #4788: the lanes whose guesses an action read imperatively (its body, a
+ * setter: `laneRead`, a store setter's draft), each with the question the
+ * reading action asks (`question`): a guess that action writes next derives
+ * from them (guesses.ts `optimisticWrite`); another action's reads are not
+ * its own. Kept while the lane read lives (guesses.ts `applyGuessesAt`). */
+export const readGuesses: unknown[] = [];
 export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   const guess = el._config & CONFIG_GUESS;
   const l = txOf(el);
@@ -651,6 +670,10 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
   }
   if (c === null) {
     if (__TEST__) shadowActual(SLOT_LV);
+    // #4788 (D-33): an action's imperative read of a guess — its body, a
+    // setter — that a guess it writes next may derive from.
+    // A store target's carrier is noted per key (store/optimistic.ts).
+    if (guess && actionDepth && !(el._config & CONFIG_SLOT_NODE)) readGuesses.push(l, question);
     return latestOf(el);
   }
   const pending = !guess && status & STATUS_PENDING;
@@ -786,6 +809,7 @@ function laneSeam(l: Transaction, leaked: boolean): void {
     // beneath a guess stays its staging. An effect's value slot is private.
     if (!(n as any)._type)
       if (n._config & CONFIG_GUESS) {
+        guessScreen!(n, true);
         if (!n._x!._shown) {
           const g = covers.get(n);
           covers.set(n, n._value);
@@ -1145,8 +1169,11 @@ const laneSeams = (t: Transaction | null): void => {
   // A verdict lane born at this seam is judged with it: it exists only once
   // a pass routed into it — the park seam's zombie verdict readers re-run
   // as its work so that this seam reveals them (#3444).
+  // A lane a guess re-asked at this seam is judged with that guess's passes,
+  // next round: its reveal is whole (#4775).
   for (let k = lanes.length - 1; k >= 0; k--)
-    if (k < judged || isVerdict(lanes[k])) laneSeam(lanes[k], leaked.indexOf(lanes[k]) !== -1);
+    if ((k < judged && lanes[k]._reguessed !== clock) || isVerdict(lanes[k]))
+      laneSeam(lanes[k], leaked.indexOf(lanes[k]) !== -1);
   // A verdict reader that entered a lane this seam held: its run waits with
   // the lane, and the verdict beside it would freeze — it re-derives next
   // round from the frame's seat, a stale reader of the lane (#4284).
@@ -1164,6 +1191,19 @@ const laneSeams = (t: Transaction | null): void => {
  * registration still listens to the flight, and must not land it a second
  * time. */
 const adoptParked = (r: Computed<any>): boolean => {
+  // A sync memo re-derived at a landing (a stale reader: lane work, or a
+  // verdict reader served the screen) — the held runs of its readers ran on
+  // the pass this replaces, reading it stale beside the landing: void, they
+  // re-run on it, in the landing's frame (F-1, A15). (An async memo's re-ask
+  // keeps the runs it reveals with.)
+  if (!((r as any)._type || r._config & CONFIG_ASYNC))
+    for (let s = r._subs; s !== null; s = s._nextSub) {
+      const e = s._sub as any;
+      if (e._type && e._modified) {
+        e._modified = false;
+        enqueueSub(e);
+      }
+    }
   const parked = r._x?._parked;
   if (!parked || r._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_IN_HEAP)) return false;
   r._x!._parked = undefined;

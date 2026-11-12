@@ -63,6 +63,7 @@ import {
   REACTIVE_WINDOW,
   REACTIVE_AHEAD,
   CONFIG_OWN_PROBE,
+  CONFIG_FRAME,
   CONFIG_AHEAD,
   REACTIVE_REASK,
   REACTIVE_STAGED_READ,
@@ -143,6 +144,7 @@ import {
   deferZombie,
   dirtyQueue,
   flushTransaction,
+  adopted,
   globalQueue,
   GlobalQueue,
   heldTrim,
@@ -1323,7 +1325,15 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
  * something not ready under a loading boundary that has not shown content:
  * the boundary collects it and shows its fallback, and the pass is the
  * boundary's, not the tick's (A29's boundary exemption, #3540). */
+/** #4777: the pass whose plain read made this flush adopt a hold (it had
+ * no transaction before): a window that pass then opens can give the hold
+ * back and start over (verdict.ts `markVerdictReader`). */
+export let adopter: Computed<any> | null = null;
+export function setAdopter(c: Computed<any> | null): void {
+  adopter = c;
+}
 export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
+  if (observeFlightHook && !flushTransaction) ((adopter = c), (adopted.length = 0));
   c._flags |= REACTIVE_JOINED;
   if (__TEST__) shadowExternalRaise(c, RAISE_H);
   // A new memo's first pass is the hold's work (born held) but not the
@@ -1941,12 +1951,21 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
   }
 }
 
-/** Dev-only: inside a ref callback (`runRefCallback`). Its context is the
- * creating pass's for reads, but it is no owned scope: a write, a refresh,
- * an action call or `onFlush` there is the imperative work a ref does (an
- * effect callback's), not a computation's. */
+/** > 0 while `runRefCallback` is on the stack (prod and dev). A ref whose
+ * creating pass was born into a held node's hold may read that node's staged
+ * value (#4767, F-7); A19 exc. 1 would otherwise throw NotReadyError from the
+ * ownerless commit half and leave the hold parked forever. */
+let refCallbackDepth = 0;
+
+/** Inside a ref callback (`runRefCallback`). Prod uses the depth; dev also
+ * matches the effect-callback owner stamp when the creating pass left a
+ * context. A write, refresh, action call or `onFlush` there is the imperative
+ * work a ref does (an effect callback's), not a computation's. */
 export function inRefCallback(): boolean {
-  return inEffectCallback && context !== null && context === effectCallbackOwner;
+  return (
+    refCallbackDepth > 0 ||
+    (inEffectCallback && context !== null && context === effectCallbackOwner)
+  );
 }
 
 /**
@@ -1960,17 +1979,22 @@ export function inRefCallback(): boolean {
  * @internal
  */
 export function runRefCallback(fn: () => void): void {
-  if (__DEV__) {
-    const prev = inEffectCallback,
-      prevEvent = effectCallbackEvent,
-      prevOwner = effectCallbackOwner;
-    setEffectCallback(true, ANY_EVENT, context);
-    try {
-      untrack(fn, "a ref callback");
-    } finally {
-      setEffectCallback(prev, prevEvent, prevOwner);
-    }
-  } else untrack(fn);
+  refCallbackDepth++;
+  try {
+    if (__DEV__) {
+      const prev = inEffectCallback,
+        prevEvent = effectCallbackEvent,
+        prevOwner = effectCallbackOwner;
+      setEffectCallback(true, ANY_EVENT, context);
+      try {
+        untrack(fn, "a ref callback");
+      } finally {
+        setEffectCallback(prev, prevEvent, prevOwner);
+      }
+    } else untrack(fn);
+  } finally {
+    refCallbackDepth--;
+  }
 }
 
 /**
@@ -2352,14 +2376,43 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         // asks for does not hold the hold (scheduler.ts `blockedBy`).
         if (
           observeFlightHook &&
-          (c as any)._type === EFFECT_RENDER &&
-          owner._config & CONFIG_VERDICT &&
-          !(owner._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) &&
           ((c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED
             ? c._config & CONFIG_HELD || flushTransaction
-            : c._config & CONFIG_HELD_FRAME)
-        )
-          (c as Computed<any>)._flags |= REACTIVE_AHEAD;
+            : c._config & CONFIG_HELD_FRAME ||
+              (c._config & CONFIG_ASYNC && (c._config & CONFIG_HELD || flushTransaction)))
+        ) {
+          if (
+            (c as any)._type === EFFECT_RENDER &&
+            owner._config & CONFIG_VERDICT &&
+            !(owner._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED))
+          )
+            (c as Computed<any>)._flags |= REACTIVE_AHEAD;
+          // #4776, #4778 (D-25): a sync verdict memo is display while only
+          // the display reads it. A pass of a hold's own work reading it — born
+          // into the hold, of a frame a held pass built, or an async
+          // derivation (S-51) — makes it that hold's: it re-derives now, served
+          // the hold's writes (verdict.ts `holdStaging`) and answered as an
+          // asker (`readBy`), and the reader reads that. A memo that probes in
+          // its own body stays the screen's for a held reader (F-6, #4544's
+          // inline rows, #4341) and is the hold's only for an async one.
+          if (
+            (owner._config &
+              (CONFIG_VERDICT |
+                CONFIG_FRAME |
+                CONFIG_ASYNC |
+                (c._config & CONFIG_ASYNC ? 0 : CONFIG_OWN_PROBE))) ===
+            CONFIG_VERDICT
+          ) {
+            const t = resolveTx(
+                c._config & CONFIG_HELD ? txOf(c as Computed<any>) : flushTransaction!
+              ),
+              x = ext(owner);
+            if (x._readIn !== t) {
+              x._readIn = t;
+              recompute(owner);
+            }
+          }
+        }
         if (observeFlightHook && !(c as any)._type)
           (c as Computed<any>)._flags |=
             owner._config &
@@ -2597,11 +2650,24 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // an untracked reader has nothing to serve and holds (A19 exception 1) — a
   // bookkeeping read (`spectate`) likewise, and a children-forbidden reader
   // (A32: the frame, which has nothing here).
+  // Exception: a ref callback whose creating pass was born into this node's
+  // hold (#4767, narrowed for F-7). Refs run in the attribute effect's commit
+  // half with no owner, but `runRefCallback` keeps the creator's context
+  // (#4768). Serving the staged value there is the hold's own work reading
+  // plainly (D-25); a ref mounted outside that hold must not see it ahead of
+  // the commit (F-7).
   if (
     el._pendingValue !== NOT_PENDING &&
     (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED &&
     (!c || spectating || c._config & CONFIG_CHILDREN_FORBIDDEN)
   ) {
+    if (refCallbackDepth > 0) {
+      const pass = creatorPass(context);
+      if (pass && el._config & CONFIG_HELD && bornInto(pass, txOf(el))) {
+        if (__TEST__) shadowActual(SLOT_P);
+        return el._pendingValue;
+      }
+    }
     if (__DEV__) {
       const e = new NotReadyError(null);
       noteThrownRead(el, e);

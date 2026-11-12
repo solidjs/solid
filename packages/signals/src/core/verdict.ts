@@ -31,6 +31,7 @@ import {
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
   REACTIVE_JOINED,
+  REACTIVE_MISSED_WAKE,
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
   REACTIVE_REASK,
@@ -62,6 +63,7 @@ import {
   unflushedValue,
   verdict
 } from "./core.js";
+import { adopter, setAdopter } from "./core.js";
 import { settlePendingSource } from "./async.js";
 import { forgetThrownRead, warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
@@ -73,6 +75,7 @@ import {
   blocked,
   dirtyQueue,
   clock,
+  dropFlushTx,
   flushTransaction,
   globalQueue,
   GlobalQueue,
@@ -347,10 +350,32 @@ function markVerdictReader(window: number): void {
     // (`route`); a verdict reader from its next pass. #4341: a memo born in
     // a newly opened <Match> read the screen, where its branch was closed.
     // Not such a pass: a verdict reader now.
+    // #4777 (D-25, A10: either read order): a memo's first probing pass
+    // that already read a held value plainly — joining the flush to that
+    // hold — starts over as the verdict reader it is, so its two plain
+    // reads agree. Only while the join is an adoption it can give back
+    // (`adopter`). Not an asker (CONFIG_ASYNC: the hold's, S-51), a pass
+    // born held, nor one whose creator read the future (D-27).
+    const restart =
+      c === adopter &&
+      flushTransaction &&
+      c._flags & REACTIVE_JOINED &&
+      !(c._config & (CONFIG_VERDICT | CONFIG_ASYNC)) &&
+      !(c._statusFlags & STATUS_UNINITIALIZED);
     c._flags |=
       REACTIVE_PROBED |
       REACTIVE_WINDOW |
       (creatorReads(c, 0) || ((c._config |= CONFIG_VERDICT), 0));
+    if (restart && c._config & CONFIG_VERDICT) {
+      // Thrown as a loading window's unready read: the pass parks for this
+      // instant with no visible pending (`parkLoadingWindow`), and its own
+      // tail runs it again in this flush (REACTIVE_MISSED_WAKE).
+      setAdopter(null);
+      dropFlushTx();
+      c._flags |= REACTIVE_MISSED_WAKE;
+      c._loading = true;
+      throw new NotReadyError(null);
+    }
     if (__TEST__) shadowWindow(c);
     // Observe tier: which windows this pass entered (1 `isPending`, 2
     // `latest`) — the hold census names the affordance (attribution.ts).
@@ -637,7 +662,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       if (
         tracked &&
         probing &&
-        c!._config & CONFIG_ASYNC &&
+        (c!._config & CONFIG_ASYNC || readBy(c!, t)) &&
         !(c!._config & CONFIG_HELD) &&
         (passLane === null || passLane._parent?._verdict === passLane)
       ) {
@@ -727,7 +752,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     else if (
       tracked &&
       probing &&
-      c!._config & CONFIG_ASYNC &&
+      (c!._config & CONFIG_ASYNC || readBy(c!, flushTransaction)) &&
       el._pendingValue !== NOT_PENDING &&
       (passLane === null || passLane._parent?._verdict === passLane)
     ) {
@@ -940,9 +965,19 @@ function attachWaits(node: Computed<any>): boolean {
  * flush's own sync write to a plain store, with no node for a window to
  * have asked through — the posture alone decides, as it does for the
  * signal (R2, signal parity). */
+/** #4776: the hold `t`'s own work read memo `c` (core.ts `read`): it is that
+ * hold's, an asker's posture included (#4778, S-51). */
+function readBy(c: Computed<any>, t: Transaction | null): unknown {
+  const r = c._x?._readIn;
+  return r && t && resolveTx(r) === resolveTx(t);
+}
+
 function holdStaging(c: Computed<any>, el?: Signal<any> | Computed<any>): unknown {
-  const a = el?._x?._askedIn;
+  const r = c._x?._readIn,
+    a = el?._x?._askedIn,
+    h = el && resolveTx(el._config & CONFIG_HELD ? el._x!._transaction! : flushTransaction!);
   return (
+    r &&
     !(
       c._config & (CONFIG_OWN_PROBE | CONFIG_FRAME) ||
       c._flags & (REACTIVE_WINDOW | REACTIVE_PROBE_UNANSWERED)
@@ -951,11 +986,8 @@ function holdStaging(c: Computed<any>, el?: Signal<any> | Computed<any>): unknow
       (el._pendingValue !== NOT_PENDING &&
         !(el._config & (CONFIG_ASYNC | CONFIG_OVERRIDE)) &&
         a !== clock &&
-        !(
-          typeof a == "object" &&
-          resolveTx(a) ===
-            resolveTx(el._config & CONFIG_HELD ? el._x!._transaction! : flushTransaction!)
-        ))) &&
+        !(typeof a == "object" && resolveTx(a) === h) &&
+        resolveTx(r) === h)) &&
     (!passLane || (passLane._parent!._verdict === passLane && (setPassLane(null), true)))
   );
 }
