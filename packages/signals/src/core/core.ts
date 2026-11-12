@@ -1941,10 +1941,10 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
   }
 }
 
-/** > 0 while `runRefCallback` is on the stack (prod and dev). A ref's reads
- * of a born-held staged value must see that value (#4767); A19 exc. 1 would
- * otherwise throw NotReadyError from the ownerless commit half and leave the
- * hold parked forever. */
+/** > 0 while `runRefCallback` is on the stack (prod and dev). A ref whose
+ * creating pass was born into a held node's hold may read that node's staged
+ * value (#4767, F-7); A19 exc. 1 would otherwise throw NotReadyError from the
+ * ownerless commit half and leave the hold parked forever. */
 let refCallbackDepth = 0;
 
 /** Inside a ref callback (`runRefCallback`). Prod uses the depth; dev also
@@ -2609,18 +2609,23 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // an untracked reader has nothing to serve and holds (A19 exception 1) — a
   // bookkeeping read (`spectate`) likewise, and a children-forbidden reader
   // (A32: the frame, which has nothing here).
-  // Exception: a ref callback (#4767). Refs run in the attribute effect's
-  // commit half with no owner, but they are building the element into the
-  // held frame — the staged value is that frame's. Throwing NotReadyError
-  // there errors the effect mid-hold and the transaction never lands.
+  // Exception: a ref callback whose creating pass was born into this node's
+  // hold (#4767, narrowed for F-7). Refs run in the attribute effect's commit
+  // half with no owner, but `runRefCallback` keeps the creator's context
+  // (#4768). Serving the staged value there is the hold's own work reading
+  // plainly (D-25); a ref mounted outside that hold must not see it ahead of
+  // the commit (F-7).
   if (
     el._pendingValue !== NOT_PENDING &&
     (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED &&
     (!c || spectating || c._config & CONFIG_CHILDREN_FORBIDDEN)
   ) {
     if (refCallbackDepth > 0) {
-      if (__TEST__) shadowActual(SLOT_P);
-      return el._pendingValue;
+      const pass = creatorPass(context);
+      if (pass && el._config & CONFIG_HELD && bornInto(pass, txOf(el))) {
+        if (__TEST__) shadowActual(SLOT_P);
+        return el._pendingValue;
+      }
     }
     if (__DEV__) {
       const e = new NotReadyError(null);

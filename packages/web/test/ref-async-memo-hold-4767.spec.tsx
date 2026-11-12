@@ -11,9 +11,19 @@
 // sync memo created on that row is born held (A29) with only a staged value.
 // An ownerless read of it threw NotReadyError (A19 exc. 1); the throw errored
 // the effect mid-hold and the transaction never landed. Fix: serve the staged
-// value inside runRefCallback.
+// value when the ref's creating pass was born into that memo's hold (F-7).
 import { describe, expect, test } from "vitest";
-import { createMemo, createStore, flush, For, Loading } from "solid-js";
+import {
+  action,
+  createMemo,
+  createRenderEffect,
+  createRoot,
+  createSignal,
+  createStore,
+  flush,
+  For,
+  Loading
+} from "solid-js";
 import { render } from "../src/index.js";
 
 const tick = async () => {
@@ -21,6 +31,12 @@ const tick = async () => {
     await new Promise(r => setTimeout(r, 0));
     flush();
   }
+};
+
+const settle = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+  flush();
 };
 
 describe("#4767: ref reading a memo on a row mounted under an async hold", () => {
@@ -75,6 +91,62 @@ describe("#4767: ref reading a memo on a row mounted under an async hold", () =>
       dispose();
     } finally {
       c.remove();
+    }
+  });
+
+  // F-7: a ref whose creating pass is not born into the hold must not see a
+  // born-held memo's staged value before that hold commits — even inside
+  // runRefCallback. (Same-hold serve is covered by the cart/For test above
+  // and by signals `ref-born-held-staged-4767`.)
+  test("ref outside the hold does not see a born-held memo's staged value", async () => {
+    const outside = document.body.appendChild(document.createElement("div"));
+    const [x, setX] = createSignal(0);
+    createRoot(() => {
+      createRenderEffect(x, () => {});
+    });
+    flush();
+
+    let release!: () => void;
+    action(function* () {
+      setX(1);
+      yield new Promise<void>(r => (release = r));
+    })();
+    flush();
+
+    let m!: () => string;
+    createRoot(() => {
+      m = createMemo(() => `v${x()}`);
+    });
+
+    let outsideSeen: string | "blocked" | undefined;
+    try {
+      const disposeOutside = render(
+        () => (
+          <div
+            id="out"
+            ref={el => {
+              try {
+                outsideSeen = m();
+                el.title = outsideSeen;
+              } catch {
+                outsideSeen = "blocked";
+              }
+            }}
+          />
+        ),
+        outside
+      );
+      flush();
+      expect(outsideSeen).toBe("blocked");
+      expect(outside.querySelector("#out")!.getAttribute("title")).toBeNull();
+
+      release();
+      await settle();
+      expect(m()).toBe("v1");
+
+      disposeOutside();
+    } finally {
+      outside.remove();
     }
   });
 });
