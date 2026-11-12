@@ -350,13 +350,14 @@ export function notifyOptimisticWrites(
   const inner = t.ch ? (t.v as Record<PropertyKey, any>) : null;
   const changed = new Set<PropertyKey>();
   let del: Set<PropertyKey> | null = null;
-  let structural = false;
+  let structural = false,
+    shape = false;
   for (const key of Reflect.ownKeys(pb)) {
     if (key === $OWNER) continue;
     const nv = unwrapValue(pb[key as any]);
     if (!(key in old)) {
       changed.add(key);
-      structural = true;
+      structural = shape = true;
     } else {
       const previous = old[key as any];
       // A chained draft holds the inner store's raws: the inner's own frame.
@@ -381,7 +382,7 @@ export function notifyOptimisticWrites(
   for (const key of Reflect.ownKeys(old)) {
     if (key === $OWNER || key in pb) continue;
     (del ??= new Set()).add(key);
-    structural = true;
+    structural = shape = true;
   }
   const staged = optStaged.get(t);
   if (staged !== undefined) optStaged.delete(t);
@@ -404,9 +405,13 @@ export function notifyOptimisticWrites(
   // its contents, and falling through would lose the DOM notification
   // (#4724). The record accumulates across a lane's writes, like `wk`: a
   // key this guess later writes itself is its own, and the `wk`/`del`
-  // match above takes precedence regardless.
+  // match above takes precedence regardless. Not a guess that changed the
+  // keys or the length: it writes the list itself, the slot the other
+  // structural guesses write, so they entangle and its frame holds until
+  // they all settle (D-33) — a fall-through there served the truth's
+  // length beside this frame's rows.
   const kg = kgOf(t);
-  if (kg !== null && kg.length > 1)
+  if (kg !== null && kg.length > 1 && !shape && !changed.has("length"))
     for (const o of kg as any[]) {
       if (o === g) continue;
       const live =
@@ -414,18 +419,10 @@ export function notifyOptimisticWrites(
         pendingGuessOf(o) !== NOT_PENDING;
       if (!live) continue;
       for (const key of o.wk ?? [])
-        if (
-          !changed.has(key) &&
-          !del?.has(key) &&
-          !carriedVerbatim(t, old, pb, key)
-        )
+        if (!changed.has(key) && !del?.has(key) && !carriedVerbatim(t, old, pb, key))
           (g.borrowed ??= new Set()).add(key);
       for (const key of o.del ?? [])
-        if (
-          !changed.has(key) &&
-          !del?.has(key) &&
-          !carriedVerbatim(t, old, pb, key)
-        )
+        if (!changed.has(key) && !del?.has(key) && !carriedVerbatim(t, old, pb, key))
           (g.borrowed ??= new Set()).add(key);
     }
   if (structural && isArr) {
