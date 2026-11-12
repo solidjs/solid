@@ -85,6 +85,7 @@ import {
   warnStrictReadUntracked
 } from "../core/dev.js";
 import { signalHook } from "../core/identities.js";
+import { NotReadyError } from "../core/error.js";
 import { link, setSlotUnobserved } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
 import { checkForeignRead } from "../core/copies.js";
@@ -722,7 +723,19 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     ) {
       pb = target.pb = Object.create(v) as Record<PropertyKey, any>;
       target.ovl = true;
-    } else pb = target.pb = cloneRaw(v, target);
+    } else
+      try {
+        pb = target.pb = cloneRaw(v, target);
+      } catch (e) {
+        // #4808: a nested write through a chained store still loading its
+        // first answer (the clone reads it) is dropped, as a write to a
+        // loading store is — the first answer replaces it (A25) — and the
+        // outer keeps following the inner store.
+        if (!(e instanceof NotReadyError)) throw e;
+        if (__DEV__) devWriteThroughLoading(target);
+        // The write lands on a backing no one reads.
+        return {};
+      }
     if (!directCommit) stageOn(target, pb);
   }
   return pb;
@@ -1597,10 +1610,14 @@ function readSource(
   // A key whose leaf carries a lane's value (a guess, S4): the leaf serves
   // it — the container's frame is not consulted (a reader is not made a
   // stale reader of the container's hold for a key it does not see through
-  // it).
+  // it). Unless the container carries the same lane's value: then the
+  // container's frame is the one the leaf is in, and presence and keys read
+  // it, as the leaf's value does (#4821: a projection a lane pass derived).
+  // (A leaf whose lane is gone matches no container: `|| 0`.)
   if (key !== undefined) {
     const leaf = target.n?.[key as any];
-    if (leaf?._config! & CONFIG_OVERRIDE) return committed(target);
+    if (leaf?._config! & CONFIG_OVERRIDE && k?._x?._transaction !== (leaf!._x!._transaction || 0))
+      return committed(target);
   }
   const held = k !== null && (k._config & CONFIG_HELD) !== 0;
   // A held container: the hold's unit is the key (#3706). A key the HELD
@@ -2150,6 +2167,28 @@ function warnWriteOutsideSetter(
   );
 }
 
+/** #4808: a nested write through a child that is another store still
+ * loading its first answer needs that store's contents as the draft's base,
+ * and they do not exist yet (its seed is never observable, A25), so the
+ * write is refused with the read's NotReadyError. Dev names the cause. */
+function devWriteThroughLoading(target: StoreTarget): void {
+  const name = String(target.pk ?? "");
+  reportDiagnostic(
+    emitDiagnostic({
+      code: "STORE_WRITE_THROUGH_LOADING",
+      kind: "write",
+      severity: "warn",
+      message:
+        `[STORE_WRITE_THROUGH_LOADING] A store setter wrote inside "${name}", which is another ` +
+        `store still loading its first answer. The write was dropped: when that store loads, its ` +
+        `answer is what shows, as for a write to a loading store itself. Write after it loads, or ` +
+        `replace the whole value: \`setStore(s => { s.${name} = value })\`.`,
+      nodeName: name,
+      data: { operation: "set", property: name }
+    })
+  );
+}
+
 const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
   get(_, key, receiver) {
     const target = this;
@@ -2350,6 +2389,9 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(target, key);
     if (target._fam !== null) pullFamily(target);
+    // In the user's draft: presence a live guess changed (#4812).
+    if (optHooks !== null && target.o && !writeOverride && inDraft(target))
+      optHooks.drafted(target, key, true);
     // S2: presence of a key a live guess changed is the carrier frame's.
     if (optRead(target)) {
       const guessed = optHooks!.has(target, key);
@@ -2378,6 +2420,8 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(target, undefined);
     if (target._fam !== null) pullFamily(target);
+    if (optHooks !== null && target.o && !writeOverride && inDraft(target))
+      optHooks.drafted(target, undefined, true);
     return visibleKeys(target, enumerationSource(target));
   },
 

@@ -948,7 +948,7 @@ export function className(node, value, prev) {
     return;
   }
   if (typeof value === "string") {
-    node._$classes = undefined;
+    if (node._$classes) node._$classes = undefined;
     value !== prev && node.setAttribute("class", value);
     return;
   }
@@ -1505,8 +1505,9 @@ export function installHydrationRuntime() {
     // re-claimed (#4374).
     reclaimRegion(current, parent, marker) {
       if (!sharedConfig.hydrating || current == null || !parent.isConnected) return current;
-      const first = Array.isArray(current) ? current[0] : current;
-      if (first == null || first.isConnected) return current;
+      // A swap can take a middle node of the region, past a live head (#4807).
+      if (Array.isArray(current) ? current.every(n => !n || n.isConnected) : current.isConnected)
+        return current;
       let nodes;
       if (marker) {
         nodes = [];

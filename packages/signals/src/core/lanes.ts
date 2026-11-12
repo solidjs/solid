@@ -873,7 +873,12 @@ function lanesBlocked(t: Transaction): boolean {
   // landing; the verdict lane that opened it reveals with that landing, not
   // ahead of it (shown now, the branch attached with its hole empty, #4417,
   // or with the committed value a re-derived mount read).
-  if (t._lane && t._parent!._verdict === t && heldMountUnder(null, t)) return true;
+  if (
+    t._lane &&
+    t._parent!._verdict === t &&
+    ((t._opened && holdsOn(resolveTx(t._parent!))) || heldMountUnder(null, t))
+  )
+    return true;
   // A frame flight the seam parked beside its reader's lane pass (R5) is the
   // hold's question still: the hold waits on it (`park`).
   if (!t._lane && r5Hook && r5Hook(null, t)) return true;
@@ -894,10 +899,21 @@ function collectMounts(): void {
       const r = nodes[i] as Computed<any>;
       // (A node re-held into a second transaction is listed twice; the
       // second entry is pruned with the first.)
-      if ((r as any)._type === EFFECT_RENDER && r._config & CONFIG_MOUNT_AHEAD) aheadMounts.push(r);
+      if (r._config & CONFIG_MOUNT_AHEAD) aheadMounts.push(r);
     }
     t.scanned = nodes.length;
   }
+}
+/** The hold `t` waits: an action open in its frame, or a flight it holds. */
+function holdsOn(t: Transaction): boolean {
+  return (
+    t._open !== 0 ||
+    t._nodes.some(n => !(n as any)._type && (n as Computed<any>)._statusFlags! & STATUS_PENDING)
+  );
+}
+function shownBy(r: Computed<any>): unknown {
+  for (let s = r._subs; s !== null; s = s._nextSub)
+    if ((s._sub as any)._type === EFFECT_RENDER && !hiddenHook?.(s._sub)) return 1;
 }
 /** A collected mount still held, uninitialized, on screen and waiting —
  * on its own flight, an action open in its frame, or a flight its frame
@@ -917,12 +933,12 @@ export function heldMountUnder(o: Owner | null, l: Transaction | null): boolean 
     }
     const t = resolveTx(r._x!._transaction!);
     if (
-      hiddenHook?.(r) ||
-      !(
-        r._statusFlags & STATUS_PENDING ||
-        t._open !== 0 ||
-        t._nodes.some(n => !(n as any)._type && (n as Computed<any>)._statusFlags! & STATUS_PENDING)
-      )
+      // A memo mount is on screen through the render effect that reads it
+      // (#4806: a fragment, text beside a hole, returned to the slot). One
+      // a memo reads is that memo's: a boundary the mount builds around it
+      // shows its fallback (#3851).
+      ((r as any)._type ? hiddenHook?.(r) : !shownBy(r)) ||
+      !(r._statusFlags & STATUS_PENDING || holdsOn(t))
     )
       continue;
     for (let p: Owner | null = r._parent; p !== null; p = p._parent)

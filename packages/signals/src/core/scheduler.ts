@@ -348,6 +348,8 @@ export interface Transaction {
   waits?: Computed<any>[];
   /** How many of `_nodes` lanes.ts `collectMounts` has looked at (S-58). */
   scanned?: number;
+  /** #4806: a verdict lane whose pass opened content over the hold's staging. */
+  _opened?: number;
 }
 /** Live transactions — opened, unmerged, not landed. Scanned at every seam
  * while non-empty; nothing on the plain path. */

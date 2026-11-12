@@ -851,10 +851,37 @@ function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
  * of it. Nor is the keyed diff a returned array is written by (`diffing`):
  * the user's own reads are the setter's. */
 let diffing = false;
+/** #4812: a record a live guess put in place (a replaced child), with the
+ * record it replaced: what the setter reads under it derives from that
+ * guess, however deep — where it differs from what the replaced record
+ * holds (a rewritten row's unchanged `id` is navigation, #4724). */
+const placed = new WeakMap<object, [Transaction, any]>();
 function noteRead(t: StoreTarget, key: PropertyKey, v?: unknown): void {
-  const g: any = actionDepth && !diffing && guessFor(t, key, false, false);
-  if (g && g._config & CONFIG_OVERRIDE && !isWrappable(v ?? carrierValue(guessedValueOf(g), key)))
-    readGuesses.push(txOf(g), question);
+  if (!actionDepth || diffing) return;
+  const g: any = guessFor(t, key, false, false);
+  const p = g && g._config & CONFIG_OVERRIDE ? null : placed.get(t.v);
+  if (!p && !(g && g._config & CONFIG_OVERRIDE)) return;
+  const l = p ? p[0] : txOf(g),
+    old = unwrapValue(p ? p[1]?.[key as any] : t.v[key as any]),
+    r = unwrapValue(v ?? (g ? carrierValue(guessedValueOf(g), key) : t.v[key as any]));
+  if (isWrappable(r)) r !== old && placed.set(r, [l, old]);
+  else if (!p || !Object.is(r, old)) readGuesses.push(l, question);
+}
+/** #4812: presence (`in`) and enumeration in a setter's draft read the key
+ * set a live guess changed — a key it added or deleted. */
+function noteShape(t: StoreTarget, key?: PropertyKey): void {
+  const kg = actionDepth && !diffing ? kgOf(t) : null;
+  if (kg !== null)
+    for (let i = kg.length - 1; i >= 0; i--) {
+      const g: any = kg[i];
+      if (
+        g._config & CONFIG_OVERRIDE &&
+        (key !== undefined
+          ? g.del?.has(key) || (g.wk?.has(key) && !(key in t.v))
+          : g.del?.size || [...(g.wk ?? [])].some((k: PropertyKey) => !(k in t.v)))
+      )
+        readGuesses.push(txOf(g), question);
+    }
 }
 
 installOptHooks({
@@ -887,7 +914,7 @@ installOptHooks({
     if (obs === null) noteRead(t, key, v);
     return serveKeyValue(t, key, v, false, node);
   },
-  drafted: (t, key) => noteRead(t, key),
+  drafted: (t, key, shape) => (shape ? noteShape(t, key) : noteRead(t, key!)),
   has: (t, key) => {
     const g = guessFor(t, key, true);
     if (g === null) return undefined;

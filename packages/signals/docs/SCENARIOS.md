@@ -808,9 +808,9 @@ const [x, setX] = createSignal(0);
 <!-- /ruling -->
 
 <!-- ruling:S-46 -->
-### S-46. The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-25
+### S-46. The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-25 (#4806)
 
-_Generated from `packages/web/test/async-gen/rulings/S-46.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/display-ahead-plain-write-content.test.ts`, `web/test/display-ahead-plain-write-content-s46.spec.tsx`._
+_Generated from `packages/web/test/async-gen/rulings/S-46.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/display-ahead-plain-write-content.test.ts`, `web/test/display-ahead-plain-write-content-s46.spec.tsx`, `web/test/display-ahead-show-child-shapes-4806.spec.tsx`._
 
 **Case 1.**
 
@@ -870,6 +870,8 @@ const detail = createMemo(async () => fetch(1 + id()));
 | 0 | detail(1) lands; tick | `id 0 \| detail 1 \| [none]`     |                                                      |
 | 1 | setId(1); flush()     | `id 0 \| detail 1 \| [fallback]` | S-31's form: the boundary catches the born-held read |
 | 2 | detail(2) lands; tick | `id 1 \| detail 2 \| id 1`       |                                                      |
+
+Ruled 2026-11-12 (#4806): the shape of the content never changes its seat. An element, a fragment, text beside a hole, a function child, plain text `{id()}` and the compiled ternary `{latest(id) > 0 ? id() : …}` are each the mount this row describes; text read in the gate's own pass holds the verdict lane as a born-held element does.
 <!-- /ruling -->
 
 ### S-39. A later unread value still throws — D-28
@@ -1625,7 +1627,7 @@ const m1 = createMemo(() => 1 + detail() + s1()); // throws when the input % 4 =
 | 1 | setS1(2) in an action; the action lands; setId(3); tick | `[root error]` | #4405's minimized shape: the action's landing, a write that poisons `m1` and (variant) a remount of the gate in one tick                                                                                                                                                                                                                                                                                                                                       |
 | 2 | setS1(1) in an action                                   | —              | a second action re-asks `detail` through `latest(s1)`; the remounted gate's old content is a zombie until the hold lands and reads the same errored memo. It settles in every hop count: before this case was built the one-hop gate looped ("Potential Infinite Loop Detected") — the zombie retried the errored memo every round (a later cycle's retry, PJ-R35), and the fresh error re-derived the live gate, whose retry next round re-derived the zombie |
 
-PR #4708 pinned a hop-less `<Show>` as never painting; with real JSX it paints at the landing and tears only during the flight, the same way `<Show>` did before S-46. The runner's `gate` variant here is the gate as written by hand, not an emulation. Cases ″ and ‴ (2026-11-08, #4723 review): the same mount under a guess lane — the write inside an action on an optimistic `id` — is the same mount; lane work served the screen (A15) is the one exception D-25 makes for no leaf a probing pass opened.
+PR #4708 pinned a hop-less `<Show>` as never painting; with real JSX it paints at the landing and tears only during the flight, the same way `<Show>` did before S-46. The runner's `gate` variant here is the gate as written by hand, not an emulation. Cases ″ and ‴ (2026-11-08, #4723 review): the same mount under a guess lane — the write inside an action on an optimistic `id` — is the same mount; lane work served the screen (A15) is the one exception D-25 makes for no leaf a probing pass opened. Text content counts as the mount too (S-46, ruled 2026-11-12).
 <!-- /ruling -->
 
 ### S-59. A store guess's slot is the point of write: a whole-array rewrite is the rows it changed — D-33, F-11, D-41
