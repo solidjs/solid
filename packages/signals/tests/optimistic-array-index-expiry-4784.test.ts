@@ -84,3 +84,114 @@ test("an expired index guess reverts while a disjoint index guess is still out (
   expect(seenArray.at(-1)).toBe("0,0");
   expect(seenObject.at(-1)).toBe("0,0");
 });
+
+test("the reverse end order: the second action ends first (#4784)", async () => {
+  const gate1 = deferred();
+  const gate2 = deferred();
+  let array!: number[];
+  let setArray!: (fn: (draft: number[]) => void) => void;
+  const seenArray: string[] = [];
+  createRoot(() => {
+    [array, setArray] = createOptimisticStore([0, 0]);
+    createRenderEffect(
+      () => array.join(","),
+      v => void seenArray.push(v)
+    );
+  });
+  flush();
+  expect(seenArray.at(-1)).toBe("0,0");
+
+  const save = action(function* (index: 0 | 1, gate: Promise<void>) {
+    setArray(draft => {
+      draft[index] = index + 1;
+    });
+    yield gate;
+  });
+
+  const p1 = save(1, gate1.promise);
+  flush();
+  expect(seenArray.at(-1)).toBe("0,2");
+
+  const p2 = save(0, gate2.promise);
+  flush();
+  expect(seenArray.at(-1)).toBe("1,2");
+
+  // The second action ends first: its index reverts, the first guess stays.
+  gate2.resolve();
+  await p2;
+  flush();
+  expect(seenArray.at(-1)).toBe("0,2");
+  expect(array[0]).toBe(0);
+  expect(array[1]).toBe(2);
+
+  gate1.resolve();
+  await p1;
+  flush();
+  expect(seenArray.at(-1)).toBe("0,0");
+});
+
+test("the lending action writing its own index again after the other guess was made (#4784)", async () => {
+  const gate1a = deferred();
+  const gate1b = deferred();
+  const gate2 = deferred();
+  let array!: number[];
+  let setArray!: (fn: (draft: number[]) => void) => void;
+  const seenArray: string[] = [];
+  createRoot(() => {
+    [array, setArray] = createOptimisticStore([0, 0]);
+    createRenderEffect(
+      () => array.join(","),
+      v => void seenArray.push(v)
+    );
+  });
+  flush();
+  expect(seenArray.at(-1)).toBe("0,0");
+
+  // The first action guesses index 1, then — after the second action's
+  // guess is out — writes its own index again with a new value.
+  const save1 = action(function* () {
+    setArray(draft => {
+      draft[1] = 2;
+    });
+    yield gate1a.promise;
+    setArray(draft => {
+      draft[1] = 11;
+    });
+    yield gate1b.promise;
+  });
+  const save2 = action(function* () {
+    setArray(draft => {
+      draft[0] = 1;
+    });
+    yield gate2.promise;
+  });
+
+  const p1 = save1();
+  flush();
+  expect(seenArray.at(-1)).toBe("0,2");
+
+  const p2 = save2();
+  flush();
+  expect(seenArray.at(-1)).toBe("1,2");
+
+  // The lending action's re-write wins over the other guess's borrowed
+  // copy of the old value.
+  gate1a.resolve();
+  await new Promise(r => setTimeout(r, 0));
+  flush();
+  expect(seenArray.at(-1)).toBe("1,11");
+  expect(array[1]).toBe(11);
+
+  // The first action ends: its index reverts, the other guess stays.
+  gate1b.resolve();
+  await p1;
+  flush();
+  expect(seenArray.at(-1)).toBe("1,0");
+  expect(array[1]).toBe(0);
+  expect(array[0]).toBe(1);
+
+  gate2.resolve();
+  await p2;
+  flush();
+  expect(seenArray.at(-1)).toBe("0,0");
+});

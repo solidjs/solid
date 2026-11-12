@@ -117,8 +117,10 @@ const INDEX = /^(0|[1-9]\d*)$/;
  * not claim a key it only carried over from another live guess's carrier
  * (`borrowed`, #4784): the read falls through to that carrier — or to the
  * truth once it dissolves — instead of serving this frame's stale copy of
- * the expired guess. A landing asks without `reads`: a key the guess only
- * carried over is the truth's, and its leaf tells its readers as ever (store.ts `leafSet`). */
+ * the expired guess. A row carried over verbatim in a keyed list is not
+ * borrowed (`carriedVerbatim`, #4724): the row target decides its contents.
+ * A landing asks without `reads`: a key the guess only carried over is the
+ * truth's, and its leaf tells its readers as ever (store.ts `leafSet`). */
 function guessFor(
   t: StoreTarget,
   key: PropertyKey,
@@ -313,6 +315,28 @@ function patchEquals(this: any, a: any, b: any): boolean {
   return true;
 }
 
+// A keyed arrangement guess carries another guess's row verbatim when the
+// setter returned the view's row unchanged: the frame holds the view's row
+// object (the `echoes` normalization), and the row target — not the frame
+// copy — decides the row's contents, so the arrangement read serves this
+// frame's copy instead of falling through to the lender. Falling through
+// re-links the reader to the lender's carrier, which loses the
+// notification that carries the new arrangement to the DOM (#4724).
+// Primitives always borrow: the lender may rewrite the value, and this
+// frame's copy would go stale (#4784).
+function carriedVerbatim(
+  t: StoreTarget,
+  old: Record<PropertyKey, any>,
+  pb: Record<PropertyKey, any>,
+  key: PropertyKey
+): boolean {
+  if (typeof key !== "string" || !INDEX.test(key)) return false;
+  const keyFn = t._fam?.key;
+  if (keyFn === null || keyFn === undefined) return false;
+  const row = unwrapValue(pb[key]);
+  return isWrappable(row) && row === old[key];
+}
+
 export function notifyOptimisticWrites(
   t: StoreTarget,
   pb: Record<PropertyKey, any>
@@ -373,9 +397,12 @@ export function notifyOptimisticWrites(
   // the other guess's values at keys this guess did not itself write. The
   // arrangement read falls through on those keys — to the lender's carrier
   // while it lives, to the truth once it dissolves — instead of serving
-  // this frame's copy of the expired guess. The record accumulates across
-  // a lane's writes, like `wk`: a key this guess later writes itself is
-  // its own, and the `wk`/`del` match above takes precedence regardless.
+  // this frame's copy of the expired guess. A row the setter carried over
+  // verbatim is not borrowed (`carriedVerbatim`): the row target decides
+  // its contents, and falling through would lose the DOM notification
+  // (#4724). The record accumulates across a lane's writes, like `wk`: a
+  // key this guess later writes itself is its own, and the `wk`/`del`
+  // match above takes precedence regardless.
   const kg = kgOf(t);
   if (kg !== null && kg.length > 1)
     for (const o of kg as any[]) {
@@ -385,9 +412,19 @@ export function notifyOptimisticWrites(
         pendingGuessOf(o) !== NOT_PENDING;
       if (!live) continue;
       for (const key of o.wk ?? [])
-        if (!changed.has(key) && !del?.has(key)) (g.borrowed ??= new Set()).add(key);
+        if (
+          !changed.has(key) &&
+          !del?.has(key) &&
+          !carriedVerbatim(t, old, pb, key)
+        )
+          (g.borrowed ??= new Set()).add(key);
       for (const key of o.del ?? [])
-        if (!changed.has(key) && !del?.has(key)) (g.borrowed ??= new Set()).add(key);
+        if (
+          !changed.has(key) &&
+          !del?.has(key) &&
+          !carriedVerbatim(t, old, pb, key)
+        )
+          (g.borrowed ??= new Set()).add(key);
     }
   if (structural && isArr) {
     const rows = (pb as any[]).map(unwrapValue);
