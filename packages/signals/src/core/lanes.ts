@@ -79,6 +79,7 @@ import {
 import { covers, latestOf, underOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
 import {
+  actionDepth,
   blocked,
   clock,
   commitPendingNode,
@@ -633,6 +634,11 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
  * lane, the pass re-derives on the screen (`entered`, #4284) — `latest()`
  * beside the lane's nodes tears ahead of the hold however the reads are
  * grouped into effects. */
+/** #4788: the lanes whose guesses an action read imperatively (its body, a
+ * setter: `laneRead`, a store setter's draft) since the last seam: a guess
+ * written by that seam derives from them, and its frame entangles with
+ * theirs (guesses.ts `applyGuessesAt`). */
+export const readGuesses: Transaction[] = [];
 export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   const guess = el._config & CONFIG_GUESS;
   const l = txOf(el);
@@ -662,6 +668,10 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
   }
   if (c === null) {
     if (__TEST__) shadowActual(SLOT_LV);
+    // #4788 (D-33): an action's imperative read of a guess — its body, a
+    // setter — that a guess it writes next may derive from.
+    // A store target's carrier is noted per key (store/optimistic.ts).
+    if (guess && actionDepth && !(el._config & CONFIG_SLOT_NODE)) readGuesses.push(l);
     return latestOf(el);
   }
   const pending = !guess && status & STATUS_PENDING;

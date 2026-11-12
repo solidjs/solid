@@ -53,6 +53,7 @@ import {
   marked,
   markJudged,
   newLane,
+  readGuesses,
   rerun,
   setLaneValue
 } from "./lanes.js";
@@ -201,7 +202,16 @@ function applyGuesses(parent: Transaction | null): void {
  * has no work to judge yet). */
 const applyGuessesAt = (parent: Transaction | null): void => {
   markJudged();
-  if (pendingGuesses.length !== 0) applyGuesses(parent);
+  if (pendingGuesses.length !== 0) {
+    // #4788 (D-33): a guess written beside an imperative read of another
+    // hold's live guess derives from it: the frames entangle, as two
+    // suggestions for one slot do — neither reverts while the other is out.
+    // A read alone entangles nothing.
+    if (parent !== null)
+      for (const r of readGuesses) if (lanes.includes(r)) merge(parent, r._parent!);
+    applyGuesses(parent);
+  }
+  readGuesses.length = 0;
 };
 
 /** The truth arrived for a written guess (A18): a correction dissolves the
