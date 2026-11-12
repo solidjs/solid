@@ -1610,10 +1610,13 @@ function readSource(
   // A key whose leaf carries a lane's value (a guess, S4): the leaf serves
   // it — the container's frame is not consulted (a reader is not made a
   // stale reader of the container's hold for a key it does not see through
-  // it).
+  // it). Unless the container carries the same lane's value: then the
+  // container's frame is the one the leaf is in, and presence and keys read
+  // it, as the leaf's value does (#4821: a projection a lane pass derived).
   if (key !== undefined) {
     const leaf = target.n?.[key as any];
-    if (leaf?._config! & CONFIG_OVERRIDE) return committed(target);
+    if (leaf?._config! & CONFIG_OVERRIDE && k?._x?._transaction !== leaf!._x!._transaction)
+      return committed(target);
   }
   const held = k !== null && (k._config & CONFIG_HELD) !== 0;
   // A held container: the hold's unit is the key (#3706). A key the HELD
