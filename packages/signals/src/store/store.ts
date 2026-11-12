@@ -1613,9 +1613,10 @@ function readSource(
   // it). Unless the container carries the same lane's value: then the
   // container's frame is the one the leaf is in, and presence and keys read
   // it, as the leaf's value does (#4821: a projection a lane pass derived).
+  // (A leaf whose lane is gone matches no container: `|| 0`.)
   if (key !== undefined) {
     const leaf = target.n?.[key as any];
-    if (leaf?._config! & CONFIG_OVERRIDE && k?._x?._transaction !== leaf!._x!._transaction)
+    if (leaf?._config! & CONFIG_OVERRIDE && k?._x?._transaction !== (leaf!._x!._transaction || 0))
       return committed(target);
   }
   const held = k !== null && (k._config & CONFIG_HELD) !== 0;
