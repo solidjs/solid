@@ -122,6 +122,21 @@ setStore(s => {
 });
 ```
 
+#### `STORE_WRITE_THROUGH_LOADING`
+
+**Message:** "A store setter wrote inside \"child\", which is another store still loading its first answer. Its contents do not exist yet, so the write was refused. Write after it loads, or replace the whole value: `setStore(s => { s.child = value })`."
+
+A store can hold another store: a derive that returns `{ child: inner }` reads `child` through to `inner`. A setter that writes a nested key inside `child` (`s.child.x = 9`) needs `inner`'s contents as the base of its own copy. While `inner` is loading its first answer those contents do not exist, and its seed is never observable, so the setter throws the read's `NotReadyError` (production throws the same). Dev reports the cause first. `data` carries `{ operation: "set", property }`, where `property` is the key holding the loading store. Replacing the whole value needs no base and works at any time.
+
+```js
+setOuter(s => {
+  s.child.x = 9; // throws while `inner` loads; reported in dev
+});
+setOuter(s => {
+  s.child = { x: 9, y: 0 }; // fine
+});
+```
+
 #### `PENDING_ASYNC_UNTRACKED_READ`
 
 **Message:** "Reading a pending async value directly in [context]. Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function)."
@@ -1038,6 +1053,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `OPTIMISTIC_WRITE_BEFORE_LOAD`     | error      | write          | Optimistic write to a source whose first answer has not landed; no guess is made                                                                                  |
 | `OPTIMISTIC_WRITE_WHILE_LOADING`   | warn       | write          | Optimistic write to a source that answered before and is loading a new question; the new answer replaces the guess (once per source)                              |
 | `STORE_WRITE_OUTSIDE_SETTER`       | warn       | write          | Store proxy written, deleted from, or defined on outside its setter; the write is ignored (once per store object and key)                                         |
+| `STORE_WRITE_THROUGH_LOADING`      | error      | write          | Store setter wrote inside another store still loading its first answer; the setter throws `NotReadyError`                                                         |
 | `PENDING_ASYNC_UNTRACKED_READ`     | error      | async          | Reading pending async outside tracking scope                                                                                                                      |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY`   | warn       | async          | Async computation outside Loading boundary (non-halting; root mount is deferred)                                                                                  |
 | `CLEANUP_IN_FORBIDDEN_SCOPE`       | error      | lifecycle      | `onCleanup` inside trackedEffect/onSettled or a ref callback                                                                                                      |

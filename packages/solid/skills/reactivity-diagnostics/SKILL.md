@@ -175,6 +175,16 @@ array methods work on the draft: `s.items.push(x)`, `delete s.user`). Once
 per store object and key; `data.operation` is `set`, `defineProperty` or
 `deleteProperty`.
 
+### STORE_WRITE_THROUGH_LOADING
+
+A store setter wrote inside a value that is another store still loading its
+first answer (`setOuter(s => { s.child.x = 9 })`, where `outer`'s derive
+returned `{ child: inner }`). The nested write needs that store's contents
+and they do not exist yet (its seed is never shown), so the setter throws the
+read's `NotReadyError`. Repair: write after the inner store loads, or replace
+the whole value, `setOuter(s => { s.child = { ...next } })`. `data.property`
+names the key holding the loading store. Production throws the same error.
+
 ### ACTION_CALLED_IN_OWNED_SCOPE
 
 An action was invoked during a component body or computation. Actions are

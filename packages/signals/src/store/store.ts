@@ -85,6 +85,7 @@ import {
   warnStrictReadUntracked
 } from "../core/dev.js";
 import { signalHook } from "../core/identities.js";
+import { NotReadyError } from "../core/error.js";
 import { link, setSlotUnobserved } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
 import { checkForeignRead } from "../core/copies.js";
@@ -132,7 +133,6 @@ import {
   $TRACK,
   $PATCH,
   writeOverride,
-  setWriteOverride,
   installShallowView,
   isRawValue,
   isWrappable,
@@ -696,19 +696,6 @@ export function materializePB(target: StoreTarget): Record<PropertyKey, any> {
  * Staged on the container node (the scheduler owns its lifetime) and queued
  * for the fold at the flush's commit. */
 function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
-  // #4808: a chained backing is another store's proxy. Its base is that
-  // store's write base (A25: a setter before the first answer writes the
-  // seed), read as a write — not a read that pulls a pending derive. The
-  // flag is global: restored even if a copied accessor throws.
-  if (!target.ch || writeOverride) return draftBase(target);
-  setWriteOverride(true);
-  try {
-    return draftBase(target);
-  } finally {
-    setWriteOverride(false);
-  }
-}
-function draftBase(target: StoreTarget): Record<PropertyKey, any> {
   let pb = target.pb;
   // An optimistic edit composes on the view the user saw and becomes
   // guesses at the setter's exit: nothing is staged, nothing folds
@@ -740,6 +727,17 @@ function draftBase(target: StoreTarget): Record<PropertyKey, any> {
     if (!directCommit) stageOn(target, pb);
   }
   return pb;
+}
+
+/** The draft's pending backing for a write. Dev names a refused nested write
+ * through a loading chained store (#4808) before rethrowing. */
+function devTakePB(target: StoreTarget): Record<PropertyKey, any> {
+  try {
+    return ensurePB(target);
+  } catch (e) {
+    if (target.ch && e instanceof NotReadyError) devWriteThroughLoading(target);
+    throw e;
+  }
 }
 
 /** Privatize `target`'s committed backing (and its ancestor chain — a shared
@@ -1576,7 +1574,7 @@ function readSource(
   // (#3665), never a staging awaiting its fold: the draft is born on the
   // read (and notified at the setter's exit like any).
   if (optHooks !== null && userWrite && target.o && !pendingNotify.has(target) && inDraft(target)) {
-    const draft = ensurePB(target);
+    const draft = (__DEV__ ? devTakePB : ensurePB)(target);
     pendingNotify.add(target);
     return draft;
   }
@@ -2146,6 +2144,27 @@ function warnWriteOutsideSetter(
   );
 }
 
+/** #4808: a nested write through a child that is another store still
+ * loading its first answer needs that store's contents as the draft's base,
+ * and they do not exist yet (its seed is never observable, A25), so the
+ * write is refused with the read's NotReadyError. Dev names the cause. */
+function devWriteThroughLoading(target: StoreTarget): void {
+  const name = String(target.pk ?? "");
+  reportDiagnostic(
+    emitDiagnostic({
+      code: "STORE_WRITE_THROUGH_LOADING",
+      kind: "write",
+      severity: "error",
+      message:
+        `[STORE_WRITE_THROUGH_LOADING] A store setter wrote inside "${name}", which is another ` +
+        `store still loading its first answer. Its contents do not exist yet, so the write was ` +
+        `refused. Write after it loads, or replace the whole value: \`setStore(s => { s.${name} = value })\`.`,
+      nodeName: name,
+      data: { operation: "set", property: name }
+    })
+  );
+}
+
 const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
   get(_, key, receiver) {
     const target = this;
@@ -2425,7 +2444,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     }
     if (key === "__proto__") return true; // pollution guard (core R30)
     const uv = target.s ? value : unwrapValue(value);
-    const pb = ensurePB(target);
+    const pb = (__DEV__ ? devTakePB : ensurePB)(target);
     // #4146 (R1: node existence is unobservable; #3706: the hold's unit is
     // the key): a user setter writing a key a HELD container's staging left
     // unchanged would write it into the held staging — read as the hold's
@@ -2472,7 +2491,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (key === "__proto__") return true;
     if (desc.get || desc.set) target.a = true;
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
-    const pb = ensurePB(target);
+    const pb = (__DEV__ ? devTakePB : ensurePB)(target);
     if (target.a || !(desc.enumerable && desc.writable && desc.configurable)) target.sc = 1;
     touch(target, key);
     Object.defineProperty(pb, key, desc);
@@ -2488,7 +2507,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       if (__DEV__) warnWriteOutsideSetter(target, key, "deleteProperty");
       return true;
     }
-    const pb = ensurePB(target);
+    const pb = (__DEV__ ? devTakePB : ensurePB)(target);
     touch(target, key);
     // The key count (`kc`, the overlay gate and the rebuild cap) follows a
     // delete the way it follows an add: an own key of the draft leaving — a
