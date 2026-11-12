@@ -27,6 +27,7 @@ afterEach(() => {
   warn.mockRestore();
   flush();
 });
+const warned = () => warn.mock.calls.filter(c => String(c[0]).includes(CODE)).length;
 const tick = async () => {
   for (let i = 0; i < 4; i++) {
     await new Promise(r => setTimeout(r, 0));
@@ -85,6 +86,7 @@ describe("#4795: a guess while the source loads a new question warns in dev", ()
       expect(events[0].severity).toBe("warn");
       expect(events[0].kind).toBe("write");
       expect(events[0].message).toContain("D-34");
+      expect(warned()).toBe(1);
     });
     it(`${kind}: not over a refresh of the same question`, async () => {
       const a = app(kind);
@@ -99,6 +101,7 @@ describe("#4795: a guess while the source loads a new question warns in dev", ()
       })();
       flush();
       expect(capture.stop().filter(e => e.code === CODE).length).toBe(0);
+      expect(warned()).toBe(0);
     });
   }
   it("memo: not before the first answer (S-56)", () => {
@@ -110,5 +113,6 @@ describe("#4795: a guess while the source loads a new question warns in dev", ()
     })();
     flush();
     expect(capture.stop().filter(e => e.code === CODE).length).toBe(0);
+    expect(warned()).toBe(0);
   });
 });

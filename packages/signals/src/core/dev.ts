@@ -944,14 +944,19 @@ export function devWarnOptimisticWhileLoading(n: Computed<any> | null | undefine
     !warnedWhileLoading.has(n)
   ) {
     warnedWhileLoading.add(n);
-    emitDiagnostic({
-      code: "OPTIMISTIC_WRITE_WHILE_LOADING",
-      kind: "write",
-      severity: "warn",
-      message: OPTIMISTIC_WRITE_WHILE_LOADING_MESSAGE,
-      nodeName: (n as any)._name,
-      data: { operation: "optimistic" }
-    });
+    reportDiagnostic(
+      emitDiagnostic(
+        {
+          code: "OPTIMISTIC_WRITE_WHILE_LOADING",
+          kind: "write",
+          severity: "warn",
+          message: OPTIMISTIC_WRITE_WHILE_LOADING_MESSAGE,
+          nodeName: (n as any)._name,
+          data: { operation: "optimistic" }
+        },
+        n
+      )
+    );
   }
 }
 
