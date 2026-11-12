@@ -79,7 +79,9 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
       // can be an old node the replace below left waiting in place.
       let k = bEnd;
       while (k < bLength && !isLive(b[k])) k++;
-      const node = k < bLength ? b[k] : after;
+      // `after` can be a list node user code moved past the tail, which this pass has taken out.
+      const node =
+        k < bLength ? b[k] : after && after.parentNode !== parentNode ? marker || null : after;
 
       while (bStart < bEnd) insert(b[bStart++], node);
       // remove
