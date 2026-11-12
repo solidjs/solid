@@ -75,6 +75,7 @@ import {
 import {
   asyncTailFlights,
   checkPostAwaitRead,
+  DEV,
   emitDiagnostic,
   registerDevStoreSlotWriter,
   registerGraph,
@@ -1108,6 +1109,23 @@ function notifyWrites(t: StoreTarget): void {
     optHooks.pair(t, pb);
   }
   const old = t.v;
+  // Devtools mutation hook: full-key diff (dev-only cost) so unobserved
+  // writes report too. Overlay backings materialize first so the diff walks
+  // a real container.
+  if (__DEV__ && DEV.hooks.onStoreNodeUpdate) {
+    if (t.ovl) materializePB(t);
+    pb = t.pb!;
+    for (const key of Reflect.ownKeys(pb)) {
+      if ((Array.isArray(pb) && key === "length") || key === $OWNER) continue;
+      const ov = old[key as any];
+      const nv = pb[key as any];
+      if (!isEqual(ov, nv)) DEV.hooks.onStoreNodeUpdate(t.px, key, nv, ov);
+    }
+    for (const key of Reflect.ownKeys(old)) {
+      if (key in pb || key === $OWNER) continue;
+      DEV.hooks.onStoreNodeUpdate(t.px, key, undefined, old[key as any]);
+    }
+  }
   const nodes = t.n;
   // Written-keys bound: trap writes record their keys, so the notify visits
   // O(written) nodes instead of every subscription on the record (a selection
@@ -2814,7 +2832,7 @@ if (__OBSERVE__) {
 }
 
 // Devtools `DEV.setSignal` for store property slots (#4679): go through the
-// store setter so the backing state and its readers stay consistent.
+// store setter so backing state and `onStoreNodeUpdate` stay consistent.
 if (__DEV__) {
   registerDevStoreSlotWriter((node, value) => {
     const host = (node as any)._host as StoreTarget;

@@ -20,6 +20,7 @@ afterEach(() => {
     DEV.hooks.onOwner = undefined;
     DEV.hooks.onGraph = undefined;
     DEV.hooks.onUpdate = undefined;
+    DEV.hooks.onStoreNodeUpdate = undefined;
   }
 });
 
@@ -348,6 +349,28 @@ describe("DEV.hooks", () => {
     setCount(1);
     flush();
     expect(calls.length).toBe(initial + 1);
+  });
+
+  test("onStoreNodeUpdate fires on store mutation with old/new values", () => {
+    const updates: any[] = [];
+    DEV!.hooks.onStoreNodeUpdate = (state: any, property: PropertyKey, value: any, prev: any) =>
+      updates.push({ state, property, value, prev });
+
+    let setStore!: (fn: (s: { count: number; name: string }) => void) => void;
+    createRoot(() => {
+      const [, _setStore] = createStore({ count: 0, name: "test" });
+      setStore = _setStore;
+    });
+
+    setStore(s => {
+      s.count = 5;
+    });
+    flush();
+
+    expect(updates.length).toBe(1);
+    expect(updates[0].property).toBe("count");
+    expect(updates[0].value).toBe(5);
+    expect(updates[0].prev).toBe(0);
   });
 });
 
