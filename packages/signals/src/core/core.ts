@@ -63,6 +63,7 @@ import {
   REACTIVE_WINDOW,
   REACTIVE_AHEAD,
   CONFIG_OWN_PROBE,
+  CONFIG_FRAME,
   CONFIG_AHEAD,
   REACTIVE_REASK,
   REACTIVE_STAGED_READ,
@@ -2366,14 +2367,43 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         // asks for does not hold the hold (scheduler.ts `blockedBy`).
         if (
           observeFlightHook &&
-          (c as any)._type === EFFECT_RENDER &&
-          owner._config & CONFIG_VERDICT &&
-          !(owner._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) &&
           ((c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED
             ? c._config & CONFIG_HELD || flushTransaction
-            : c._config & CONFIG_HELD_FRAME)
-        )
-          (c as Computed<any>)._flags |= REACTIVE_AHEAD;
+            : c._config & CONFIG_HELD_FRAME ||
+              (c._config & CONFIG_ASYNC && (c._config & CONFIG_HELD || flushTransaction)))
+        ) {
+          if (
+            (c as any)._type === EFFECT_RENDER &&
+            owner._config & CONFIG_VERDICT &&
+            !(owner._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED))
+          )
+            (c as Computed<any>)._flags |= REACTIVE_AHEAD;
+          // #4776, #4778 (D-25): a sync verdict memo is display while only
+          // the display reads it. A pass of a hold's own work reading it — born
+          // into the hold, of a frame a held pass built, or an async
+          // derivation (S-51) — makes it that hold's: it re-derives now, served
+          // the hold's writes (verdict.ts `holdStaging`) and answered as an
+          // asker (`readBy`), and the reader reads that. A memo that probes in
+          // its own body stays the screen's for a held reader (F-6, #4544's
+          // inline rows, #4341) and is the hold's only for an async one.
+          if (
+            (owner._config &
+              (CONFIG_VERDICT |
+                CONFIG_FRAME |
+                CONFIG_ASYNC |
+                (c._config & CONFIG_ASYNC ? 0 : CONFIG_OWN_PROBE))) ===
+            CONFIG_VERDICT
+          ) {
+            const t = resolveTx(
+                c._config & CONFIG_HELD ? txOf(c as Computed<any>) : flushTransaction!
+              ),
+              x = ext(owner);
+            if (x._readIn !== t) {
+              x._readIn = t;
+              recompute(owner);
+            }
+          }
+        }
         if (observeFlightHook && !(c as any)._type)
           (c as Computed<any>)._flags |=
             owner._config &

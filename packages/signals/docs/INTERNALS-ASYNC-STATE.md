@@ -325,6 +325,31 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
 
 ## 7. Decision log
 
+- 2026-11-12: **A memo's posture follows its readers** (#4776, #4778;
+  D-25, S-51; one version per node, #3905 out of scope). Before, a memo
+  that inherited a verdict posture (it read `latest`/`isPending` through a
+  verdict memo, probing nothing itself) became the hold's work by its own
+  reads: reading the hold's own sync write (`holdStaging`, the #4544 fix).
+  That kept #4544's branch right, but a memo only the screen read fell
+  behind the inline form (#4776: `1 / 0` where the inline form and a guess
+  show `2 / 0`). Now the readers decide. core.ts `read`: a pass of the
+  hold's own world — born into it, a member of a frame a held pass built,
+  or an async derivation (CONFIG_ASYNC) — reading a verdict memo stamps it
+  `_x._readIn` with that hold and re-derives it at once; `holdStaging`
+  requires the stamp. An async reader stamps a memo that probes in its own
+  body too, and verdict.ts's two asker arms treat a stamped memo as an
+  asker (`readBy`): its probe is answered in the hold's world, so the async
+  asks once, of the truth (#4778; the display behind that memo shows the
+  hold's answer). A memo read only by the display reads as its inline form:
+  the 17 S9 rows of posture-store-parity now pin parity with the inline
+  probe, and #4544's "earlier hold" rows read the screen's `x` mid-hold.
+  The stamp expires with the hold (compared by `resolveTx`). Core floor
+  0 B. Known, not changed here: the landing frame of
+  `[latest(x), x()]` / `isPending` in a memo shows the stale `x` for one
+  frame before the memo re-derives, inline form included (follow-up); and
+  a guess-derived memo read by a hold's branch still tears (#4544's shape
+  with `createOptimistic`, follow-up).
+
 - 2026-11-10: **The lane engine split along the guess boundary** (the
   §8.6 split, b3926358b, ported onto today's `lanes.ts`; a module boundary,
   no rule). `lanes.ts` keeps the sub-hold core every lane needs — the lane

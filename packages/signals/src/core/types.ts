@@ -121,6 +121,8 @@ export interface NodeExtension {
    * window read this node's staging (verdict.ts `holdStaging`). Stale once
    * that hold lands or dissolves: nothing clears it. Unset until then. */
   _askedIn?: Transaction | number;
+  /** #4776: the hold whose own work read this memo's value (a branch it opened). */
+  _readIn?: Transaction;
   /** `affects()` marks live on this node (affects.ts): declared in-flight
    * changes — `isPending` reads true for it and its derivations while any
    * is live. A count, never a hold. */
