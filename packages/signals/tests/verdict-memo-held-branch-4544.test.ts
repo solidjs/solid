@@ -4,10 +4,11 @@
  * reads an unrelated signal `plan`, written afterwards.
  *
  * `chrome` computes under the probe in its own body (A31 / D-25). `params`
- * holds its own staging of the hold (`session`): it is that hold's work, and
- * the verdict posture it inherits by reading `chrome` neither pulls it out
- * nor serves it the hold's committed `session` (D-25, 2026-11-02). The
- * branch reads the hold's session and the hold lands — whether the writes go
+ * is read by the branch, which is the hold's own work: so `params` is the
+ * hold's too, and the verdict posture it inherits by reading `chrome`
+ * neither pulls it out nor serves it the hold's committed `session` (D-25;
+ * 2026-11-02, by its reads; 2026-11-12, #4776, by its readers). The branch
+ * reads the hold's session and the hold lands — whether the writes go
  * through one `flush()` or several (F-10).
  *
  * `params` probing in its own body (inline `isPending(plan)`, or
@@ -194,8 +195,9 @@ for (const shape of ["split", "one"] as Shape[]) {
 // A window's mark is the hold's: a staging asked of under one hold is not
 // asked of under the next. `x` was probed (`latest(x)`) while hold 1 held it;
 // hold 1 lands and the probe goes away. Under hold 2, `params` — a verdict
-// reader only by reading `chrome` — reads hold 2's `x` as it would had `x`
-// never been probed.
+// reader only by reading `chrome`, and read only by the screen — is display
+// (D-25, #4776): it reads the screen's `x` mid-hold whether or not `x` was
+// ever probed, and re-derives at the landing.
 for (const shape of ["split", "one"] as Shape[])
   for (const probed of [false, true])
     it(`a probe under an earlier hold leaves no mark on the next (${probed ? "probed" : "never probed"}, ${shape} flush)`, async () => {
@@ -239,13 +241,13 @@ for (const shape of ["split", "one"] as Shape[])
         setAsk(false);
         flush();
         expect(screen).toBe("1 1 -1");
-        // Hold 2: `params` reads the hold's `x` either way.
+        // Hold 2: `params` reads the screen's `x` either way.
         setGate(2);
         setX(2);
         if (shape === "split") flush();
         setPlan(true);
         flush();
-        expect(saw.at(-1)).toBe(2);
+        expect(saw.at(-1)).toBe(1);
         expect(screen).toBe("1 1 -1");
         release();
         await tick();
