@@ -161,21 +161,16 @@ function trySmallMove<Item, MappedItem>(
   let budget = 256;
   let i = start;
   let j = start;
-  let inRun = false;
   while (i <= oldEnd && j <= newLen - 1) {
     const oldItem = oldItems[i];
     const newItem = newItems[j];
     if (oldItem === newItem) {
-      if (!inRun) {
-        runs.push(i, j, 0);
-        inRun = true;
-      }
-      runs[runs.length - 1]++;
-      i++;
-      j++;
+      const from = i;
+      do j++;
+      while (++i <= oldEnd && j < newLen && oldItems[i] === newItems[j]);
+      runs.push(from, j - i + from, i - from);
       continue;
     }
-    inRun = false;
     // Bounded realignment lookahead, shorter distance wins.
     let del = -1;
     let lim = Math.min(32 - srcPos.length, oldEnd - i, budget);
@@ -215,7 +210,7 @@ function trySmallMove<Item, MappedItem>(
     if (dstPos.length === 32) return false;
     dstPos.push(j);
   }
-  return commitSmallMove(data, newItems, newLen, srcPos, dstPos, runs);
+  return commitSmallMove(data, newItems, newLen, start, srcPos, dstPos, runs);
 }
 
 /** PHASE 2 of the small-move path, in its OWN function so that a pass which
@@ -229,6 +224,7 @@ function commitSmallMove<Item, MappedItem>(
   data: MapData<Item, MappedItem>,
   newItems: Item[],
   newLen: number,
+  start: number,
   srcPos: number[],
   dstPos: number[],
   runs: number[]
@@ -258,15 +254,13 @@ function commitSmallMove<Item, MappedItem>(
   // and if a displaced identity also occurs inside a run the two algorithms
   // can hand different occurrences different owners (row-local state moves;
   // a shrink could dispose the wrong one). Decline that case — general path.
-  if (srcPos.length !== 0 || dstPos.length !== 0) {
-    const displaced = new Set<Item>();
-    for (i = 0; i < srcPos.length; i++) displaced.add(oldItems[srcPos[i]]);
-    for (j = 0; j < dstPos.length; j++) displaced.add(newItems[dstPos[j] >> 6]);
-    for (let r = 0; r < runs.length; r += 3) {
-      const ro = runs[r];
-      for (let a = 0, n = runs[r + 2]; a < n; a++)
-        if (displaced.has(oldItems[ro + a])) return false;
-    }
+  // Every displaced identity is a `srcPos` item; any other one in the window sits in a run.
+  for (i = 0; i < srcPos.length; i++) {
+    const item = oldItems[srcPos[i]];
+    // `indexOf` skips holes, which the scan above read as `undefined` rows.
+    if (item === undefined) return false;
+    for (j = start - 1; (j = oldItems.indexOf(item, j + 1)) !== -1; )
+      if (!srcPos.includes(j)) return false;
   }
   // PHASE 2: commit.
   if (__DEV__) smallMoveHits++;

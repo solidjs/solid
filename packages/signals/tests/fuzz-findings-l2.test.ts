@@ -429,74 +429,71 @@ describe("fuzz findings on L2 — lanes", () => {
   // effect on a shown lane re-run by an unrelated write while the lane is
   // held on a re-guess's derivation is a stale reader (#3460) and should show
   // the screen — the guess the lane revealed — not the re-guess the lane has
-  // not revealed yet, which no other reader shows. `display()` serves a
-  // guess's lane slot once the lane has shown, and a re-guess writes that
-  // slot directly (a derivation of a shown lane stages instead).
-  it.fails(
-    "F5b: a stale reader of a held re-guess shows the revealed guess (A17 #3460)",
-    async () => {
-      const [source, setSource] = createSignal(0);
-      const [t, setT] = createSignal(0);
-      const gates: (() => void)[] = [];
-      let a = "",
-        b = "";
-      let resume!: () => void;
-      let run!: () => Promise<void>;
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const [view, setView] = createOptimistic(() => source());
-        const d0 = createMemo(() => {
-          const v = view();
-          return new Promise<number>(r => gates.push(() => r(v)));
-        });
-        createRenderEffect(
-          () => [t(), view()],
-          v => {
-            a = v.join(",");
-          }
-        );
-        createRenderEffect(
-          () => [view(), d0()],
-          v => {
-            b = v.join(",");
-          }
-        );
-        run = action(function* () {
-          setView(1);
-          yield new Promise<void>(r => {
-            resume = r;
-          });
-          setView(2);
-          yield new Promise<void>(r => {
-            resume = r;
-          });
-          setSource(0);
-        });
+  // not revealed yet, which no other reader shows. A re-guess of a shown
+  // guess is restaged for the lane's next reveal, judged with the passes it
+  // re-runs (#4775).
+  it("F5b: a stale reader of a held re-guess shows the revealed guess (A17 #3460)", async () => {
+    const [source, setSource] = createSignal(0);
+    const [t, setT] = createSignal(0);
+    const gates: (() => void)[] = [];
+    let a = "",
+      b = "";
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const [view, setView] = createOptimistic(() => source());
+      const d0 = createMemo(() => {
+        const v = view();
+        return new Promise<number>(r => gates.push(() => r(v)));
       });
-      flush();
-      gates.shift()!();
-      await drain();
-      const p = run();
-      await drain();
-      gates.shift()!();
-      await drain();
-      expect([a, b]).toEqual(["0,1", "1,1"]);
-      resume(); // re-guess 2: the lane holds on d0's re-ask
-      await drain();
-      setT(1); // an unrelated write re-runs the first reader
-      await drain();
-      expect([a, b]).toEqual(["1,1", "1,1"]);
-      gates.shift()!();
-      await drain();
-      expect([a, b]).toEqual(["1,2", "2,2"]);
-      resume();
-      await p;
-      for (const g of gates) g();
-      await drain();
-      dispose();
-    }
-  );
+      createRenderEffect(
+        () => [t(), view()],
+        v => {
+          a = v.join(",");
+        }
+      );
+      createRenderEffect(
+        () => [view(), d0()],
+        v => {
+          b = v.join(",");
+        }
+      );
+      run = action(function* () {
+        setView(1);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+        setView(2);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+        setSource(0);
+      });
+    });
+    flush();
+    gates.shift()!();
+    await drain();
+    const p = run();
+    await drain();
+    gates.shift()!();
+    await drain();
+    expect([a, b]).toEqual(["0,1", "1,1"]);
+    resume(); // re-guess 2: the lane holds on d0's re-ask
+    await drain();
+    setT(1); // an unrelated write re-runs the first reader
+    await drain();
+    expect([a, b]).toEqual(["1,1", "1,1"]);
+    gates.shift()!();
+    await drain();
+    expect([a, b]).toEqual(["1,2", "2,2"]);
+    resume();
+    await p;
+    for (const g of gates) g();
+    await drain();
+    dispose();
+  });
 
   // F6. A17 (L2): "a derivation of a guess with a flight up holds the lane
   // (`lanesBlocked`); `laneSeam` parks a blocked lane's runs". Without a
