@@ -2482,7 +2482,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       passLane !== null &&
       !((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED)
     )
-      committed = true;
+      // Lane work: served the committed value, unless it read a staging of
+      // the flush this pass (lanes.ts `laneServed`, F-2; S-57).
+      committed = laneServedHook!(c as Computed<any>, owner, true) as boolean;
   }
   if (owner._statusFlags & STATUS_PENDING && !committed) {
     // A reader landing on a pending node throws; an untracked read of an
@@ -2707,6 +2709,9 @@ function shadowRead<T>(el: Signal<T> | Computed<T>): T {
  * round (#3969: nor does it make a later lane read a re-derive, `enterLane`). */
 export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): void {
   if (!((el as Computed<any> | undefined)?._statusFlags! & STATUS_UNINITIALIZED)) {
+    // Lane work this pass served the committed value of a flight now reads
+    // a staging of the flush (lanes.ts `laneServed`: it throws).
+    if (passLane !== null && c._flags & REACTIVE_FRAME_READ) laneServedHook!(c, null);
     c._flags |= REACTIVE_STAGED_READ;
     if (__TEST__) shadowExternalRaise(c, RAISE_FL);
     // A verdict reader's too when it is an effect, before the frame has a

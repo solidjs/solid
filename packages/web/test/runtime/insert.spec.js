@@ -767,6 +767,22 @@ describe("r.insert with migrating nodes", () => {
     expect(parent.contains(C)).toBe(true);
   });
 
+  it("reconcileArrays does not anchor on a node it has taken out", () => {
+    for (const marker of [undefined, document.createComment("")]) {
+      const parent = document.createElement("div");
+      const [a, b, c, x, end] = [..."abcx|"].map(t => {
+        const s = document.createElement("span");
+        s.textContent = t;
+        return s;
+      });
+      // user code moved a past the tail, so it is the node after the list
+      parent.append(b, c, a);
+      if (marker) parent.append(marker, end);
+      reconcileArrays(parent, [a, b, c], [x], marker);
+      expect(parent.textContent).toBe(marker ? "x|" : "x");
+    }
+  });
+
   // The migration rule from the slot-ownership change (May 2026): nothing
   // throws, a node moved out of the slot is never destroyed by it, and every
   // destructive op touches only nodes the slot owns. The prefix and suffix

@@ -91,8 +91,9 @@ export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
 export let laneAdoptHook: ((r: Computed<any>) => boolean) | null = null;
 /** core.ts `frameRead` served lane work or a verdict reader a held node's
  * committed value (lanes.ts `laneServed`). */
-export let laneServedHook: ((c: Computed<any>, el: Signal<any> | Computed<any>) => void) | null =
-  null;
+export let laneServedHook:
+  | ((c: Computed<any>, el: Signal<any> | Computed<any> | null, flight?: true) => unknown)
+  | null = null;
 /** A guess was written (guesses.ts `optimisticWrite`): the arms only a guess
  * reaches (CONFIG_GUESS) — a build without `createOptimistic` or
  * `createOptimisticStore` never sets it, and its bundler folds them. */
@@ -294,6 +295,9 @@ export interface Transaction {
   /** A lane. Cleared when a blocked lane outlives its parent and continues
    * as a transaction. */
   _lane: boolean;
+  /** A lane: the clock of the seam a guess re-asked in it (guesses.ts
+   * `applyGuesses`) — judged with that guess's passes, next round (#4775). */
+  _reguessed?: number;
   /** The lane the readers of this transaction's verdicts (`isPending`,
    * `latest`) break out into — a guess the system supplies: "pending, until
    * this lands", "the proposal is the value". Opened at the first such read,
