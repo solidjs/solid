@@ -925,10 +925,10 @@ export function heldMountUnder(o: Owner | null, l: Transaction | null): boolean 
     }
     const t = resolveTx(r._x!._transaction!);
     if (
-      // A memo mount is on screen through a render effect that reads it
+      // A memo mount is on screen through the render effect that reads it
       // (#4806: a fragment, text beside a hole, returned to the slot). One
-      // only a memo reads is that memo's: a boundary the mount builds
-      // around it shows its fallback (#3851).
+      // a memo reads is that memo's: a boundary the mount builds around it
+      // shows its fallback (#3851).
       ((r as any)._type ? hiddenHook?.(r) : !shownBy(r)) ||
       !(
         r._statusFlags & STATUS_PENDING ||
