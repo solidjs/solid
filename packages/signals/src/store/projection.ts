@@ -38,6 +38,7 @@ import { getOwner, isDisposed } from "../core/owner.js";
 import {
   insertSubs,
   observeFlightHook,
+  passLane,
   setPassLane,
   question,
   schedule,
@@ -266,8 +267,13 @@ export function runProjectionComputed<T extends object>(
   // this pass only: its reads set the posture again at its end, and a window
   // in it re-stamps it (`markVerdictReader`). Only the verdict engine makes
   // a verdict reader (`observeFlightHook`).
-  if (observeFlightHook && (fam._woke || fam.w))
-    ((fam.w = 0), (owner._config &= ~CONFIG_VERDICT), setPassLane(null));
+  // (Out of the hold's verdict lane too, where its seat put the pass — never
+  // out of a guess's lane: a derivation of a guess is that lane's, F-6.)
+  if (observeFlightHook && (fam._woke || fam.w)) {
+    fam.w = 0;
+    owner._config &= ~CONFIG_VERDICT;
+    if (passLane?._parent!._verdict === passLane) setPassLane(null);
+  }
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   // Open loading window (seedLoadingValue): the observable store IS commit #0
   // for the whole first flight — the derive works a detached shadow of the
