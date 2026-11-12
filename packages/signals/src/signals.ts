@@ -2,6 +2,7 @@ import type { Computed, Disposable, Owner, Refreshable } from "./core/index.js";
 import {
   $REFRESH,
   cleanup,
+  inRefCallback,
   computed,
   TimeoutError,
   CONFIG_AUTO_DISPOSE,
@@ -30,6 +31,7 @@ import {
 import { emitDiagnostic, forgetThrownRead, registerGraph, reportDiagnostic } from "./core/dev.js";
 import {
   dirtyQueue,
+  flush,
   flushTransaction,
   globalQueue,
   GlobalQueue,
@@ -42,7 +44,7 @@ import {
 } from "./core/scheduler.js";
 import { REACTIVE_JOINED, STATUS_ERROR, STATUS_PENDING } from "./core/constants.js";
 import { unwrapStatusError } from "./core/error.js";
-import { optimisticWrite } from "./core/lanes.js";
+import { optimisticWrite } from "./core/guesses.js";
 import { truthConfirmed, truthRead } from "./core/truth.js";
 
 /**
@@ -104,9 +106,10 @@ export function onCleanup(fn: Disposable): Disposable {
           message
         })
       );
-    } else if (owner._config & CONFIG_CHILDREN_FORBIDDEN) {
-      const message =
-        "[CLEANUP_IN_FORBIDDEN_SCOPE] Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead";
+    } else if (owner._config & CONFIG_CHILDREN_FORBIDDEN || inRefCallback()) {
+      const message = inRefCallback()
+        ? "[CLEANUP_IN_FORBIDDEN_SCOPE] Cannot use onCleanup inside a ref callback; register it in the factory that returns the ref (the component body)"
+        : "[CLEANUP_IN_FORBIDDEN_SCOPE] Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead";
       emitDiagnostic({
         code: "CLEANUP_IN_FORBIDDEN_SCOPE",
         kind: "lifecycle",
@@ -1253,7 +1256,8 @@ export function onSettled(callback: () => void | (() => void)): void {
  * - A write in the callback lands after any write made inline in the same
  *   frame. Don't write the same signal both inside and outside it; use a
  *   functional setter if the order matters.
- * - Several `onFlush` callbacks run in call order and batch into one flush.
+ * - Several `onFlush` callbacks run in call order, each in its own flush:
+ *   async work one callback starts does not hold another's writes.
  * - `queueMicrotask` is not a substitute: called before the frame's first
  *   write, it runs before that flush and its write joins it.
  *
@@ -1271,7 +1275,7 @@ export function onSettled(callback: () => void | (() => void)): void {
 export function onFlush(callback: () => void): void {
   if (__DEV__) {
     const owner = getOwner();
-    if (owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN)) {
+    if (owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN) && !inRefCallback()) {
       const message =
         "[ON_FLUSH_IN_OWNED_SCOPE] onFlush called in an owned scope (a component body or a computation). It is meant for event handlers and effect callbacks; to run work after this scope's first stable render, use onSettled.";
       reportDiagnostic(
@@ -1287,7 +1291,12 @@ export function onFlush(callback: () => void): void {
     }
   }
   // The frame's flush is queued (or already draining) ahead of this
-  // microtask, so the callback's writes start a flush of their own.
+  // microtask, so the callback's writes start a flush of their own. Each
+  // callback flushes before the next runs, so async work one starts never
+  // holds another's writes.
   schedule();
-  queueMicrotask(callback);
+  queueMicrotask(() => {
+    callback();
+    flush();
+  });
 }

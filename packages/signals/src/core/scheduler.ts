@@ -1,4 +1,5 @@
 import {
+  CONFIG_SLOT_NODE,
   CONFIG_AHEAD,
   CONFIG_FRAME,
   CONFIG_HELD,
@@ -90,9 +91,10 @@ export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
 export let laneAdoptHook: ((r: Computed<any>) => boolean) | null = null;
 /** core.ts `frameRead` served lane work or a verdict reader a held node's
  * committed value (lanes.ts `laneServed`). */
-export let laneServedHook: ((c: Computed<any>, el: Signal<any> | Computed<any>) => void) | null =
-  null;
-/** A guess was written (lanes.ts `optimisticWrite`): the arms only a guess
+export let laneServedHook:
+  | ((c: Computed<any>, el: Signal<any> | Computed<any> | null, flight?: true) => unknown)
+  | null = null;
+/** A guess was written (guesses.ts `optimisticWrite`): the arms only a guess
  * reaches (CONFIG_GUESS) — a build without `createOptimistic` or
  * `createOptimisticStore` never sets it, and its bundler folds them. */
 export let guessing = false;
@@ -102,11 +104,8 @@ export function armGuessing(): void {
 export function installLaneHooks(
   read: NonNullable<typeof laneReadHook>,
   stage: NonNullable<typeof laneStageHook>,
-  outcome: NonNullable<typeof laneOutcomeHook>,
   write: NonNullable<typeof laneWriteHook>,
-  applyGuesses: NonNullable<typeof applyGuessesHook>,
   seams: NonNullable<typeof laneSeamsHook>,
-  corrections: NonNullable<typeof laneCorrectionsHook>,
   end: NonNullable<typeof endLanesHook>,
   blocked: NonNullable<typeof lanesBlockedHook>,
   adopt: NonNullable<typeof laneAdoptHook>,
@@ -114,15 +113,26 @@ export function installLaneHooks(
 ): void {
   laneReadHook = read;
   laneStageHook = stage;
-  laneOutcomeHook = outcome;
   laneWriteHook = write;
-  applyGuessesHook = applyGuesses;
   laneSeamsHook = seams;
-  laneCorrectionsHook = corrections;
   endLanesHook = end;
   lanesBlockedHook = blocked;
   laneAdoptHook = adopt;
   laneServedHook = served;
+}
+// The guess layer (guesses.ts; installed when `createOptimistic` or
+// `createOptimisticStore` is imported): a written guess's own pass judged
+// (`laneOutcome`, core.ts `recompute`), the seam's guesses opening their
+// lanes (`applyGuessesAt`), the body-end corrections (`laneCorrections`).
+// Null without it: every site tolerates it.
+export function installGuessHooks(
+  outcome: NonNullable<typeof laneOutcomeHook>,
+  applyGuesses: NonNullable<typeof applyGuessesHook>,
+  corrections: NonNullable<typeof laneCorrectionsHook>
+): void {
+  laneOutcomeHook = outcome;
+  applyGuessesHook = applyGuesses;
+  laneCorrectionsHook = corrections;
 }
 // Boundaries (boundaries.ts): the display consumers between an observer
 // and the root. `catch` — status from a frame reader, nearest boundary
@@ -190,7 +200,7 @@ export let holdWorkHook: ((n: Computed<any>, source: Computed<any>) => unknown) 
 /** D-41's staged-error mark (verdict.ts `stageMark`): the settle walk's
  * reached node `n` carries staged error source `el`'s staging. */
 export let stageMarkHook: ((n: Computed<any>, el: Computed<any>) => void) | null = null;
-/** #4417 (verdict.ts `keepReaders`); #4574 (verdict.ts `attachWaits`). */
+/** #4417 (verdict.ts `keepReaders`); a landing's held re-derivation run (verdict.ts `attachWaits`). */
 export let keepReadersHook: ((el: Computed<any>) => void) | null = null;
 export let attachHook: ((node: Computed<any>) => boolean) | null = null;
 /** #4544 (verdict.ts). Null without the verdict engine. */
@@ -392,13 +402,6 @@ export function setPassLane(l: Transaction | null): void {
  * schedules the seam that consumes it: membership is the tick's — the same
  * synchronous frame — and the next tick's writes are not this one's. */
 export let flushTransaction: Transaction | null = null;
-/** The flush's transaction while only a `latest()` read of a staging opened
- * it (verdict.ts `provisionalVerdict`): it holds nothing, and a verdict
- * reader's plain read of a staging in it is the frame's read (D-22). */
-export let latestOpened: Transaction | null = null;
-export function openedByLatest(): void {
-  latestOpened = flushTransaction;
-}
 /** The transaction the passes running OUTSIDE a flush this tick derive from
  * (a mainline mount, a mainline re-pass): the passes' own (A29, creation-
  * time form — "the entry is the pass's alone"): their results are staged
@@ -783,11 +786,21 @@ export const ANY_EVENT = {};
  * handler dispatched synchronously from that phase (`el.focus()`) runs under
  * a different event and is not in it (#4235). */
 export let effectCallbackEvent: unknown = ANY_EVENT;
+/** Dev-only: the context a callback scope runs in — null for an effect
+ * callback, the creating pass's for a ref callback (`runRefCallback`, #4761).
+ * A primitive created in that context is created in the callback; one
+ * created by a computation the callback pulls is that computation's. */
+export let effectCallbackOwner: Owner | null = null;
 
-export function setEffectCallback(value: boolean, event: unknown = ANY_EVENT) {
+export function setEffectCallback(
+  value: boolean,
+  event: unknown = ANY_EVENT,
+  owner: Owner | null = null
+) {
   if (__DEV__) {
     inEffectCallback = value;
     effectCallbackEvent = event;
+    effectCallbackOwner = owner;
   }
 }
 
@@ -915,10 +928,12 @@ export class GlobalQueue implements IQueue {
    * `back`: the slot's node now, for a guess that comes back (lanes.ts
    * `endLanes`). */
   declare static _slotTake: ((n: Signal<any>, back?: boolean) => any) | undefined;
-  /** The value a slot node's guess covered: its committed value — a chained
-   * link's refreshed from the inner store, whose commits it never learned
-   * while the guess served the reads (store/store.ts, §7b). */
-  declare static _slotCovered: ((n: Signal<any>, v: unknown) => unknown) | undefined;
+  /** A lane dirtied a store's guess carrier: the readers of the leaves of
+   * the keys it changed re-derive as the lane's work (optimistic.ts). */
+  declare static _slotDirty: ((n: Signal<any>, l: Transaction) => void) | undefined;
+  /** A lane re-derives a store's guess carrier's readers at `t`'s landing
+   * (lanes `rerun`): the readers of the leaves of the keys it changed. */
+  declare static _slotRerun: ((n: Signal<any>, t: Transaction) => void) | undefined;
   /** The store's row judgment for a guessed slot (optimistic.ts): the truth
    * is the guess's echo when reconcile would write nothing into it. */
   declare static _echoes: ((guess: unknown, truth: unknown) => boolean) | undefined;
@@ -1003,11 +1018,11 @@ export class GlobalQueue implements IQueue {
     // pure round — the parent's flights before the parent is judged below.
     if (laneCorrectionsHook?.()) runHeap(dirtyQueue, GlobalQueue._update);
     const joined = flushTransaction;
-    flushTransaction = latestOpened = null;
+    flushTransaction = null;
     // The frame's verdict is in: the guesses written since the last seam
-    // open their lane under the frame's transaction (a lane's own flush
-    // parents a nested lane to it), or are dropped — the frame commits, and
-    // there is nothing to be optimistic over. Their passes run next round;
+    // open their lane under the frame's transaction, or are dropped — the
+    // frame commits, and there is nothing to be optimistic over. (A lane is
+    // never the flush's transaction, D-37: lanes do not nest.) Their passes run next round;
     // a parent landing at this very seam ends the lane before they do.
     applyGuessesHook?.(joined);
     // A lane's own flush (its flight landing, its reveal) parks nothing: the
@@ -1454,6 +1469,9 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
  * `laneRead` re-derives it on the screen if that lane holds (`entered`). */
 export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): void {
   insertSubs(node);
+  // A store's guess carrier: the readers of the keys it changed read their
+  // leaves — dirtied as the lane's work too (store/optimistic.ts).
+  if (node._config & CONFIG_SLOT_NODE) GlobalQueue._slotDirty?.(node as Signal<any>, l);
   const display = l._parent!._verdict === l;
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const c = s._sub;

@@ -120,4 +120,62 @@ describe("insert text node reuse (multi slot)", () => {
 
     dispose();
   });
+  test("a pass that yields the same text writes nothing", () => {
+    const [n, setN] = createSignal(1);
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        {n() > 0 ? "pos" : "neg"}
+        <b>sib</b>
+      </div>;
+      return d;
+    });
+    flush();
+    const textNode = div.firstChild as Text;
+    const seen = new MutationObserver(() => {});
+    seen.observe(div, { characterData: true, subtree: true });
+
+    setN(2);
+    flush();
+    expect(seen.takeRecords().length).toBe(0);
+
+    setN(-1);
+    flush();
+    expect(textNode.data).toBe("neg");
+    expect(seen.takeRecords().length).toBe(1);
+
+    setN(-2);
+    flush();
+    expect(seen.takeRecords().length).toBe(0);
+
+    seen.disconnect();
+    dispose();
+  });
+
+  test("an empty hole's placeholder is left untouched", () => {
+    const [n, setN] = createSignal(0);
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        {n() > 5 ? "big" : null}
+        <b>sib</b>
+      </div>;
+      return d;
+    });
+    flush();
+    const placeholder = div.firstChild as Text;
+    expect(placeholder.data).toBe("");
+    expect("_$d" in placeholder).toBe(false);
+
+    setN(1);
+    flush();
+    expect("_$d" in placeholder).toBe(false);
+
+    setN(6);
+    flush();
+    expect(div.firstChild).toBe(placeholder);
+    expect(placeholder.data).toBe("big");
+
+    dispose();
+  });
 });

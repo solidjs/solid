@@ -67,7 +67,7 @@
     "kind": ["lifecycle"],
     "severity": ["error"],
     "category": "lifecycle",
-    "trigger": "`onCleanup` inside trackedEffect/onSettled",
+    "trigger": "`onCleanup` inside trackedEffect/onSettled or a ref callback",
     "repair": "`onCleanup` inside `createTrackedEffect` or `onSettled` is not supported — return a cleanup function from the callback instead.",
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/cleanup-in-forbidden-scope"
   },
@@ -373,7 +373,7 @@
     "kind": ["lifecycle"],
     "severity": ["error"],
     "category": "lifecycle",
-    "trigger": "Memo, effect, or root created inside an effect callback or its cleanup, where there is no ambient owner (throws)",
+    "trigger": "Memo, effect, or root created inside an effect callback, its cleanup, or a ref callback (throws)",
     "repair": "A memo, effect, or root was created without an owner inside an effect callback or its cleanup.",
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/primitive-in-effect-callback"
   },

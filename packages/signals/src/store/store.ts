@@ -59,6 +59,7 @@ import {
   ownedScopeWriteMessage,
   read as readNode,
   REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE,
+  inRefCallback,
   setSignal,
   writeHook,
   slotSignal,
@@ -128,6 +129,7 @@ import {
   $RECORD,
   $TARGET,
   $TRACK,
+  $PATCH,
   writeOverride,
   installShallowView,
   isRawValue,
@@ -183,6 +185,7 @@ function TargetShape(
   this.kc = 0;
   this.nc = 0;
   this._fam = fam;
+  this.o = fam !== null && fam.opt === true;
   this.s = false;
   this.ovl = false;
   this.del = null;
@@ -260,40 +263,11 @@ export function sameKey(a: any, b: any): boolean {
   return a === b || (a !== a && b !== b);
 }
 
-/** The container node's arrangement guess: the rows (or keys) the setter
- * left the container with, in order. Its comparator judges a landing or a
- * revert against it by row identity — by key when the family has one
- * (the server's object for a guessed row is the same row). */
-export class LaneView {
-  /** The rows the setter wrote, kept across re-bases: each composes from
-   * them over the latest truth (optimistic.ts `_laneRebase`, #4441).
-   * `null` until the first re-base on a guess written while the derive
-   * asked a new question: that question's answer re-bases it (#4525). */
-  declare g?: any[] | null;
-  constructor(
-    public rows: Record<PropertyKey, any>,
-    /** The backing the guess is shown over: the committed one at the
-     * guess, the composed arrangement after a re-base (optimistic.ts). */
-    public base: Record<PropertyKey, any>,
-    /** A keyed list's guess: the keys of the view the setter saw that are
-     * not the guess's own rows — removed by it, or only carried over from
-     * the truth beneath. A re-base takes them from the new truth
-     * (optimistic.ts). `null` when not keyed. */
-    public removed: Set<unknown> | null = null
-  ) {}
-}
-
-/** A container node's value as a backing: the base an arrangement guess is
- * shown over, else the value itself. */
-export function asBacking(v: any): Record<PropertyKey, any> {
-  return v instanceof LaneView ? v.base : v;
-}
-
 /** The container node's comparator: a staging is a backing (identity — a
- * pending backing is never "equal" to the committed one); a lane value is
- * an arrangement (`LaneView`), judged by the optimistic machinery. */
-export const containerEquals = function (this: any, a: any, b: any): boolean {
-  return a === b || !!optHooks?.arrangement(this._host, a, b);
+ * pending backing is never "equal" to the committed one). A guess never
+ * sits on the container: it is the target's carrier's (optimistic.ts, S2). */
+export const containerEquals = function (_a: any, _b: any): boolean {
+  return _a === _b;
 };
 
 function sameLogicalSlot(target: StoreTarget, a: any, b: any): boolean {
@@ -311,6 +285,8 @@ function releaseSlot(node: any): void {
   const key: PropertyKey = node._key;
   if (key === $TRACK) {
     if (t.k === node) t.k = null;
+  } else if (key === $PATCH) {
+    return; // a guess carrier lives and dies with its lane (optimistic.ts sweep)
   } else if (key === $DEEP) {
     if (t.dk === node) t.dk = null;
   } else if (t.n?.[key as any] === node) {
@@ -445,11 +421,13 @@ export function getHasNode(target: StoreTarget, key: PropertyKey): Signal<boolea
   return node;
 }
 
-/** A chained link's committed value follows the inner store's (S4): `_value`,
- * while it is the screen's — a lane that has revealed the node shows its own
- * value there, and a revert asks the store (`_slotCovered`). */
-export function follow(n: Signal<any>, v: unknown): void {
-  if (!(n._config & CONFIG_OVERRIDE) || !n._x!._transaction!._shown) n._value = v;
+export function nameCarrier(g: Signal<any>, t: StoreTarget): void {
+  if (__OBSERVE__ && attrHooks !== null) {
+    const root = storeRoot(t);
+    (g as any)._name = (storeNames!.get(root) ?? "store") + ".$guess";
+    (g as any)._loc = storeLocs!.get(root);
+    stampNodeOwner(g, t);
+  }
 }
 
 /** The container node (plan sec. 31.3): created by the first structural subscription
@@ -516,9 +494,13 @@ const storePark = (t: Transaction): void => {
   optHooks?.park(t);
 };
 
+// Set where the only deep node is created, so a bundle without deep() folds its guards away.
+export let deepUsed = false;
+
 function getDeepNode(target: StoreTarget): Signal<number> {
   let dk = target.dk;
   if (dk === null) {
+    deepUsed = true;
     dk = target.dk = slotSignal<number>(0, never, target, $DEEP, false);
     if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(dk, target);
     noteNode(target, dk, $DEEP);
@@ -716,8 +698,8 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
   // An optimistic edit composes on the view the user saw and becomes
   // guesses at the setter's exit: nothing is staged, nothing folds
   // (optimistic.ts).
-  if (optHooks && userWrite && target._fam?.opt === true && !pendingNotify.has(target))
-    return (target.pb = optHooks.draft(target));
+  if (optHooks !== null && target.o && userWrite && !pendingNotify.has(target))
+    return (target.pb = optHooks!.draft(target));
   if (pb !== null && !isOwned(pb)) {
     // An adopted object awaiting its fold is the user's: the draft writes a
     // clone of it. The clone is the batch's staging — unless the adoption is
@@ -848,6 +830,9 @@ export function adoptPB(
   if (owner?._fam === target._fam) (incoming as any)[$OWNER] = target;
   else setLookup(incoming, target);
   if (__TEST__ && ingestedRaw && !isOwned(incoming)) ingestedRaw.add(incoming);
+  // S2: the landing reaches each live guess carrier as the truth it is
+  // judged against (a returned-rows derive never passes `notifyWrites`).
+  if (optHooks !== null && target.o) optHooks.judge(target, incoming);
   if (notify && base !== incoming) notifyFold(target, base, incoming);
 }
 
@@ -950,20 +935,6 @@ GlobalQueue._slotFlight = (n: Signal<any>): boolean => {
   const fam = ((n as any)._host as StoreTarget | undefined)?._fam;
   return (fam?.node?._statusFlags! & STATUS_PENDING) !== 0;
 };
-/** Core asks (lanes.ts `covered`): the value a slot node's guess covered.
- * A chained link's committed value is the inner store's at the last
- * read-through — refreshed here, since a guess served the reads since
- * (#3672: the revert compares against the base's live value). */
-GlobalQueue._slotCovered = (n: Signal<any>, v: unknown): unknown => {
-  const t = (n as any)._host as StoreTarget;
-  if (t.ch) {
-    const key = (n as any)._key as PropertyKey;
-    const inner = t.v as Record<PropertyKey, any>;
-    if (t.h?.[key as any] === n) return untrack(() => key in inner);
-    if (t.n?.[key as any] === n) return untrack(() => unwrapValue(inner[key as any]));
-  }
-  return v;
-};
 installStoreHooks(storePark, () => {
   drainFolds();
   optHooks?.sweep();
@@ -1041,8 +1012,7 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
         // observer-less write holds a transient record until the fold,
         // discarded with it) — gone with the batch.
         if (k._subs === null) t.k = null;
-        else if (k._value instanceof LaneView) k._value.base = t.v;
-        else follow(k, t.v);
+        else k._value = t.v;
       }
       if (t.v !== old && t.u) {
         const slot = parentSlotKey(t, old);
@@ -1095,18 +1065,20 @@ function notifyWrites(t: StoreTarget): void {
   // Optimistic channel: a user's writes on an optimistic family become
   // guesses on the nodes (lanes); the draft is discarded, the committed
   // backing never touched.
-  if (optHooks && t._fam?.opt === true) {
+  if (optHooks !== null && t.o) {
     if (userWrite) {
       // The draft is discarded first: the diff reads the target (its nodes
       // are born from the committed frame, not the draft).
       t.pb = null;
       t.wk = null;
-      t.pb = optHooks.writes(t, pb);
+      t.pb = optHooks!.writes(t, pb);
       return;
     }
     // The derive's draft: new rows under guessed rows are paired with them
-    // first (D-34, #4329).
-    optHooks.pair(t, pb);
+    // first (D-34, #4329); the frame then reaches each live guess carrier as
+    // the truth it is judged against (S2).
+    optHooks!.pair(t, pb);
+    optHooks!.judge(t, pb);
   }
   const old = t.v;
   // Devtools mutation hook: full-key diff (dev-only cost) so unobserved
@@ -1181,6 +1153,14 @@ function notifyWrites(t: StoreTarget): void {
       // R30, #4672); an own key pays nothing. (An overlay's written keys are
       // own on it or in `del`.)
       const nv = own || !(t.del?.has(key) || key === "__proto__") ? pb[key as any] : undefined;
+      // A key a live guess covers: its readers read the carrier, and the
+      // carrier's judgement of this landing tells them — a correction through
+      // the carrier, a confirmation silently (A17). The leaf records the
+      // value and says nothing (S2).
+      if (optHooks !== null && t.o && optHooks.covers(t, key, false)) {
+        node._value = nv;
+        continue;
+      }
       setSignal(node, () => nv);
       if (t._fam !== null) {
         // The derive's write is a derivation; a user setter's is a proposal
@@ -1198,12 +1178,16 @@ function notifyWrites(t: StoreTarget): void {
     for (const key of keys) {
       const node = has[key as any];
       if (node !== undefined) {
+        if (optHooks !== null && t.o && optHooks.covers(t, key, true)) {
+          node._value = key in pb && !t.del?.has(key);
+          continue;
+        }
         setSignal(node, key in pb && !t.del?.has(key));
         if (t._fam !== null && !userWrite) holdWithDerive(t, node);
       }
     }
   }
-  if (t.dk !== null) {
+  if (deepUsed && t.dk !== null) {
     if (t.del?.size) bumpDeep(t);
     else
       for (const key of writtenKeys ?? Reflect.ownKeys(pb)) {
@@ -1281,6 +1265,19 @@ export function membershipChanged(
  * (#4631: staged into the hold instead, the leaf showed the screen beside a
  * container showing the lane). */
 function leafSet(node: Signal<any>, v: any): void {
+  // A key a live guess covers: its readers read the carrier, and the
+  // carrier's judgement of this landing tells them — a correction through
+  // the carrier, a confirmation silently (A17). The leaf records the value
+  // and says nothing (S2).
+  const t: StoreTarget = (node as any)._host;
+  if (
+    optHooks !== null &&
+    t.o &&
+    optHooks.covers(t, (node as any)._key, t.h?.[(node as any)._key] === node)
+  ) {
+    node._value = typeof v === "function" ? v() : v;
+    return;
+  }
   setSignal(node, v);
   if (passLane !== null && !userWrite && (node as any)._host._fam !== null)
     holdWithDerive((node as any)._host, node);
@@ -1394,7 +1391,7 @@ export function notifyFold(
   old: Record<PropertyKey, any>,
   neu: Record<PropertyKey, any>
 ): void {
-  if (t.dk !== null && old !== neu) bumpDeep(t);
+  if (deepUsed && t.dk !== null && old !== neu) bumpDeep(t);
   const nodes = t.n;
   if (nodes !== null) {
     for (const key of Reflect.ownKeys(nodes)) notifyKeyDiff(nodes[key as any], key, old, neu);
@@ -1444,7 +1441,7 @@ function draftServe(target: StoreTarget, proxy: any): any {
  * readers under a hold still see), `t.v` otherwise. */
 export function committed(t: StoreTarget): Record<PropertyKey, any> {
   const k = t.k;
-  if (k !== null) return k._pendingValue !== NOT_PENDING ? asBacking(k._value) : t.v;
+  if (k !== null) return k._pendingValue !== NOT_PENDING ? k._value : t.v;
   // A node-less staging (`stageOn`): the fold queue remembers the frame.
   return t.pb !== null ? preBatch(t) : t.v;
 }
@@ -1483,7 +1480,7 @@ function readSource(
   // sees — the lanes' values and the tick's own guesses over the truth
   // (#3665), never a staging awaiting its fold: the draft is born on the
   // read (and notified at the setter's exit like any).
-  if (userWrite && target._fam?.opt === true && !pendingNotify.has(target) && inDraft(target)) {
+  if (optHooks !== null && userWrite && target.o && !pendingNotify.has(target) && inDraft(target)) {
     const draft = ensurePB(target);
     pendingNotify.add(target);
     return draft;
@@ -1542,8 +1539,8 @@ function readSource(
     // changed; an unchanged key is committed and final (A22: pending is per
     // key). A held container's committed frame is the node's.
     if (verdict === null || (!held && key !== undefined && !keyChanged(target, key, shape)))
-      return held ? asBacking(k!._value) : target.v;
-    return k === null ? committed(target) : asBacking(readNode(k));
+      return held ? k!._value : target.v;
+    return k === null ? committed(target) : readNode(k);
   }
   // A pass reading a key the batch left unchanged: the same value in both
   // frames — committed, holding no one. Otherwise the container's frame by
@@ -1574,7 +1571,7 @@ function readSource(
       return pb;
     }
   }
-  return asBacking(untrack(() => readNode(k)));
+  return untrack(() => readNode(k));
 }
 
 /** Did the HELD staging (the container node's, not a mainline layer above
@@ -1618,7 +1615,7 @@ export function sameRow(pv: any, nv: any, keyFn: ((item: any) => any) | null): b
  * key — without a family the pairing is not known here and the hold stands. */
 function adoptChild(target: StoreTarget, key: PropertyKey): boolean {
   const k = target.k!;
-  const old = asBacking(k._value);
+  const old = k._value;
   const ov = old[key as any];
   const nv = (k._pendingValue as any)[key];
   const keyFn = Array.isArray(old) ? target._fam?.key : null;
@@ -1734,8 +1731,8 @@ function serveDataKey(
   accKnown: -1 | 0 | 1 = -1
 ): any {
   // Read-through (§7b): the inner store's node is the truth; the outer's is
-  // a subscription point only — unless it carries a guess (an optimistic
-  // store over a store: the guess is the outer's, shown over the inner).
+  // a subscription point only (an optimistic target's guesses are served by
+  // its carrier before this, #4762).
   const chained = target.ch && src === target.v;
   let v = backingValue;
   // A write-override read (a derive's draft) serves the backing: the derive
@@ -1747,11 +1744,39 @@ function serveDataKey(
       if (chained) {
         // The link's committed value follows the inner store's (what a lane
         // over it covers — its reveal and revert compare against it, S4).
-        follow(node, backingValue);
-        if (node._config & CONFIG_OVERRIDE) v = nv;
+        node._value = backingValue;
       } else v = nv;
     }
   }
+  // The tail is `serveKeyValue`, inlined: this is every store read's path,
+  // and a call here showed on CodSpeed as −6 to −9% on the store reads
+  // (#4729, third round); the optimistic hook's carrier read takes the
+  // function.
+  if (target.s) return serveShallow(target, key, v);
+  if (target.ch && !chained && v !== null && typeof v === "object" && v[$TARGET]?.px !== v)
+    v = resolveChainedRaw(target, key, v);
+  if (node !== undefined) {
+    if ((node as any).pxv === v && v !== undefined) return draftServe(target, (node as any).px);
+    if (!isWrappable(v)) return v;
+    const p = wrap(v, target, key as any);
+    (node as any).px = p;
+    (node as any).pxv = v;
+    return draftServe(target, p);
+  }
+  if (!isWrappable(v)) return v;
+  return draftServe(target, wrap(v, target, key as any));
+}
+/** The value of `key` as the reader gets it (the tail of `serveDataKey`, for
+ * the optimistic hook's carrier read): shallow-served, a chained raw
+ * resolved to the inner store's (#3767, #3859), a wrappable wrapped (cached
+ * on the key's node by value identity). */
+export function serveKeyValue(
+  target: StoreTarget,
+  key: PropertyKey,
+  v: any,
+  chained: boolean,
+  node?: Signal<any>
+): any {
   if (target.s) return serveShallow(target, key, v);
   // A derive's draft wrapper answers `$TARGET` without being a proxy: the
   // inner store's alias (#3767), resolved like a raw (#3859).
@@ -1929,20 +1954,22 @@ export function resolveChainedRaw(target: StoreTarget, key: PropertyKey, v: obje
  * anyone else reads by `readSource`. */
 function enumerationSource(target: StoreTarget): Record<PropertyKey, any> {
   if (!inDraft(target) && !writeOverride && getObserver() !== null) {
-    // A container's arrangement guess is not a backing: the view composes
-    // over the base it is shown over.
-    const base = asBacking(readNode(getContainerNode(target)));
-    return optHooks && target._fam?.opt === true ? optHooks.view(target, base) : base;
+    const base = readNode(getContainerNode(target));
+    if (optHooks !== null && target.o) {
+      const frame = optHooks.frame(target);
+      if (frame !== NOT_PENDING) return frame as Record<PropertyKey, any>;
+    }
+    return base;
   }
   const src = readSource(target);
-  return optHooks && optRead(target) ? optHooks.view(target, src) : src;
+  return optRead(target) ? optHooks!.view(target, src) : src;
 }
 
 /** A read on an optimistic family that composes the lanes' values: not the
  * draft's (it composed already), not a derive's write-override read (the
  * derive composes on the truth). */
 function optRead(target: StoreTarget): boolean {
-  return target._fam?.opt === true && !inDraft(target) && !writeOverride;
+  return optHooks !== null && target.o && !inDraft(target) && !writeOverride;
 }
 
 /** Pollution keys are never served from the prototype (core R30). */
@@ -2048,24 +2075,34 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(target, key);
     if (target._fam !== null) pullFamily(target);
+    // S2: a key a live guess changed reads through the target's carrier,
+    // tracked — the lane's seat, a verdict window's judgment of the guess
+    // (A17/A24): the frame core serves this reader, indexed. The key's own
+    // leaf is silent while the guess covers it (optimistic.ts).
+    // S2: an optimistic family's target (one field test on a plain store's
+    // read path; the arms are the optimistic hooks').
+    // `optHooks !== null` first: a bundle without optimistic stores never
+    // assigns the hook, and the minifier folds the whole arm away.
+    if (optHooks !== null && target.o && !inDraft(target) && !writeOverride) {
+      const v = optHooks.read(target, key);
+      if (v !== NOT_PENDING) return v;
+    }
     // Hot inline case: existing PLAIN node (non-accessor) read outside any
     // draft — the dbmon/uibench effect re-read shape. Core's `read()` serves
     // it (linking a tracked reader; the hold rules either way). Skips
     // serveDataKey's frame, the FORCE compare (only accessor keys ever hold
     // the sentinel), and isWrappable for primitives. ONE node-map lookup
     // serves this block and the accessor probe below. Before the backing is
-    // consulted: a deleted key's node serves `undefined` (notifyWrites), and
-    // a chained target's node carrying a GUESS is the value (A17 — the base
-    // beneath it, and any hold there, is not this reader's concern; a link
-    // without one reads through below).
+    // consulted: a deleted key's node serves `undefined` (notifyWrites). A
+    // chained target's node is a subscription point and reads through below,
+    // a lane value on it included: the derive's lane pass that wrote it
+    // predates the chain, and serving it covered the inner store's truth
+    // (#4762: `length` and a row of the old list beside the new list's
+    // rows). An optimistic target's guesses are its carrier's (above).
     const node0 = target.n?.[key as any];
     if (writeScopes === null && !writeOverride) {
       const nodeH = node0;
-      if (
-        nodeH !== undefined &&
-        (nodeH as any).acc !== true &&
-        (!target.ch || nodeH._config & CONFIG_OVERRIDE)
-      ) {
+      if (nodeH !== undefined && (nodeH as any).acc !== true && !target.ch) {
         const nv = nodeValue(nodeH, undefined, target);
         if (nv === null || typeof nv !== "object") return nv;
         if (target.s) return serveShallow(target, key, nv);
@@ -2203,6 +2240,11 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(target, key);
     if (target._fam !== null) pullFamily(target);
+    // S2: presence of a key a live guess changed is the carrier frame's.
+    if (optRead(target)) {
+      const guessed = optHooks!.has(target, key);
+      if (guessed !== undefined) return guessed;
+    }
     const src = readSource(target, key);
     // A tracked reader's presence node answers (born from the two frames;
     // core decides which it sees); everyone else reads the backing. A
@@ -2214,12 +2256,8 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
         const nv = readNode(node);
         if (!target.ch || src !== target.v) return !!nv;
         const present = key in src;
-        follow(node, present); // the link follows the inner store (S4)
-        if (node._config & CONFIG_OVERRIDE) return !!nv;
+        node._value = present; // the link follows the inner store (S4)
         return present;
-      } else if (optHooks && optRead(target)) {
-        const guessed = optHooks.has(target, key);
-        if (guessed !== undefined) return guessed;
       }
     }
     return key in src && !(src === target.pb && target.del?.has(key));
@@ -2245,6 +2283,12 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     // presence (R13).
     const plain = obs !== null && !inDraft(target) && !writeOverride;
     const enumerating = plain && observerHoldsContainer(target, obs);
+    // S2: a key a live guess changed is described from the carrier's frame —
+    // before the presence node answers (silent while the guess covers it).
+    if (!enumerating && optRead(target)) {
+      const guessed = optHooks!.descriptor(target, key, Array.isArray(shell));
+      if (guessed !== undefined) return guessed === null ? undefined : guessed;
+    }
     let src: Record<PropertyKey, any>;
     if (enumerating) src = enumerationSource(target);
     else if (plain) {
@@ -2257,15 +2301,9 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       const node = getHasNode(target, key);
       const present = readNode(node);
       src = readSource(target, key, true);
-      if (!present && (!target.ch || node._config & CONFIG_OVERRIDE || !(key in src)))
-        return undefined;
+      if (!present && (!target.ch || !(key in src))) return undefined;
     } else src = readSource(target, key, true);
     let desc: PropertyDescriptor | undefined;
-    if (optHooks && !enumerating && optRead(target)) {
-      const guessed = optHooks.descriptor(target, key);
-      if (guessed === null) return undefined;
-      desc = guessed;
-    }
     desc ??= visibleDescriptor(target, src, key);
     if (desc === undefined) return undefined;
     if (!(key === "length" && Array.isArray(shell))) desc.configurable = true;
@@ -2402,7 +2440,12 @@ const ASYNC_STORE_SETTER_MESSAGE =
  * write violation — the user guard (`mapArray`'s pattern: the node-level
  * writes carry `ownedWrite`; the setter asks). */
 function devGuardStoreSetterWrite(): void {
-  if (context && !(context._config & CONFIG_CHILDREN_FORBIDDEN) && !disposalDepth) {
+  if (
+    context &&
+    !(context._config & CONFIG_CHILDREN_FORBIDDEN) &&
+    !disposalDepth &&
+    !inRefCallback()
+  ) {
     emitDiagnostic({
       code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
       kind: "write",
@@ -2465,6 +2508,22 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
     // inside a projection derive) must keep tracking — they are the derive's
     // dependencies.
     result = fn(proxy);
+    // A returned replacement on an optimistic family is a user's edit, and
+    // its slot is the point of write (S-59): written into the draft as the
+    // keyed diff — a same-key row recurses into its own draft — so it makes
+    // the writes the field edit would, and the exit below notifies them.
+    if (
+      optHooks !== null &&
+      guard &&
+      target.o &&
+      !writeOverride &&
+      result !== undefined &&
+      result !== proxy &&
+      isWrappable(result)
+    ) {
+      optHooks.reconcile(proxy, unwrapValue(result), target._fam?.key ?? null);
+      result = undefined;
+    }
   } finally {
     writing--;
     writeScopes = prevScopes;
@@ -2484,12 +2543,9 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
   // side effects before its invalid-cleanup throw) and before adoption.
   if (__DEV__ && guard) devGuardStoreSetterResult(result);
   if (result !== undefined && result !== proxy && isWrappable(result)) {
-    // A returned replacement: on an optimistic family a user's is itself an
-    // optimistic edit — diffed against the view as guesses (`next` parity);
-    // otherwise it is adopted as the incoming truth.
-    if (optHooks && guard && target._fam?.opt === true && !writeOverride)
-      optHooks.writes(target, unwrapValue(result));
-    else adoptPB(target, unwrapValue(result));
+    // A returned replacement off the optimistic path is adopted as the
+    // incoming truth.
+    adoptPB(target, unwrapValue(result));
   }
   // A34 (3), #3612 — the derived store's twin of `setMemo`: a user write to
   // a derivation another transaction holds is nobody's proposal; it becomes
@@ -2576,7 +2632,7 @@ export function storeHasFamily(proxy: any): boolean {
 /** True when `proxy` belongs to an OPTIMISTIC family (S4). */
 export function storeHasOptimisticFamily(proxy: any): boolean {
   const t: StoreTarget | undefined = proxy?.[$TARGET];
-  return t?._fam?.opt === true;
+  return t?.o === true;
 }
 
 // ---------------------------------------------------------------------------
@@ -2720,11 +2776,11 @@ function snapshotBacking(t: StoreTarget): Record<PropertyKey, any> {
   if (pb !== null) {
     const k = t.k;
     if (inDraft(t) || writeOverride || k === null || !(k._config & CONFIG_HELD)) backing = pb;
-    else if (stagingReader() !== null) backing = asBacking(untrack(() => readNode(k)));
+    else if (stagingReader() !== null) backing = untrack(() => readNode(k));
     // materializePB is a no-op (returns pb) without an overlay.
     if (backing === pb) backing = materializePB(t);
   }
-  return optHooks && optRead(t) ? optHooks.view(t, backing) : backing;
+  return optRead(t) ? optHooks!.view(t, backing) : backing;
 }
 
 function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreFamily | null): any {

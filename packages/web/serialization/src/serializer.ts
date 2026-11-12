@@ -221,7 +221,8 @@ export function createHydrationSerializer(options: HydrationSerializerOptions): 
 // keeps its session, even if a chunk replayed from a stream's buffer failed
 // before it, and settles on `onDone` like any later failure. Without
 // `onError` seroval throws out of the write, as before; the write still
-// settles, so a later `flush()` completes.
+// settles, so a later `flush()` completes. `onError` also gets the key of
+// the write that failed.
 function createKeyedSerializer(serialize, onError, onDone) {
   const cancels = new Set();
   let pendingWrites = 0;
@@ -260,7 +261,7 @@ function createKeyedSerializer(serialize, onError, onDone) {
               onError &&
               (err => {
                 failed = true;
-                onError(err);
+                onError(err, key);
                 // seroval 1.7 ends a write at its first failure and never
                 // calls its `onDone`: a failure after the call returned
                 // settles the write here, disposed.
@@ -381,9 +382,16 @@ export function createHydrationSerializer({ onData, onDone, scopeId, onError, pl
  * reference a slot the client never filled and resolve `undefined`; it
  * parses the value again and fails on its own. seroval takes the next index
  * from `refs.size`, so the size counts every index ever taken.
+ *
+ * `plain(key)` answers with a message when the failure is the key's own
+ * rejection and the renderer sends a plain `Error` in its place (#4709): an
+ * `<Errored>` drew its fallback from that error, so the promise is rejected
+ * with the message and marked the way seroval marks a rejection. The
+ * hydrating read then throws it in the claim pass, against the fallback's
+ * markup.
  * @internal
  */
-export function rejectUnserializedKey(serialize, refs, onData, scopeId) {
+export function rejectUnserializedKey(serialize, refs, onData, scopeId, plain) {
   let taken = 0;
   let fresh = [];
   const set = refs.set;
@@ -413,12 +421,19 @@ export function rejectUnserializedKey(serialize, refs, onData, scopeId) {
           ids.add(id);
       }
       if (!ids.size) return;
+      const text = plain && plain(key);
       const body =
-        "for(const i of[" + [...ids] + "]){const v=$R[i];v&&(v.f?v.f(e):v.throw&&v.throw(e))}";
+        "for(const i of[" +
+        [...ids] +
+        "]){const v=$R[i];v&&(v.f?" +
+        (text === undefined ? "v.f(e)" : "(v.f(e),v.p.s||(v.p.s=2,v.p.v=e))") +
+        ":v.throw&&v.throw(e))}";
       const message = JSON.stringify(
-        "Serialization failed: the hydration value for key " +
-          JSON.stringify(key) +
-          " could not be serialized on the server"
+        text === undefined
+          ? "Serialization failed: the hydration value for key " +
+              JSON.stringify(key) +
+              " could not be serialized on the server"
+          : text
       ).replace(/[<\u2028\u2029]/g, c => KEY_ESCAPES[c]);
       onData(
         "($R=>{const e=new Error(" +

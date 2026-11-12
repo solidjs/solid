@@ -1094,7 +1094,12 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
       // source's landing finds it as `remaining`: the subscriber stays
       // pending on a source that will never settle, and its boundary never
       // releases (found while shadowing the seat table).
-      if (status !== STATUS_PENDING) removePendingSource(sub, el);
+      // Its dependents carry the entry too (propagated through it): a
+      // re-derive to the same value notifies none of them, so the walk
+      // retires it there as well — left, a render effect behind a verdict
+      // memo stayed pending on the source and held its frame (an Errored
+      // fallback's `isPending` ternary after a reset).
+      if (status !== STATUS_PENDING && removePendingSource(sub, el)) settlePendingSource(sub, el);
       enqueueSub(sub);
       schedule();
       return;

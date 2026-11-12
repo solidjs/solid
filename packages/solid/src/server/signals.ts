@@ -4263,7 +4263,7 @@ export function createErrorBoundary<T, U>(
   const boundaryId = ownerId(idOwner);
   const serializeError = (err: any) => {
     if (ctx && boundaryId && !runWithOwner(owner, () => getContext(NoHydrateContext))) {
-      ctx.serialize(boundaryId, err);
+      ctx.serialize(boundaryId, err, undefined, true);
     }
   };
   // The finding (observe/dev): a render error this boundary contained by
@@ -4314,6 +4314,7 @@ export function createErrorBoundary<T, U>(
       ctx && ctx.errorPolicy,
       ctx && ctx._errorScope
     );
+    if (ctx && ctx.contained) ctx.contained(err, wire);
     if (defer) deferredWire = wire;
     else serializeError(wire);
     fallbackResult = renderFallback(wire);
@@ -4803,6 +4804,11 @@ export function onSettled(callback: () => void | (() => void)): void {
 
 /** No-op on the server: there is no client flush to run after. */
 export function onFlush(_callback: () => void): void {}
+
+/** @internal Refs never run on the server; parity with the client entry (#4761). */
+export function runRefCallback(fn: () => void): void {
+  untrack(fn);
+}
 
 // NoInfer utility type (also re-exported from signals, but define for local use)
 type NoInfer<T extends any> = [T][T extends any ? 0 : never];

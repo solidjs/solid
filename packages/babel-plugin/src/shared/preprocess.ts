@@ -1,5 +1,6 @@
 import config from "../config";
 import { getTagName, isInForeignContent } from "./utils";
+import { lowerShow } from "./lower-show";
 import type * as t from "@babel/types";
 import type { NodePath } from "@babel/traverse";
 import type { BabelHubWithMetadata, PluginPass } from "../types";
@@ -41,4 +42,5 @@ export default (path: NodePath<t.Program>, state: PluginPass) => {
           (element.node as t.JSXElement & { _foreignContent?: boolean })._foreignContent = true;
       }
     });
+  if (merged.lowerShow ?? !merged.dev) lowerShow(path, merged);
 };

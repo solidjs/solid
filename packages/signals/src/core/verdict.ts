@@ -19,7 +19,6 @@ import {
   CONFIG_HELD_FRAME,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_INPUTS_PUBLISHED,
-  CONFIG_MOUNT_AHEAD,
   CONFIG_OVERRIDE,
   CONFIG_REDERIVE,
   CONFIG_STAGED,
@@ -31,8 +30,6 @@ import {
   NO_SNAPSHOT,
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
-  REACTIVE_DISPOSED,
-  REACTIVE_FRAME_READ,
   REACTIVE_JOINED,
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
@@ -71,7 +68,7 @@ import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
 import { ahead, heldMountUnder, keptGuess, screenOf, verdictLane, waiting } from "./lanes.js";
 import { latestOf } from "./truth.js";
-import { deleteFromHeap, enqueueSub } from "./heap.js";
+import { deleteFromHeap } from "./heap.js";
 import {
   blocked,
   dirtyQueue,
@@ -79,7 +76,6 @@ import {
   flushTransaction,
   globalQueue,
   GlobalQueue,
-  hiddenHook,
   insertSubs,
   joinFuture,
   passLane,
@@ -103,7 +99,7 @@ import {
   shadowExpect,
   shadowWindow
 } from "./seat.js";
-import type { Computed, Owner, Signal } from "./types.js";
+import type { Computed, Signal } from "./types.js";
 
 /** A verdict reader whose answer this flush could not give yet: the node it
  * asked about is staged and not held — whether it will be is the seam's
@@ -863,8 +859,18 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
     // A memo over an error boundary's output is a plain reader of it (F-3:
     // where the memo sits does not matter); marked, it threw the error past
     // the boundary that caught it, and the commit halted (#4640).
+    // A lane reader of a guess in its own lane reads the guess: the truth
+    // staged beneath it is the hold's, not the lane's display (F-11, D-34),
+    // and the lane's seam would publish it now (D-41, #4751).
     for (let d = node._deps; d; d = d._nextDep)
-      if (d._dep._config & CONFIG_STAGED_ERROR) {
+      if (
+        d._dep._config & CONFIG_STAGED_ERROR &&
+        !(
+          d._dep._config & CONFIG_GUESS &&
+          node._x?._transaction?._lane &&
+          d._dep._x!._transaction === node._x._transaction
+        )
+      ) {
         node._pendingValue = el._pendingValue;
         node._config |= CONFIG_STAGED_ERROR;
         queuePendingNode(node);
@@ -905,39 +911,9 @@ function keepReaders(el: Computed<any>): void {
   }
 }
 
-/** #4574 (S-46): a render effect born into an open hold, not behind a
- * fallback, that has not run. */
-function bornHeldOpen(owner: Owner | null): Transaction | null {
-  for (let c = owner?._firstChild ?? null; c !== null; c = c._nextSibling) {
-    const n = c as Computed<any>;
-    if (n._flags & REACTIVE_DISPOSED || hiddenHook?.(n)) continue;
-    if (
-      (n as any)._type === EFFECT_RENDER &&
-      n._statusFlags & STATUS_UNINITIALIZED &&
-      n._config & CONFIG_HELD &&
-      n._pendingValue !== NOT_PENDING
-    ) {
-      const t = txOf(n);
-      if (!t._lane && blocked(t)) return t;
-    }
-    const inner = bornHeldOpen(c);
-    if (inner) return inner;
-  }
-  return null;
-}
-
-function valueInserts(v: unknown): boolean {
-  if (typeof v !== "object" || v === null) return false;
-  if (Array.isArray(v)) return v.some(valueInserts);
-  return (v as { nodeType?: number }).nodeType! > 0;
-}
-
-/** #4574: a lane or verdict render effect inserting a node whose subtree (or
- * a value it reads) holds such a hole waits for that hold — the attach runs
- * at the landing with its content, never as an empty shell now. */
+/** A run of the frame a landing holds for its re-derivation (lanes.ts
+ * `waiting`) runs next round, with the landing's held runs. */
 function attachWaits(node: Computed<any>): boolean {
-  // A run of the frame a landing holds for its re-derivation (lanes.ts
-  // `waiting`) runs next round, with the landing's held runs.
   if (waiting?.has(node))
     return (
       globalQueue.enqueue(
@@ -946,20 +922,7 @@ function attachWaits(node: Computed<any>): boolean {
       ),
       true
     );
-  if (
-    (node as any)._type !== EFFECT_RENDER ||
-    !(node._config & CONFIG_VERDICT || node._x?._transaction?._lane) ||
-    !valueInserts(node._pendingValue !== NOT_PENDING ? node._pendingValue : node._value)
-  )
-    return false;
-  let t = bornHeldOpen(node);
-  for (let d = node._deps; d !== null && t === null; d = d._nextDep) {
-    t = bornHeldOpen(d._dep as Owner);
-    if (d === node._depsTail) break;
-  }
-  if (t === null) return false;
-  t._queues[0].push(((node as any)._boundRunEffect ??= GlobalQueue._runEffect.bind(null, node)));
-  return true;
+  return false;
 }
 
 /** #4544: a verdict reader whose posture is only inherited (it read a

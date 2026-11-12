@@ -25,6 +25,7 @@ import {
 import {
   adoptPB,
   bumpDeep,
+  deepUsed,
   hasAccessorFlag,
   materializePB,
   notifyFold,
@@ -57,8 +58,8 @@ export function reconcileState(
   // truth but an optimistic edit — the keyed diff is written into the draft
   // (a matched row keeps its proxy, its changed leaves become its guesses),
   // and the setter's exit turns the draft into guesses like any.
-  if (optHooks && userWriting() && t._fam?.opt === true) {
-    optHooks.reconcile(state, unwrapValue(value), keyFn);
+  if (optHooks !== null && t.o && userWriting()) {
+    optHooks!.reconcile(state, unwrapValue(value), keyFn);
     return;
   }
   // Replace-mode root handed another store's proxy: chain to it (§7b).
@@ -100,7 +101,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   // Q-D: a landing on an optimistic family is reconciled against the VIEW
   // — key matching from the arrangement the guesses made (R28), so a row
   // the guess added keeps its proxy when the server returns it.
-  const prevView = optHooks && t._fam?.opt === true ? optHooks.view(t, old) : old;
+  const prevView = optHooks !== null && t.o ? optHooks.view(t, old) : old;
   const nextArr = Array.isArray(incoming);
   const shallow = t.s === true;
   adoptPB(t, incoming, false);
@@ -129,6 +130,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
         if (nv !== null && typeof nv === "object" && (pvRaw !== nv || isOwned(nv)))
           descend(unwrapValue(pvRaw), nv, keyFn, proj, t, i);
         if (
+          deepUsed &&
           !bumped &&
           !(nv !== null && typeof nv === "object" ? targetsEqual(pvRaw, nv) : isEqual(pvRaw, nv))
         ) {
@@ -143,7 +145,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
           }
         }
       }
-      if (!bumped && i < incoming.length) bumpDeep(t);
+      if (deepUsed && !bumped && i < incoming.length) bumpDeep(t);
       const structStart = i; // misalignment point (== nlen on aligned ticks)
       let prevByKey: Map<any, any> | null = null;
       for (; i < incoming.length; i++) {
@@ -196,6 +198,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
         if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
           descend(unwrapValue(prevView[i]), nvP, keyFn, proj, t, i);
         if (
+          deepUsed &&
           !bumped &&
           !(nvP !== null && typeof nvP === "object"
             ? targetsEqual(prevView[i], nvP)
@@ -242,7 +245,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
       continue;
     }
     if (isObj && !shallow) descend(unwrapValue((prevView as any)[k]), nv, keyFn, proj, t, k);
-    if (!bumped && !(isObj ? targetsEqual(ov, nv) : isEqual(ov, nv))) {
+    if (deepUsed && !bumped && !(isObj ? targetsEqual(ov, nv) : isEqual(ov, nv))) {
       bumpDeep(t);
       bumped = true;
     }

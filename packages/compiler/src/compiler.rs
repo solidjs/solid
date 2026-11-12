@@ -135,6 +135,10 @@ pub struct CompileOptions {
     /// its own object (#3511). `false` keeps the literal everywhere.
     pub hoist_props: bool,
     pub dev: bool,
+    /// Lower a `<Show>` that needs no component to the ternary it renders
+    /// (`shared/lower_show.rs`). The JavaScript surface defaults it to
+    /// `!dev`: dev builds keep the component and its stale-read error.
+    pub lower_show: bool,
     pub source_names: SourceNames,
     pub source_map: bool,
     pub context_to_custom_elements: bool,
@@ -166,6 +170,7 @@ impl Default for CompileOptions {
             hydratable: false,
             hoist_props: true,
             dev: false,
+            lower_show: true,
             source_names: SourceNames::default(),
             source_map: false,
             context_to_custom_elements: true,
@@ -361,6 +366,15 @@ fn compile_lowered<'a>(
     }
 
     crate::shared::component_children::anchor_coverage_pragmas(&mut program, source);
+
+    if options.lower_show {
+        crate::shared::lower_show::lower_show(
+            allocator,
+            &mut program,
+            &options.module_name,
+            &options.built_ins,
+        );
+    }
 
     match options.generate {
         Generate::Dom => {

@@ -14,7 +14,8 @@ describe("coverage pragmas", () => {
     "carries authored pragmas onto %s component children getters",
     generate => {
       const { code } = babel.transformSync(fixture, {
-        plugins: [[plugin, { generate, moduleName: "r-dom" }]],
+        // `<Show>` stands in for any component here: keep it a component.
+        plugins: [[plugin, { generate, moduleName: "r-dom", lowerShow: false }]],
         configFile: false,
         babelrc: false,
         filename: "coveragePragmas.jsx"

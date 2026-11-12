@@ -215,6 +215,21 @@ onSettled(() => {
 });
 ```
 
+A ref callback runs like a render effect's callback and owns nothing, so `onCleanup` inside it throws too. Register the cleanup in the factory that returns the ref, which runs in the component body:
+
+```js
+// Throws
+<div ref={el => onCleanup(() => detach(el))} />;
+
+// Fix: the factory owns the cleanup
+function tooltip() {
+  let el;
+  onCleanup(() => detach(el));
+  return node => (el = node);
+}
+<div ref={tooltip()} />;
+```
+
 #### `SETTLED_CLEANUP_UNOWNED`
 
 **Message:** "onSettled returned a cleanup in an unowned scope; a cleanup can only be honored under an owner. Call your setup helper from an owned scope (e.g. the component body) instead of from inside an event handler, tracked effect, or another onSettled."
@@ -1018,11 +1033,11 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `STORE_WRITE_OUTSIDE_SETTER`       | warn       | write          | Store proxy written, deleted from, or defined on outside its setter; the write is ignored (once per store object and key)                                         |
 | `PENDING_ASYNC_UNTRACKED_READ`     | error      | async          | Reading pending async outside tracking scope                                                                                                                      |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY`   | warn       | async          | Async computation outside Loading boundary (non-halting; root mount is deferred)                                                                                  |
-| `CLEANUP_IN_FORBIDDEN_SCOPE`       | error      | lifecycle      | `onCleanup` inside trackedEffect/onSettled                                                                                                                        |
+| `CLEANUP_IN_FORBIDDEN_SCOPE`       | error      | lifecycle      | `onCleanup` inside trackedEffect/onSettled or a ref callback                                                                                                      |
 | `SETTLED_CLEANUP_UNOWNED`          | error      | lifecycle      | `onSettled` returned a cleanup in an unowned (out-of-band) scope                                                                                                  |
 | `ON_FLUSH_IN_OWNED_SCOPE`          | warn       | lifecycle      | `onFlush` called in a component body or computation (meant for event handlers and effect callbacks)                                                               |
 | `PRIMITIVE_IN_FORBIDDEN_SCOPE`     | error      | lifecycle      | Reactive primitive created inside trackedEffect/onSettled                                                                                                         |
-| `PRIMITIVE_IN_EFFECT_CALLBACK`     | error      | lifecycle      | Memo, effect, or root created inside an effect callback or its cleanup, where there is no ambient owner (throws)                                                  |
+| `PRIMITIVE_IN_EFFECT_CALLBACK`     | error      | lifecycle      | Memo, effect, or root created inside an effect callback, its cleanup, or a ref callback (throws)                                                                  |
 | `ACTION_CALLED_IN_OWNED_SCOPE`     | error      | write          | `action()` invoked from a component body or computation                                                                                                           |
 | `MISSING_EFFECT_FN`                | error      | lifecycle      | `createEffect` called without the effect function                                                                                                                 |
 | `SYNC_NODE_RECEIVED_ASYNC`         | error      | lifecycle      | `sync: true` computation returned a Promise / AsyncIterable                                                                                                       |

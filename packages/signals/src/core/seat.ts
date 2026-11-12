@@ -65,7 +65,8 @@ import {
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
-  CONFIG_ASYNC
+  CONFIG_ASYNC,
+  REACTIVE_ZOMBIE
 } from "./constants.js";
 import { keptGuess } from "./lanes.js";
 import {
@@ -74,7 +75,6 @@ import {
   observeFlightHook,
   globalQueue,
   GlobalQueue,
-  latestOpened,
   passLane,
   blocked,
   liveTx,
@@ -573,7 +573,12 @@ export function slot(
   /** D-41 (#2897): an errored derivation's retry — a tracked re-read on a
    * later cycle than the one that found the error re-runs it and reads
    * again; the re-read is compared on its own (a nested frame). */
-  const retry = errored && tracked && c !== null && (el as Computed<any>)._time < clock;
+  const retry =
+    errored &&
+    tracked &&
+    c !== null &&
+    (el as Computed<any>)._time < clock &&
+    !((el as Computed<any>)._flags & REACTIVE_ZOMBIE);
 
   // ── U: no pass ──────────────────────────────────────────────────────────
   if (posture === POSTURE_U) {
@@ -899,13 +904,10 @@ export function slot(
     }
     return p;
   };
-  const latestOnly =
-    flushTransaction !== null && flushTransaction === latestOpened && !inSeat && !cUninit;
   /** `stagedScreen`: a verdict reader's plain read of a staging is the
-   * screen's once the frame has a hold (not one a `latest()` alone
-   * opened), unless born into it. */
-  const stagedScreen =
-    flushTransaction !== null && !seatBornInto(seat, flushTransaction) && !latestOnly;
+   * screen's once the frame has a hold, unless born into it. (`latest()`
+   * opens no transaction, #4393; the "latest only" hold is gone.) */
+  const stagedScreen = flushTransaction !== null && !seatBornInto(seat, flushTransaction);
 
   // Error (D-41 #2897): the error — the retry re-reads (compared on its
   // own). The hold arms run first (`read`'s L2 block): a derivation of a

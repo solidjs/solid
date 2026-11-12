@@ -67,6 +67,12 @@ export interface PluginConfig {
   builtIns: string[];
   requireImportSource: false | string;
   wrapConditionals: boolean;
+  /** Lower a `<Show>` that needs no component to the ternary it renders
+   * (`shared/lower-show.ts`): no `keyed`, no spread, only `when`/`fallback`,
+   * JSX children or a one-param callback whose `when` is a plain read.
+   * Defaults to `!dev`: dev builds keep the component and its stale-read
+   * error. Server and client must agree, as with every hydratable option. */
+  lowerShow?: boolean;
   omitNestedClosingTags: boolean;
   omitLastClosingTag: boolean;
   omitQuotes: boolean;

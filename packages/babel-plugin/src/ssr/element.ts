@@ -324,6 +324,16 @@ function setAttr(
   }
 }
 
+/**
+ * How `escapeExpression` treats a string literal it reaches.
+ * - `undefined`: the hole itself. The caller escapes a literal when it
+ *   inlines it into the template, so it stays as written here.
+ * - `"escape"`: a position whose value the runtime writes as is.
+ * - `"keep"`: inside a function value in an attribute. `ssrAttribute`
+ *   stringifies the function's source, so literals stay as written.
+ */
+type Literals = "escape" | "keep" | undefined;
+
 function escapeExpression(
   path: BabelPath,
   expression:
@@ -333,37 +343,35 @@ function escapeExpression(
     | null
     | undefined,
   attr?: boolean,
-  escapeLiterals?: boolean
+  literals?: Literals
 ): babelTypes.Expression | babelTypes.JSXElement | babelTypes.JSXFragment | null | undefined {
   if (!expression) return expression;
+  // A literal in a branch is the hole's value, which `ssr` and
+  // `ssrAttribute` write as is, so branches escape literals.
+  const branch: Literals = literals === "keep" ? "keep" : "escape";
+  // A function's returns escape like branches, except for a function value in
+  // an attribute: `ssrAttribute` stringifies its source, so its literals stay
+  // as written at every depth.
+  const returns: Literals = literals === undefined && attr ? "keep" : branch;
   if (
     t.isStringLiteral(expression) ||
     t.isNumericLiteral(expression) ||
     (t.isTemplateLiteral(expression) && expression.expressions.length === 0)
   ) {
-    if (escapeLiterals) {
+    if (literals === "escape") {
       if (t.isStringLiteral(expression))
         return t.stringLiteral(escapeHTML(expression.value, attr) as string);
       else if (t.isTemplateLiteral(expression))
-        return t.stringLiteral(escapeHTML(expression.quasis[0].value.raw, attr) as string);
+        return t.stringLiteral(
+          escapeHTML(
+            expression.quasis[0].value.cooked ?? expression.quasis[0].value.raw,
+            attr
+          ) as string
+        );
     }
     return expression;
   } else if (t.isFunction(expression)) {
-    if (t.isBlockStatement(expression.body)) {
-      expression.body.body = expression.body.body.map(e => {
-        if (t.isReturnStatement(e))
-          e.argument = escapeExpression(
-            path,
-            e.argument,
-            attr,
-            escapeLiterals
-          ) as babelTypes.Expression | null;
-        return e;
-      });
-    } else
-      expression.body = escapeExpression(path, expression.body, attr, escapeLiterals) as
-        | babelTypes.Expression
-        | babelTypes.BlockStatement;
+    escapeFunctionResult(path, expression, attr, returns);
     return expression;
   } else if (t.isTemplateLiteral(expression)) {
     // Interpolations are escaped recursively. The static quasis are not —
@@ -373,12 +381,7 @@ function escapeExpression(
     if (attr) escapeTemplateQuasis(expression, true);
     expression.expressions = expression.expressions.map(
       e =>
-        escapeExpression(
-          path,
-          e as babelTypes.Expression,
-          attr,
-          escapeLiterals
-        ) as babelTypes.Expression
+        escapeExpression(path, e as babelTypes.Expression, attr, literals) as babelTypes.Expression
     );
     return expression;
   } else if (t.isUnaryExpression(expression)) {
@@ -388,13 +391,13 @@ function escapeExpression(
       path,
       expression.left as babelTypes.Expression,
       attr,
-      escapeLiterals
+      literals
     ) as babelTypes.Expression | babelTypes.PrivateName;
     expression.right = escapeExpression(
       path,
       expression.right,
       attr,
-      escapeLiterals
+      literals
     ) as babelTypes.Expression;
     return expression;
   } else if (t.isConditionalExpression(expression)) {
@@ -402,13 +405,13 @@ function escapeExpression(
       path,
       expression.consequent,
       attr,
-      escapeLiterals
+      branch
     ) as babelTypes.Expression;
     expression.alternate = escapeExpression(
       path,
       expression.alternate,
       attr,
-      escapeLiterals
+      branch
     ) as babelTypes.Expression;
     return expression;
   } else if (t.isLogicalExpression(expression)) {
@@ -419,29 +422,14 @@ function escapeExpression(
         path,
         expression.right,
         attr,
-        escapeLiterals
+        branch
       ) as babelTypes.Expression;
       return expression;
     }
   } else if (t.isCallExpression(expression) && t.isFunction(expression.callee)) {
-    if (t.isBlockStatement(expression.callee.body)) {
-      expression.callee.body.body = expression.callee.body.body.map(e => {
-        if (t.isReturnStatement(e))
-          e.argument = escapeExpression(
-            path,
-            e.argument,
-            attr,
-            escapeLiterals
-          ) as babelTypes.Expression | null;
-        return e;
-      });
-    } else
-      expression.callee.body = escapeExpression(
-        path,
-        expression.callee.body,
-        attr,
-        escapeLiterals
-      ) as babelTypes.Expression | babelTypes.BlockStatement;
+    // The call's result is the hole's value, so its returns escape like
+    // branches.
+    escapeFunctionResult(path, expression.callee, attr, branch);
     return expression;
   } else if (t.isJSXElement(expression) && !isComponent(getTagName(expression))) {
     (expression as babelTypes.JSXElement & { wontEscape?: boolean }).wontEscape = true;
@@ -459,6 +447,59 @@ function escapeExpression(
     registerImportMethod(path, "escape"),
     [expression as babelTypes.Expression].concat(attr ? [t.booleanLiteral(true)] : [])
   );
+}
+
+/** Escapes a function's expression body or its `return` arguments. */
+function escapeFunctionResult(
+  path: BabelPath,
+  fn: babelTypes.Function,
+  attr: boolean | undefined,
+  literals: Literals
+) {
+  if (t.isBlockStatement(fn.body)) escapeReturns(path, fn.body, attr, literals);
+  else
+    fn.body = escapeExpression(path, fn.body, attr, literals) as
+      | babelTypes.Expression
+      | babelTypes.BlockStatement;
+}
+
+/**
+ * Escapes the `return` arguments in a statement at any depth, without
+ * entering nested functions or classes.
+ */
+function escapeReturns(
+  path: BabelPath,
+  statement: babelTypes.Statement | null | undefined,
+  attr: boolean | undefined,
+  literals: Literals
+) {
+  if (!statement) return;
+  if (t.isReturnStatement(statement)) {
+    statement.argument = escapeExpression(
+      path,
+      statement.argument,
+      attr,
+      literals
+    ) as babelTypes.Expression | null;
+  } else if (t.isBlockStatement(statement)) {
+    for (const child of statement.body) escapeReturns(path, child, attr, literals);
+  } else if (t.isIfStatement(statement)) {
+    escapeReturns(path, statement.consequent, attr, literals);
+    escapeReturns(path, statement.alternate, attr, literals);
+  } else if (t.isSwitchStatement(statement)) {
+    for (const switchCase of statement.cases)
+      for (const child of switchCase.consequent) escapeReturns(path, child, attr, literals);
+  } else if (t.isTryStatement(statement)) {
+    escapeReturns(path, statement.block, attr, literals);
+    escapeReturns(path, statement.handler?.body, attr, literals);
+    escapeReturns(path, statement.finalizer, attr, literals);
+  } else if (
+    t.isLoop(statement) ||
+    t.isLabeledStatement(statement) ||
+    t.isWithStatement(statement)
+  ) {
+    escapeReturns(path, statement.body as babelTypes.Statement, attr, literals);
+  }
 }
 
 function escapeTemplateQuasis(expression: babelTypes.TemplateLiteral, attr: boolean) {
@@ -819,7 +860,7 @@ function transformAttributes(
                   path,
                   p.value as babelTypes.Expression,
                   true,
-                  true
+                  "escape"
                 ) as babelTypes.Expression
               ];
             });

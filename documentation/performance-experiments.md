@@ -10438,3 +10438,137 @@ still loses to `next`. The flag costs only templates that need it, and none
 of the board's do. Removing it is worth doing only if custom-element upgrade
 timing is dropped as a guarantee, which is a semantics call, not a speed
 call. The probe branches stay local.
+
+### 19 (Vapor lane, follow-up): `next` re-checked, small moves priced, and a new baseline on Octane 0.16.7 (2026-11-10/11)
+
+Three questions: has `next` regressed since the Oct 17 board (§14), is
+mapArray's small-move fast path (#3227) worth its size, and where does Solid
+stand against current Octane and Vapor.
+
+**Regression check.** The §14 board's 26 suites, on `next` @ aaf528d3a, with
+the fork left on Octane 0.13.8 so the ratios compare with §14
+(`results-board-next-nov10`). Solid ÷ Octane went 0.853 → 0.835 and Solid ÷
+Vapor 0.970 → 0.949. Solid's own times rose on several suites, but Octane's
+and Vapor's rose with them (todomvc and scheduler-responsiveness +24–30% for
+all three), so that is the machine. The one suite where only Solid moved was
+scaling-curves, at update_96 through update_512.
+
+- **scaling-curves, interleaved against the §14 code** (5a968c407, three
+  rounds; `results-sc-*-nov10`): +8.6, +9.5 and −5.0%, with `next` 10.7%
+  apart from itself. A run is 10 s, too short to resolve this.
+- **Again with `--repeat=5`** (`results-scr-*-nov10`): +3.1, +2.9 and
+  +8.0%, against 3–4% same-commit spread. Only update_96 separated in every
+  round, 1.48–1.60 ms → 1.70–1.76 ms (+14%). 256 and 512 were flat, so the
+  board's +20–30% there was drift.
+- **Bisect over `next`'s 376 first-parent commits** (`.logs/nov10-bisect*.log`)
+  could not place it. The first pass blamed 77be406ca (#4581) on a single
+  2.06 ms reading. Interleaved against its parent it measured 1.48–1.52 vs
+  1.44–1.54 ms (`results-cf-*`). The second pass, taking the lower of two
+  readings per step, blamed 366c0eba4, which changes only `server.ts`. In
+  one interleaved block, 32b4294cb, 366c0eba4 and aaf528d3a all measured
+  1.76–2.26 ms (`results-tri-*`).
+
+Verdict: no regression on the board. update_96's 0.1–0.2 ms is below what
+this suite resolves against machine drift, and it is left alone.
+
+**Small moves.** A probe removing the path (`probe/no-small-move`, 1188c4cb4
+on aaf528d3a) saves 1,650–1,661 B minified and 428–642 B brotli on every app
+and page size scenario. It fails only the seven tests that assert the path
+engages. Two rounds against `next`, order flipped in the second, on seven
+list and creation suites (`results-sm-{next,probe}-r{1,2}-nov10`):
+
+| | round 1 | round 2 | `next` r2 / r1 |
+| --- | ---: | ---: | ---: |
+| js-framework-reorder | +30.9% | +37.3% | +1.3% |
+| js-framework | +7.8% | +13.2% | −1.2% |
+| effectful-list | −9.6% | +4.3% | −3.7% |
+| todomvc | −4.3% | +15.6% | +2.6% |
+| memo-wall | +0.5% | −0.6% | +0.5% |
+| spa-navigation | −1.5% | −1.1% | −0.3% |
+
+Per op, both rounds: swap +107/+92%, rotatef +78/+82%, rotateb +91/+94%,
+displace3–8 +60–83%. Creation ops are flat, within ±3%. effectful-list and
+todomvc disagree between rounds. Verdict: keep it. The journal's earlier
+note that the path "made other ops slower" does not reproduce: removing it
+speeds nothing up. The probe branch stays local.
+
+**The fork was not fully linked.** The old branch's `pnpm-workspace.yaml`
+had lost its five link overrides, and its lockfile resolved every Solid
+package to the published 2.0.0-rc.14. The board ran on leftover symlinks
+from an earlier install. js-framework reached the worktree (the small-move
+probe moved it), but not every fixture or the compiler is certain to have.
+Once relinked, ssr-throughput's Solid render went 0.311 → 0.223 ms on the
+same commit, with Octane and Vapor unchanged. SSR numbers from fork boards
+before Nov 11 may describe rc.14, not `next`. Check the links with
+`readlink -f benchmarks/*/solid/node_modules/@solidjs/web` before any board.
+
+**ssr-throughput was never on the board.** Its Solid targets are named
+`news-50/solid` and `news-500/solid`, and `board-compare.mjs` matched only
+`solid`, so §14 and every board before it left the suite out of the geomean.
+The script now pairs targets within each prefix group (fork d6f9d4ccc).
+
+**New baseline.** Upstream rewrote its history, so the fork's ten Solid
+commits were cherry-picked onto `origin/main` at Octane 0.16.7 as
+`bench/next-linked-nov10` (see benchmarking-strategy.md). Vue is unchanged
+at 3.6.0-rc.10. One run, `next` @ aaf528d3a, fully linked
+(`results-board-nov10-o0167`):
+
+| | Octane 0.13.8 (Nov 10) | Octane 0.16.7 (Nov 11) |
+| --- | ---: | ---: |
+| Solid ÷ Octane, 23 suites | 0.848 | **0.891** |
+| Solid ÷ Vapor, 22 suites | 0.973 | **0.966** |
+
+Octane got faster: dbmon −24%, memo-wall −21%, uibench −14%,
+js-framework-reorder −13% in its own times. Solid still trails Octane on
+streaming-ssr 1.63×, dbmon 1.28×, svg-dashboard 1.17×, effectful-list 1.13×,
+js-framework 1.10× and uibench 1.07×. Against Vapor it trails on js-framework
+1.33×, ssr-throughput 1.22×, scaling-curves 1.21×, effectful-list 1.18× (one
+~1 µs op), chat-stream 1.15× and hydration-interactivity 1.12×.
+ssr-throughput is now 0.88× Octane, against 1.20× on the stale link.
+Octane's own gates failed on hydration-interactivity (octane-tsrx),
+recursive-context and memo-wall's survivor-work sub-harness. memo-wall's
+main ops recorded.
+
+### 20 (Vapor lane, follow-up): `moveBefore()` for every move, and dbmon's sort (2026-11-11)
+
+§19 left Solid 1.28× Octane on dbmon, and Octane's dbmon had dropped 24%
+between 0.13.8 and 0.16.7. Counting DOM calls per dbmon sort (1,000 rows, a
+wrapped `Element.prototype.moveBefore` and `Node.prototype` methods via
+`addInitScript`) showed where:
+
+| | DOM calls per sort | sort |
+| --- | --- | ---: |
+| Octane 0.16.7 | 919 `moveBefore` | 0.69 ms |
+| Vue Vapor | 919 `insertBefore` | 1.98 ms |
+| Solid `next` | 631 `replaceChild` + 369 `insertBefore` | ~2.0 ms |
+
+Octane moves every connected node with `moveBefore()`. Solid took it only for
+the focused node (#3997), on the earlier finding that using it for every node
+"cost whole-list reorders 4–8% once layout ran" (#4261). Its `replaceChild`
+path also detaches the old node, which the pass then places again.
+
+**Probe** (worktree `probe/move-before-noreplace` 99bb5b6b2): every connected
+node takes `moveBefore()`, and the `replaceChild` path inserts whenever
+`moveBefore()` exists. An earlier probe (0a76394fe) turned `active` into a
+boolean and threw on `parentNode.contains(true)`; 74bf4b7b5 kept the focus
+check and moved everything else. Against `next` on dbmon,
+js-framework-reorder, js-framework, todomvc, memo-wall and uibench, two
+rounds (`results-mb3-*`):
+
+- dbmon suite −13.8% and −15.4%, with `next` 2.8% apart from itself. Sort
+  2.02 / 2.13 ms → 0.76 / 0.73 ms, level with Octane. The probe makes
+  970–1000 `moveBefore` calls per sort.
+- js-framework-reorder −5.2% and −3.2%: shuffle 0.674 → 0.62–0.63 ms,
+  reverse ~−3%. Swap within noise.
+- todomvc noise (`next` moved −20% between its own rounds); the rest flat.
+- +18–21 B minified on the app scenarios, brotli −42 to +30 B.
+- Six-suite geomean, Solid ÷ Octane: 1.018 → 0.972 and 1.000 → 0.963; Solid
+  ÷ Vapor: 1.003 → 0.961 and 0.991 → 0.965.
+
+The #4261 cost did not reproduce with layout running in these suites.
+
+**Shipped** with the focus read removed: once every connected node moves with
+`moveBefore()`, focus survives without it, so the probe's `active` and
+`document.activeElement` read are dead. `move-before-3997.spec.tsx` now
+asserts that kept nodes are never detached and that rows move with
+`moveBefore()` with nothing focused.

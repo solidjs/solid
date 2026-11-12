@@ -325,6 +325,89 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
 
 ## 7. Decision log
 
+- 2026-11-10: **The lane engine split along the guess boundary** (the
+  §8.6 split, b3926358b, ported onto today's `lanes.ts`; a module boundary,
+  no rule). `lanes.ts` keeps the sub-hold core every lane needs — the lane
+  record (`newLane`, `verdictLane`), link / blocked / reveal / landing
+  (`linkLanes`, `laneSeam`, `laneSeams`, `endLanes`, `dissolveLane`,
+  `lanesBlocked`, `heldMountUnder`, `laneWait`), the lane read and a lane
+  pass's tail (`laneRead`, `enterLane`, `laneStage`), `laneWrite`'s
+  derivation arm, `adoptParked`, `laneServed` — installed by verdict.ts's
+  verdict lanes as before. The new `guesses.ts` carries what only a written
+  guess reaches: `optimisticWrite` and the unflushed guesses, the seam's
+  `applyGuesses`, `take` and the `kept` give-back, `supersede` and the
+  correction round (`laneCorrections`), `laneOutcome` with the provenance
+  test (`stale`, `answered`), a write landing on a guess (`guessWrite`,
+  `laneWrite`'s old guess arm) and a revert landing's give-back
+  (`revertLanding`, `endLanes`' old `kept` loop). The core reaches them
+  through `installGuessLayer` (lanes.ts: `take`, `guessWrite`,
+  `revertLanding`, each site behind CONFIG_GUESS or `guessed`) and
+  `installGuessHooks` (scheduler.ts: `laneOutcome`, `applyGuessesAt`,
+  `laneCorrections`, every site null-tolerant); `guessed` stays the core's
+  flag, armed by the layer (`armGuessed`) so a bundle without it folds the
+  arms, and `markJudged` is the core's side of `applyGuessesAt`. `marked`,
+  `inFlight`, `guessFlights`, `rerun`, `landBeneath` stay in the core
+  (`dissolveLane`, `lanesBlocked`, `laneSeams` read them with no guess
+  written). Measured (scripts/size, next @ 083a0bd78): `+ isPending/latest`
+  −531 B brotli / −1,551 B minified, the three live pages −454 to −533 B,
+  every floor and plain-store scenario 0 B, `hydrating + every store
+primitive family` (both halves) +15 B brotli / +157 B minified. Suites,
+  the seat shadow and 50k × 3 seeds against `next`'s recording: no screen
+  moves (documentation/plans/reader-seat-rebuild.md §9.3).
+- 2026-11-09: **A store guess is one node — the guess carrier** (S2's
+  shape, ported onto `next` without S1's staging; D-33's point-of-write
+  clause, S-59, #4724). Before, an optimistic setter was scattered into the
+  lane engine as one guess per written leaf, presence key and index, plus a
+  `LaneView` arrangement snapshot on the container node; a whole-array
+  rewrite with one changed row escalated to a guess on the list, which two
+  actions then shared — the second action's guess joined the first's lane
+  (blocked on its refresh) and the two holds merged, so the refresh's
+  failure landed in a hold that could not commit (#4724's three rows). Now
+  `store/optimistic.ts` makes one `$PATCH` slot node per target per lane
+  (`t.kg`, oldest first) whose lane value is the setter's draft, with the
+  keys it changed recorded on it (`wk`, `del`; a keyed list's rows as
+  written and its removed keys when the membership changed). A row the
+  setter carried over is not a write: the draft's rows are clones, so a
+  carried row is the view's own object again in the frame (`echoes`, #3898),
+  and its proxy identity holds. Reads of a guessed key go through the
+  carrier, tracked (store.ts `guessFor`: the record, and for a read every
+  index and the length of an arrangement guess — a list reader enters the
+  lane through them); the key's leaf stays the reader's subscription point
+  but is silent at a landing while the guess covers the key (`leafSet`,
+  `notifyWrites`: only keys the guess changed — a carried key's leaf tells
+  its readers as ever, or a `repeat` over a derived store published the
+  appended row one flush late). Enumeration, presence and descriptors read
+  the carrier's frame (the descriptor arm ahead of the presence node). A
+  landing reaches each live carrier as a snapshot of the truth frame
+  (`judgeGuesses`, from `notifyWrites` and `adoptPB` — a returned-rows
+  derive never passes the former), judged by `patchEquals` over the guess's
+  keys: confirmed beneath, re-based over an older truth, folded (D-34), or
+  a correction. The snapshot matters: a derive rewrites its backing in
+  place, and a truth staged by reference compared equal to the next landing
+  and never re-staged (#4690's whole cause here). Every carrier arm sits
+  behind the optimistic hooks (`read`, `has`, `descriptor`, `frame`,
+  `covers`, `judge`), and the carrier list lives in the optimistic module,
+  not on the target: a plain store pays `optHooks !== null && t.o` on its read
+  path and nothing else — the hook's null check first, then one field
+  (`t.o`, an optimistic family's target, set at creation), never a call.
+  Both halves matter: with the hooks installed by one
+  `createOptimisticStore` anywhere, a call per read on every plain store
+  showed on CodSpeed as −6 to −11% on the store microbenches (review of
+  #4729, second round); and in a bundle with no optimistic store the
+  hook is a `let` nothing assigns, so the minifier folds the null check
+  to false and deletes the arm — gating on the field alone kept 0.85 KB
+  minified of carrier arms in every plain-store bundle (review of #4729: the first cut had
+  the arms inline in store.ts, +206 B brotli on `+ createStore`; behind the
+  hooks that scenario falls 174 B, since the LaneView and chained-link
+  code it used to carry is gone). Core gained two hook calls, `_slotDirty`
+  in `laneDirty` and `_slotRerun` in the landing re-run, so a carrier's
+  readers of its keys' leaves re-derive as the lane's; the chained-link
+  `follow`/`_slotCovered` plumbing went (no leaf carries a lane value), and
+  `OPTIMISTIC_REVERTED` fans a carrier out per guessed key. Gates: signals suite whole, shadow six, web configs whole;
+  the #4724 pin green through both setters. Size against `next`: core 0,
+  compiled floor 0; plain-store scenarios −0.17 to −0.23 KB brotli; the
+  scenario carrying optimistic stores +0.2 KB (the parked S branch was
+  +0.7–1.0 KB on the same scenarios).
 - 2026-11-08: **A display-ahead gate is the same mainline mount with any
   number of memos between the probe and the branch** (S-58, D-25's third
   sentence; prompted by PR 4708, closed). S-46's plain row was built on
@@ -355,7 +438,39 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   #3540 matrix's early fallback (hidden mounts do not keep the branch;
   memos never count, only render effects). 0 B on the core floor; +57 B
   brotli on the isPending/latest chunk (the list and its scan), caps raised
-  with ledger lines.
+  with ledger lines. The same day, the maintainer's table (S-58′): the row
+  held for a plain-only leaf and broke once the leaf's one grouped effect
+  also read ahead — `[latest(m2), m0()]`, or `[latest(m0), m0()]` of the
+  same node — under a hand-written gate: `<Show>` and a split leaf kept
+  the fallback, the gates attached with the committed `m0` beside the
+  ahead read. The born-held arm for a stamped mount sat inside core.ts
+  `frameRead`'s `!verdict` branch, so a mount whose own pass had opened a
+  window was a verdict reader first and served the screen (A10's pair,
+  which is a mainline leaf's rule, not a mount's); and `read`'s pending
+  arm handed such a reader to `observeFlight` the same way. Both now test
+  the stamp first: a mount a probing pass opened observes the flight on its
+  first pass whatever it read ahead, and is born held. −2 B brotli on the
+  core floor (the clause left the big condition), +7 B on the
+  isPending/latest chunk. Pins: S-58 case ′ (three variants) and
+  `web/test/display-ahead-gate-leaf-reads.spec.tsx`, the table itself.
+  Review (#4723): the new arm, ahead of the lane-over return and the
+  stale-reader path, also fired for lane work reading a held node that is
+  not pending — the guess's target under a zero-hop gate — and joined the
+  flush to the hold (D-37). The arm keeps the old lane guard (`!lane ||`
+  el pending). The row the review asked for (case ′ with the write inside
+  an action, a guess on `id`) found the same frame on `next` by another
+  path: under a guess lane the stamped mount's first pass read the lane's
+  pending node through lanes.ts `laneRead`'s render-effect arm, which
+  serves lane work the screen (A15's stale reader, D-28) — the mount
+  initialized with S-46's frame inside the lane's, revealed at the action's
+  landing, and kept it after the answer (F-1). The plain-only leaf tore the
+  same way; only the single-memo gate escaped, by re-creating its branch at
+  the landing. `laneRead` now returns NOT_PENDING for a stamped
+  uninitialized mount reading a pending node: it waits on the flight
+  (`read`'s throw) as in a mainline flush. Pins: S-58 cases ″ (the mixed
+  leaf) and ‴ (the plain-only leaf), each through `<Show>`, both
+  hand-written gates and a split leaf. 0 B on the core floor; +18 B brotli
+  on the isPending/latest chunk (guard and lane arm together).
 - 2026-11-07: **A question is asked only of the truth** (F-2's producer
   clause; F-6's limit). Prompted by GabbeV's `experiment/unified-updates`
   (its tests run against `next`, the differing screens tabled as S-51–S-56)

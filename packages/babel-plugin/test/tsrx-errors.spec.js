@@ -207,7 +207,9 @@ describe("TSRX diagnostics", () => {
 };`,
       { filename: "case.tsx", syntax: "tsrx" }
     );
-    expect(code).toContain("Show");
+    // `@if` desugars to `<Show>`, which a production build lowers to the
+    // ternary it renders.
+    expect(code).toContain("on ? ");
   });
 
   test("plain JSX files are untouched by the TSRX frontend", async () => {
