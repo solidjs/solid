@@ -439,6 +439,12 @@ export function resolveTx(t: Transaction): Transaction {
 /** The flush joins transaction `t` — or needs one of its own (`null`: a pass
  * went pending with nothing held). Joining a second one merges it into the
  * flush's: the work that touched both entangles them (A15). */
+/** #4777: the flush gives back the hold a pass's plain read adopted
+ * (`joinPass`) before that pass starts over (verdict.ts `markVerdictReader`).
+ * Only an adoption — nothing merged — is given back. */
+export function dropFlushTx(): void {
+  flushTransaction = null;
+}
 export function joinFuture(t: Transaction | null): void {
   // A lane is never the flush's transaction (D-37, #4440).
   if (laneStageHook && t?._lane) return;
