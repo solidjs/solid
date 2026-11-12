@@ -37,6 +37,7 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { notifyStatus } from "./async.js";
 import {
+  adopter,
   dispatchingEvent,
   ext,
   isSame,
@@ -442,6 +443,30 @@ export function resolveTx(t: Transaction): Transaction {
 /** The flush joins transaction `t` — or needs one of its own (`null`: a pass
  * went pending with nothing held). Joining a second one merges it into the
  * flush's: the work that touched both entangles them (A15). */
+/** #4777: the flush gives back the hold a pass's plain read adopted
+ * (`joinPass`) before that pass starts over (verdict.ts `markVerdictReader`),
+ * and every hold the pass's later plain reads merged into it (`merge`, in
+ * reverse): each is its own again, as before the pass. */
+export function dropFlushTx(): void {
+  for (let i = adopted.length - 2; i >= 0; i -= 2) {
+    const t = adopted[i] as Transaction,
+      f = t._into!;
+    t._into = null;
+    f._open -= t._open;
+    f._acted = adopted[i + 1] as boolean;
+    unappend(f._nodes, t._nodes);
+    unappend(f._queues[0], t._queues[0]);
+    unappend(f._queues[1], t._queues[1]);
+    unappend(f._reruns, t._reruns);
+    unappend(f._marks, t._marks);
+    transactions.push(t);
+  }
+  adopted.length = 0;
+  flushTransaction = null;
+}
+function unappend(into: unknown[] | null, own: unknown[] | null): void {
+  if (own) for (let j = own.length; j--; ) into!.splice(into!.lastIndexOf(own[j]) >>> 0, 1);
+}
 export function joinFuture(t: Transaction | null): void {
   // A lane is never the flush's transaction (D-37, #4440).
   if (laneStageHook && t?._lane) return;
@@ -454,6 +479,9 @@ export function joinFuture(t: Transaction | null): void {
 /** `t` merges into `f`: the work that touched both entangles them (A15).
  * A lane never merges: it is a sub-frame, not a peer — its work is routed
  * per pass (`passLane`). */
+/** #4777: the merges made since a pass adopted the flush's hold (core.ts
+ * `adopter`), as [t, f._acted before]: a restart gives them back too. */
+export const adopted: unknown[] = [];
 export function merge(t: Transaction, f: Transaction): void {
   // Both ends resolved: a stale pointer to a transaction already merged
   // into the other would close a cycle `resolveTx` never leaves.
@@ -461,6 +489,7 @@ export function merge(t: Transaction, f: Transaction): void {
   f = resolveTx(f);
   if (t === f || t._lane || f._lane) return;
   if (__OBSERVE__ && attrHooks !== null) attrHooks.transitionMerged(f, t);
+  if (observeFlightHook && adopter) adopted.push(t, f._acted);
   t._into = f;
   f._open += t._open;
   f._acted ||= t._acted;
