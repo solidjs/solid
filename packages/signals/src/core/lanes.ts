@@ -639,7 +639,7 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
  * setter: `laneRead`, a store setter's draft), each with the question the
  * reading action asks (`question`): a guess that action writes next derives
  * from them (guesses.ts `optimisticWrite`); another action's reads are not
- * its own. Cleared at each seam. */
+ * its own. Kept while the lane read lives (guesses.ts `applyGuessesAt`). */
 export const readGuesses: unknown[] = [];
 export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   const guess = el._config & CONFIG_GUESS;

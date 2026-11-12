@@ -215,7 +215,14 @@ const applyGuessesAt = (parent: Transaction | null): void => {
     if (parent !== null) for (const r of readFrom) if (lanes.includes(r)) merge(parent, r._parent!);
     applyGuesses(parent);
   }
-  readFrom.length = readGuesses.length = 0;
+  // A read lasts as long as the guess it read: the reading action may guess
+  // from it after a yield (its question tags it across slices).
+  let k = 0;
+  for (let i = 0; i < readGuesses.length; i += 2)
+    if (lanes.includes(readGuesses[i] as Transaction))
+      ((readGuesses[k++] = readGuesses[i]), (readGuesses[k++] = readGuesses[i + 1]));
+  readFrom.length = 0;
+  readGuesses.length = k;
 };
 
 /** The truth arrived for a written guess (A18): a correction dissolves the
