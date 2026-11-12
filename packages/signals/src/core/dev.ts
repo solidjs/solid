@@ -31,7 +31,13 @@ import {
   setSignal as writeSignal,
   untrack
 } from "./core.js";
-import { CONFIG_SLOT_NODE, STATUS_UNINITIALIZED } from "./constants.js";
+import {
+  CONFIG_OVERRIDE,
+  CONFIG_SLOT_NODE,
+  REACTIVE_REASK,
+  STATUS_PENDING,
+  STATUS_UNINITIALIZED
+} from "./constants.js";
 import { NotReadyError } from "./error.js";
 import type { Computed, Link, Owner, Root, Signal } from "./types.js";
 
@@ -100,6 +106,7 @@ export type DiagnosticCode =
   | "STACKED_HOLDS"
   | "OPTIMISTIC_REVERTED"
   | "OPTIMISTIC_WRITE_BEFORE_LOAD"
+  | "OPTIMISTIC_WRITE_WHILE_LOADING"
   | "EFFECT_WRITES_OWN_SOURCE"
   | "EFFECT_RELAY_TEAR"
   | "IMMUTABLE_UPDATE_IN_STORE"
@@ -903,6 +910,48 @@ export function devGuardOptimisticBeforeLoad(source: Computed<any> | null | unde
       data: { operation: "optimistic" }
     });
     throw new Error(OPTIMISTIC_WRITE_BEFORE_LOAD_MESSAGE);
+  }
+}
+
+const OPTIMISTIC_WRITE_WHILE_LOADING_MESSAGE =
+  "[OPTIMISTIC_WRITE_WHILE_LOADING] Optimistic write to a source that is loading a new question. " +
+  "The guess is an edit of the previous answer, and the new answer replaces it (D-34). " +
+  "Keep the control unavailable until the source has loaded (inside its `Loading`, or disabled " +
+  "while it is pending), or keep the pending change in a separate list until it lands.";
+
+/** A `refresh()` re-ask is the same question (D-34): its own, or every
+ * source the node waits on re-asked. */
+const reasked = (n: any): boolean =>
+  !!(n._flags & REACTIVE_REASK || n._x?._reask) ||
+  (!!n._x?._pendingSources?.size &&
+    [...n._x._pendingSources].every(
+      (s: any) => s !== n && (s._flags & REACTIVE_REASK || s._x?._reask)
+    ));
+const warnedWhileLoading = new WeakSet<object>();
+
+/** DEV (ruled 2026-11-12, #4795): an optimistic write to a source that has
+ * answered before and is loading a new question (an input changed): the
+ * setter composes on the previous answer, and the new one replaces the
+ * guess (D-34). Not before the first answer (S-56: the setter gets
+ * `undefined`), not over a `refresh()` (the same question), not a node
+ * already carrying a guess. Once per source. Called under `__DEV__` only. */
+export function devWarnOptimisticWhileLoading(n: Computed<any> | null | undefined): void {
+  if (
+    n &&
+    (n._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
+    !(n._config & CONFIG_OVERRIDE) &&
+    !reasked(n) &&
+    !warnedWhileLoading.has(n)
+  ) {
+    warnedWhileLoading.add(n);
+    emitDiagnostic({
+      code: "OPTIMISTIC_WRITE_WHILE_LOADING",
+      kind: "write",
+      severity: "warn",
+      message: OPTIMISTIC_WRITE_WHILE_LOADING_MESSAGE,
+      nodeName: (n as any)._name,
+      data: { operation: "optimistic" }
+    });
   }
 }
 

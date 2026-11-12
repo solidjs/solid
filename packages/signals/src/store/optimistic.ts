@@ -48,7 +48,7 @@ import {
 } from "../core/core.js";
 import { link } from "../core/graph.js";
 import { getObserver } from "../core/owner.js";
-import { devGuardOptimisticBeforeLoad } from "../core/dev.js";
+import { devGuardOptimisticBeforeLoad, devWarnOptimisticWhileLoading } from "../core/dev.js";
 import { latestOf, setLaneValue } from "../core/lanes.js";
 import { guessedValueOf, optimisticWrite, pendingGuessOf, take } from "../core/guesses.js";
 import { covered } from "../core/truth.js";
@@ -1025,7 +1025,10 @@ export function createOptimisticStore<T extends object = {}>(
   return [
     store,
     ((fn: (draft: T) => void) => (
-      __DEV__ && derived && devGuardOptimisticBeforeLoad((store as any)[$TARGET]._fam.node),
+      __DEV__ &&
+        derived &&
+        (devGuardOptimisticBeforeLoad((store as any)[$TARGET]._fam.node),
+        devWarnOptimisticWhileLoading((store as any)[$TARGET]._fam.node)),
       storeSetter(store, fn)
     )) as StoreSetter<T>
   ];

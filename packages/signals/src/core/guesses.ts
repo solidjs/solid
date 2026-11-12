@@ -22,6 +22,7 @@ import {
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { ext } from "./core.js";
+import { devWarnOptimisticWhileLoading } from "./dev.js";
 import { covered, covers, latestOf, underOf } from "./truth.js";
 import {
   armGuessing,
@@ -115,6 +116,7 @@ export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T)
   // again is no guess (the node's comparator, as for any write) — unless
   // the node already carries one: the user re-asked, and the re-ask renews
   // the guess's question and entangles its frame (#3347) without notifying.
+  if (__DEV__) devWarnOptimisticWhileLoading(n as Computed<T>);
   const prev = guessedValueOf(n);
   if (typeof v === "function") v = (v as (prev: T) => T)(prev);
   if (n._equals && n._equals(prev, v) && !(n._config & CONFIG_GUESS)) return v;

@@ -153,6 +153,17 @@ the source is loading: there is nothing on screen to be optimistic over
 Repair: keep the pending items in a separate list (an outbox) until the
 source loads, or disable the action (the input) until the source has loaded.
 
+### OPTIMISTIC_WRITE_WHILE_LOADING
+
+An optimistic setter ran while its source, which answered before, is loading
+a new question because an input changed: the setter composed on the previous
+answer, and the new answer replaces the guess (D-34, ruled 2026-11-12). A
+`Loading on` re-arm shows a fallback, but the source still holds the old
+answer. Not flagged before the first answer or during a `refresh()`. Repair:
+render the control inside the source's `Loading`, or disable it while the
+source is pending, or keep the pending change in a separate list until the
+new answer lands. Once per source; a warning, the guess is still made.
+
 ### STORE_WRITE_OUTSIDE_SETTER
 
 A store proxy was written, deleted from, or had a property defined on it
