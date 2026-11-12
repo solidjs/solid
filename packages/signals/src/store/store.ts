@@ -2334,6 +2334,9 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(target, key);
     if (target._fam !== null) pullFamily(target);
+    // In the user's draft: presence a live guess changed (#4812).
+    if (optHooks !== null && target.o && !writeOverride && inDraft(target))
+      optHooks.drafted(target, key, true);
     // S2: presence of a key a live guess changed is the carrier frame's.
     if (optRead(target)) {
       const guessed = optHooks!.has(target, key);
@@ -2362,6 +2365,8 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(target, undefined);
     if (target._fam !== null) pullFamily(target);
+    if (optHooks !== null && target.o && !writeOverride && inDraft(target))
+      optHooks.drafted(target, undefined, true);
     return visibleKeys(target, enumerationSource(target));
   },
 
