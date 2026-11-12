@@ -342,6 +342,15 @@
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/optimistic-write-before-load"
   },
   {
+    "code": "OPTIMISTIC_WRITE_WHILE_LOADING",
+    "kind": ["write"],
+    "severity": ["warn"],
+    "category": "write",
+    "trigger": "Optimistic write to a source that answered before and is loading a new question; the new answer replaces the guess (once per source)",
+    "repair": "An optimistic setter ran while its source, which answered before, is loading a new question because an input changed: the setter composed on the previous answer, and the new answer replaces the guess (D-34, ruled 2026-11-12).",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/optimistic-write-while-loading"
+  },
+  {
     "code": "PENDING_ASYNC_FORBIDDEN_SCOPE",
     "kind": ["async"],
     "severity": ["warn"],
