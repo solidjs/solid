@@ -2171,9 +2171,13 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     // read path; the arms are the optimistic hooks').
     // `optHooks !== null` first: a bundle without optimistic stores never
     // assigns the hook, and the minifier folds the whole arm away.
-    if (optHooks !== null && target.o && !inDraft(target) && !writeOverride) {
-      const v = optHooks.read(target, key);
-      if (v !== NOT_PENDING) return v;
+    // In the user's draft: a read of another action's live guess (#4788).
+    if (optHooks !== null && target.o && !writeOverride) {
+      if (inDraft(target)) optHooks.drafted(target, key);
+      else {
+        const v = optHooks.read(target, key);
+        if (v !== NOT_PENDING) return v;
+      }
     }
     // Hot inline case: existing PLAIN node (non-accessor) read outside any
     // draft — the dbmon/uibench effect re-read shape. Core's `read()` serves
