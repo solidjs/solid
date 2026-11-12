@@ -93,8 +93,8 @@ test("a reorder moves kept nodes with moveBefore and never detaches them", () =>
     detached = [];
     reconcileArrays(parent, a, b, marker);
     expect([...parent.childNodes]).toEqual(marker ? [before, ...b, marker] : [before, ...b]);
-    expect(moved.every(n => a.includes(n))).toBe(true);
-    expect(detached.filter(n => kept.includes(n))).toEqual([]);
+    expect(moved.every(n => (a as Node[]).includes(n))).toBe(true);
+    expect(detached.filter(n => (kept as Node[]).includes(n))).toEqual([]);
     if (focused) {
       expect(detached).not.toContain(focused);
       expect(document.activeElement).toBe(focused);
