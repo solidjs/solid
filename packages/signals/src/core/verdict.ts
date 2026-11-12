@@ -662,7 +662,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       if (
         tracked &&
         probing &&
-        c!._config & CONFIG_ASYNC &&
+        (c!._config & CONFIG_ASYNC || readBy(c!, t)) &&
         !(c!._config & CONFIG_HELD) &&
         (passLane === null || passLane._parent?._verdict === passLane)
       ) {
@@ -752,7 +752,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     else if (
       tracked &&
       probing &&
-      c!._config & CONFIG_ASYNC &&
+      (c!._config & CONFIG_ASYNC || readBy(c!, flushTransaction)) &&
       el._pendingValue !== NOT_PENDING &&
       (passLane === null || passLane._parent?._verdict === passLane)
     ) {
@@ -965,9 +965,19 @@ function attachWaits(node: Computed<any>): boolean {
  * flush's own sync write to a plain store, with no node for a window to
  * have asked through — the posture alone decides, as it does for the
  * signal (R2, signal parity). */
+/** #4776: the hold `t`'s own work read memo `c` (core.ts `read`): it is that
+ * hold's, an asker's posture included (#4778, S-51). */
+function readBy(c: Computed<any>, t: Transaction | null): unknown {
+  const r = c._x?._readIn;
+  return r && t && resolveTx(r) === resolveTx(t);
+}
+
 function holdStaging(c: Computed<any>, el?: Signal<any> | Computed<any>): unknown {
-  const a = el?._x?._askedIn;
+  const r = c._x?._readIn,
+    a = el?._x?._askedIn,
+    h = el && resolveTx(el._config & CONFIG_HELD ? el._x!._transaction! : flushTransaction!);
   return (
+    r &&
     !(
       c._config & (CONFIG_OWN_PROBE | CONFIG_FRAME) ||
       c._flags & (REACTIVE_WINDOW | REACTIVE_PROBE_UNANSWERED)
@@ -976,11 +986,8 @@ function holdStaging(c: Computed<any>, el?: Signal<any> | Computed<any>): unknow
       (el._pendingValue !== NOT_PENDING &&
         !(el._config & (CONFIG_ASYNC | CONFIG_OVERRIDE)) &&
         a !== clock &&
-        !(
-          typeof a == "object" &&
-          resolveTx(a) ===
-            resolveTx(el._config & CONFIG_HELD ? el._x!._transaction! : flushTransaction!)
-        ))) &&
+        !(typeof a == "object" && resolveTx(a) === h) &&
+        resolveTx(r) === h)) &&
     (!passLane || (passLane._parent!._verdict === passLane && (setPassLane(null), true)))
   );
 }

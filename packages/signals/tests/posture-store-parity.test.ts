@@ -41,11 +41,11 @@
  * S8 — (fixed, 3b step 6c) a derivation's untracked read of a SUPERSEDED
  *      store node derives from the landed truth (A18), not the override —
  *      nodeValue delegates to core's one slow selection, `serve`.
- * S9 — (fixed) a pass whose verdict posture is only inherited is served the
- *      hold's own write (D-25, #4544) from a store key with no node, as from
- *      the signal and from a key with a node: `stagedScreen`'s node-less call
- *      (store.ts `readSource`) used to skip `holdStaging` — first a throw
- *      (#4681), then the screen, which tore the landing frame.
+ * S9 — (fixed) a pass whose verdict posture is only inherited reads a store
+ *      key with no node as the signal and a key with a node do:
+ *      `stagedScreen`'s node-less call (store.ts `readSource`) used to skip
+ *      `holdStaging` (#4681). Since #4776 such a pass, read only by the
+ *      screen, is display and reads as the inline probe (D-25).
  * Discovery for S4–S7: the matrix's `memoUntracked` / `effectUntracked`
  * reader kinds (an untracked read inside a derivation), added with S5.
  *
@@ -622,8 +622,10 @@ type S9Source = (typeof S9_SOURCES)[number];
 type S9Posture =
   | "inherited isPending"
   | "inherited latest"
+  | "own isPending"
   | "own latest"
-  | "latest of the same key, through a memo";
+  | "latest of the same key, through a memo"
+  | "latest of the same key, inline";
 
 /** One flush writes a hold (`data` goes async) and `count`, and re-runs
  * `pass` through an unrelated trigger, so an untracked read of `count`
@@ -673,7 +675,16 @@ async function s9Trace(source: S9Source, posture: S9Posture) {
     );
     const pass = createMemo(() => {
       trigger();
-      const v = posture === "own latest" ? latest(data) : verdict();
+      const v =
+        posture === "own latest"
+          ? latest(data)
+          : posture === "own isPending"
+            ? isPending(data)
+              ? 1
+              : 0
+            : posture === "latest of the same key, inline"
+              ? latest(source.startsWith("signal") ? count : () => state.count)
+              : verdict();
       const c = read();
       trace.push(`pass ${v}/${c}`);
       return `${v}/${c}`;
@@ -702,37 +713,41 @@ async function s9Trace(source: S9Source, posture: S9Posture) {
   return { trace: trace.join(" ; "), nodes };
 }
 
-describe("S9 — an inherited verdict posture is served the hold's own write, with or without a store node (D-25 #4544, R2) — signal vs store", () => {
-  // `|` is the landing. Mid-hold the inherited pass derives from the hold's
-  // write (`/1`), so the landing frame shows the landed `data` with it.
-  const expected: Record<Exclude<S9Posture, "latest of the same key, through a memo">, string> = {
-    "inherited isPending":
-      "pass 0/0 ; screen 0 0/0 ; pass 1/1 ; | ; screen 1 1/1 ; pass 0/1 ; screen 1 0/1",
-    "inherited latest": "pass 0/0 ; screen 0 0/0 ; pass 0/1 ; | ; pass 1/1 ; screen 1 1/1",
-    // F-6: a pass that probes reads the screen and re-derives at the landing.
-    "own latest": "pass 0/0 ; screen 0 0/0 ; pass 0/0 ; | ; pass 1/0 ; pass 1/1 ; screen 1 1/1"
-  };
-  for (const [posture, trace] of Object.entries(expected) as [keyof typeof expected, string][])
-    for (const source of S9_SOURCES)
-      it(`${posture}: ${source}`, async () => {
-        const r = await s9Trace(source, posture);
-        expect(r.nodes).toEqual({
-          container: source === "store, untracked, container node",
-          leaf: source === "store, tracked" || source === "store, untracked, leaf node only"
-        });
-        expect(r.trace).toBe(trace);
+describe("S9 — a verdict memo only the screen reads is display: an inherited posture reads as the inline probe does (D-25 #4776, R2) — signal vs store", () => {
+  // `|` is the landing. A pass reading a verdict memo, with nothing of the
+  // hold's own reading it, is display (D-25, #4776): it is served the screen
+  // mid-hold, as the same probe written inline is (memo-inline parity), and
+  // re-derives on the landed world: the same screens. (The landing frame
+  // itself is not ruled here: the inline form's is the reference.)
+  const own = "pass 0/0 ; screen 0 0/0 ; pass 0/0 ; | ; pass 1/0 ; pass 1/1 ; screen 1 1/1";
+  const pairs: [S9Posture, S9Posture][] = [
+    ["inherited latest", "own latest"],
+    ["inherited isPending", "own isPending"],
+    ["latest of the same key, through a memo", "latest of the same key, inline"]
+  ];
+  for (const source of S9_SOURCES)
+    it(`own latest: ${source}`, async () => {
+      const r = await s9Trace(source, "own latest");
+      expect(r.nodes).toEqual({
+        container: source === "store, untracked, container node",
+        leaf: source === "store, tracked" || source === "store, untracked, leaf node only"
       });
-
-  // D-26: `[latest(x), x()]` through a memo stays atomic for every source.
-  // The window's tracked read gives the key a leaf, so the store's read is
-  // never node-less here and `_askedIn` decides on the leaf. Pinned as
-  // parity with the signal; the landing frame itself is not ruled here.
-  for (const source of S9_SOURCES.slice(1))
-    it(`latest of the same key, through a memo: ${source} matches the signal`, async () => {
-      const posture = "latest of the same key, through a memo";
-      const r = await s9Trace(source, posture);
-      expect(r.nodes.leaf).toBe(!source.startsWith("signal"));
-      expect(r.trace).toBe((await s9Trace("signal", posture)).trace);
-      expect(r.trace).toContain("pass 1/0 ; |");
+      expect(r.trace).toBe(own);
     });
+  for (const [memo, inline] of pairs)
+    for (const source of S9_SOURCES)
+      it(`${memo}: ${source} reads as ${inline} on the signal`, async () => {
+        const r = await s9Trace(source, memo);
+        // The same screens; the inline probe may re-run its pass once more.
+        const screens = (t: string) =>
+          t
+            .split(" ; ")
+            .filter(e => !e.startsWith("pass"))
+            .join(" ; ");
+        expect(screens(r.trace)).toBe(screens((await s9Trace("signal", inline)).trace));
+        // Mid-hold the pass shows the screen's count beside its verdict.
+        expect(r.trace).toContain(
+          memo === "inherited latest" ? "pass 0/0 ; |" : "pass 1/0 ; screen 0 1/0 ; |"
+        );
+      });
 });
