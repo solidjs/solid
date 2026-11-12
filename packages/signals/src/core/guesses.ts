@@ -66,6 +66,8 @@ import type { Computed, Signal } from "./types.js";
  * applied). The lane's passes run in the next round of the same flush, so
  * the guess is visible at flush like any write (A28). */
 const pendingGuesses: any[] = [];
+/** #4788: the lanes this seam's guesses derive from (`optimisticWrite`). */
+const readFrom: Transaction[] = [];
 /** What the writer sees of a node: an unflushed guess to it, else the
  * lane's value or the committed one — what an optimistic updater composes
  * on (a store setter's draft too, store/optimistic.ts). */
@@ -119,6 +121,9 @@ export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T)
   if (typeof v === "function") v = (v as (prev: T) => T)(prev);
   if (n._equals && n._equals(prev, v) && !(n._config & CONFIG_GUESS)) return v;
   pendingGuesses.push(n, v, question || nextQuestion());
+  // What this action read goes with its guess to the seam (#4788).
+  for (let i = 0; i < readGuesses.length; i += 2)
+    if (readGuesses[i + 1] === question) readFrom.push(readGuesses[i] as Transaction);
   armGuessing();
   armGuessed();
   schedule();
@@ -207,11 +212,10 @@ const applyGuessesAt = (parent: Transaction | null): void => {
     // hold's live guess derives from it: the frames entangle, as two
     // suggestions for one slot do — neither reverts while the other is out.
     // A read alone entangles nothing.
-    if (parent !== null)
-      for (const r of readGuesses) if (lanes.includes(r)) merge(parent, r._parent!);
+    if (parent !== null) for (const r of readFrom) if (lanes.includes(r)) merge(parent, r._parent!);
     applyGuesses(parent);
   }
-  readGuesses.length = 0;
+  readFrom.length = readGuesses.length = 0;
 };
 
 /** The truth arrived for a written guess (A18): a correction dissolves the

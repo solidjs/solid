@@ -65,6 +65,7 @@ import {
   staleReader,
   txOf,
   actionDepth,
+  question,
   type Transaction
 } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
@@ -793,7 +794,7 @@ let diffing = false;
 function noteRead(t: StoreTarget, key: PropertyKey, v?: unknown): void {
   const g: any = actionDepth && !diffing && guessFor(t, key, false, false);
   if (g && g._config & CONFIG_OVERRIDE && !isWrappable(v ?? carrierValue(guessedValueOf(g), key)))
-    readGuesses.push(txOf(g));
+    readGuesses.push(txOf(g), question);
 }
 
 installOptHooks({
