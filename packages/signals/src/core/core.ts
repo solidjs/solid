@@ -1512,7 +1512,6 @@ function readsFresh(c: Computed<any>, el: Signal<any> | Computed<any>): unknown 
 
 /** The computed whose pass a creation under `owner` belongs to (a root's is
  * its nearest computed ancestor's), or null outside every pass. */
-
 export function creatorPass(owner: Owner | null): Computed<any> | null {
   return owner !== null && (owner as Root)._root
     ? (owner as Root)._parentComputed
@@ -2294,10 +2293,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   ) {
     if (__TEST__) shadowExpect(c as Computed<any> | null, el, tracking, 0, spectating, false);
     if (c) {
-      if (tracking) {
-        if (laneStageHook) fresh = readsFresh(c as Computed<any>, el);
-        link(el, c as Computed<any>);
-      }
+      // (Untracked reads count as fresh never: no dep to compare.)
+      if (laneStageHook) fresh = tracking && readsFresh(c as Computed<any>, el);
+      if (tracking) link(el, c as Computed<any>);
       // L2: a pass that reads something already in the future joins it —
       // the one mechanism behind "a write that reaches the future joins
       // it". Tracked or not (`untrack` is about dependencies, not about
@@ -2367,8 +2365,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // parking flush (decided after the pull below — a pull can join).
   let committed = false;
   if (c) {
+    if (laneStageHook) fresh = tracking && readsFresh(c as Computed<any>, el);
     if (tracking) {
-      if (laneStageHook) fresh = readsFresh(c as Computed<any>, el);
       link(el, c as Computed<any>);
       if ((owner as Computed<unknown>)._fn) {
         pullComputed(owner, c as Computed<any>);
