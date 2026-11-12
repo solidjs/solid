@@ -85,6 +85,7 @@ import {
   warnStrictReadUntracked
 } from "../core/dev.js";
 import { signalHook } from "../core/identities.js";
+import { NotReadyError } from "../core/error.js";
 import { link, setSlotUnobserved } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
 import { checkForeignRead } from "../core/copies.js";
@@ -722,7 +723,19 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     ) {
       pb = target.pb = Object.create(v) as Record<PropertyKey, any>;
       target.ovl = true;
-    } else pb = target.pb = cloneRaw(v, target);
+    } else
+      try {
+        pb = target.pb = cloneRaw(v, target);
+      } catch (e) {
+        // #4808: a nested write through a chained store still loading its
+        // first answer (the clone reads it) is dropped, as a write to a
+        // loading store is — the first answer replaces it (A25) — and the
+        // outer keeps following the inner store.
+        if (!(e instanceof NotReadyError)) throw e;
+        if (__DEV__) devWriteThroughLoading(target);
+        // The write lands on a backing no one reads.
+        return {};
+      }
     if (!directCommit) stageOn(target, pb);
   }
   return pb;
@@ -2130,6 +2143,28 @@ function warnWriteOutsideSetter(
         `Stores are read-only outside the setter's draft: use \`${hint}\`.`,
       nodeName: name,
       data: { operation, property: name }
+    })
+  );
+}
+
+/** #4808: a nested write through a child that is another store still
+ * loading its first answer needs that store's contents as the draft's base,
+ * and they do not exist yet (its seed is never observable, A25), so the
+ * write is refused with the read's NotReadyError. Dev names the cause. */
+function devWriteThroughLoading(target: StoreTarget): void {
+  const name = String(target.pk ?? "");
+  reportDiagnostic(
+    emitDiagnostic({
+      code: "STORE_WRITE_THROUGH_LOADING",
+      kind: "write",
+      severity: "warn",
+      message:
+        `[STORE_WRITE_THROUGH_LOADING] A store setter wrote inside "${name}", which is another ` +
+        `store still loading its first answer. The write was dropped: when that store loads, its ` +
+        `answer is what shows, as for a write to a loading store itself. Write after it loads, or ` +
+        `replace the whole value: \`setStore(s => { s.${name} = value })\`.`,
+      nodeName: name,
+      data: { operation: "set", property: name }
     })
   );
 }
