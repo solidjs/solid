@@ -55,6 +55,7 @@ import {
   marked,
   markJudged,
   newLane,
+  readGuesses,
   rerun,
   setLaneValue
 } from "./lanes.js";
@@ -67,6 +68,8 @@ import type { Computed, Signal } from "./types.js";
  * applied). The lane's passes run in the next round of the same flush, so
  * the guess is visible at flush like any write (A28). */
 const pendingGuesses: any[] = [];
+/** #4788: the lanes this seam's guesses derive from (`optimisticWrite`). */
+const readFrom: Transaction[] = [];
 /** What the writer sees of a node: an unflushed guess to it, else the
  * lane's value or the committed one — what an optimistic updater composes
  * on (a store setter's draft too, store/optimistic.ts). */
@@ -121,6 +124,9 @@ export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T)
   if (typeof v === "function") v = (v as (prev: T) => T)(prev);
   if (n._equals && n._equals(prev, v) && !(n._config & CONFIG_GUESS)) return v;
   pendingGuesses.push(n, v, question || nextQuestion());
+  // What this action read goes with its guess to the seam (#4788).
+  for (let i = 0; i < readGuesses.length; i += 2)
+    if (readGuesses[i + 1] === question) readFrom.push(readGuesses[i] as Transaction);
   armGuessing();
   armGuessed();
   schedule();
@@ -204,7 +210,22 @@ function applyGuesses(parent: Transaction | null): void {
  * has no work to judge yet). */
 const applyGuessesAt = (parent: Transaction | null): void => {
   markJudged();
-  if (pendingGuesses.length !== 0) applyGuesses(parent);
+  if (pendingGuesses.length !== 0) {
+    // #4788 (D-33): a guess written beside an imperative read of another
+    // hold's live guess derives from it: the frames entangle, as two
+    // suggestions for one slot do — neither reverts while the other is out.
+    // A read alone entangles nothing.
+    if (parent !== null) for (const r of readFrom) if (lanes.includes(r)) merge(parent, r._parent!);
+    applyGuesses(parent);
+  }
+  // A read lasts as long as the guess it read: the reading action may guess
+  // from it after a yield (its question tags it across slices).
+  let k = 0;
+  for (let i = 0; i < readGuesses.length; i += 2)
+    if (lanes.includes(readGuesses[i] as Transaction))
+      ((readGuesses[k++] = readGuesses[i]), (readGuesses[k++] = readGuesses[i + 1]));
+  readFrom.length = 0;
+  readGuesses.length = k;
 };
 
 /** The truth arrived for a written guess (A18): a correction dissolves the

@@ -49,7 +49,7 @@ import {
 import { link } from "../core/graph.js";
 import { getObserver } from "../core/owner.js";
 import { devGuardOptimisticBeforeLoad, devWarnOptimisticWhileLoading } from "../core/dev.js";
-import { latestOf, setLaneValue } from "../core/lanes.js";
+import { latestOf, readGuesses, setLaneValue } from "../core/lanes.js";
 import { guessedValueOf, optimisticWrite, pendingGuessOf, take } from "../core/guesses.js";
 import { covered } from "../core/truth.js";
 import {
@@ -64,6 +64,8 @@ import {
   resolveTx,
   staleReader,
   txOf,
+  actionDepth,
+  question,
   type Transaction
 } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
@@ -781,12 +783,30 @@ function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
   }
 }
 
+/** #4788 (D-33): an action read `key` of `t` (`v`, else the writer's view
+ * of it): when a live guess wrote that key, a guess the action writes next
+ * derives from it (core lanes.ts `readGuesses`). A row reached through a
+ * guessed index, or the length of a guessed arrangement, is navigation, not
+ * a value the write is computed from: the row's own keys say what was read
+ * of it. Nor is the keyed diff a returned array is written by (`diffing`):
+ * the user's own reads are the setter's. */
+let diffing = false;
+function noteRead(t: StoreTarget, key: PropertyKey, v?: unknown): void {
+  const g: any = actionDepth && !diffing && guessFor(t, key, false, false);
+  if (g && g._config & CONFIG_OVERRIDE && !isWrappable(v ?? carrierValue(guessedValueOf(g), key)))
+    readGuesses.push(txOf(g), question);
+}
+
 installOptHooks({
   pair: pairRows,
   draft: optimisticDraft,
   writes: notifyOptimisticWrites,
   view: guessView,
-  reconcile: reconcileDraft,
+  reconcile: (d, v, k) => {
+    diffing = true;
+    reconcileDraft(d, v, k);
+    diffing = false;
+  },
   sweep: sweepOverlaid,
   // The carrier arms (store.ts calls them for an optimistic family's target
   // outside a draft and the write override): a key a live guess changed
@@ -803,8 +823,11 @@ installOptHooks({
     const obs = getObserver();
     const node = obs !== null ? getNode(t, key) : t.n?.[key as any];
     if (obs !== null) link(node!, obs as Computed<any>);
-    return serveKeyValue(t, key, carrierValue(frame, key), false, node);
+    const v = carrierValue(frame, key);
+    if (obs === null) noteRead(t, key, v);
+    return serveKeyValue(t, key, v, false, node);
   },
+  drafted: (t, key) => noteRead(t, key),
   has: (t, key) => {
     const g = guessFor(t, key, true);
     if (g === null) return undefined;
