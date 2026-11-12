@@ -42,7 +42,7 @@ const shapes: Record<string, (id: () => number) => any> = {
   "ternary element": id => <>{latest(id) > 0 ? <span>{id()}</span> : "[none]"}</>,
   "function child": id => (
     <Show when={latest(id) > 0} fallback="[none]">
-      {() => <span>{id()}</span>}
+      {_on => <span>{id()}</span>}
     </Show>
   )
 };
