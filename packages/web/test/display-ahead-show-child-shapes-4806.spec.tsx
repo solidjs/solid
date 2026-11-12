@@ -46,42 +46,36 @@ const shapes: Record<string, (id: () => number) => any> = {
     </Show>
   )
 };
-// Text content is read in the gate's own pass: no node is mounted, and D-25's
-// display sentence (a memo that reads a verdict memo and probes nothing reads
-// held values as the screen) gives `0 d0 0`. Whether text content is a mount
-// (born held, as S-46/S-58 rule for an element) is open: pinned as it fails.
-const open = new Set(["text", "ternary text"]);
+// Text content is a mount too (ruled 2026-11-12): read in the gate's own
+// pass, it holds the verdict lane as a born-held element does.
 for (const [name, shape] of Object.entries(shapes))
-  (open.has(name) ? test.fails : test)(
-    `#4806 a display-ahead Show's content is born held: ${name}`,
-    async () => {
-      const asks = new Map<string, (v: any) => void>();
-      const ask = (key: string) => new Promise<any>(res => asks.set(key, res));
-      const c = document.body.appendChild(document.createElement("div"));
-      let setId!: (v: number) => void;
-      const dispose = render(() => {
-        const [id, set] = createSignal(0);
-        setId = set;
-        const detail = createMemo(() => ask("d:" + id()));
-        return (
-          <>
-            {id()} {detail()} {shape(id)}
-          </>
-        );
-      }, c);
-      await tick();
-      asks.get("d:0")!("d0");
-      await tick();
-      const loaded = c.textContent;
-      setId(1);
-      await tick();
-      const held = c.textContent;
-      asks.get("d:1")!("d1");
-      await tick();
-      const landed = c.textContent;
-      dispose();
-      c.remove();
-      expect([loaded, held, landed]).toEqual(["0 d0 [none]", "0 d0 [none]", landed]);
-      expect(landed!.startsWith("1 d1 ")).toBe(true);
-    }
-  );
+  test(`#4806 a display-ahead Show's content is born held: ${name}`, async () => {
+    const asks = new Map<string, (v: any) => void>();
+    const ask = (key: string) => new Promise<any>(res => asks.set(key, res));
+    const c = document.body.appendChild(document.createElement("div"));
+    let setId!: (v: number) => void;
+    const dispose = render(() => {
+      const [id, set] = createSignal(0);
+      setId = set;
+      const detail = createMemo(() => ask("d:" + id()));
+      return (
+        <>
+          {id()} {detail()} {shape(id)}
+        </>
+      );
+    }, c);
+    await tick();
+    asks.get("d:0")!("d0");
+    await tick();
+    const loaded = c.textContent;
+    setId(1);
+    await tick();
+    const held = c.textContent;
+    asks.get("d:1")!("d1");
+    await tick();
+    const landed = c.textContent;
+    dispose();
+    c.remove();
+    expect([loaded, held, landed]).toEqual(["0 d0 [none]", "0 d0 [none]", landed]);
+    expect(landed!.startsWith("1 d1 ")).toBe(true);
+  });

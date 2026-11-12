@@ -879,7 +879,12 @@ function lanesBlocked(t: Transaction): boolean {
   // landing; the verdict lane that opened it reveals with that landing, not
   // ahead of it (shown now, the branch attached with its hole empty, #4417,
   // or with the committed value a re-derived mount read).
-  if (t._lane && t._parent!._verdict === t && heldMountUnder(null, t)) return true;
+  if (
+    t._lane &&
+    t._parent!._verdict === t &&
+    ((t._opened && holdsOn(resolveTx(t._parent!))) || heldMountUnder(null, t))
+  )
+    return true;
   return (t._lane && linkBlocked(t)) || nestedBlocked(t);
 }
 /** Mounts a probing pass opened and a hold holds (CONFIG_MOUNT_AHEAD,
@@ -901,6 +906,13 @@ function collectMounts(): void {
     }
     t.scanned = nodes.length;
   }
+}
+/** The hold `t` waits: an action open in its frame, or a flight it holds. */
+function holdsOn(t: Transaction): boolean {
+  return (
+    t._open !== 0 ||
+    t._nodes.some(n => !(n as any)._type && (n as Computed<any>)._statusFlags! & STATUS_PENDING)
+  );
 }
 function shownBy(r: Computed<any>): boolean {
   for (let s = r._subs; s !== null; s = s._nextSub)
@@ -930,11 +942,7 @@ export function heldMountUnder(o: Owner | null, l: Transaction | null): boolean 
       // a memo reads is that memo's: a boundary the mount builds around it
       // shows its fallback (#3851).
       ((r as any)._type ? hiddenHook?.(r) : !shownBy(r)) ||
-      !(
-        r._statusFlags & STATUS_PENDING ||
-        t._open !== 0 ||
-        t._nodes.some(n => !(n as any)._type && (n as Computed<any>)._statusFlags! & STATUS_PENDING)
-      )
+      !(r._statusFlags & STATUS_PENDING || holdsOn(t))
     )
       continue;
     for (let p: Owner | null = r._parent; p !== null; p = p._parent)

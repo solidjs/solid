@@ -1493,13 +1493,25 @@ export function bornInto(c: Computed<any>, t: Transaction): unknown {
   );
 }
 
-/** The computed whose pass a creation under `owner` belongs to (a root's is
- * its nearest computed ancestor's), or null outside every pass. */
 function readsVerdict(c: Computed<any>): boolean {
   for (let d = c._deps; d !== null; d = d === c._depsTail ? null : d._nextDep)
     if (d._dep._config & CONFIG_VERDICT) return true;
   return false;
 }
+/** #4806 (S-46, D-25): a staging a verdict pass reads for the first time —
+ * not on its last pass, not yet on this one (before `link`, its deps are
+ * this pass's prefix plus its last pass's tail) — is content the pass
+ * opens, not a value it keeps (`stagedScreen`). */
+let fresh: unknown;
+function readsFresh(c: Computed<any>, el: Signal<any> | Computed<any>): unknown {
+  if (el._pendingValue !== NOT_PENDING && c._config & CONFIG_VERDICT) {
+    for (let d = c._deps; d !== null; d = d._nextDep) if (d._dep === el) return;
+    return 1;
+  }
+}
+
+/** The computed whose pass a creation under `owner` belongs to (a root's is
+ * its nearest computed ancestor's), or null outside every pass. */
 
 export function creatorPass(owner: Owner | null): Computed<any> | null {
   return owner !== null && (owner as Root)._root
@@ -2282,7 +2294,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   ) {
     if (__TEST__) shadowExpect(c as Computed<any> | null, el, tracking, 0, spectating, false);
     if (c) {
-      if (tracking) link(el, c as Computed<any>);
+      if (tracking) {
+        if (laneStageHook) fresh = readsFresh(c as Computed<any>, el);
+        link(el, c as Computed<any>);
+      }
       // L2: a pass that reads something already in the future joins it —
       // the one mechanism behind "a write that reaches the future joins
       // it". Tracked or not (`untrack` is about dependencies, not about
@@ -2353,6 +2368,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   let committed = false;
   if (c) {
     if (tracking) {
+      if (laneStageHook) fresh = readsFresh(c as Computed<any>, el);
       link(el, c as Computed<any>);
       if ((owner as Computed<unknown>)._fn) {
         pullComputed(owner, c as Computed<any>);
@@ -2803,6 +2819,11 @@ export function stagedScreen(c: Computed<any>, el?: Signal<any> | Computed<any>)
   // work sees the screen (D-37). (A transaction only a `latest()` read
   // opened no longer exists — `latest()` opens none, #4393 — so no arm
   // distinguishes one here.)
+  // #4806: content a display-ahead gate opens is a mount, whatever its
+  // shape — text read in the gate's own pass too. Its verdict lane reveals
+  // with the landing, as for a born-held element (lanes.ts `lanesBlocked`).
+  if (laneStageHook && el && fresh && passLane?._parent?._verdict === passLane)
+    passLane!._opened = 1;
   staleReader(c, flushTransaction);
   return true;
 }
