@@ -425,6 +425,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       (cp &&
         ((cp._config & CONFIG_MOUNT_AHEAD && cp._statusFlags & STATUS_UNINITIALIZED) ||
           ((cp as any)._type === EFFECT_RENDER &&
+            cp._depsTail &&
             hasDep(cp, d => d._config & CONFIG_VERDICT, cp._depsTail))))
     )
       el._config |= CONFIG_MOUNT_AHEAD;
