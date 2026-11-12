@@ -914,10 +914,9 @@ function holdsOn(t: Transaction): boolean {
     t._nodes.some(n => !(n as any)._type && (n as Computed<any>)._statusFlags! & STATUS_PENDING)
   );
 }
-function shownBy(r: Computed<any>): boolean {
+function shownBy(r: Computed<any>): unknown {
   for (let s = r._subs; s !== null; s = s._nextSub)
-    if ((s._sub as any)._type === EFFECT_RENDER && !hiddenHook?.(s._sub)) return true;
-  return false;
+    if ((s._sub as any)._type === EFFECT_RENDER && !hiddenHook?.(s._sub)) return 1;
 }
 /** A collected mount still held, uninitialized, on screen and waiting —
  * on its own flight, an action open in its frame, or a flight its frame

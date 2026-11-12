@@ -424,7 +424,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       cf & REACTIVE_PROBED ||
       (cp &&
         ((cp._config & CONFIG_MOUNT_AHEAD && cp._statusFlags & STATUS_UNINITIALIZED) ||
-          ((cp as any)._type === EFFECT_RENDER && readsVerdict(cp))))
+          ((cp as any)._type === EFFECT_RENDER && hasDep(cp, d => d._config & CONFIG_VERDICT))))
     )
       el._config |= CONFIG_MOUNT_AHEAD;
     setPassLane(
@@ -1493,10 +1493,9 @@ export function bornInto(c: Computed<any>, t: Transaction): unknown {
   );
 }
 
-function readsVerdict(c: Computed<any>): boolean {
-  for (let d = c._deps; d !== null; d = d === c._depsTail ? null : d._nextDep)
-    if (d._dep._config & CONFIG_VERDICT) return true;
-  return false;
+/** A dep of `c` (this pass's reads, then its last pass's tail) `f` picks. */
+function hasDep(c: Computed<any>, f: (d: Signal<any> | Computed<any>) => unknown): unknown {
+  for (let d = c._deps; d !== null; d = d._nextDep) if (f(d._dep)) return 1;
 }
 /** #4806 (S-46, D-25): a staging a verdict pass reads for the first time —
  * not on its last pass, not yet on this one (before `link`, its deps are
@@ -1504,10 +1503,9 @@ function readsVerdict(c: Computed<any>): boolean {
  * opens, not a value it keeps (`stagedScreen`). */
 let fresh: unknown;
 function readsFresh(c: Computed<any>, el: Signal<any> | Computed<any>): unknown {
-  if (el._pendingValue !== NOT_PENDING && c._config & CONFIG_VERDICT) {
-    for (let d = c._deps; d !== null; d = d._nextDep) if (d._dep === el) return;
-    return 1;
-  }
+  return (
+    el._pendingValue !== NOT_PENDING && c._config & CONFIG_VERDICT && !hasDep(c, d => d === el)
+  );
 }
 
 /** The computed whose pass a creation under `owner` belongs to (a root's is
@@ -2819,9 +2817,9 @@ export function stagedScreen(c: Computed<any>, el?: Signal<any> | Computed<any>)
   // distinguishes one here.)
   // #4806: content a display-ahead gate opens is a mount, whatever its
   // shape — text read in the gate's own pass too. Its verdict lane reveals
-  // with the landing, as for a born-held element (lanes.ts `lanesBlocked`).
-  if (laneStageHook && el && fresh && passLane?._parent?._verdict === passLane)
-    passLane!._opened = 1;
+  // with the landing, as for a born-held element (lanes.ts `lanesBlocked`,
+  // which reads the mark on a verdict lane only).
+  if (laneStageHook && el && fresh && passLane) passLane._opened = 1;
   staleReader(c, flushTransaction);
   return true;
 }
