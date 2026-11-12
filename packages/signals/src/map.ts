@@ -293,7 +293,7 @@ function commitSmallMove<Item, MappedItem>(
   data._mappings = mappings;
   data._nodes = nodes;
   data._len = newLen;
-  data._items = newItems.slice(0);
+  data._items = newItems;
   // Dispose unmatched sources LAST (general-path ordering).
   for (i = 0; i < srcPos.length; i++) {
     if (consumed === undefined || !consumed[i]) oldNodes[srcPos[i]].dispose();
@@ -423,9 +423,11 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
 // Not a per-call closure: V8 drops a dead closure's optimized code at each major GC.
 function updateKeyedRows<Item, MappedItem>(
   this: MapData<Item, MappedItem>,
-  newItems: readonly Item[],
+  list: readonly Item[],
   newLen: number
 ): void {
+  // The next pass's `_items`, taken first: a store list answers each read of a slot through a trap.
+  const newItems = list.slice(0);
   let i: number,
     j: number,
     // The stage slot a mapper writes its row/index signal into: `j` on the
@@ -505,7 +507,7 @@ function updateKeyedRows<Item, MappedItem>(
     this._nodes = nodes;
     rows && (this._rows = rows);
     indexes && (this._indexes = indexes);
-    this._items = newItems.slice(0);
+    this._items = newItems;
     this._len = newLen;
   } else {
     let start: number,
@@ -570,7 +572,7 @@ function updateKeyedRows<Item, MappedItem>(
     // length — the common post-reconcile shape): keep the same mapped
     // array identity so downstream consumers don't re-run at all
     if (start === newLen && this._len === newLen) {
-      this._items = newItems.slice(0);
+      this._items = newItems;
       return;
     }
 
@@ -597,7 +599,7 @@ function updateKeyedRows<Item, MappedItem>(
       const hi = Math.min(end, m + 32);
       let k = Math.max(start, m - 32);
       while (k <= hi && this._items[k] !== probe) k++;
-      if (k <= hi && trySmallMove(this, newItems as Item[], newLen, start)) return;
+      if (k <= hi && trySmallMove(this, newItems, newLen, start)) return;
     }
 
     const dif = newLen - this._len;
@@ -689,8 +691,7 @@ function updateKeyedRows<Item, MappedItem>(
     commitWindow(this, newItems, newLen, start, end, newEnd, tempNodes, rows, indexes);
     this._mappings = temp;
     this._len = newLen;
-    // save a copy of the mapped items for the next update
-    this._items = newItems.slice(0);
+    this._items = newItems;
     if (removed) for (i = 0; i < removed.length; i++) removed[i].dispose();
     if (
       __OBSERVE__ &&
