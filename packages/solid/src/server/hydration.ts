@@ -20,6 +20,7 @@ import {
   ESCALATE,
   fragmentContainer,
   setFragmentContainer,
+  hasAsyncSlot,
   type FragmentContainer
 } from "./signals.js";
 import { OBSERVE } from "@solidjs/signals";
@@ -645,7 +646,7 @@ function ssrLoadingBoundary(
 
   function runDiscovery(): SSRTemplateObject | undefined {
     disposeOwner(o, false);
-    serializeBuffer = [];
+    serializeBuffer = serializeBuffer.filter(entry => hasAsyncSlot(bufferedCtx, entry[0]));
     regions = [];
     retryPromise = undefined;
     resolveCount = 0;
