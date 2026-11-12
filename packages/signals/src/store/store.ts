@@ -1933,7 +1933,9 @@ function pullFamily(target: StoreTarget): void {
     // untracked too — `handleAsync` asking a returned proxy whether it is a
     // flight: the pass carries the error, and the re-ask or answer that
     // supersedes it must reach it (#4527; a tracked read links anyway, #4519).
-    if (c && fw._config & CONFIG_STAGED_ERROR) link(fw, c);
+    // Only a computation has deps to link: a bare owner (`mapArray`'s row
+    // update under `runWithOwner`, #4805) reads as untracked.
+    if (c?._deps !== undefined && fw._config & CONFIG_STAGED_ERROR) link(fw, c);
     readNode(fw);
   } else {
     // #4782: the pull a tracked read makes — the derive brought up to date
