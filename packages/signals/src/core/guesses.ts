@@ -150,6 +150,13 @@ function applyGuesses(parent: Transaction | null): void {
       if (!(n._config & CONFIG_GUESS)) {
         n._pendingValue = NOT_PENDING;
         n._config |= CONFIG_GUESS;
+      } else if (n._x!._shown) {
+        // A shown guess re-asked: the screen keeps the shown one until the
+        // lane's next reveal, judged with the passes this guess re-runs —
+        // a reader outside the lane reads the screen meanwhile (#4775;
+        // S-30, F-1).
+        screens.has(n) || screens.set(n, [n._value, n._x!._transaction]);
+        txOf(n)._reguessed = clock;
       }
       setLaneValue(n, txOf(n), v);
       holder = txOf(n)._parent;
@@ -374,5 +381,19 @@ function revertLanding(u: Transaction): void {
     }
 }
 
-installGuessLayer(take, guessWrite, revertLanding);
+/** A shown guess re-asked (`applyGuesses`): what the screen showed of it,
+ * and its lane, until that lane's next reveal (#4775). */
+const screens = /* @__PURE__ */ new WeakMap<Signal<any>, [unknown, Transaction | null]>();
+installGuessLayer(take, guessWrite, revertLanding, (el, revealed) => {
+  const s = screens.get(el);
+  if (revealed) screens.delete(el);
+  // Only while the node is still that lane's shown guess.
+  return s &&
+    !revealed &&
+    el._config & CONFIG_GUESS &&
+    el._x!._shown &&
+    el._x!._transaction === s[1]
+    ? s[0]
+    : el._value;
+});
 installGuessHooks(laneOutcome, applyGuessesAt, () => lanes.length !== 0 && laneCorrections());
