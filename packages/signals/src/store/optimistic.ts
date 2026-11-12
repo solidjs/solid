@@ -113,9 +113,12 @@ const INDEX = /^(0|[1-9]\d*)$/;
  * `read()` of the carrier decides. Its record (`wk`, `del`) has the key —
  * or, for a read (`reads`), the key is an index or the length of a keyed
  * list's arrangement guess (`g`): a list reader enters the lane through
- * them, as it did through the guessed container. A landing asks without
- * `reads`: a key the guess only carried over is the truth's, and its leaf
- * tells its readers as ever (store.ts `leafSet`). */
+ * them, as it did through the guessed container. An arrangement guess does
+ * not claim a key it only carried over from another live guess's carrier
+ * (`borrowed`, #4784): the read falls through to that carrier — or to the
+ * truth once it dissolves — instead of serving this frame's stale copy of
+ * the expired guess. A landing asks without `reads`: a key the guess only
+ * carried over is the truth's, and its leaf tells its readers as ever (store.ts `leafSet`). */
 function guessFor(
   t: StoreTarget,
   key: PropertyKey,
@@ -132,6 +135,7 @@ function guessFor(
           g.del?.has(key) ||
           (reads &&
             g.g !== undefined &&
+            !g.borrowed?.has(key) &&
             (key === "length" || (typeof key === "string" && INDEX.test(key)))))
       )
         return g;
@@ -245,6 +249,7 @@ function guessCarrier(t: StoreTarget, keys?: Set<PropertyKey>): any {
   g.wk = null;
   g.del = null;
   g.removed = null;
+  g.borrowed = null;
   g.g = undefined;
   kg.push(g);
   return g;
@@ -363,6 +368,27 @@ export function notifyOptimisticWrites(
     if (g.del === null) g.del = del;
     else for (const key of del) g.del.add(key);
   }
+  // The keys this guess's frame only carries over from another live guess's
+  // carrier (#4784): the draft was composed on the view, so its frame holds
+  // the other guess's values at keys this guess did not itself write. The
+  // arrangement read falls through on those keys — to the lender's carrier
+  // while it lives, to the truth once it dissolves — instead of serving
+  // this frame's copy of the expired guess. The record accumulates across
+  // a lane's writes, like `wk`: a key this guess later writes itself is
+  // its own, and the `wk`/`del` match above takes precedence regardless.
+  const kg = kgOf(t);
+  if (kg !== null && kg.length > 1)
+    for (const o of kg as any[]) {
+      if (o === g) continue;
+      const live =
+        o._config & (CONFIG_OVERRIDE | CONFIG_GUESS | CONFIG_HELD) ||
+        pendingGuessOf(o) !== NOT_PENDING;
+      if (!live) continue;
+      for (const key of o.wk ?? [])
+        if (!changed.has(key) && !del?.has(key)) (g.borrowed ??= new Set()).add(key);
+      for (const key of o.del ?? [])
+        if (!changed.has(key) && !del?.has(key)) (g.borrowed ??= new Set()).add(key);
+    }
   if (structural && isArr) {
     const rows = (pb as any[]).map(unwrapValue);
     // The keys of the view the setter saw that are not the guess's own
