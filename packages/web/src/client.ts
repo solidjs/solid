@@ -1091,8 +1091,8 @@ export function style(node, value, prev) {
  * read per key; a clsx-style class array is re-mapped element-wise (className
  * allocates for an array anyway; measured at parity).
  *
- * The proxy's keys are read with `Reflect.ownKeys` directly — what
- * `sourceKeys(value, SOURCE_PROXY)` resolves to by definition (`leafOf` is
+ * The proxy's keys are read with `Reflect.ownKeys` directly — the keys
+ * `sourceKeys(value, SOURCE_PROXY)` returns by definition (`leafOf` is
  * the identity for a proxy kind; `leafKeys` answers a proxy with one
  * `ownKeys` trap) — rather than through `sourceKeys`, whose kind argument is
  * a runtime value: calling it here retained the merge/omit view walkers
