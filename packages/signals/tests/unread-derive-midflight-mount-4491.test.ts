@@ -54,9 +54,34 @@ const tick = async (ms: number) => {
 type Form = "memo" | "storeKey" | "storeKeys" | "storeJSON";
 const storeForms = ["storeKey", "storeKeys", "storeJSON"] as const;
 
+/** The screen, frame by frame: the callbacks one synchronous flush ran,
+ * sorted — their order inside a flush is the queue's, not the screen's (a
+ * landing's held runs follow its own re-passes, and a derived store's
+ * reader re-derives a round after a memo's). */
+const frames = (log: string[]): string[] => (log as any).frames;
+
 /** The reader's display of `v`: every form shows the same text. */
 async function run(form: Form, at: "before" | "during" | "duringWrite" | "afterLanding") {
+  const shown: string[][] = [];
+  let open = false;
   const log: string[] = [];
+  const push = log.push.bind(log);
+  // A marker (`--…`) ends the frame; an effect's callback joins the frame
+  // of the flush it runs in.
+  Object.defineProperty(log, "push", {
+    value: (v: string) => {
+      if (v.startsWith("--")) open = false;
+      else if (!open) {
+        open = true;
+        shown.push([]);
+        queueMicrotask(() => (open = false));
+      }
+      if (open) shown.at(-1)!.push(v);
+      else shown.push([v]);
+      return push(v);
+    }
+  });
+  Object.defineProperty(log, "frames", { get: () => shown.map(f => f.sort().join(" ")) });
   const [s, setS] = createSignal(1);
   const [on, setOn] = createSignal(at === "before");
   createRoot(() => {
@@ -142,15 +167,13 @@ describe("a reader mounted mid-flight reads a derived store like its memo (#4491
 
 describe("readers the hold does not reach (#4491)", () => {
   test("memo form, reader on screen at the re-ask; reader mounted after the landing", async () => {
-    expect(await run("memo", "before")).toEqual([
-      "s:1",
-      "r:2",
-      "--reask",
-      "--plain write",
-      "r:4",
-      "s:3",
-      "r:6"
-    ]);
+    // `r:4` is the lane's answer, shown ahead (F-6): `latest(s)` beside the
+    // screen's `s`. The landing asks `m1` again on the landed world and its
+    // held runs wait with that flight (F-1): `s:3` shows in the frame `r:6`
+    // does, never beside `r:4`.
+    const before = await run("memo", "before");
+    expect(before).toEqual(["s:1", "r:2", "--reask", "--plain write", "r:4", "r:6", "s:3"]);
+    expect(frames(before)).toEqual(["s:1", "r:2", "--reask", "--plain write", "r:4", "r:6 s:3"]);
     expect(await run("memo", "afterLanding")).toEqual([
       "s:1",
       "r:off",
@@ -164,8 +187,10 @@ describe("readers the hold does not reach (#4491)", () => {
   });
   for (const form of storeForms)
     test(`${form}: as the memo form`, async () => {
-      expect(await run(form, "before")).toEqual(await run("memo", "before"));
-      expect(await run(form, "afterLanding")).toEqual(await run("memo", "afterLanding"));
+      expect(frames(await run(form, "before"))).toEqual(frames(await run("memo", "before")));
+      expect(frames(await run(form, "afterLanding"))).toEqual(
+        frames(await run("memo", "afterLanding"))
+      );
     });
 });
 
@@ -236,9 +261,6 @@ describe("the derive's posture after the held mount (#4491)", () => {
       const held = await later("storeKey", true, equal);
       expect(screen(held)).toEqual(screen(await later("storeKey", false, equal)));
       expect(screen(held)).toEqual(screen(await later("memo", true, equal)));
-      // F-2's producer clause (2026-11-07, S-51): `m1` asks, so it carries no
-      // inherited verdict posture (only a window of its own would), and the
-      // derive over it inherits none. The screen is the rule (D-30).
-      expect(held).toContain("--landed verdict=false pending=false");
+      expect(held).toContain("--landed verdict=true pending=false");
     });
 });

@@ -175,7 +175,7 @@ import {
   laneStageHook,
   laneSeamsHook,
   laneServedHook,
-  askerJoinsHook,
+  laneAdoptHook,
   holdStagingHook,
   holdWorkHook,
   keepReadersHook,
@@ -225,7 +225,10 @@ GlobalQueue._update = el => {
   else if (laneStageHook && el._flags & REACTIVE_ZOMBIE && laneFrameMember(el)) {
     deleteFromHeap(el, dirtyQueue);
     el._flags &= ~(REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_LANE_DIRTY);
-  } else recompute(el);
+  }
+  // A reader the landing re-derives whose frame flight the seam parked
+  // adopts it at its turn (verdict.ts `adoptParked`, R5, F-9).
+  else if (!(laneAdoptHook && el._x?._parked && laneAdoptHook(el, 1))) recompute(el);
 };
 /** The zombie's frame was parked by lane work: the nearest non-zombie owner
  * (the one whose pass parked it) carries a lane's derived value — or, an
@@ -402,6 +405,19 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // content creates is that mount's too (#4166). Lanes only, like the seat.
   const prevMount = laneRoot;
   const mount = laneStageHook && (laneRoot = create && (prevLane || prevMount));
+  // R5: the seam's re-derive runs with the flight it parked still current;
+  // a later pass asks its own question — the hold's, if the hold waits on
+  // it; so does a pass of a lane's derivation a frame's write dirtied, for
+  // a reader over it (verdict.ts `reask`; only that engine parks one).
+  if (laneAdoptHook && !create && el._x) {
+    const p = el._x._parked;
+    if (
+      p
+        ? p !== el._x._inFlight && ((el._x._parked = undefined), 1)
+        : el._config & CONFIG_OVERRIDE && !(el._flags & REACTIVE_LANE_DIRTY)
+    )
+      laneAdoptHook(el, 2);
+  }
   // Shadow seat (S0): the node's own lane, as the seating below spells it.
   const shadowOwnLane = __TEST__
     ? (el._flags & REACTIVE_LANE_DIRTY ||
@@ -469,11 +485,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     )
       el._config &= ~CONFIG_VERDICT;
     if (el._x !== null) {
-      // The seam's re-derive runs with the parked flight still current; any
-      // later pass asks its own question (`_parked`; only the lane engine
-      // parks one).
-      const p = laneStageHook && el._x._parked;
-      if (p && p !== el._x._inFlight) el._x._parked = undefined;
       el._x._inFlight = null;
       // Supersede is where an iterator flight dies (#3122): close it now.
       // Idempotent with the cleanup-channel close.
@@ -757,16 +768,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // bit) is an ordinary derivation again. Its async posture is the
     // verdict engine's to keep (CONFIG_ASYNC, verdict.ts `holdWork`, D-25).
     // (Only the verdict engine probes: without it the line folds away.)
-    // F-2's producer clause (S-51, #4504): a pass that asks (CONFIG_ASYNC)
-    // is a verdict reader only by a window of its own, never by reading a
-    // verdict memo — an act derives from the truth, and a memo over it
-    // (`() => m1()`) inherits nothing to read ahead with.
     if (observeFlightHook)
       el._config =
         (el._config & ~(CONFIG_VERDICT | CONFIG_OWN_PROBE | CONFIG_AHEAD)) |
-        (el._config & CONFIG_ASYNC && !(el._flags & REACTIVE_WINDOW)
-          ? 0
-          : el._flags & REACTIVE_PROBED) |
+        (el._flags & REACTIVE_PROBED) |
         ((el._flags & REACTIVE_WINDOW) << 9) |
         ((el._flags & REACTIVE_AHEAD) << 11);
     // REACTIVE_DISPOSED survives too (#3621): the pass may have disposed its
@@ -1405,20 +1410,6 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // transaction (`joinPass`), but for the lane case below.
   const verdict = observeFlightHook && c._config & CONFIG_VERDICT;
   const lane = laneStageHook && passLane !== null;
-  // F-2's producer clause: a pass that asks (CONFIG_ASYNC) is never served
-  // the screen's value of a held node — it reads the staging and is the
-  // hold's (`askerJoins`: un-seated from a verdict lane a window read put it
-  // in). Not from an optimistic lane's seat: a derivation of a guess is
-  // that lane's (F-6; S-57). The verdict engine installs `askerJoinsHook`.
-  if (
-    (verdict || lane) &&
-    c._config & CONFIG_ASYNC &&
-    askerJoinsHook &&
-    (!lane || passLane!._parent?._verdict === passLane)
-  ) {
-    askerJoinsHook(c, el, txOf(el));
-    return false;
-  }
   // S-46 (D-25): a render effect a probing pass is mounting
   // (CONFIG_MOUNT_AHEAD) is not a D-3 leaf of the screen: its first pass
   // reading the hold's staging or flight is born held, and the branch
@@ -2304,25 +2295,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     const netted = el._pendingValue === el._value && Object.is(el._pendingValue, el._value);
     // Lane work over a folded lane (D-34), once the frame has a transaction,
     // reads the screen too.
-    // F-2's producer clause: a pass that asks is never served the screen's
-    // value of a staging (`askerJoins`; the held case is `frameRead`'s).
-    // (A netted staging, D-8: no proposal, nothing to join — first.)
-    const asks =
-      askerJoinsHook !== null &&
-      c._config & CONFIG_ASYNC &&
-      (passLane === null || passLane._parent?._verdict === passLane);
     if (
       netted ||
-      (!asks &&
-        ((observeFlightHook && c._config & CONFIG_VERDICT) ||
-          (laneStageHook && passLane?.folded)) &&
+      (((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
         stagedScreen(c as Computed<any>, el))
     ) {
       if (__TEST__) shadowActual(netted ? SLOT_P : SLOT_C);
       return el._value as T;
     }
-    if (asks) askerJoinsHook!(c as Computed<any>, el, null);
-    else stagedRead(c as Computed<any>);
+    stagedRead(c as Computed<any>);
     if (__TEST__) shadowActual(SLOT_P);
     return el._pendingValue as T;
   }
@@ -2378,8 +2359,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
           observeFlightHook &&
           ((c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED
             ? c._config & CONFIG_HELD || flushTransaction
-            : c._config & CONFIG_HELD_FRAME ||
-              (c._config & CONFIG_ASYNC && (c._config & CONFIG_HELD || flushTransaction)))
+            : c._config & CONFIG_HELD_FRAME)
         ) {
           if (
             (c as any)._type === EFFECT_RENDER &&
@@ -2387,20 +2367,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
             !(owner._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED))
           )
             (c as Computed<any>)._flags |= REACTIVE_AHEAD;
-          // #4776, #4778 (D-25): a sync verdict memo is display while only
-          // the display reads it. A pass of a hold's own work reading it — born
-          // into the hold, of a frame a held pass built, or an async
-          // derivation (S-51) — makes it that hold's: it re-derives now, served
-          // the hold's writes (verdict.ts `holdStaging`) and answered as an
-          // asker (`readBy`), and the reader reads that. A memo that probes in
-          // its own body stays the screen's for a held reader (F-6, #4544's
-          // inline rows, #4341) and is the hold's only for an async one.
+          // #4776 (D-25): a sync verdict memo is display while only the
+          // display reads it. A pass of a hold's own work reading it — born
+          // into the hold, or of a frame a held pass built — makes it that
+          // hold's: it re-derives now, served the hold's writes (verdict.ts
+          // `holdStaging`), and the reader reads that. A memo that probes in
+          // its own body stays the screen's (F-6, #4544's inline rows,
+          // #4341). A pass that asks is display like any other (S-51).
           if (
-            (owner._config &
-              (CONFIG_VERDICT |
-                CONFIG_FRAME |
-                CONFIG_ASYNC |
-                (c._config & CONFIG_ASYNC ? 0 : CONFIG_OWN_PROBE))) ===
+            (owner._config & (CONFIG_VERDICT | CONFIG_FRAME | CONFIG_ASYNC | CONFIG_OWN_PROBE)) ===
             CONFIG_VERDICT
           ) {
             const t = resolveTx(

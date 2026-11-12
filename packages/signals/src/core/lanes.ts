@@ -68,14 +68,7 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { bornInto, creatorReads, ext, stagedRead, tracking } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
-import {
-  handleAsync,
-  isThenable,
-  notifyStatus,
-  releaseFlightTeardown,
-  removePendingSource,
-  settlePendingSource
-} from "./async.js";
+import { removePendingSource, settlePendingSource } from "./async.js";
 import { covers, latestOf, underOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
 import {
@@ -109,7 +102,8 @@ import {
   type Transaction,
   globalQueue,
   hiddenHook,
-  installLaneHooks
+  installLaneHooks,
+  r5Hook
 } from "./scheduler.js";
 import { SLOT_C, SLOT_DV, SLOT_LV, SLOT_P, SLOT_T, shadowActual } from "./seat.js";
 import type { Computed, Owner, Signal } from "./types.js";
@@ -294,7 +288,7 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
   }
 }
 /** Is `l` a verdict lane (its parent's `_verdict`)? False for none. */
-function isVerdict(l: Transaction | null | undefined): boolean {
+export function isVerdict(l: Transaction | null | undefined): boolean {
   return l?._parent?._verdict === l;
 }
 /** One link group (a shared array) for both lanes' groups. */
@@ -880,6 +874,9 @@ function lanesBlocked(t: Transaction): boolean {
   // ahead of it (shown now, the branch attached with its hole empty, #4417,
   // or with the committed value a re-derived mount read).
   if (t._lane && t._parent!._verdict === t && heldMountUnder(null, t)) return true;
+  // A frame flight the seam parked beside its reader's lane pass (R5) is the
+  // hold's question still: the hold waits on it (`park`).
+  if (!t._lane && r5Hook && r5Hook(null, t)) return true;
   return (t._lane && linkBlocked(t)) || nestedBlocked(t);
 }
 /** Mounts a probing pass opened and a hold holds (CONFIG_MOUNT_AHEAD,
@@ -1144,23 +1141,8 @@ const laneSeams = (t: Transaction | null): void => {
       // for the lane, and a reader of the re-derived memo read it outside
       // the shown lane and waited for the frame (#4393).
       else if (!l?._lane && r._flags & REACTIVE_PROBE_UNANSWERED) {
-        if (isThenable(r._x?._inFlight)) {
-          if (!blocked(t!)) continue;
-          r._x!._parked = r._x!._inFlight;
-        } else if (blocked(t!))
-          // A sync reader's lane pass re-derives the async memos over it (a
-          // memo over a verdict memo is a verdict reader, D-25 #4050; D-22:
-          // `latest()` extracted into a memo reads as inline). The flight
-          // each asked over its frame staging, up and held by `t`, is the
-          // frame's answer too: the landing adopts it (F-9).
-          for (let s = r._subs, n; s; s = s._nextSub)
-            if (
-              isThenable((n = s._sub)._x?._inFlight) &&
-              n._x!._pendingSources?.has(n) &&
-              n._config & CONFIG_HELD &&
-              txOf(n) === t
-            )
-              n._x!._parked = n._x!._inFlight;
+        // (verdict.ts `r5`: only the verdict engine leaves a probe unanswered.)
+        if (r5Hook!(r, t)) continue;
         if (t?._verdict && leaked.indexOf(t._verdict) === -1) leaked.push(t._verdict);
       }
       enqueueSub(r);
@@ -1182,38 +1164,8 @@ const laneSeams = (t: Transaction | null): void => {
       r._flags &= ~REACTIVE_LANE_DIRTY;
       enqueueSub(r);
     }
-};
-/** The landing's re-derive of a reader whose frame flight the seam parked
- * (R5): the flight asked the question the landing would — adopted, it is
- * asked once (F-9). Not over a pass already queued: that one asks anew.
- * Registered as if this pass had returned it — the node pending on it, its
- * landing the answer — through a promise of its own: the frame pass's
- * registration still listens to the flight, and must not land it a second
- * time. */
-const adoptParked = (r: Computed<any>): boolean => {
-  // A sync memo re-derived at a landing (a stale reader: lane work, or a
-  // verdict reader served the screen) — the held runs of its readers ran on
-  // the pass this replaces, reading it stale beside the landing: void, they
-  // re-run on it, in the landing's frame (F-1, A15). (An async memo's re-ask
-  // keeps the runs it reveals with.)
-  if (!((r as any)._type || r._config & CONFIG_ASYNC))
-    for (let s = r._subs; s !== null; s = s._nextSub) {
-      const e = s._sub as any;
-      if (e._type && e._modified) {
-        e._modified = false;
-        enqueueSub(e);
-      }
-    }
-  const parked = r._x?._parked;
-  if (!parked || r._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_IN_HEAP)) return false;
-  r._x!._parked = undefined;
-  releaseFlightTeardown(r);
-  try {
-    handleAsync(r, parked.then());
-  } catch {}
-  r._x!._blocked = true;
-  notifyStatus(r, STATUS_PENDING, new NotReadyError(r));
-  return true;
+  // (verdict.ts `r5`: the round's armed readers and re-asked passes ran.)
+  if (r5Hook) r5Hook(null, null);
 };
 /** A15: lane work or a verdict reader was served `el`'s committed value
  * (core.ts `frameRead`), so its pass does not wait on `el`'s flight: what
@@ -1264,16 +1216,7 @@ const laneServed = (
 export const ahead: Computed<any>[] = [];
 /** Render effects that read a verdict and entered a lane before its seam (#4284). */
 const entered: Computed<any>[] = [];
-installLaneHooks(
-  laneRead,
-  laneStage,
-  laneWrite,
-  laneSeams,
-  landing,
-  lanesBlocked,
-  adoptParked,
-  laneServed
-);
+installLaneHooks(laneRead, laneStage, laneWrite, laneSeams, landing, lanesBlocked, laneServed);
 if (__OBSERVE__)
   GlobalQueue._laneGuesses = t => {
     const out: Signal<any>[] = [];

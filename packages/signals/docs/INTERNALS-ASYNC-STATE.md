@@ -325,6 +325,62 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
 
 ## 7. Decision log
 
+- 2026-11-12b: **A pass that asks reads ahead on the screen (C)** (S-51
+  re-ruled; F-2's producer clause and F-6's limit of 2026-11-07 replaced;
+  #4677, #4778). The producer clause made a pass that asks the hold's:
+  `isPending`/`latest` meant one thing in a render effect or a sync memo
+  and another in an async memo, and a memo between the read and the async
+  changed the answer again (#4778, patched the same morning by `readBy`).
+  Ruled: one meaning. An async pass that reads ahead runs on the screen as
+  a sync pass does; the lane gets the screen's question, the hold the
+  frame's. Removed: `askerJoins` and its hook, the asker arms of
+  `frameRead`, `read` and `verdictValue`, `laneDirty`'s display skip, the
+  posture line's CONFIG_ASYNC case, `readBy`, the seat table's V0/Vp0 rows,
+  and the generator's `truth-asks` oracle (it encoded the clause). What
+  replaces "asks once, of the truth" is R5 for async readers, extended:
+  - **Park-block** (verdict.ts `park`, `parkUp`; lanes.ts `lanesBlocked`): the frame
+    flight the seam parks is the hold's question, so the hold waits on it
+    while a reader on screen waits on it (judged as `blockedBy` judges a
+    frame reader: a render effect pending or served the screen, a boundary
+    showing content; a memo's stale read is no screen, #4504). Without it
+    a lane pass that settled first left the hold nothing to wait on and
+    the write landed ahead of its answer (#3884). `isPending` of a lane
+    node counts a parked flight of its hold (`verdictValue`).
+  - **Re-ask** (verdict.ts `reask`, `leave`, `seat`, `left`;
+    core.ts `recompute`'s head, `laneAdoptHook(el, 2)`): a later frame
+    write reaching a parked reader, or a lane derivation it reads,
+    supersedes the parked question. The reader's pass is the frame's again
+    — out of the lane with the lane members it reads, windows answered for
+    the hold's world (`markVerdictReader`) — and the seam parks the new
+    flight and re-derives for the lane. Before this, on `next`,
+    `data = async(source(), memo(latest(source)))` asked the first write's
+    question only and ended on its answer beside the second write.
+  - **Adoption at the heap visit** (`adoptParked(r, 1)`, `armed`, `arm`;
+    `GlobalQueue._update`): the landing arms a parked reader, and the memos
+    over a sync verdict memo it re-derives; armed, the reader adopts the
+    parked flight at its turn even though that memo's flip dirtied it. The
+    memo-extracted forms ask as few times as inline.
+  - **A verdict memo's answer for this frame** (verdict.ts `holdStaging`,
+    D-22): a memo reading a sync verdict memo's value staged this flush
+    reads it plainly. Served the screen because another pass's pending had
+    opened the hold first, an async reader asked the question it already
+    had the answer to, and the landing showed that answer beside the write.
+  - `reruns` holds the release for every re-derivation (`frame = 1`): a
+    memo over a re-derived verdict memo may ask.
+  - Store form (D-30): `pullFamily` reads a pending verdict-only derive's
+    flights as the memo's reader would, so a branch mounted ahead is born
+    held on them (S-46); the marked derive pass leaves its lane seat
+    (#4491).
+    Pins: `tests/async-reads-ahead-matrix.test.ts` (192 rows: shape × kind ×
+    holder × order of answers), `tests/async-reads-ahead-second-write.test.ts`,
+    the rewritten #4778 pin; five pins reverted to their pre-2026-11-07
+    screens (`verdict-memo-flight-no-reask`, #4393, #4402, #4504, #4491), two
+    request orders updated. Costs, stated in S-51: the screen's question is
+    asked beside the frame's; the lane's reveal, a sibling `isPending` hole
+    included, waits for it; a mixed plain-read-plus-extracted-window reader
+    that runs after another pass opened the hold asks the screen's question
+    twice (pinned in the matrix as today's cost). The entry below is
+    superseded where it speaks of an async derivation and of `readBy`.
 - 2026-11-12: **A memo's posture follows its readers** (#4776, #4778;
   D-25, S-51; one version per node, #3905 out of scope). Before, a memo
   that inherited a verdict posture (it read `latest`/`isPending` through a
