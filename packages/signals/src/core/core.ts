@@ -424,7 +424,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       cf & REACTIVE_PROBED ||
       (cp &&
         ((cp._config & CONFIG_MOUNT_AHEAD && cp._statusFlags & STATUS_UNINITIALIZED) ||
-          ((cp as any)._type === EFFECT_RENDER && hasDep(cp, d => d._config & CONFIG_VERDICT))))
+          ((cp as any)._type === EFFECT_RENDER &&
+            hasDep(cp, d => d._config & CONFIG_VERDICT, cp._depsTail))))
     )
       el._config |= CONFIG_MOUNT_AHEAD;
     setPassLane(
@@ -1493,9 +1494,14 @@ export function bornInto(c: Computed<any>, t: Transaction): unknown {
   );
 }
 
-/** A dep of `c` (this pass's reads, then its last pass's tail) `f` picks. */
-function hasDep(c: Computed<any>, f: (d: Signal<any> | Computed<any>) => unknown): unknown {
-  for (let d = c._deps; d !== null; d = d._nextDep) if (f(d._dep)) return 1;
+/** A dep of `c` `f` picks: this pass's reads, then its last pass's tail —
+ * this pass's reads only with `tail` (`c._depsTail`). */
+function hasDep(
+  c: Computed<any>,
+  f: (d: Signal<any> | Computed<any>) => unknown,
+  tail?: Link | null
+): unknown {
+  for (let d = c._deps; d !== null; d = d === tail ? null : d._nextDep) if (f(d._dep)) return 1;
 }
 /** #4806 (S-46, D-25): a staging a verdict pass reads for the first time —
  * not on its last pass, not yet on this one (before `link`, its deps are
