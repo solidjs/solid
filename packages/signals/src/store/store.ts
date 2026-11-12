@@ -132,6 +132,7 @@ import {
   $TRACK,
   $PATCH,
   writeOverride,
+  setWriteOverride,
   installShallowView,
   isRawValue,
   isWrappable,
@@ -695,6 +696,17 @@ export function materializePB(target: StoreTarget): Record<PropertyKey, any> {
  * Staged on the container node (the scheduler owns its lifetime) and queued
  * for the fold at the flush's commit. */
 function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
+  // #4808: a chained backing is another store's proxy. Its base is that
+  // store's write base (A25: a setter before the first answer writes the
+  // seed), read as a write — not a read that pulls a pending derive. (No
+  // try: with the override up nothing in the copy pulls, so nothing throws.)
+  if (!target.ch || writeOverride) return draftBase(target);
+  setWriteOverride(true);
+  const pb = draftBase(target);
+  setWriteOverride(false);
+  return pb;
+}
+function draftBase(target: StoreTarget): Record<PropertyKey, any> {
   let pb = target.pb;
   // An optimistic edit composes on the view the user saw and becomes
   // guesses at the setter's exit: nothing is staged, nothing folds
