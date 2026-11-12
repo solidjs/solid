@@ -948,7 +948,7 @@ export function className(node, value, prev) {
     return;
   }
   if (typeof value === "string") {
-    node._$classes = undefined;
+    if (node._$classes) node._$classes = undefined;
     value !== prev && node.setAttribute("class", value);
     return;
   }
