@@ -69,3 +69,49 @@ describe("#4777", () => {
         expect(shown).toBe(mode === "sync" ? expected : "Not requested");
       });
 });
+
+// The pass read a second action's held value before its probe: that join
+// merged the second hold into the first. The restart gives back both, so
+// each action lands on its own (D-9: nothing on screen derives from both
+// once the pass is a verdict reader).
+it("a restart gives back every hold the pass joined, merged ones included", async () => {
+  let enable!: (v: boolean) => void, runA!: () => any, runB!: () => any;
+  let endB!: () => void;
+  let bShown = -1;
+  const seen: string[] = [];
+  createRoot(() => {
+    const [a, setA] = createSignal(0);
+    const [b, setB] = createSignal(0);
+    const [en, setEn] = createSignal(false);
+    enable = setEn;
+    const m = createMemo(() => {
+      if (!en()) return "off";
+      const r = `a=${a()} b=${b()} la=${latest(a)} a2=${a()}`;
+      seen.push(r);
+      return r;
+    });
+    createRenderEffect(m, () => {});
+    createRenderEffect(b, v => void (bShown = v));
+    runA = action(function* () {
+      setA(1);
+      yield new Promise(() => {});
+    });
+    runB = action(function* () {
+      setB(1);
+      yield new Promise<void>(r => (endB = r));
+    });
+  });
+  flush();
+  runA();
+  await tick();
+  runB();
+  await tick();
+  enable(true);
+  flush();
+  await tick();
+  expect(seen).toEqual(["a=0 b=0 la=1 a2=0"]);
+  endB();
+  await tick();
+  // B landed on its own; A is still open.
+  expect(bShown).toBe(1);
+});

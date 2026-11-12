@@ -143,6 +143,7 @@ import {
   deferZombie,
   dirtyQueue,
   flushTransaction,
+  adopted,
   globalQueue,
   GlobalQueue,
   heldTrim,
@@ -1331,7 +1332,7 @@ export function setAdopter(c: Computed<any> | null): void {
   adopter = c;
 }
 export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
-  if (observeFlightHook && !flushTransaction) adopter = c;
+  if (observeFlightHook && !flushTransaction) ((adopter = c), (adopted.length = 0));
   c._flags |= REACTIVE_JOINED;
   if (__TEST__) shadowExternalRaise(c, RAISE_H);
   // A new memo's first pass is the hold's work (born held) but not the
