@@ -1505,8 +1505,9 @@ export function installHydrationRuntime() {
     // re-claimed (#4374).
     reclaimRegion(current, parent, marker) {
       if (!sharedConfig.hydrating || current == null || !parent.isConnected) return current;
-      const first = Array.isArray(current) ? current[0] : current;
-      if (first == null || first.isConnected) return current;
+      // A swap can take a middle node of the region, past a live head (#4807).
+      if (Array.isArray(current) ? current.every(n => !n || n.isConnected) : current.isConnected)
+        return current;
       let nodes;
       if (marker) {
         nodes = [];
