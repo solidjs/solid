@@ -1941,12 +1941,21 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
   }
 }
 
-/** Dev-only: inside a ref callback (`runRefCallback`). Its context is the
- * creating pass's for reads, but it is no owned scope: a write, a refresh,
- * an action call or `onFlush` there is the imperative work a ref does (an
- * effect callback's), not a computation's. */
+/** > 0 while `runRefCallback` is on the stack (prod and dev). A ref whose
+ * creating pass was born into a held node's hold may read that node's staged
+ * value (#4767, F-7); A19 exc. 1 would otherwise throw NotReadyError from the
+ * ownerless commit half and leave the hold parked forever. */
+let refCallbackDepth = 0;
+
+/** Inside a ref callback (`runRefCallback`). Prod uses the depth; dev also
+ * matches the effect-callback owner stamp when the creating pass left a
+ * context. A write, refresh, action call or `onFlush` there is the imperative
+ * work a ref does (an effect callback's), not a computation's. */
 export function inRefCallback(): boolean {
-  return inEffectCallback && context !== null && context === effectCallbackOwner;
+  return (
+    refCallbackDepth > 0 ||
+    (inEffectCallback && context !== null && context === effectCallbackOwner)
+  );
 }
 
 /**
@@ -1960,17 +1969,22 @@ export function inRefCallback(): boolean {
  * @internal
  */
 export function runRefCallback(fn: () => void): void {
-  if (__DEV__) {
-    const prev = inEffectCallback,
-      prevEvent = effectCallbackEvent,
-      prevOwner = effectCallbackOwner;
-    setEffectCallback(true, ANY_EVENT, context);
-    try {
-      untrack(fn, "a ref callback");
-    } finally {
-      setEffectCallback(prev, prevEvent, prevOwner);
-    }
-  } else untrack(fn);
+  refCallbackDepth++;
+  try {
+    if (__DEV__) {
+      const prev = inEffectCallback,
+        prevEvent = effectCallbackEvent,
+        prevOwner = effectCallbackOwner;
+      setEffectCallback(true, ANY_EVENT, context);
+      try {
+        untrack(fn, "a ref callback");
+      } finally {
+        setEffectCallback(prev, prevEvent, prevOwner);
+      }
+    } else untrack(fn);
+  } finally {
+    refCallbackDepth--;
+  }
 }
 
 /**
@@ -2597,11 +2611,24 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // an untracked reader has nothing to serve and holds (A19 exception 1) — a
   // bookkeeping read (`spectate`) likewise, and a children-forbidden reader
   // (A32: the frame, which has nothing here).
+  // Exception: a ref callback whose creating pass was born into this node's
+  // hold (#4767, narrowed for F-7). Refs run in the attribute effect's commit
+  // half with no owner, but `runRefCallback` keeps the creator's context
+  // (#4768). Serving the staged value there is the hold's own work reading
+  // plainly (D-25); a ref mounted outside that hold must not see it ahead of
+  // the commit (F-7).
   if (
     el._pendingValue !== NOT_PENDING &&
     (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED &&
     (!c || spectating || c._config & CONFIG_CHILDREN_FORBIDDEN)
   ) {
+    if (refCallbackDepth > 0) {
+      const pass = creatorPass(context);
+      if (pass && el._config & CONFIG_HELD && bornInto(pass, txOf(el))) {
+        if (__TEST__) shadowActual(SLOT_P);
+        return el._pendingValue;
+      }
+    }
     if (__DEV__) {
       const e = new NotReadyError(null);
       noteThrownRead(el, e);
