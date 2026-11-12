@@ -1006,6 +1006,45 @@ describe("view descriptors", () => {
     expect(resolvedTable(store)).toBeUndefined();
     expect(log).toEqual([]);
   });
+  test("sourceKeys reads a store's keys as its proxy reports them", () => {
+    const sym = Symbol("s");
+    const [store, setStore] = createStore<Record<PropertyKey, any>>({ a: 1, b: 2, [sym]: 3 });
+    expect(sourceKeys(store, SOURCE_PROXY)).toEqual(["a", "b", sym]);
+    expect(sourceKeys(() => store, SOURCE_MEMO)).toEqual(["a", "b", sym]);
+    expect(sourceKeys(omit(store, "a"), SOURCE_PROXY)).toEqual(["b", sym]);
+    const [list] = createStore([1, 2]);
+    expect(sourceKeys(list, SOURCE_PROXY)).toEqual(Reflect.ownKeys(list));
+
+    const seen: (string | symbol)[][] = [];
+    const dispose = createRoot(d => {
+      createEffect(
+        () => sourceKeys(store, SOURCE_PROXY),
+        keys => {
+          seen.push(keys);
+        }
+      );
+      return d;
+    });
+    flush();
+    setStore(s => {
+      delete s.a;
+      s.c = 4;
+    });
+    flush();
+    expect(seen.length).toBe(2);
+    expect(seen[1]).toEqual(Reflect.ownKeys(store));
+    expect(seen[1]).toContain("c");
+    expect(seen[1]).not.toContain("a");
+    dispose();
+
+    // A wrapper that forwards `$TARGET` is not the store's own proxy: its trap answers.
+    const wrapper = new Proxy(
+      {},
+      { get: (_, key) => store[key], has: (_, key) => key in store, ownKeys: () => ["b"] }
+    );
+    expect(wrapper[$TARGET as any]).toBe(store[$TARGET]);
+    expect(sourceKeys(wrapper, SOURCE_PROXY)).toEqual(["b"]);
+  });
   test("merge and omit record what each source is, once", () => {
     const store = createStore({ s: 1 })[0];
     const plain = { p: 1 };

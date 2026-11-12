@@ -164,7 +164,11 @@ export function omitView(o: any): OmitView | undefined {
 // holds is only known once read.
 function leafKeys(leaf: any, kind: SourceKind): (string | symbol)[] {
   if (kind === SOURCE_PLAIN) return Object.keys(leaf);
-  if (kind === SOURCE_PROXY || leaf[$PROXY] === leaf) return Reflect.ownKeys(leaf);
+  if (kind === SOURCE_PROXY || leaf[$PROXY] === leaf) {
+    // A store's handler answers directly: the Proxy `ownKeys` invariant checks cost twice the trap.
+    const t = leaf[$TARGET];
+    return (t?.px === leaf ? t : Reflect).ownKeys(leaf);
+  }
   return Object.keys(leaf);
 }
 
