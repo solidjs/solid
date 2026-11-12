@@ -370,8 +370,6 @@ export function clearSnapshots(): void {
   snapshotCaptureActive = false;
 }
 
-/** Thrown by a verdict window to re-run the pass from its start (verdict.ts `markVerdictReader`). */
-export const restartPass = {};
 export function recompute(el: Computed<any>, create: boolean = false): void {
   // §12d: any recompute can clean a marked subscriber — invalidate skips.
   bumpNotifyEpoch();
@@ -615,8 +613,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let missedWake = false;
   // L2: did this pass read the future (REACTIVE_JOINED, set by read) — or,
   // a lane's mount, a staging of this flush (#3851, #4166)?
-  let joined = false,
-    restart = false;
+  let joined = false;
   let prevTracking = tracking;
   let prevStrictRead: string | false = false;
   let prevStrictPending: string | false = false;
@@ -671,59 +668,56 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // installer just makes clearStatus a cheap re-verified no-op.)
     if (el._statusFlags !== 0 || el._x !== null) clearStatus(el, create);
   } catch (e) {
-    if (e === restartPass) restart = true;
-    else {
-      const notReady = e instanceof NotReadyError;
-      // An error answers, and so does a loading window's unready read (D-25,
-      // verdict.ts `holdWork`): no flight is its own. A pass left pending
-      // keeps the last answer's. (Kept by the verdict engine alone.)
-      if (holdWorkHook && (!notReady || el._loading)) el._config &= ~CONFIG_ASYNC;
-      if (notReady && el._loading) {
-        // Loading window with an unready sync dependency: register for the
-        // source's settle (the settlePendingSource walk runs off
-        // _pendingSources + _blocked alone) but take NO read-visible pending
-        // status and no downstream propagation — the committed loading value
-        // keeps serving. If the
-        // node is currently errored the error stays the answer until this
-        // retry can actually run.
-        parkLoadingWindow(el, e as NotReadyError);
-      } else {
-        // D-41: a pass of a held node, or one that read a staging of this
-        // flush, stages its error (`stageError`).
-        if (notReady || !(stagedErr = stageError(el, e, true))) {
-          if (notReady) ext(el)._blocked = true;
-          notifyStatus(el, notReady ? STATUS_PENDING : STATUS_ERROR, e);
-          // The replacement source is fully propagated now. If no new flight
-          // re-owned self, retire the superseded flight and its dependent copies.
-          if (notReady && wasPendingSource && !el._x?._inFlight) settlePendingSource(el);
-        }
-        // A re-park drops what the earlier pass carried (#3456): a source this
-        // pass no longer reaches — its branch switched, or a fresh flight
-        // replaced the inputs' pending with its own — stays copied onto
-        // dependents that reached it only through here, and its landing walk
-        // stops at this node (nothing left to retire) before it finds them. A
-        // dependent then waits forever on a flight it has no path to. The
-        // re-park twin of the unchanged-value recovery sweep below; dependents
-        // with another path keep the source (retryReaches). A staged error
-        // answered what the pass carried: the same. A source still in the set
-        // is dropped too once it is no longer pending and no dep reaches it: a
-        // re-park that keeps the set adds to it, so a stale entry survives the
-        // pass — a first answer staged in place of its flight (uninitialized
-        // until its commit, so its own settle walk waits) leaves the copy here
-        // while the readers in between re-derive clean (#4541). A still-pending
-        // source has its own settle walk to come, so it is kept without the
-        // deps walk (S carried × D deps per re-park otherwise).
-        if ((notReady || stagedErr) && outgoingPendingSources)
-          for (const source of outgoingPendingSources)
-            if (
-              source !== el &&
-              !(
-                el._x?._pendingSources?.has(source) &&
-                (source._statusFlags & STATUS_PENDING || retryReaches(el, source))
-              )
-            )
-              settlePendingSource(el, source);
+    const notReady = e instanceof NotReadyError;
+    // An error answers, and so does a loading window's unready read (D-25,
+    // verdict.ts `holdWork`): no flight is its own. A pass left pending
+    // keeps the last answer's. (Kept by the verdict engine alone.)
+    if (holdWorkHook && (!notReady || el._loading)) el._config &= ~CONFIG_ASYNC;
+    if (notReady && el._loading) {
+      // Loading window with an unready sync dependency: register for the
+      // source's settle (the settlePendingSource walk runs off
+      // _pendingSources + _blocked alone) but take NO read-visible pending
+      // status and no downstream propagation — the committed loading value
+      // keeps serving. If the
+      // node is currently errored the error stays the answer until this
+      // retry can actually run.
+      parkLoadingWindow(el, e as NotReadyError);
+    } else {
+      // D-41: a pass of a held node, or one that read a staging of this
+      // flush, stages its error (`stageError`).
+      if (notReady || !(stagedErr = stageError(el, e, true))) {
+        if (notReady) ext(el)._blocked = true;
+        notifyStatus(el, notReady ? STATUS_PENDING : STATUS_ERROR, e);
+        // The replacement source is fully propagated now. If no new flight
+        // re-owned self, retire the superseded flight and its dependent copies.
+        if (notReady && wasPendingSource && !el._x?._inFlight) settlePendingSource(el);
       }
+      // A re-park drops what the earlier pass carried (#3456): a source this
+      // pass no longer reaches — its branch switched, or a fresh flight
+      // replaced the inputs' pending with its own — stays copied onto
+      // dependents that reached it only through here, and its landing walk
+      // stops at this node (nothing left to retire) before it finds them. A
+      // dependent then waits forever on a flight it has no path to. The
+      // re-park twin of the unchanged-value recovery sweep below; dependents
+      // with another path keep the source (retryReaches). A staged error
+      // answered what the pass carried: the same. A source still in the set
+      // is dropped too once it is no longer pending and no dep reaches it: a
+      // re-park that keeps the set adds to it, so a stale entry survives the
+      // pass — a first answer staged in place of its flight (uninitialized
+      // until its commit, so its own settle walk waits) leaves the copy here
+      // while the readers in between re-derive clean (#4541). A still-pending
+      // source has its own settle walk to come, so it is kept without the
+      // deps walk (S carried × D deps per re-park otherwise).
+      if ((notReady || stagedErr) && outgoingPendingSources)
+        for (const source of outgoingPendingSources)
+          if (
+            source !== el &&
+            !(
+              el._x?._pendingSources?.has(source) &&
+              (source._statusFlags & STATUS_PENDING || retryReaches(el, source))
+            )
+          )
+            settlePendingSource(el, source);
     }
   } finally {
     tracking = prevTracking;
@@ -796,10 +790,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // question already answered — quiet for the verdict; any other pending
     // pass is a new question. Settled, there is nothing to classify.
     if (el._x !== null) el._x._reask = reask && (el._statusFlags & STATUS_PENDING) !== 0;
-  }
-  if (restart) {
-    if (laneStageHook) setPassLane(prevLane);
-    return recompute(el, create);
   }
 
   // A node that died during its own pass (#3621) is dead at the end of it,
@@ -1333,16 +1323,15 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
  * something not ready under a loading boundary that has not shown content:
  * the boundary collects it and shows its fallback, and the pass is the
  * boundary's, not the tick's (A29's boundary exemption, #3540). */
-/** #4777: the pass whose plain read made this flush adopt a hold (no
- * transaction before it), and that hold: a window it then opens over the
- * same read can give it back (verdict.ts `markVerdictReader`). */
-export let adopter: Computed<any> | null = null,
-  adopted: Transaction | null = null;
+/** #4777: the pass whose plain read made this flush adopt a hold (it had
+ * no transaction before): a window that pass then opens can give the hold
+ * back and start over (verdict.ts `markVerdictReader`). */
+export let adopter: Computed<any> | null = null;
 export function setAdopter(c: Computed<any> | null): void {
   adopter = c;
 }
 export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
-  const f = flushTransaction;
+  if (observeFlightHook && !flushTransaction) adopter = c;
   c._flags |= REACTIVE_JOINED;
   if (__TEST__) shadowExternalRaise(c, RAISE_H);
   // A new memo's first pass is the hold's work (born held) but not the
@@ -1358,8 +1347,6 @@ export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): voi
       txOf(el),
       (!(c as any)._type && c._statusFlags & STATUS_UNINITIALIZED) || freshHook?.(c)
     );
-  if (observeFlightHook && f === null && flushTransaction !== null)
-    ((adopter = c), (adopted = flushTransaction));
 }
 
 /** `joinPass` into the hold `t` (a folded guess's: store/optimistic.ts
