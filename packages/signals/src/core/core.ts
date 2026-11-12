@@ -418,9 +418,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // display-ahead read gates — stamped once, read by `frameRead`. So is
     // one its first pass creates: a boundary inside the mount is the mount
     // (S-58: an `<Errored>` around the content changes nothing).
+    // #4806: a render effect reading a verdict memo opens the mount the
+    // memo hands it (`<Show>`'s function child, called by the slot).
     if (
       cf & REACTIVE_PROBED ||
-      (cp && cp._config & CONFIG_MOUNT_AHEAD && cp._statusFlags & STATUS_UNINITIALIZED)
+      (cp &&
+        ((cp._config & CONFIG_MOUNT_AHEAD && cp._statusFlags & STATUS_UNINITIALIZED) ||
+          ((cp as any)._type === EFFECT_RENDER && readsVerdict(cp))))
     )
       el._config |= CONFIG_MOUNT_AHEAD;
     setPassLane(
@@ -1491,6 +1495,12 @@ export function bornInto(c: Computed<any>, t: Transaction): unknown {
 
 /** The computed whose pass a creation under `owner` belongs to (a root's is
  * its nearest computed ancestor's), or null outside every pass. */
+function readsVerdict(c: Computed<any>): boolean {
+  for (let d = c._deps; d !== null; d = d === c._depsTail ? null : d._nextDep)
+    if (d._dep._config & CONFIG_VERDICT) return true;
+  return false;
+}
+
 export function creatorPass(owner: Owner | null): Computed<any> | null {
   return owner !== null && (owner as Root)._root
     ? (owner as Root)._parentComputed

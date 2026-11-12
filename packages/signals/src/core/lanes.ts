@@ -897,10 +897,15 @@ function collectMounts(): void {
       const r = nodes[i] as Computed<any>;
       // (A node re-held into a second transaction is listed twice; the
       // second entry is pruned with the first.)
-      if ((r as any)._type === EFFECT_RENDER && r._config & CONFIG_MOUNT_AHEAD) aheadMounts.push(r);
+      if (r._config & CONFIG_MOUNT_AHEAD) aheadMounts.push(r);
     }
     t.scanned = nodes.length;
   }
+}
+function shownBy(r: Computed<any>): boolean {
+  for (let s = r._subs; s !== null; s = s._nextSub)
+    if ((s._sub as any)._type === EFFECT_RENDER && !hiddenHook?.(s._sub)) return true;
+  return false;
 }
 /** A collected mount still held, uninitialized, on screen and waiting —
  * on its own flight, an action open in its frame, or a flight its frame
@@ -920,7 +925,11 @@ export function heldMountUnder(o: Owner | null, l: Transaction | null): boolean 
     }
     const t = resolveTx(r._x!._transaction!);
     if (
-      hiddenHook?.(r) ||
+      // A memo mount is on screen through a render effect that reads it
+      // (#4806: a fragment, text beside a hole, returned to the slot). One
+      // only a memo reads is that memo's: a boundary the mount builds
+      // around it shows its fallback (#3851).
+      ((r as any)._type ? hiddenHook?.(r) : !shownBy(r)) ||
       !(
         r._statusFlags & STATUS_PENDING ||
         t._open !== 0 ||
