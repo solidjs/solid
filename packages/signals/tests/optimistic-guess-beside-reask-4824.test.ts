@@ -37,103 +37,111 @@ const tick = async () => {
   }
 };
 
-test("count and rows agree on a close guessed during another close's refresh (#4824)", async () => {
-  const asks: { key: string; res: (v: any) => void; rej: (e: any) => void }[] = [];
-  const ask = (key: string) => new Promise<any>((res, rej) => asks.push({ key, res, rej }));
-  const take = (key: string) => {
-    const i = asks.findIndex(a => a.key === key);
-    if (i < 0) throw new Error(`no ask ${key}`);
-    return asks.splice(i, 1)[0];
-  };
-  let close!: (id: number) => unknown;
-  let count = -1;
-  let rowsShown = "";
-  createRoot(() => {
-    const server = createMemo(() => ask("list"));
-    const [closing, setClosing] = createOptimisticStore<Record<number, boolean>>(d => {
-      for (const k of Object.keys(d)) delete d[k as any];
-    }, {});
-    const rows = createProjection<{ id: number }[]>(() => server() as any, [], { key: "id" });
-    const openCount = createMemo(() => rows.filter(i => closing[i.id] !== true).length);
-    close = action(function* (id: number) {
-      setClosing(d => {
-        d[id] = true;
+// `show`: `<Show when={closing[r.id] !== true}>`'s memo chain. `ternary`: the
+// compiled `<>{closing[r.id] !== true ? <b/> : undefined}</>` (and Babel's
+// lowered `<Show>`), whose row memo re-creates its condition memo every run:
+// the new one is born in the guess's lane pass and reads the re-asked rows as
+// the one it replaces did.
+for (const shape of ["show", "ternary"] as const)
+  test(`count and rows agree on a close guessed during another close's refresh (#4824, ${shape})`, async () => {
+    const asks: { key: string; res: (v: any) => void; rej: (e: any) => void }[] = [];
+    const ask = (key: string) => new Promise<any>((res, rej) => asks.push({ key, res, rej }));
+    const take = (key: string) => {
+      const i = asks.findIndex(a => a.key === key);
+      if (i < 0) throw new Error(`no ask ${key}`);
+      return asks.splice(i, 1)[0];
+    };
+    let close!: (id: number) => unknown;
+    let count = -1;
+    let rowsShown = "";
+    createRoot(() => {
+      const server = createMemo(() => ask("list"));
+      const [closing, setClosing] = createOptimisticStore<Record<number, boolean>>(d => {
+        for (const k of Object.keys(d)) delete d[k as any];
+      }, {});
+      const rows = createProjection<{ id: number }[]>(() => server() as any, [], { key: "id" });
+      const openCount = createMemo(() => rows.filter(i => closing[i.id] !== true).length);
+      close = action(function* (id: number) {
+        setClosing(d => {
+          d[id] = true;
+        });
+        try {
+          yield ask(`close:${id}`);
+          refresh(server);
+        } catch {}
       });
-      try {
-        yield ask(`close:${id}`);
-        refresh(server);
-      } catch {}
+      createEffect(
+        () => openCount(),
+        n => {
+          count = n;
+        }
+      );
+      // `<For>` of `<Show when={closing[r.id] !== true}>`: the condition value,
+      // the condition and the value memo, inserted by one render effect.
+      const mapped = mapArray(
+        () => rows,
+        r => {
+          if (shape === "ternary")
+            return createMemo(() => (createMemo(() => closing[r.id] !== true)() ? `#${r.id}` : ""));
+          const value = createMemo(() => closing[r.id] !== true);
+          const condition = createMemo(value, { equals: (a, b) => !a === !b });
+          return createMemo(() => (condition() ? `#${r.id}` : ""));
+        }
+      );
+      createRenderEffect(
+        () =>
+          mapped()
+            .map(f => f())
+            .filter(Boolean)
+            .join(" "),
+        v => {
+          rowsShown = v;
+        }
+      );
     });
-    createEffect(
-      () => openCount(),
-      n => {
-        count = n;
-      }
-    );
-    // `<For>` of `<Show when={closing[r.id] !== true}>`: the condition value,
-    // the condition and the value memo, inserted by one render effect.
-    const mapped = mapArray(
-      () => rows,
-      r => {
-        const value = createMemo(() => closing[r.id] !== true);
-        const condition = createMemo(value, { equals: (a, b) => !a === !b });
-        return createMemo(() => (condition() ? `#${r.id}` : ""));
-      }
-    );
-    createRenderEffect(
-      () =>
-        mapped()
-          .map(f => f())
-          .filter(Boolean)
-          .join(" "),
-      v => {
-        rowsShown = v;
-      }
-    );
-  });
-  const frames: string[] = [];
-  const snap = () => {
-    const f = `[${count}] ${rowsShown}`.trim();
-    frames.push(f);
-    // F-1: the count and the rows agree in every frame.
-    expect(count, f).toBe(rowsShown ? rowsShown.split(" ").length : 0);
-  };
-  await tick();
-  take("list").res([{ id: 1 }, { id: 3 }, { id: 4 }]);
-  await tick();
-  snap();
-  close(3);
-  await tick();
-  snap();
-  close(1);
-  await tick();
-  snap();
-  take("close:1").res({});
-  await tick();
-  snap();
-  take("close:3").rej(new Error("declined"));
-  await tick();
-  snap();
-  // The guess shows now, beside close #1's re-ask (F-11, D-34 ¶3).
-  close(4);
-  await tick();
-  snap();
-  take("close:4").res({});
-  await tick();
-  snap();
-  while (asks.some(a => a.key === "list")) {
-    take("list").res([{ id: 3 }]);
+    const frames: string[] = [];
+    const snap = () => {
+      const f = `[${count}] ${rowsShown}`.trim();
+      frames.push(f);
+      // F-1: the count and the rows agree in every frame.
+      expect(count, f).toBe(rowsShown ? rowsShown.split(" ").length : 0);
+    };
     await tick();
-  }
-  snap();
-  expect(frames).toEqual([
-    "[3] #1 #3 #4",
-    "[2] #1 #4",
-    "[1] #4",
-    "[1] #4",
-    "[1] #4",
-    "[0]",
-    "[0]",
-    "[1] #3"
-  ]);
-});
+    take("list").res([{ id: 1 }, { id: 3 }, { id: 4 }]);
+    await tick();
+    snap();
+    close(3);
+    await tick();
+    snap();
+    close(1);
+    await tick();
+    snap();
+    take("close:1").res({});
+    await tick();
+    snap();
+    take("close:3").rej(new Error("declined"));
+    await tick();
+    snap();
+    // The guess shows now, beside close #1's re-ask (F-11, D-34 ¶3).
+    close(4);
+    await tick();
+    snap();
+    take("close:4").res({});
+    await tick();
+    snap();
+    while (asks.some(a => a.key === "list")) {
+      take("list").res([{ id: 3 }]);
+      await tick();
+    }
+    snap();
+    expect(frames).toEqual([
+      "[3] #1 #3 #4",
+      "[2] #1 #4",
+      "[1] #4",
+      "[1] #4",
+      "[1] #4",
+      "[0]",
+      "[0]",
+      "[1] #3"
+    ]);
+  });

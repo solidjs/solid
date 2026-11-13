@@ -2548,7 +2548,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       committed = observeFlightHook!(c as Computed<any>, owner);
     else if (
       passLane !== null &&
-      !((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED)
+      (!((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED) ||
+        bornOfLaneRerun(c as Computed<any>))
     )
       // Lane work: served the committed value, unless it read a staging of
       // the flush this pass (lanes.ts `laneServed`, F-2; S-57).
@@ -2652,6 +2653,17 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     schedule();
   }
   return value;
+}
+
+/** A memo's first pass created by a lane re-run of a memo that has a
+ * screen (a condition memo the compiled `{when ? a : b}` re-creates in its
+ * row's memo, #4824): it stands where the one it replaces stood, so lane
+ * work's read of a parent's flight is the screen's for it too. A boundary's
+ * structure, and what a pass with no screen yet creates (a `Loading` the
+ * lane mounts, A29's boundary exemption, #3835), still see the flight. */
+function bornOfLaneRerun(c: Computed<any>): unknown {
+  const p = c._parent as Computed<any> | null;
+  return p?._fn && !((p._statusFlags & STATUS_UNINITIALIZED) | (p._config & CONFIG_FRAME));
 }
 
 /** D-41: a reader served the screen — an untracked read, a frame reader
