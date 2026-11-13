@@ -1487,7 +1487,7 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
 /** Every flight `c` waits on is a `refresh()` re-ask (`_reask`): its own,
  * with no sources, or each source's, through a source that waits on
  * another's flight (a projection over the re-asked memo, #4824). */
-function reasks(c: Computed<any>): boolean {
+export function reasks(c: Computed<any>): boolean {
   return [...(c._x!._pendingSources ?? [c])].every(p => (p === c ? p._x!._reask : reasks(p)));
 }
 /** Lane work re-staged (lanes.ts; `recompute`): the node's subscribers are
