@@ -25,6 +25,7 @@ import {
   MathMLElements,
   VoidElements,
   RawTextElements,
+  trustedHTML,
   type JSX
 } from "@solidjs/web";
 import { ComponentRegistry, TaggedJSXInstance } from "./types.js";
@@ -89,7 +90,7 @@ function createHtml() {
       if (node.type === COMPONENT_NODE) decodeStaticProps(node);
       node.children.forEach(child => buildTemplate(child, false));
     } else if (node.type === TEXT_NODE && !insideTemplate) {
-      textTemplate.innerHTML = node.value;
+      textTemplate.innerHTML = trustedHTML(node.value);
       node.value = textTemplate.content.textContent ?? "";
     }
   };
@@ -102,7 +103,7 @@ function createHtml() {
   const decodeStaticProps = (node: ElementNode | ComponentNode): void => {
     for (const prop of node.props) {
       if (prop.type !== STATIC_PROP || !prop.value.includes("&")) continue;
-      textTemplate.innerHTML = `<i a="${prop.value.replace(/"/g, "&quot;")}"></i>`;
+      textTemplate.innerHTML = trustedHTML(`<i a="${prop.value.replace(/"/g, "&quot;")}"></i>`);
       prop.value = (textTemplate.content.firstChild as Element).getAttribute("a")!;
     }
   };
@@ -110,7 +111,7 @@ function createHtml() {
   const buildNodes = (node: ChildNode): Node => {
     switch (node.type) {
       case TEXT_NODE:
-        textTemplate.innerHTML = node.value;
+        textTemplate.innerHTML = trustedHTML(node.value);
         return document.createTextNode(textTemplate.content.textContent ?? "");
       case EXPRESSION_NODE:
         return document.createComment("+");

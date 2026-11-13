@@ -443,6 +443,45 @@ export function render(code, element, init, options = {}) {
   };
 }
 
+let policy;
+
+/**
+ * Sets the Trusted Types policy that HTML is parsed through.
+ *
+ * A page that enforces `require-trusted-types-for 'script'` rejects a plain
+ * string assigned to `innerHTML`. With a policy set, the runtime assigns the
+ * `TrustedHTML` that `policy.createHTML(html)` returns. It is asked for two
+ * kinds of HTML: the static markup the compiler emitted for a template, and
+ * the HTML a server component sends, which the frames client parses. The app
+ * creates the policy, so its name and its checks stay under the app's
+ * Content Security Policy:
+ *
+ * ```ts
+ * setTrustedTypesPolicy(trustedTypes.createPolicy("my-app", { createHTML: html => html }));
+ * ```
+ *
+ * Call it before the first render. `undefined` goes back to plain strings.
+ */
+export function setTrustedTypesPolicy(
+  policy: { createHTML(html: string): unknown } | undefined
+): void;
+
+export function setTrustedTypesPolicy(value) {
+  policy = value;
+}
+
+/**
+ * What a parse assigns to `innerHTML` for `html`: the policy's `TrustedHTML`
+ * when `setTrustedTypesPolicy` set one, otherwise the string. Integration
+ * plumbing for the frames client, which parses outside this module.
+ * @internal
+ */
+export function trustedHTML(html: string): string;
+
+export function trustedHTML(html) {
+  return policy ? policy.createHTML(html) : html;
+}
+
 function create(html, bypassGuard, flag) {
   if ("_SOLID_DEV_" && isHydrating() && !bypassGuard)
     throw new Error(
@@ -461,7 +500,9 @@ function create(html, bypassGuard, flag) {
         "where the document shell already exists."
     );
   const t = document.createElement("template");
-  t.innerHTML = html;
+  // Not `trustedHTML(html)`: inline, a bundle that sets no policy folds this
+  // to the plain assignment.
+  t.innerHTML = policy ? policy.createHTML(html) : html;
   const node = t.content.firstChild;
   return flag === 2 ? node.firstChild : node;
 } /**
