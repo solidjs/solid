@@ -7572,7 +7572,20 @@ export function registerElementClaim(
 export function registerElementClaim() {
   return noopCleanup;
 }
-function noopCleanup() {} /** Server no-op: returns `node` unchanged. Claims never fire during SSR. */
+function noopCleanup() {}
+// Trusted Types are a DOM concern: on the server a policy has nothing to
+// create, and an isomorphic entry that sets one must not throw.
+export function setTrustedTypesPolicy(
+  policy: { createHTML(html: string): unknown } | undefined
+): void;
+
+export function setTrustedTypesPolicy() {}
+/** Server: markup stays a string. @internal */
+export function trustedHTML(html: string): string;
+
+export function trustedHTML(html) {
+  return html;
+} /** Server no-op: returns `node` unchanged. Claims never fire during SSR. */
 export function claimElement<T extends Element>(node: T, owner?: Owner | null): T;
 
 export function claimElement(node) {
@@ -7609,7 +7622,6 @@ export {
   notSup as addEvent,
   notSup as render,
   notSup as template,
-  notSup as setTrustedTypesPolicy,
   notSup as setProperty,
   notSup as setStatefulProperty,
   notSup as className,
