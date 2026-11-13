@@ -597,6 +597,11 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
       if (l._shown) {
         commitPendingNode(n);
         if (!effect) n._config |= CONFIG_INPUTS_PUBLISHED;
+        // A render effect born in the lane's frame (it never ran) whose
+        // first run the held lane parked, dropped below: the frame stays, so
+        // the row it draws must too — it runs on the committed world (F-1,
+        // #4831). (A lane's pass of an effect always owes a run.)
+        else if (l._held && (n as any)._prevValue === undefined) enqueueSub(n as Computed<any>);
       } else {
         if (x._pendingFirstChild !== null || x._pendingDisposal !== null)
           GlobalQueue._dispose(n as Computed<any>, false, true);
