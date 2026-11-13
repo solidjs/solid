@@ -982,7 +982,16 @@ interface EffectFrameInfo {
   node: Computed<any>;
   causes: ChangeRecord[] | undefined;
 }
-const effectFrames = new WeakMap<ChangeOrigin, EffectFrameInfo>();
+// Frames stay reachable from the history buffers; the effect is held weakly.
+const effectFrames = new WeakMap<
+  ChangeOrigin,
+  { node: WeakRef<Computed<any>>; causes: ChangeRecord[] | undefined }
+>();
+function effectFrame(origin: ChangeOrigin): EffectFrameInfo | undefined {
+  const frame = effectFrames.get(origin);
+  const node = frame?.node.deref();
+  return node && { node, causes: frame!.causes };
+}
 /**
  * The nodes of the open effect frames, innermost last — parallel to the
  * `effect` entries of `originFrames`, so the frame on top resolves to its
@@ -1004,7 +1013,10 @@ function noteEffectOrigin(origin: ChangeOrigin): void {
   if (originFrames[originFrames.length - 1] !== origin) return;
   const node = effectStack[effectStack.length - 1];
   if (node !== undefined)
-    effectFrames.set(origin, { node, causes: (node as AttributedNode)._devRunCauses });
+    effectFrames.set(origin, {
+      node: new WeakRef(node),
+      causes: (node as AttributedNode)._devRunCauses
+    });
 }
 
 /** The interaction the innermost open frame runs under, else the ambient one. */
@@ -1881,7 +1893,7 @@ function findEffectCycle(
   for (const write of roots) {
     const origin = write.origin;
     if (origin === undefined || origin.kind !== "effect") continue;
-    const info = effectFrames.get(origin);
+    const info = effectFrame(origin);
     if (info === undefined) continue;
     if (info.node === target) return [{ effect: info.node, write }];
     if (hops >= EFFECT_CYCLE_MAX_HOPS || visited.has(info.node) || info.causes === undefined)
@@ -2016,7 +2028,7 @@ const relays = new Map<string, RelayState>();
 const copyWrites = new WeakSet<ChangeRecord>();
 const copyReported = new WeakSet<object>();
 /** The node each root write record was stamped on (records are serializable and cannot hold it). */
-const recordNodes = new WeakMap<ChangeRecord, Signal<any> | Computed<any>>();
+const recordNodes = new WeakMap<ChangeRecord, WeakRef<Signal<any> | Computed<any>>>();
 
 /**
  * Write-side bookkeeping for the relay heuristics: who has written this
@@ -2026,10 +2038,9 @@ function trackEffectWrite(node: Signal<any> | Computed<any>, record: ChangeRecor
   const n = node as AttributedNode;
   const origin = record.origin;
   if (origin !== undefined) noteEffectOrigin(origin);
-  const info =
-    origin !== undefined && origin.kind === "effect" ? effectFrames.get(origin) : undefined;
+  const info = origin !== undefined && origin.kind === "effect" ? effectFrame(origin) : undefined;
   const writer = info === undefined ? 0 : devId(info.node);
-  recordNodes.set(record, node);
+  recordNodes.set(record, new WeakRef(node));
   n._devSoleWriter = n._devSoleWriter === undefined || n._devSoleWriter === writer ? writer : null;
   // An apply half that takes no argument cannot be copying its compute
   // output: a match is coincidence (`createEffect(open, () =>
@@ -2115,7 +2126,7 @@ function checkRelayTear(
   for (const root of roots) {
     const origin = root.origin;
     if (origin === undefined || origin.kind !== "effect") return;
-    const info = effectFrames.get(origin);
+    const info = effectFrame(origin);
     // Own-source cycles are EFFECT_WRITES_OWN_SOURCE's; a create-run relay
     // is initial sync, not a tear for one change.
     if (info === undefined || info.node === victim || info.causes === undefined) return;
@@ -2138,7 +2149,7 @@ function checkRelayTear(
   if (state === undefined) relays.set(key, (state = { count: 0, warned: false }));
   state.count++;
   const copy = copyWrites.has(write);
-  const target = recordNodes.get(write) as AttributedNode | undefined;
+  const target = recordNodes.get(write)?.deref() as AttributedNode | undefined;
   const soleWriter = target !== undefined && target._devSoleWriter === devId(relay.node);
   // Derivable outright: the value is the compute output and nothing else
   // writes the signal. A copy INTO a signal that has other writers is the
