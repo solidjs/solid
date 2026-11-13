@@ -30,7 +30,7 @@ As a growing community, Solid has an on-going need for developers, writers, desi
 
 ### Docs Team
 
-  To get involved, check out our [Contributing Guide](https://github.com/solidjs/solid-docs-next/blob/main/CONTRIBUTING.md) in the new docs repository!
+  To get involved, check out our [Contributing Guide](https://github.com/solidjs/solid-docs/blob/main/CONTRIBUTING.md) in the new docs repository!
   
 - General/Core Docs
   - Write new drafts for the new docs repo
@@ -38,7 +38,7 @@ As a growing community, Solid has an on-going need for developers, writers, desi
   - Create videos, diagrams, and other multimedia content
 - Solid Start 1.0 API
   - Draft an initial, comprehensive set of docs for Solid Start
-  - This currently takes place in [this subfolder](https://github.com/solidjs/solid-docs-next/tree/main/content/start) on `solid-docs-next`
+  - This currently takes place in [this subfolder](https://github.com/solidjs/solid-docs/tree/main/src/routes/solid-start/v1) on `solid-docs`
 
 ### Infrastructure Team
 
