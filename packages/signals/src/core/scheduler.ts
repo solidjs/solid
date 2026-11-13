@@ -1482,6 +1482,13 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
   if (__OBSERVE__ && fanOut >= GRAPH_SIZE_WARN_AT) noteFanOut(node, fanOut);
 }
 
+/** Every flight `c` waits on is a `refresh()` re-ask (`_reask`): its own,
+ * with no sources, or each source's, through a source that waits on
+ * another's flight (a projection over the re-asked memo, #4824). */
+function reasks(c: Computed<any>): boolean {
+  const ps = c._x!._pendingSources;
+  return ps ? [...ps].every(p => (p === c ? p._x!._reask : reasks(p))) : c._x!._reask;
+}
 /** Lane work re-staged (lanes.ts; `recompute`): the node's subscribers are
  * notified (`insertSubs`), and the lane's members among them re-derive as
  * the lane's work (REACTIVE_LANE_DIRTY), their runs held with it — not as
@@ -1538,12 +1545,18 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
     // lane this flush moves; its pass reads that lane's guess and links the
     // two (`enterLane`, A15), and `dissolveLane` skips a node it lost.
     if (
-      t &&
-      !(c as any)._type &&
-      (c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
       (c._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
-      (resolveTx(t) === resolveTx(l._parent!) ||
-        [...(c._x!._pendingSources ?? [c])].every(p => p._x!._reask))
+      (!(c as any)._type
+        ? t &&
+          (c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
+          (resolveTx(t) === resolveTx(l._parent!) || reasks(c))
+        : // A render effect pending on another hold's re-asks, held by it or
+          // by none, the same (#4824): its first read of the re-asked rows
+          // threw it back out of the lane, and the guess beside a reader
+          // that showed it waited on the refresh (F-1, F-11).
+          (c as any)._type === EFFECT_RENDER &&
+          (!t || (c._config & CONFIG_HELD && resolveTx(t) !== resolveTx(l._parent!))) &&
+          reasks(c))
     )
       list(c, (t = l));
     if ((c as any)._type === EFFECT_RENDER && node._config & CONFIG_VERDICT)
