@@ -52,6 +52,8 @@ import {
   queuePendingNode,
   schedule,
   txOf,
+  reasks,
+  unhold,
   freshHook,
   holdWorkHook,
   stageMarkHook,
@@ -1134,7 +1136,15 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
           (sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
           !(sub as any)._type
         )
-          joinFuture(txOf(sub));
+          if (guessing && sub._statusFlags & STATUS_PENDING && reasks(sub))
+            // A hold that waits on re-asks only (`reasks`) holds nothing new
+            // (D-34 ¶3): a flight a write sent into a memo it holds that way
+            // is the write's frame, not the hold's, and the memo leaves the
+            // hold — its next pass publishes with that frame. Only a guess
+            // keeps such a hold open past its readers — its own `refresh()`
+            // is out (A17) — so only a build with guesses asks (#4828).
+            unhold(sub);
+          else joinFuture(txOf(sub));
       }
       notifyStatus(sub, status, error);
       // A derived store's derive (store/projection.ts): marked, not re-run —
