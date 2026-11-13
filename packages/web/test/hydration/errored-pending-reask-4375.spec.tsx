@@ -99,24 +99,16 @@ describe("#4375: a served rejection read only through isPending, hydrated", () =
           expect(asks()).toEqual([]);
 
           // The input changes (mid-hydration for `slow`, streamed): both
-          // memos ask, of the truth, and the page stays live. Over
-          // `latest(s)`, m0's pass reads `s` plainly beside the window, so
-          // it is the hold's work and asks the frame's `m0:5` (F-2's
-          // producer clause, S-51, 2026-11-07); the display-ahead
-          // intermediate `1 + latest(s) + s()` (`m0:4`, `m1:5`) is no longer
-          // asked. Most shapes ask `m0:5` twice — the resume's later round
-          // re-asks the same question instead of adopting the flight (F-9);
-          // a same-question re-ask, not a stale one, left as a follow-up.
+          // memos ask, each question once, and the page stays live. Over
+          // `latest(s)`, m0's frame pass asks the frame's `m0:5` (R5), the
+          // parked flush re-derives it in the verdict lane for the
+          // intermediate `1 + latest(s) + s()` (`m0:4`, `m1:5`), and the
+          // landing adopts the frame's `m0:5` (F-9). (S-51, re-ruled 2026-11-12:
+          // a pass that asks reads ahead on the screen.)
           write(2);
           await settle();
           expect(asks()).not.toContain("m0:3");
-          expect(asks()).not.toContain("m0:4");
-          if (o.latest)
-            expect(asks()).toEqual(
-              mode === "streamed" && !o.inside && !o.slow
-                ? ["m0:5", "m1:6"]
-                : ["m0:5", "m0:5", "m1:6"]
-            );
+          if (o.latest) expect(asks()).toEqual(["m0:5", "m0:4", "m1:5", "m1:6"]);
           else expect(asks().slice(-2)).toEqual(["m0:5", "m1:6"]);
           for (const c of held) {
             applyChunk(container, c, false);

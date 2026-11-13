@@ -41,6 +41,10 @@ const LinkAttributes = /*#__PURE__*/ new Set([
 // slot in the same parent" without consulting external bookkeeping.
 const $$SLOT = /*#__PURE__*/ Symbol("slot");
 
+// Index stamp `reconcileArrays` leaves on each node of the new window, checked
+// against the new array on read, so a stale stamp is harmless.
+const $$INDEX = /*#__PURE__*/ Symbol("index");
+
 // Guard companion to the `_$host` getter applied by `insert`'s `host` option:
 // records which host accessor a node was last tagged with so unchanged nodes
 // skip the `defineProperty` on subsequent updates.
@@ -267,6 +271,7 @@ export {
   Namespaces,
   DOMElements,
   $$SLOT,
+  $$INDEX,
   $$HOST,
   COMPOSED_BODY_FRAMING,
   isHttpNavigationTarget,

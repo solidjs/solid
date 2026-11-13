@@ -103,6 +103,12 @@ const add = action(function* (todo) {
 // …or keep pre-load items in their own list (an outbox) and render both.
 ```
 
+#### `OPTIMISTIC_WRITE_WHILE_LOADING`
+
+**Message:** "Optimistic write to a source that is loading a new question. The guess is an edit of the previous answer, and the new answer replaces it (D-34). Keep the control unavailable until the source has loaded (inside its `Loading`, or disabled while it is pending), or keep the pending change in a separate list until it lands."
+
+An optimistic setter ran while its source, which has answered before, is loading a new question because an input changed (a selection moved, a route param changed). The setter composes on the previous question's answer, so the guess is an edit of the wrong answer: a guess never shown is void when the new answer lands, and a shown one stands in place of the new answer until its action ends (ruled 2026-11-12, #4795). A `Loading on` re-arm looks like a first load on screen, but the source still holds the old answer. A guess before the first answer (the setter receives `undefined`, S-56) and a guess during a `refresh()` (the same question) are not flagged. Once per source. Production is unchanged. Repair: render the control inside the source's `Loading`, or disable it while the source is pending, or keep the pending change in a separate list until the new answer lands.
+
 #### `STORE_WRITE_OUTSIDE_SETTER`
 
 **Message:** "Writing store property \"n\" outside its setter was ignored. Stores are read-only outside the setter's draft: use `setStore(s => { s.n = value })`."
@@ -113,6 +119,21 @@ A store proxy is read-only outside its setter's draft: a direct assignment, `del
 store.n = 5; // ignored; warns in dev
 setStore(s => {
   s.n = 5; // the write, in the setter's draft
+});
+```
+
+#### `STORE_WRITE_THROUGH_LOADING`
+
+**Message:** "A store setter wrote inside \"child\", which is another store still loading its first answer. The write was dropped: when that store loads, its answer is what shows, as for a write to a loading store itself. Write after it loads, or replace the whole value: `setStore(s => { s.child = value })`."
+
+A store can hold another store: a derive that returns `{ child: inner }` reads `child` through to `inner`. A setter that writes a nested key inside `child` (`s.child.x = 9`) needs `inner`'s contents as the base of its own copy. While `inner` is loading its first answer those contents do not exist, and its seed is never observable. So the nested write is dropped, the same way a write to a loading store is replaced by its first answer. The outer store keeps following `inner` and shows its answer when it lands. The setter's other writes land as usual, and production behaves the same without the warning. `data` carries `{ operation: "set", property }`, where `property` is the key holding the loading store. Replacing the whole value needs no base and works at any time.
+
+```js
+setOuter(s => {
+  s.child.x = 9; // dropped while `inner` loads; reported in dev
+});
+setOuter(s => {
+  s.child = { x: 9, y: 0 }; // fine
 });
 ```
 
@@ -1030,7 +1051,9 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `REACTIVE_WRITE_IN_OWNED_SCOPE`    | error      | write          | Reactive write/invalidation inside component/computation                                                                                                          |
 | `ASYNC_STORE_SETTER`               | error      | write          | Store setter callback returned a Promise (setters are synchronous transactions)                                                                                   |
 | `OPTIMISTIC_WRITE_BEFORE_LOAD`     | error      | write          | Optimistic write to a source whose first answer has not landed; no guess is made                                                                                  |
+| `OPTIMISTIC_WRITE_WHILE_LOADING`   | warn       | write          | Optimistic write to a source that answered before and is loading a new question; the new answer replaces the guess (once per source)                              |
 | `STORE_WRITE_OUTSIDE_SETTER`       | warn       | write          | Store proxy written, deleted from, or defined on outside its setter; the write is ignored (once per store object and key)                                         |
+| `STORE_WRITE_THROUGH_LOADING`      | warn       | write          | Store setter wrote inside another store still loading its first answer; the nested write is dropped                                                               |
 | `PENDING_ASYNC_UNTRACKED_READ`     | error      | async          | Reading pending async outside tracking scope                                                                                                                      |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY`   | warn       | async          | Async computation outside Loading boundary (non-halting; root mount is deferred)                                                                                  |
 | `CLEANUP_IN_FORBIDDEN_SCOPE`       | error      | lifecycle      | `onCleanup` inside trackedEffect/onSettled or a ref callback                                                                                                      |

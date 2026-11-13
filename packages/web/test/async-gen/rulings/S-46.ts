@@ -24,9 +24,11 @@ export default {
   title: "The content a display-ahead `Show` opens reads the screen, whoever opened the hold",
   rules: ["D-25"],
   status: "standing",
+  issues: ["#4806"],
   pins: [
     "tests/display-ahead-plain-write-content.test.ts",
-    "web/test/display-ahead-plain-write-content-s46.spec.tsx"
+    "web/test/display-ahead-plain-write-content-s46.spec.tsx",
+    "web/test/display-ahead-show-child-shapes-4806.spec.tsx"
   ],
   names: { s0: "id", m0: "detail", F: "[none]" },
   cases: [
@@ -136,5 +138,7 @@ export default {
         { after: 5, screen: "<span>vs0:1 </span><span>vm0:2 </span><span>vs0:1 </span>" }
       ]
     }
-  ]
+  ],
+  prose:
+    "Ruled 2026-11-12 (#4806): the shape of the content never changes its seat. An element, a fragment, text beside a hole, a function child, plain text `{id()}` and the compiled ternary `{latest(id) > 0 ? id() : …}` are each the mount this row describes; text read in the gate's own pass holds the verdict lane as a born-held element does."
 } satisfies Ruling;

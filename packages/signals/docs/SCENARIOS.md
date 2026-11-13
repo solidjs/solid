@@ -808,9 +808,9 @@ const [x, setX] = createSignal(0);
 <!-- /ruling -->
 
 <!-- ruling:S-46 -->
-### S-46. The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-25
+### S-46. The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-25 (#4806)
 
-_Generated from `packages/web/test/async-gen/rulings/S-46.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/display-ahead-plain-write-content.test.ts`, `web/test/display-ahead-plain-write-content-s46.spec.tsx`._
+_Generated from `packages/web/test/async-gen/rulings/S-46.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/display-ahead-plain-write-content.test.ts`, `web/test/display-ahead-plain-write-content-s46.spec.tsx`, `web/test/display-ahead-show-child-shapes-4806.spec.tsx`._
 
 **Case 1.**
 
@@ -870,6 +870,8 @@ const detail = createMemo(async () => fetch(1 + id()));
 | 0 | detail(1) lands; tick | `id 0 \| detail 1 \| [none]`     |                                                      |
 | 1 | setId(1); flush()     | `id 0 \| detail 1 \| [fallback]` | S-31's form: the boundary catches the born-held read |
 | 2 | detail(2) lands; tick | `id 1 \| detail 2 \| id 1`       |                                                      |
+
+Ruled 2026-11-12 (#4806): the shape of the content never changes its seat. An element, a fragment, text beside a hole, a function child, plain text `{id()}` and the compiled ternary `{latest(id) > 0 ? id() : …}` are each the mount this row describes; text read in the gate's own pass holds the verdict lane as a born-held element does.
 <!-- /ruling -->
 
 ### S-39. A later unread value still throws — D-28
@@ -1258,12 +1260,12 @@ const slow = createDeferred(() => fetchSlow(period())); // lands in 10s
 
 ## G. A question is asked only of the truth (ruled 2026-11-07)
 
-Six rows ruled in one sitting, prompted by the `experiment/unified-updates` branch (GabbeV): its tests were run against `next` and the screens that differed were put on a table. The ruling that settled them is F-2's producer clause and F-6's limit: nothing asks of the value the screen keeps; the display is the one place a value may sit beside the verdict about its successor, because the display is declared, terminal, and keeps rather than computes. S-51, S-53, S-54, S-56 and S-57 are ruled and not built; S-52's #4349 shape is ruled and not built; S-55 is standing.
+Six rows ruled in one sitting, prompted by the `experiment/unified-updates` branch (GabbeV): its tests were run against `next` and the screens that differed were put on a table. The ruling that settled them is F-2's producer clause and F-6's limit: nothing asks of the value the screen keeps; the display is the one place a value may sit beside the verdict about its successor, because the display is declared, terminal, and keeps rather than computes. S-51, S-53, S-54, S-56 and S-57 are ruled and not built; S-52's #4349 shape is ruled and not built; S-55 is standing. **Amended 2026-11-12:** S-51 is re-ruled. A pass that asks reads ahead on the screen as a sync pass does, and the producer clause and F-6's limit are replaced (F-2, F-6); the other rows stand.
 
 <!-- ruling:S-51 -->
-### S-51. A question is asked only of the truth: an async derivation of a held value is the hold's, never a display-ahead pass — F-2, F-6, D-25 (#4677)
+### S-51. A pass that asks reads ahead on the screen as a sync pass does: it answers the screen's question for the display, the landed world's for the frame — F-2, F-6, D-23, D-25 (#4677, #4778)
 
-_Generated from `packages/web/test/async-gen/rulings/S-51.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/ispending-async-derivation-4677.test.ts`._
+_Generated from `packages/web/test/async-gen/rulings/S-51.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/ispending-async-derivation-4677.test.ts`, `tests/ispending-memo-wrapped-asker-4778.test.ts`, `tests/async-reads-ahead-matrix.test.ts`._
 
 ```tsx
 const [id, setId] = createSignal(0);
@@ -1272,18 +1274,19 @@ const badge = createMemo(async () => fetch(1 + id() + isPending(id)));
 <span>{id()} {details()} {isPending(id)} {badge()}</span>
 ```
 
-| # | Action                                 | Screen                                                        | Notes                                                                                                                                                                                                            |
-| --- | -------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0 | details(1) lands; badge(1) lands; tick | `id 0 \| details 1 \| isPending(id) false \| badge 1`         | primed                                                                                                                                                                                                           |
-| 1 | setId(2); flush()                      | `id 0 \| details 1 \| isPending(id) true \| badge 1`          | `setId(2)`: `badge` asks, so it is the hold's and asks once, of the truth — `badge(2, false)`; nothing seats the `isPending(id)` hole in a lane, so it shows `true` now beside the kept badge (ruled 2026-11-07) |
-| 2 | details(3) lands; tick                 | —                                                             | one answer landed; the frame holds on the other                                                                                                                                                                  |
-| 3 | badge(3) lands; tick                   | `id 2 \| details 3 \| isPending(id) false \| badge 3`         | the frame                                                                                                                                                                                                        |
-| 4 | nothing to settle; tick                | —                                                             | no third flight was ever asked                                                                                                                                                                                   |
-| ✗ |                                        | after 3: `id 0 \| details 1 \| isPending(id) true \| badge 2` | `badge(0, true)`: a question asked with the value the screen keeps, and its answer shown                                                                                                                         |
+| # | Action                                 | Screen                                                         | Notes                                                                                                                                                                                                                                    |
+| --- | -------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 | details(1) lands; badge(1) lands; tick | `id 0 \| details 1 \| isPending(id) false \| badge 1`          | primed                                                                                                                                                                                                                                   |
+| 1 | setId(2); flush()                      | —                                                              | `setId(2)`: `details(2)` holds the write. The badge's pass runs on the screen — `id` 0, `isPending(id)` true — and asks `badge(0, true)`. Nothing shows until that answers: the badge reads the verdict, so the two show together (D-23) |
+| 2 | details(3) lands; tick                 | —                                                              | `details(2)` landed; the hold waits on its display                                                                                                                                                                                       |
+| 3 | badge(2) lands; tick                   | `id 0 \| details 1 \| isPending(id) true \| badge 2`           | `isPending(id)` and `badge(0, true)` in one frame (F-6). The hold lands behind it and asks `badge(2, false)`; the landing's frame waits for that answer (F-1)                                                                            |
+| 4 | badge(3) lands; tick                   | `id 2 \| details 3 \| isPending(id) false \| badge 3`          | the frame                                                                                                                                                                                                                                |
+| ✗ |                                        | after 3: `id 2 \| details 3 \| isPending(id) false \| badge 2` | the landed `id` beside `badge(0, true)`: the landing's frame waits for the answer to its own question (F-1, F-2)                                                                                                                         |
+| ✗ |                                        | after 3: `id 0 \| details 1 \| isPending(id) true \| badge 1`  | the verdict beside the badge that predates it: `badge` reads that verdict (D-23)                                                                                                                                                         |
 
-Built 2026-11-07 (`askerJoins`): the badge, an asker, reads the staging and is the frame's; the `truth-asks` oracle finds nothing here now.
+Declared before `details`, the badge's pass is the frame's first: it asks `badge(2, false)` at the write, the hold waits on that flight and the landing adopts it (`tests/async-reads-ahead-matrix.test.ts`, the `holderLast` rows).
 
-The #4677 issue's other order (the stale answer landing first) disappears with the stale question. L2's rule 6 (2026-10-04), which seated a verdict reader's whole pass in a lane, is narrowed by this ruling to passes that do not ask: F-6's limit.
+Ruled 2026-11-12 (C): this replaces the 2026-11-07 producer clause, under which a pass that asks was the hold's and never a display-ahead reader. That clause made `isPending`/`latest` mean different things in an async pass and a sync one, and a memo between them changed the answer (#4778). The cost of this ruling is requests: the screen's question is asked beside the frame's, and the display's reveal — the `isPending(id)` hole included — waits for it.
 <!-- /ruling -->
 
 <!-- ruling:S-52 -->
@@ -1336,7 +1339,7 @@ const both = createMemo(() => 1 + isPending(x) + x());
 | 1 | action (no yield): setS(1); flush() | `both 44` | `1 + 1 + 42`: the memo is display — it feeds a binding and asks nothing — so hoisting the pair into it changes no screen (S-27's memo row, 11-05) |
 | 2 | x(2) lands; tick                    | `both 3`  |                                                                                                                                                   |
 
-Ruled 2026-11-07. The display — render effects, compiled bindings, user effects, and the sync derivations that feed them — may hold the value it showed beside the verdict about its successor, because it is declared (`isPending`, `latest`), terminal, and keeps rather than computes. That is the one inconsistency the screen is allowed, and the only consumer barred from it is one that asks (S-51). The #4349 pin's held shape was the odd one out: the action's body ending inside the call is not a reason for the display to wait.
+Ruled 2026-11-07. The display — render effects, compiled bindings, user effects, and the sync derivations that feed them — may hold the value it showed beside the verdict about its successor, because it is declared (`isPending`, `latest`). That is the one inconsistency the screen is allowed. (The 2026-11-07 text also called the display terminal and barred a pass that asks from it; since 2026-11-12 a pass that asks reads ahead the same way, S-51.) The #4349 pin's held shape was the odd one out: the action's body ending inside the call is not a reason for the display to wait.
 <!-- /ruling -->
 
 <!-- ruling:S-53 -->
@@ -1624,7 +1627,7 @@ const m1 = createMemo(() => 1 + detail() + s1()); // throws when the input % 4 =
 | 1 | setS1(2) in an action; the action lands; setId(3); tick | `[root error]` | #4405's minimized shape: the action's landing, a write that poisons `m1` and (variant) a remount of the gate in one tick                                                                                                                                                                                                                                                                                                                                       |
 | 2 | setS1(1) in an action                                   | —              | a second action re-asks `detail` through `latest(s1)`; the remounted gate's old content is a zombie until the hold lands and reads the same errored memo. It settles in every hop count: before this case was built the one-hop gate looped ("Potential Infinite Loop Detected") — the zombie retried the errored memo every round (a later cycle's retry, PJ-R35), and the fresh error re-derived the live gate, whose retry next round re-derived the zombie |
 
-PR #4708 pinned a hop-less `<Show>` as never painting; with real JSX it paints at the landing and tears only during the flight, the same way `<Show>` did before S-46. The runner's `gate` variant here is the gate as written by hand, not an emulation. Cases ″ and ‴ (2026-11-08, #4723 review): the same mount under a guess lane — the write inside an action on an optimistic `id` — is the same mount; lane work served the screen (A15) is the one exception D-25 makes for no leaf a probing pass opened.
+PR #4708 pinned a hop-less `<Show>` as never painting; with real JSX it paints at the landing and tears only during the flight, the same way `<Show>` did before S-46. The runner's `gate` variant here is the gate as written by hand, not an emulation. Cases ″ and ‴ (2026-11-08, #4723 review): the same mount under a guess lane — the write inside an action on an optimistic `id` — is the same mount; lane work served the screen (A15) is the one exception D-25 makes for no leaf a probing pass opened. Text content counts as the mount too (S-46, ruled 2026-11-12).
 <!-- /ruling -->
 
 ### S-59. A store guess's slot is the point of write: a whole-array rewrite is the rows it changed — D-33, F-11, D-41

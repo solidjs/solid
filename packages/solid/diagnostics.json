@@ -342,6 +342,15 @@
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/optimistic-write-before-load"
   },
   {
+    "code": "OPTIMISTIC_WRITE_WHILE_LOADING",
+    "kind": ["write"],
+    "severity": ["warn"],
+    "category": "write",
+    "trigger": "Optimistic write to a source that answered before and is loading a new question; the new answer replaces the guess (once per source)",
+    "repair": "An optimistic setter ran while its source, which answered before, is loading a new question because an input changed: the setter composed on the previous answer, and the new answer replaces the guess (D-34, ruled 2026-11-12).",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/optimistic-write-while-loading"
+  },
+  {
     "code": "PENDING_ASYNC_FORBIDDEN_SCOPE",
     "kind": ["async"],
     "severity": ["warn"],
@@ -547,6 +556,15 @@
     "trigger": "Store proxy written, deleted from, or defined on outside its setter; the write is ignored (once per store object and key)",
     "repair": "A store proxy was written, deleted from, or had a property defined on it outside its setter — `store.n = 5`, `store.items.push(x)`, `delete store.user` — and the write was ignored.",
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/store-write-outside-setter"
+  },
+  {
+    "code": "STORE_WRITE_THROUGH_LOADING",
+    "kind": ["write"],
+    "severity": ["warn"],
+    "category": "write",
+    "trigger": "Store setter wrote inside another store still loading its first answer; the nested write is dropped",
+    "repair": "A store setter wrote inside a value that is another store still loading its first answer (`setOuter(s => { s.child.x = 9 })`, where `outer`'s derive returned `{ child: inner }`).",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/store-write-through-loading"
   },
   {
     "code": "STRICT_READ_UNTRACKED",

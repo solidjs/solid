@@ -59,6 +59,8 @@ import {
   queuePendingNode,
   schedule,
   txOf,
+  reasks,
+  unhold,
   freshHook,
   holdWorkHook,
   stageMarkHook,
@@ -516,10 +518,9 @@ export function handleAsync<T>(
   // fired _flightTeardown. A future non-recompute registration path must
   // release it here before overwriting _inFlight.
   ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
-  // The derivation asks (F-2's producer clause): its last answer was a
-  // flight, window or not. A plain or `isPending` read of a held node by
-  // such a pass is the hold's, never the screen's (`frameRead`,
-  // `verdictValue`). `holdWork` (D-25) pairs the bit with CONFIG_OWN_PROBE.
+  // The derivation asks: its last answer was a flight, window or not.
+  // `holdWork` (D-25) pairs the bit with CONFIG_OWN_PROBE, and the seam
+  // parks a frame flight of one (verdict.ts `r5`, R5).
   // Kept by the verdict engine alone (`holdWorkHook`): a build without it
   // folds the bit's upkeep away.
   if (holdWorkHook) el._config |= CONFIG_ASYNC;
@@ -1143,7 +1144,15 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
           (sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
           !(sub as any)._type
         )
-          joinFuture(txOf(sub));
+          if (guessing && sub._statusFlags & STATUS_PENDING && reasks(sub))
+            // A hold that waits on re-asks only (`reasks`) holds nothing new
+            // (D-34 ¶3): a flight a write sent into a memo it holds that way
+            // is the write's frame, not the hold's, and the memo leaves the
+            // hold — its next pass publishes with that frame. Only a guess
+            // keeps such a hold open past its readers — its own `refresh()`
+            // is out (A17) — so only a build with guesses asks (#4828).
+            unhold(sub);
+          else joinFuture(txOf(sub));
       }
       notifyStatus(sub, status, error);
       // A derived store's derive (store/projection.ts): marked, not re-run —

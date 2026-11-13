@@ -161,21 +161,16 @@ function trySmallMove<Item, MappedItem>(
   let budget = 256;
   let i = start;
   let j = start;
-  let inRun = false;
   while (i <= oldEnd && j <= newLen - 1) {
     const oldItem = oldItems[i];
     const newItem = newItems[j];
     if (oldItem === newItem) {
-      if (!inRun) {
-        runs.push(i, j, 0);
-        inRun = true;
-      }
-      runs[runs.length - 1]++;
-      i++;
-      j++;
+      const from = i;
+      do j++;
+      while (++i <= oldEnd && j < newLen && oldItems[i] === newItems[j]);
+      runs.push(from, j - i + from, i - from);
       continue;
     }
-    inRun = false;
     // Bounded realignment lookahead, shorter distance wins.
     let del = -1;
     let lim = Math.min(32 - srcPos.length, oldEnd - i, budget);
@@ -215,7 +210,7 @@ function trySmallMove<Item, MappedItem>(
     if (dstPos.length === 32) return false;
     dstPos.push(j);
   }
-  return commitSmallMove(data, newItems, newLen, srcPos, dstPos, runs);
+  return commitSmallMove(data, newItems, newLen, start, srcPos, dstPos, runs);
 }
 
 /** PHASE 2 of the small-move path, in its OWN function so that a pass which
@@ -229,6 +224,7 @@ function commitSmallMove<Item, MappedItem>(
   data: MapData<Item, MappedItem>,
   newItems: Item[],
   newLen: number,
+  start: number,
   srcPos: number[],
   dstPos: number[],
   runs: number[]
@@ -258,15 +254,13 @@ function commitSmallMove<Item, MappedItem>(
   // and if a displaced identity also occurs inside a run the two algorithms
   // can hand different occurrences different owners (row-local state moves;
   // a shrink could dispose the wrong one). Decline that case — general path.
-  if (srcPos.length !== 0 || dstPos.length !== 0) {
-    const displaced = new Set<Item>();
-    for (i = 0; i < srcPos.length; i++) displaced.add(oldItems[srcPos[i]]);
-    for (j = 0; j < dstPos.length; j++) displaced.add(newItems[dstPos[j] >> 6]);
-    for (let r = 0; r < runs.length; r += 3) {
-      const ro = runs[r];
-      for (let a = 0, n = runs[r + 2]; a < n; a++)
-        if (displaced.has(oldItems[ro + a])) return false;
-    }
+  // Every displaced identity is a `srcPos` item; any other one in the window sits in a run.
+  for (i = 0; i < srcPos.length; i++) {
+    const item = oldItems[srcPos[i]];
+    // `indexOf` skips holes, which the scan above read as `undefined` rows.
+    if (item === undefined) return false;
+    for (j = start - 1; (j = oldItems.indexOf(item, j + 1)) !== -1; )
+      if (!srcPos.includes(j)) return false;
   }
   // PHASE 2: commit.
   if (__DEV__) smallMoveHits++;
@@ -293,7 +287,7 @@ function commitSmallMove<Item, MappedItem>(
   data._mappings = mappings;
   data._nodes = nodes;
   data._len = newLen;
-  data._items = newItems.slice(0);
+  data._items = newItems;
   // Dispose unmatched sources LAST (general-path ordering).
   for (i = 0; i < srcPos.length; i++) {
     if (consumed === undefined || !consumed[i]) oldNodes[srcPos[i]].dispose();
@@ -423,9 +417,11 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
 // Not a per-call closure: V8 drops a dead closure's optimized code at each major GC.
 function updateKeyedRows<Item, MappedItem>(
   this: MapData<Item, MappedItem>,
-  newItems: readonly Item[],
+  list: readonly Item[],
   newLen: number
 ): void {
+  // The next pass's `_items`, taken first: a store list answers each read of a slot through a trap.
+  const newItems = list.slice(0);
   let i: number,
     j: number,
     // The stage slot a mapper writes its row/index signal into: `j` on the
@@ -505,7 +501,7 @@ function updateKeyedRows<Item, MappedItem>(
     this._nodes = nodes;
     rows && (this._rows = rows);
     indexes && (this._indexes = indexes);
-    this._items = newItems.slice(0);
+    this._items = newItems;
     this._len = newLen;
   } else {
     let start: number,
@@ -570,7 +566,7 @@ function updateKeyedRows<Item, MappedItem>(
     // length — the common post-reconcile shape): keep the same mapped
     // array identity so downstream consumers don't re-run at all
     if (start === newLen && this._len === newLen) {
-      this._items = newItems.slice(0);
+      this._items = newItems;
       return;
     }
 
@@ -597,7 +593,7 @@ function updateKeyedRows<Item, MappedItem>(
       const hi = Math.min(end, m + 32);
       let k = Math.max(start, m - 32);
       while (k <= hi && this._items[k] !== probe) k++;
-      if (k <= hi && trySmallMove(this, newItems as Item[], newLen, start)) return;
+      if (k <= hi && trySmallMove(this, newItems, newLen, start)) return;
     }
 
     const dif = newLen - this._len;
@@ -689,8 +685,7 @@ function updateKeyedRows<Item, MappedItem>(
     commitWindow(this, newItems, newLen, start, end, newEnd, tempNodes, rows, indexes);
     this._mappings = temp;
     this._len = newLen;
-    // save a copy of the mapped items for the next update
-    this._items = newItems.slice(0);
+    this._items = newItems;
     if (removed) for (i = 0; i < removed.length; i++) removed[i].dispose();
     if (
       __OBSERVE__ &&

@@ -49,6 +49,10 @@ jobs:
             host: windows-latest
           - target: wasm32-wasip1-threads
             host: ubuntu-latest
+            # Rust 1.100.0 links crt1-reactor.o itself and napi-build 2.4.1
+            # adds it again, so the link fails with "duplicate symbol:
+            # _initialize". Revisit when napi-build stops adding it.
+            toolchain: "1.99.1"
     name: build ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
     steps:
@@ -56,8 +60,9 @@ jobs:
         with:
           ref: ${{ inputs.source-ref || github.sha }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ matrix.settings.toolchain || 'stable' }}
           targets: ${{ matrix.settings.target }}
 
       - uses: Swatinem/rust-cache@v2

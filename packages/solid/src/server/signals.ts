@@ -1154,6 +1154,11 @@ const SLOTS = /* @__PURE__ */ Symbol("settledSlots");
 // fresh one per pass. Same lifetime and keying rationale as SLOTS above.
 const PROJECTION_SLOTS = /* @__PURE__ */ Symbol("projectionSlots");
 
+// A retry pass adopts or joins a slot without serializing it again (#4809).
+export function hasAsyncSlot(ctx: object, id: string): boolean {
+  return !!((ctx as any)[SLOTS]?.[id] || (ctx as any)[PROJECTION_SLOTS]?.[id]);
+}
+
 function adoptSlot(comp: ServerComputation<any>, slot: SlotRecord) {
   if (slot.s === 1) {
     comp.value = slot.v;

@@ -2553,10 +2553,22 @@ function removeUntil(parent, n, stop) {
   }
 }
 
+/**
+ * @internal What `parseFragment` assigns for an HTML string. The client entry
+ * installs the DOM runtime's `trustedHTML`, which is the app's Trusted Types
+ * policy when `setTrustedTypesPolicy` set one. Unset (this module on its own,
+ * or a DOM runtime build without that export), the string is assigned.
+ */
+let trusted;
+/** @internal */
+export function setTrustedHTML(wrap: ((html: string) => unknown) | undefined): void {
+  trusted = wrap;
+}
+
 /** Parse an HTML string into a document fragment, preserving comments. */
 export function parseFragment(html) {
   const template = document.createElement("template");
-  template.innerHTML = html;
+  template.innerHTML = trusted ? trusted(html) : html;
   return template.content;
 }
 

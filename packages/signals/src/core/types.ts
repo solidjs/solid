@@ -121,6 +121,8 @@ export interface NodeExtension {
    * window read this node's staging (verdict.ts `holdStaging`). Stale once
    * that hold lands or dissolves: nothing clears it. Unset until then. */
   _askedIn?: Transaction | number;
+  /** #4776: the hold whose own work read this memo's value (a branch it opened). */
+  _readIn?: Transaction;
   /** `affects()` marks live on this node (affects.ts): declared in-flight
    * changes — `isPending` reads true for it and its derivations while any
    * is live. A count, never a hold. */
@@ -133,7 +135,7 @@ export interface NodeExtension {
   /** R5: the frame pass's flight of a `latest()`/`isPending()` reader the
    * seam re-derived in the verdict lane (lanes.ts `laneSeams`) — the
    * frame's answer to the question it asked, which the transaction's
-   * landing adopts instead of asking it again (lanes.ts `adoptParked`, F-9). Cleared
+   * landing adopts instead of asking it again (verdict.ts `adoptParked`, F-9). Cleared
    * by any later pass. */
   _parked?: PromiseLike<any>;
 }

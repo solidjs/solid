@@ -2,9 +2,9 @@
  * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  */
-// #3997: the node holding focus keeps its connection to the document when the
-// runtime moves it and the browser has `moveBefore()`, so focus survives.
-// Every other node keeps plain `insertBefore()`. jsdom has no `moveBefore()`;
+// #3997: a node the runtime moves keeps its connection to the document where
+// the browser has `moveBefore()`, so focus survives. Every connected node moves
+// this way; new nodes take plain `insertBefore()`. jsdom has no `moveBefore()`;
 // the mock below throws where browsers do (a node or parent outside the
 // document), keeps focus as browsers do, and records each node it moves.
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -71,7 +71,7 @@ function rows(parent: Node, n: number) {
 let seed = 7;
 const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 
-test("a reorder moves the focused node with moveBefore and never detaches it", () => {
+test("a reorder moves kept nodes with moveBefore and never detaches them", () => {
   for (let it = 0; it < 500; it++) {
     const useMarker = it % 2 === 1;
     const parent = document.createElement("div");
@@ -93,7 +93,8 @@ test("a reorder moves the focused node with moveBefore and never detaches it", (
     detached = [];
     reconcileArrays(parent, a, b, marker);
     expect([...parent.childNodes]).toEqual(marker ? [before, ...b, marker] : [before, ...b]);
-    expect(moved.every(n => n === focused)).toBe(true);
+    expect(moved.every(n => (a as Node[]).includes(n))).toBe(true);
+    expect(detached.filter(n => (kept as Node[]).includes(n))).toEqual([]);
     if (focused) {
       expect(detached).not.toContain(focused);
       expect(document.activeElement).toBe(focused);
@@ -116,7 +117,7 @@ test("a focused row moving to the end stays connected (the replaceChild path)", 
   parent.remove();
 });
 
-test("with nothing focused in the list, moves take plain insertBefore", () => {
+test("with nothing focused in the list, rows still move with moveBefore", () => {
   const button = document.body.appendChild(document.createElement("button"));
   button.focus();
   const parent = document.body.appendChild(document.createElement("div"));
@@ -124,7 +125,9 @@ test("with nothing focused in the list, moves take plain insertBefore", () => {
   reconcileArrays(parent, a, [...a].reverse());
   reconcileArrays(parent, [...a].reverse(), [...a.slice(1), a[0]]);
   expect([...parent.childNodes]).toEqual([...a.slice(1), a[0]]);
-  expect(moved).toEqual([]);
+  expect(moved.length).toBeGreaterThan(0);
+  expect(detached).toEqual([]);
+  expect(document.activeElement).toBe(button);
   parent.remove();
   button.remove();
 });

@@ -33,6 +33,10 @@ export interface OptHooks {
    * is the carrier's to tell (the key's leaf is silent), and a landing's
    * truth judged against the live carriers. */
   read(t: StoreTarget, key: PropertyKey): unknown;
+  /** A setter's draft read `key`: a live guess of it is one a guess written
+   * next derives from (#4788, core lanes.ts `readGuesses`); `shape`: a
+   * presence read of `key`, or enumeration (no key), of the key set (#4812). */
+  drafted(t: StoreTarget, key: PropertyKey | undefined, shape?: boolean): void;
   has(t: StoreTarget, key: PropertyKey): boolean | undefined;
   descriptor(
     t: StoreTarget,

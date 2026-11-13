@@ -1,4 +1,5 @@
 import { createEffect, createRoot, createSignal, flush, getOwner, mapArray } from "../src/index.js";
+import { __smallMoveHits } from "../src/map.js";
 
 it("should compute keyed map", () => {
   const [$source, setSource] = createSignal([{ id: "a" }, { id: "b" }, { id: "c" }]);
@@ -310,4 +311,42 @@ it("should pass a raw index for keyed:false rows", () => {
   expect(map()[0]).toBe(first);
   expect(first.value).toBe("b");
   expect(first.index).toBe(0);
+});
+
+it("should read each slot of a proxied list once per pass", () => {
+  let reads: number[] = [];
+  const proxied = (rows: { id: number }[]) =>
+    new Proxy(rows, {
+      get(target, key, receiver) {
+        if (typeof key === "string" && +key >= 0) reads[+key] = (reads[+key] ?? 0) + 1;
+        return Reflect.get(target, key, receiver);
+      }
+    });
+  const once = (length: number) => new Array(length).fill(1);
+  const rows = Array.from({ length: 100 }, (_, id) => ({ id }));
+  const ids = (list: { id: number }[]) => list.map(row => row.id);
+  const [$source, setSource] = createSignal(proxied(rows));
+  const map = mapArray($source, row => row.id);
+  const pass = (next: { id: number }[]) => {
+    reads = [];
+    setSource(proxied(next));
+    flush();
+    expect(map()).toEqual(ids(next));
+    expect(reads).toEqual(once(next.length));
+  };
+
+  expect(map()).toEqual(ids(rows));
+  expect(reads).toEqual(once(100));
+
+  pass(rows.slice());
+
+  const swapped = rows.slice();
+  [swapped[10], swapped[80]] = [swapped[80], swapped[10]];
+  const hits = __smallMoveHits();
+  pass(swapped);
+  expect(__smallMoveHits()).toBe(hits + 1);
+
+  const replaced = swapped.slice();
+  replaced[50] = { id: 100 };
+  pass(replaced);
 });

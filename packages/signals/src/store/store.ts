@@ -52,6 +52,7 @@ import {
 import {
   captureWriteSnapshot,
   context,
+  pullComputed,
   devRead,
   disposalDepth,
   isEqual,
@@ -84,6 +85,7 @@ import {
   warnStrictReadUntracked
 } from "../core/dev.js";
 import { signalHook } from "../core/identities.js";
+import { NotReadyError } from "../core/error.js";
 import { link, setSlotUnobserved } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
 import { checkForeignRead } from "../core/copies.js";
@@ -721,7 +723,19 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     ) {
       pb = target.pb = Object.create(v) as Record<PropertyKey, any>;
       target.ovl = true;
-    } else pb = target.pb = cloneRaw(v, target);
+    } else
+      try {
+        pb = target.pb = cloneRaw(v, target);
+      } catch (e) {
+        // #4808: a nested write through a chained store still loading its
+        // first answer (the clone reads it) is dropped, as a write to a
+        // loading store is — the first answer replaces it (A25) — and the
+        // outer keeps following the inner store.
+        if (!(e instanceof NotReadyError)) throw e;
+        if (__DEV__) devWriteThroughLoading(target);
+        // The write lands on a backing no one reads.
+        return {};
+      }
     if (!directCommit) stageOn(target, pb);
   }
   return pb;
@@ -1516,10 +1530,14 @@ function readSource(
   // A key whose leaf carries a lane's value (a guess, S4): the leaf serves
   // it — the container's frame is not consulted (a reader is not made a
   // stale reader of the container's hold for a key it does not see through
-  // it).
+  // it). Unless the container carries the same lane's value: then the
+  // container's frame is the one the leaf is in, and presence and keys read
+  // it, as the leaf's value does (#4821: a projection a lane pass derived).
+  // (A leaf whose lane is gone matches no container: `|| 0`.)
   if (key !== undefined) {
     const leaf = target.n?.[key as any];
-    if (leaf?._config! & CONFIG_OVERRIDE) return committed(target);
+    if (leaf?._config! & CONFIG_OVERRIDE && k?._x?._transaction !== (leaf!._x!._transaction || 0))
+      return committed(target);
   }
   const held = k !== null && (k._config & CONFIG_HELD) !== 0;
   // A held container: the hold's unit is the key (#3706). A key the HELD
@@ -1852,9 +1870,34 @@ function pullFamily(target: StoreTarget): void {
     // untracked too — `handleAsync` asking a returned proxy whether it is a
     // flight: the pass carries the error, and the re-ask or answer that
     // supersedes it must reach it (#4527; a tracked read links anyway, #4519).
-    if (c && fw._config & CONFIG_STAGED_ERROR) link(fw, c);
+    // Only a computation has deps to link: a bare owner (`mapArray`'s row
+    // update under `runWithOwner`, #4805) reads as untracked.
+    if (c?._deps !== undefined && fw._config & CONFIG_STAGED_ERROR) link(fw, c);
+    // D-30: a derive that is a verdict reader only through what it reads
+    // (below) and waits on a flight it read as a lane's work: its reader
+    // reads that flight as the memo's reader would. A branch a display-ahead
+    // read mounted is born held on it (S-46) — read through the derive
+    // alone, it waited with the lane and attached at the lane's reveal,
+    // ahead of the landing its memo form attaches at.
+    // (The condition is spelled out, as below: behind a helper the branch
+    // does not fold away without the verdict engine.)
+    if (
+      observeFlightHook &&
+      fw._config & CONFIG_VERDICT &&
+      !(fw._flags & (EFFECT_RENDER << 21)) &&
+      tracking
+    )
+      for (let l = fw._deps; l; l = l._nextDep)
+        if ((l._dep as Computed<any>)._statusFlags & STATUS_PENDING) readNode(l._dep);
     readNode(fw);
   } else {
+    // #4782: the pull a tracked read makes — the derive brought up to date
+    // now and the reader lifted above it — not only a woken one: a reader
+    // of the leaves carries no height from the derive (a leaf has no `_fn`),
+    // so the heap can run it first, against the derive's last answer.
+    let r: any = context;
+    if (r?._root) r = r._parentComputed;
+    if (r) pullComputed(fw, r);
     untrack(() => readNode(fw));
     // #4491: a derive that is a verdict reader only through what it reads (a
     // verdict memo's value, D-25 / F-6; no window of its own) is served the
@@ -2044,6 +2087,28 @@ function warnWriteOutsideSetter(
   );
 }
 
+/** #4808: a nested write through a child that is another store still
+ * loading its first answer needs that store's contents as the draft's base,
+ * and they do not exist yet (its seed is never observable, A25), so the
+ * write is refused with the read's NotReadyError. Dev names the cause. */
+function devWriteThroughLoading(target: StoreTarget): void {
+  const name = String(target.pk ?? "");
+  reportDiagnostic(
+    emitDiagnostic({
+      code: "STORE_WRITE_THROUGH_LOADING",
+      kind: "write",
+      severity: "warn",
+      message:
+        `[STORE_WRITE_THROUGH_LOADING] A store setter wrote inside "${name}", which is another ` +
+        `store still loading its first answer. The write was dropped: when that store loads, its ` +
+        `answer is what shows, as for a write to a loading store itself. Write after it loads, or ` +
+        `replace the whole value: \`setStore(s => { s.${name} = value })\`.`,
+      nodeName: name,
+      data: { operation: "set", property: name }
+    })
+  );
+}
+
 const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
   get(_, key, receiver) {
     const target = this;
@@ -2083,9 +2148,13 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     // read path; the arms are the optimistic hooks').
     // `optHooks !== null` first: a bundle without optimistic stores never
     // assigns the hook, and the minifier folds the whole arm away.
-    if (optHooks !== null && target.o && !inDraft(target) && !writeOverride) {
-      const v = optHooks.read(target, key);
-      if (v !== NOT_PENDING) return v;
+    // In the user's draft: a read of another action's live guess (#4788).
+    if (optHooks !== null && target.o && !writeOverride) {
+      if (inDraft(target)) optHooks.drafted(target, key);
+      else {
+        const v = optHooks.read(target, key);
+        if (v !== NOT_PENDING) return v;
+      }
     }
     // Hot inline case: existing PLAIN node (non-accessor) read outside any
     // draft — the dbmon/uibench effect re-read shape. Core's `read()` serves
@@ -2240,6 +2309,9 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(target, key);
     if (target._fam !== null) pullFamily(target);
+    // In the user's draft: presence a live guess changed (#4812).
+    if (optHooks !== null && target.o && !writeOverride && inDraft(target))
+      optHooks.drafted(target, key, true);
     // S2: presence of a key a live guess changed is the carrier frame's.
     if (optRead(target)) {
       const guessed = optHooks!.has(target, key);
@@ -2268,6 +2340,8 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(target, undefined);
     if (target._fam !== null) pullFamily(target);
+    if (optHooks !== null && target.o && !writeOverride && inDraft(target))
+      optHooks.drafted(target, undefined, true);
     return visibleKeys(target, enumerationSource(target));
   },
 

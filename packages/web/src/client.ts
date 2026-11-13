@@ -443,6 +443,45 @@ export function render(code, element, init, options = {}) {
   };
 }
 
+let policy;
+
+/**
+ * Sets the Trusted Types policy that HTML is parsed through.
+ *
+ * A page that enforces `require-trusted-types-for 'script'` rejects a plain
+ * string assigned to `innerHTML`. With a policy set, the runtime assigns the
+ * `TrustedHTML` that `policy.createHTML(html)` returns. It is asked for two
+ * kinds of HTML: the static markup the compiler emitted for a template, and
+ * the HTML a server component sends, which the frames client parses. The app
+ * creates the policy, so its name and its checks stay under the app's
+ * Content Security Policy:
+ *
+ * ```ts
+ * setTrustedTypesPolicy(trustedTypes.createPolicy("my-app", { createHTML: html => html }));
+ * ```
+ *
+ * Call it before the first render. `undefined` goes back to plain strings.
+ */
+export function setTrustedTypesPolicy(
+  policy: { createHTML(html: string): unknown } | undefined
+): void;
+
+export function setTrustedTypesPolicy(value) {
+  policy = value;
+}
+
+/**
+ * What a parse assigns to `innerHTML` for `html`: the policy's `TrustedHTML`
+ * when `setTrustedTypesPolicy` set one, otherwise the string. Integration
+ * plumbing for the frames client, which parses outside this module.
+ * @internal
+ */
+export function trustedHTML(html: string): string;
+
+export function trustedHTML(html) {
+  return policy ? policy.createHTML(html) : html;
+}
+
 function create(html, bypassGuard, flag) {
   if ("_SOLID_DEV_" && isHydrating() && !bypassGuard)
     throw new Error(
@@ -461,7 +500,9 @@ function create(html, bypassGuard, flag) {
         "where the document shell already exists."
     );
   const t = document.createElement("template");
-  t.innerHTML = html;
+  // Not `trustedHTML(html)`: inline, a bundle that sets no policy folds this
+  // to the plain assignment.
+  t.innerHTML = policy ? policy.createHTML(html) : html;
   const node = t.content.firstChild;
   return flag === 2 ? node.firstChild : node;
 } /**
@@ -948,7 +989,7 @@ export function className(node, value, prev) {
     return;
   }
   if (typeof value === "string") {
-    node._$classes = undefined;
+    if (node._$classes) node._$classes = undefined;
     value !== prev && node.setAttribute("class", value);
     return;
   }
@@ -1091,8 +1132,8 @@ export function style(node, value, prev) {
  * read per key; a clsx-style class array is re-mapped element-wise (className
  * allocates for an array anyway; measured at parity).
  *
- * The proxy's keys are read with `Reflect.ownKeys` directly — what
- * `sourceKeys(value, SOURCE_PROXY)` resolves to by definition (`leafOf` is
+ * The proxy's keys are read with `Reflect.ownKeys` directly — the keys
+ * `sourceKeys(value, SOURCE_PROXY)` returns by definition (`leafOf` is
  * the identity for a proxy kind; `leafKeys` answers a proxy with one
  * `ownKeys` trap) — rather than through `sourceKeys`, whose kind argument is
  * a runtime value: calling it here retained the merge/omit view walkers
@@ -1157,10 +1198,12 @@ export function spread<T>(
 //   props in the compute half and applied in the commit half only when its
 //   identity differs from the last applied one (`prevProps.ref`, recorded by
 //   assign()). `ref()` runs the callback as a render effect's callback runs
-//   (`runRefCallback`, #4761): untracked, owning nothing — creating a
+//   (`runRefCallback`, #4761 / #4767): untracked, owning nothing — creating a
 //   primitive in it is an error in dev, and the commit half runs with no
 //   owner — so the effect rerunning has nothing of the ref's to dispose;
-//   that is what makes the fold safe.
+//   that is what makes the fold safe. A born-held staged memo read there by a
+//   ref born into that hold serves the staged value (#4767; A19 would throw
+//   NotReadyError and park the hold). A ref outside the hold must not (F-7).
 //
 // Sources. A single source is an object, a merge() result or a bare
 // accessor. A lone reactive spread compiles to its accessor directly: merging
@@ -1402,10 +1445,11 @@ export function ref(
 export function ref(fn, element) {
   const resolved = untrack(fn);
   // A render effect's callback at creation (#4761): untracked, in the
-  // creating pass. Dev adds the effect-callback scope (`runRefCallback`).
-  "_SOLID_DEV_"
-    ? runRefCallback(() => applyRef(resolved, element))
-    : untrack(() => applyRef(resolved, element));
+  // creating pass. Always through `runRefCallback` so a read of a born-held
+  // staged memo by a ref born into that hold serves its staged value (#4767)
+  // instead of throwing NotReadyError from the ownerless commit half. Dev
+  // also stamps the effect-callback scope (primitive creation throws).
+  runRefCallback(() => applyRef(resolved, element));
 }
 
 /** Compiler-emitted primitive; not for hand-written code. @internal */
@@ -1502,8 +1546,9 @@ export function installHydrationRuntime() {
     // re-claimed (#4374).
     reclaimRegion(current, parent, marker) {
       if (!sharedConfig.hydrating || current == null || !parent.isConnected) return current;
-      const first = Array.isArray(current) ? current[0] : current;
-      if (first == null || first.isConnected) return current;
+      // A swap can take a middle node of the region, past a live head (#4807).
+      if (Array.isArray(current) ? current.every(n => !n || n.isConnected) : current.isConnected)
+        return current;
       let nodes;
       if (marker) {
         nodes = [];
@@ -3000,14 +3045,16 @@ function eventHandler(e, container, state) {
 
   let node = resumeNode || e.target;
   const key = EVENT_KEY + e.type;
-  const retarget = value =>
-    Object.defineProperty(e, "target", {
+  const define = (name, value) =>
+    Object.defineProperty(e, name, {
       configurable: true,
       value
     });
   const handleNode = () => {
     const handler = node[key];
     if (handler && !node.disabled) {
+      // currentTarget as data: V8 can retain a per-event getter in the event type's shape
+      define("currentTarget", node);
       const data = node[`${key}Data`];
       data !== undefined
         ? handler.call(node, data, e)
@@ -3020,7 +3067,7 @@ function eventHandler(e, container, state) {
       typeof node.host !== "string" &&
       !node.host._$host &&
       node.contains(e.target) &&
-      retarget(node.host);
+      define("target", node.host);
     return true;
   };
   // The walk ends at the owner, the boundary of event delegation.
@@ -3029,13 +3076,6 @@ function eventHandler(e, container, state) {
     while (node && handleNode() && !atOwner()) node = parentOf(node);
   };
 
-  // simulate currentTarget; the owner is the boundary of the walk
-  Object.defineProperty(e, "currentTarget", {
-    configurable: true,
-    get() {
-      return node || owner;
-    }
-  });
   if (resumeNode) {
     // If the boundary was the target, the inner walk already fired it.
     // Resume above it so boundary handlers do not run twice.
@@ -3044,7 +3084,7 @@ function eventHandler(e, container, state) {
   } else if (e.composedPath) {
     const path = e.composedPath();
     if (path.length) {
-      retarget(path[0]);
+      define("target", path[0]);
       for (let i = 0; i < path.length; i++) {
         node = path[i];
         if (!handleNode()) break;
