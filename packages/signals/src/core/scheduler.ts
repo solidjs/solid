@@ -1486,8 +1486,7 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
  * with no sources, or each source's, through a source that waits on
  * another's flight (a projection over the re-asked memo, #4824). */
 function reasks(c: Computed<any>): boolean {
-  const ps = c._x!._pendingSources;
-  return ps ? [...ps].every(p => (p === c ? p._x!._reask : reasks(p))) : c._x!._reask;
+  return [...(c._x!._pendingSources ?? [c])].every(p => (p === c ? p._x!._reask : reasks(p)));
 }
 /** Lane work re-staged (lanes.ts; `recompute`): the node's subscribers are
  * notified (`insertSubs`), and the lane's members among them re-derive as
@@ -1527,7 +1526,9 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
       deleteFromHeap(c, dirtyQueue);
       continue;
     }
-    let t = c._x?._transaction;
+    let t = c._x?._transaction,
+      render = (c as any)._type === EFFECT_RENDER,
+      same: boolean;
     // A reader a hold has pending on its re-ask (a correction's
     // re-derivation waiting on a refresh) re-derives from the guess as the
     // lane's work, seated there before its pass: lane work reads the
@@ -1546,20 +1547,16 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
     // two (`enterLane`, A15), and `dissolveLane` skips a node it lost.
     if (
       (c._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
-      (!(c as any)._type
-        ? t &&
-          (c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
-          (resolveTx(t) === resolveTx(l._parent!) || reasks(c))
-        : // A render effect pending on another hold's re-asks, held by it or
-          // by none, the same (#4824): its first read of the re-asked rows
-          // threw it back out of the lane, and the guess beside a reader
-          // that showed it waited on the refresh (F-1, F-11).
-          (c as any)._type === EFFECT_RENDER &&
-          (!t || (c._config & CONFIG_HELD && resolveTx(t) !== resolveTx(l._parent!))) &&
-          reasks(c))
+      // A render effect pending on another hold's re-asks, held by it or
+      // by none, the same (#4824): its first read of the re-asked rows threw
+      // it back out of the lane, and the guess beside a reader that showed
+      // it waited on the refresh (F-1, F-11).
+      (t ? (c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD : render) &&
+      ((same = !!t && resolveTx(t) === resolveTx(l._parent!)),
+      (c as any)._type ? render && !same && reasks(c) : same || reasks(c))
     )
       list(c, (t = l));
-    if ((c as any)._type === EFFECT_RENDER && node._config & CONFIG_VERDICT)
+    if (render && node._config & CONFIG_VERDICT)
       ((c._config |= CONFIG_VERDICT), (c._flags &= ~REACTIVE_LANE_DIRTY));
     if (t?._lane ? sameLane(t, l) : (c as any)._type) c._flags |= REACTIVE_LANE_DIRTY;
   }
