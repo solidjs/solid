@@ -5,6 +5,7 @@ export {
   isEqual,
   untrack,
   runRefCallback,
+  strictReadTracked,
   inRefCallback,
   runWithOwner,
   computed,

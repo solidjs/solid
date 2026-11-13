@@ -7611,6 +7611,7 @@ export {
   notSup as template,
   notSup as setProperty,
   notSup as setStatefulProperty,
+  notSup as strictHandler,
   notSup as className,
   notSup as assign,
   notSup as hydrate,

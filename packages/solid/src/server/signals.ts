@@ -4815,6 +4815,11 @@ export function runRefCallback(fn: () => void): void {
   untrack(fn);
 }
 
+/** @internal Handlers are never bound on the server; parity with the client entry (#1742). */
+export function strictReadTracked<T>(fn: () => T, _label: string): T {
+  return fn();
+}
+
 // NoInfer utility type (also re-exported from signals, but define for local use)
 type NoInfer<T extends any> = [T][T extends any ? 0 : never];
 

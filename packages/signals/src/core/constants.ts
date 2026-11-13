@@ -301,3 +301,6 @@ export type Refreshable<T> = T & { readonly [$REFRESH]: any };
  * a construction through a binding carries none. Same constructor, so the
  * same objects. */
 export const NewSet = Set;
+
+/** Dev: the strict-read label compiled dev DOM output reads an event handler expression under (#1742). */
+export const EVENT_HANDLER_READ = "an event handler expression";

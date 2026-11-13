@@ -40,6 +40,8 @@ export {
 export { setConsoleFooter } from "./core/index.js";
 /** @internal Ref callbacks run like a render effect callback at creation (#4761): `@solidjs/web`/`@solidjs/universal` `ref()`. */
 export { runRefCallback } from "./core/index.js";
+/** @internal Dev event handler reads (#1742): compiled dev DOM output reads a handler expression in a strict window that keeps tracking — `@solidjs/web`'s `strictHandler`. Calls `fn` outside dev builds. */
+export { strictReadTracked } from "./core/index.js";
 /** @internal The verdict windows' read (core.ts): non-null while a `latest()` or `isPending()` window is open — solid-js's narrowed accessors (#4648). */
 export { verdict } from "./core/index.js";
 /** @internal The flush round counter (scheduler.ts): hydration's served pass tells its own round from a later one. */

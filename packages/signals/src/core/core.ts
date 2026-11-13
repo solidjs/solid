@@ -77,6 +77,7 @@ import {
   STATUS_NONE,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
+  EVENT_HANDLER_READ,
   type Refreshable,
   NewSet
 } from "./constants.js";
@@ -1899,6 +1900,29 @@ export function setStrictRead(v: string | false, event: unknown = ANY_EVENT): st
   strictRead = v;
   strictReadEvent = event;
   return prev;
+}
+/**
+ * Dev-only: runs `fn` with the strict-read window open under `label`, with
+ * tracking left as it is. A reactive read in `fn` (a signal, a memo or a
+ * store property) warns `STRICT_READ_UNTRACKED`, and a pending one throws
+ * `PENDING_ASYNC_UNTRACKED_READ`; the read still subscribes the running
+ * computation, so dev behaves as production does and only says so. Compiled
+ * dev DOM output reads event handler expressions through it (#1742): a
+ * handler is bound once, where its element is created, so a read there is
+ * not meant to be reactive. Production builds call `fn` and nothing else.
+ */
+export function strictReadTracked<T>(fn: () => T, label: string = EVENT_HANDLER_READ): T {
+  if (!__DEV__) return fn();
+  const prevStrictRead = strictRead;
+  const prevStrictReadEvent = strictReadEvent;
+  strictRead = label;
+  strictReadEvent = ANY_EVENT;
+  try {
+    return fn();
+  } finally {
+    strictRead = prevStrictRead;
+    strictReadEvent = prevStrictReadEvent;
+  }
 }
 /** Dev-only: is the strict-read window open for a read made now? */
 export function strictReadActive(): boolean {

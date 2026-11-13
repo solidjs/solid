@@ -40,6 +40,8 @@ export {
 } from "@solidjs/signals";
 /** @internal — `ref()` in the web and universal runtimes (#4761). */
 export { runRefCallback } from "@solidjs/signals";
+/** @internal — dev event handler reads in compiled DOM output (#1742): `@solidjs/web`'s `strictHandler`. */
+export { strictReadTracked } from "@solidjs/signals";
 /** @internal — the key a root owner carries `render`'s `onError` under, for the web runtime. */
 export { ROOT_ERROR_HOOK } from "@solidjs/signals";
 // `createOwner`: a bare owner, for the runtimes' own scopes (`NoHydration`,
