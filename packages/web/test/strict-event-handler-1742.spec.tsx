@@ -45,10 +45,13 @@ describe("dev strict window for event handler expressions (#1742)", () => {
     const [selected, setSelected] = createSignal(false);
     const a = vi.fn();
     const b = vi.fn();
+    const [visible] = createSignal(true);
     let mounts = 0;
+    // A reactive `when`: the branch is a tracked compute in both the Show
+    // component and its lowered ternary.
     function Button(props: { onClick: () => void }) {
       return (
-        <Show when={true}>
+        <Show when={visible()}>
           <button ref={() => mounts++} onClick={props.onClick} />
         </Show>
       );
