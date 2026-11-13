@@ -509,10 +509,9 @@ export function handleAsync<T>(
   // fired _flightTeardown. A future non-recompute registration path must
   // release it here before overwriting _inFlight.
   ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
-  // The derivation asks (F-2's producer clause): its last answer was a
-  // flight, window or not. A plain or `isPending` read of a held node by
-  // such a pass is the hold's, never the screen's (`frameRead`,
-  // `verdictValue`). `holdWork` (D-25) pairs the bit with CONFIG_OWN_PROBE.
+  // The derivation asks: its last answer was a flight, window or not.
+  // `holdWork` (D-25) pairs the bit with CONFIG_OWN_PROBE, and the seam
+  // parks a frame flight of one (verdict.ts `r5`, R5).
   // Kept by the verdict engine alone (`holdWorkHook`): a build without it
   // folds the bit's upkeep away.
   if (holdWorkHook) el._config |= CONFIG_ASYNC;

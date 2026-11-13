@@ -112,5 +112,5 @@ export default {
     }
   ],
   prose:
-    "Ruled 2026-11-07. The display — render effects, compiled bindings, user effects, and the sync derivations that feed them — may hold the value it showed beside the verdict about its successor, because it is declared (`isPending`, `latest`), terminal, and keeps rather than computes. That is the one inconsistency the screen is allowed, and the only consumer barred from it is one that asks (S-51). The #4349 pin's held shape was the odd one out: the action's body ending inside the call is not a reason for the display to wait."
+    "Ruled 2026-11-07. The display — render effects, compiled bindings, user effects, and the sync derivations that feed them — may hold the value it showed beside the verdict about its successor, because it is declared (`isPending`, `latest`). That is the one inconsistency the screen is allowed. (The 2026-11-07 text also called the display terminal and barred a pass that asks from it; since 2026-11-12 a pass that asks reads ahead the same way, S-51.) The #4349 pin's held shape was the odd one out: the action's body ending inside the call is not a reason for the display to wait."
 } satisfies Ruling;

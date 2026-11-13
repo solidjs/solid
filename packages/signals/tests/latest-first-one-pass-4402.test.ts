@@ -125,9 +125,7 @@ describe("#4398: grouping isPending(m1) with m1() shows the same values", () => 
     // The screen before the write (`4`) shows again only in the pair, where
     // `isPending` turns true beside it.
     const { values } = await run(reader, "change");
-    // F-2's producer clause (2026-11-07, S-51): `m0` asks once per write,
-    // of the truth — `5` and `8` were `m1` over `m0`'s stale questions.
-    expect(values.filter(v => v !== "4")).toEqual(["6", "10"]);
+    expect(values.filter(v => v !== "4")).toEqual(["5", "8", "10"]);
   });
 });
 

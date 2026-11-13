@@ -143,8 +143,7 @@ function buildApp(
   flights: Flight[],
   variant: Variant,
   errors: string[],
-  passes: Passes = { held: {}, memos: {} },
-  staleAsks: string[] = []
+  passes: Passes = { held: {}, memos: {} }
 ) {
   // An optimistic signal's setter is a guess; the fresh render (truth only)
   // uses plain signals.
@@ -184,18 +183,11 @@ function buildApp(
   const view = (r: SrcRef): (() => any) => (r.k === "s" ? sigs[r.i][0] : views[r.i]);
   const makeMemo = (i: number) => {
     const m = sc.memos[i];
-    // The plain signal reads of the pass, for the truth-asks oracle (F-2's
-    // producer clause): an async memo whose pass read a signal's screen value
-    // while the script had already written a newer truth asked a question
-    // of a value the engine knew was stale. Guesses are not truth (F-11).
-    const reads: [number, number][] = [];
     const input = () =>
       m.deps.reduce((acc, d) => {
         if (d.when && !get(d.when)()) return acc;
         const x = get(d.src);
         const v = Number(d.how === "latest" ? latest(x) : d.how === "pending" ? isPending(x) : x());
-        if (d.how === "plain" && d.src.k === "s" && !sc.optimistic?.includes(d.src.i))
-          reads.push([d.src.i, v]);
         return acc + v;
       }, 1);
     // `createOptimistic(fn)` is a memo whose setter writes guesses; the
@@ -211,16 +203,12 @@ function buildApp(
     if (m.async && !fresh) {
       memos[i] = mk(() => {
         let v: number;
-        reads.length = 0;
         try {
           v = input();
         } catch (e) {
           ended(i, e);
           throw e;
         }
-        for (const [si, sv] of reads)
-          if (sv !== values[si])
-            staleAsks.push(`m${i}:${v} asked with s${si} = ${sv} while ${values[si]} is held`);
         passes.memos[i] = "pending";
         return new Promise<number>((resolve, reject) => {
           flights.push({
@@ -484,7 +472,6 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
   const flights: Flight[] = [];
   const values = [...sc.signals];
   const errors: string[] = [];
-  const staleAsks: string[] = [];
   let step = -1;
 
   const origError = console.error;
@@ -532,8 +519,7 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
       flights,
       variant,
       errors,
-      last,
-      staleAsks
+      last
     );
     // A truth write updates `values` (the fresh render's inputs); a guess —
     // a write to an optimistic signal, or to an optimistic memo — never does.
@@ -622,8 +608,6 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
           break;
       }
       if (variant.autoFlush) guard("throw", flush);
-      for (const detail of staleAsks.splice(0))
-        findings.push({ oracle: "safety", law: "truth-asks", step, detail });
       const screen = serialize(el);
       screens.push(screen);
       settled.push(st.t === "task");
