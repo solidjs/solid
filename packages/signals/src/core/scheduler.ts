@@ -572,7 +572,12 @@ function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boole
       n._flags & REACTIVE_DISPOSED ||
       n._config & CONFIG_GUESS ||
       (n._x!._transaction !== null && txOf(n) !== owner) ||
-      (own && !ownSource(n, owner))
+      (own && !ownSource(n, owner)) ||
+      // A guess lane's member waiting on re-asks only (`reasks`) keeps what
+      // it shows, and a `refresh()` holds nothing new (D-34 ¶3): it does not
+      // keep the lane's other work off the screen (#4834: a memo over the
+      // shown guess and a fresh answer stayed on its stale committed value).
+      (guessing && owner._lane && n._x!._pendingSources && reasks(n))
     )
       continue;
     // The frame's own pending observer (off screen: this one holds nothing;
