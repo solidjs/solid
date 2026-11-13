@@ -2655,15 +2655,21 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   return value;
 }
 
-/** A memo's first pass created by a lane re-run of a memo that has a
- * screen (a condition memo the compiled `{when ? a : b}` re-creates in its
- * row's memo, #4824): it stands where the one it replaces stood, so lane
- * work's read of a parent's flight is the screen's for it too. A boundary's
- * structure, and what a pass with no screen yet creates (a `Loading` the
- * lane mounts, A29's boundary exemption, #3835), still see the flight. */
+/** A memo's first pass created by a guess lane's re-run of a memo that
+ * has a screen (a condition memo the compiled `{when ? a : b}` re-creates
+ * in its row's memo, #4824): it stands where the one it replaces stood, so
+ * lane work's read of a parent's flight is the screen's for it too. A
+ * boundary's structure, what a pass with no screen yet creates (a `Loading`
+ * the lane mounts, A29's boundary exemption, #3835), and a mount a
+ * display-ahead read opens in its verdict lane (born held, S-58, D-25)
+ * still see the flight. */
 function bornOfLaneRerun(c: Computed<any>): unknown {
   const p = c._parent as Computed<any> | null;
-  return p?._fn && !((p._statusFlags & STATUS_UNINITIALIZED) | (p._config & CONFIG_FRAME));
+  return (
+    passLane!._parent?._verdict !== passLane &&
+    p?._fn &&
+    !((p._statusFlags & STATUS_UNINITIALIZED) | (p._config & CONFIG_FRAME))
+  );
 }
 
 /** D-41: a reader served the screen — an untracked read, a frame reader
