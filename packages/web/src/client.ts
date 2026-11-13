@@ -444,6 +444,45 @@ export function render(code, element, init, options = {}) {
   };
 }
 
+let policy;
+
+/**
+ * Sets the Trusted Types policy that HTML is parsed through.
+ *
+ * A page that enforces `require-trusted-types-for 'script'` rejects a plain
+ * string assigned to `innerHTML`. With a policy set, the runtime assigns the
+ * `TrustedHTML` that `policy.createHTML(html)` returns. It is asked for two
+ * kinds of HTML: the static markup the compiler emitted for a template, and
+ * the HTML a server component sends, which the frames client parses. The app
+ * creates the policy, so its name and its checks stay under the app's
+ * Content Security Policy:
+ *
+ * ```ts
+ * setTrustedTypesPolicy(trustedTypes.createPolicy("my-app", { createHTML: html => html }));
+ * ```
+ *
+ * Call it before the first render. `undefined` goes back to plain strings.
+ */
+export function setTrustedTypesPolicy(
+  policy: { createHTML(html: string): unknown } | undefined
+): void;
+
+export function setTrustedTypesPolicy(value) {
+  policy = value;
+}
+
+/**
+ * What a parse assigns to `innerHTML` for `html`: the policy's `TrustedHTML`
+ * when `setTrustedTypesPolicy` set one, otherwise the string. Integration
+ * plumbing for the frames client, which parses outside this module.
+ * @internal
+ */
+export function trustedHTML(html: string): string;
+
+export function trustedHTML(html) {
+  return policy ? policy.createHTML(html) : html;
+}
+
 function create(html, bypassGuard, flag) {
   if ("_SOLID_DEV_" && isHydrating() && !bypassGuard)
     throw new Error(
@@ -462,7 +501,9 @@ function create(html, bypassGuard, flag) {
         "where the document shell already exists."
     );
   const t = document.createElement("template");
-  t.innerHTML = html;
+  // Not `trustedHTML(html)`: inline, a bundle that sets no policy folds this
+  // to the plain assignment.
+  t.innerHTML = policy ? policy.createHTML(html) : html;
   const node = t.content.firstChild;
   return flag === 2 ? node.firstChild : node;
 } /**
@@ -3022,14 +3063,16 @@ function eventHandler(e, container, state) {
 
   let node = resumeNode || e.target;
   const key = EVENT_KEY + e.type;
-  const retarget = value =>
-    Object.defineProperty(e, "target", {
+  const define = (name, value) =>
+    Object.defineProperty(e, name, {
       configurable: true,
       value
     });
   const handleNode = () => {
     const handler = node[key];
     if (handler && !node.disabled) {
+      // currentTarget as data: V8 can retain a per-event getter in the event type's shape
+      define("currentTarget", node);
       const data = node[`${key}Data`];
       data !== undefined
         ? handler.call(node, data, e)
@@ -3042,7 +3085,7 @@ function eventHandler(e, container, state) {
       typeof node.host !== "string" &&
       !node.host._$host &&
       node.contains(e.target) &&
-      retarget(node.host);
+      define("target", node.host);
     return true;
   };
   // The walk ends at the owner, the boundary of event delegation.
@@ -3051,13 +3094,6 @@ function eventHandler(e, container, state) {
     while (node && handleNode() && !atOwner()) node = parentOf(node);
   };
 
-  // simulate currentTarget; the owner is the boundary of the walk
-  Object.defineProperty(e, "currentTarget", {
-    configurable: true,
-    get() {
-      return node || owner;
-    }
-  });
   if (resumeNode) {
     // If the boundary was the target, the inner walk already fired it.
     // Resume above it so boundary handlers do not run twice.
@@ -3066,7 +3102,7 @@ function eventHandler(e, container, state) {
   } else if (e.composedPath) {
     const path = e.composedPath();
     if (path.length) {
-      retarget(path[0]);
+      define("target", path[0]);
       for (let i = 0; i < path.length; i++) {
         node = path[i];
         if (!handleNode()) break;
