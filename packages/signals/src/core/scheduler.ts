@@ -29,10 +29,7 @@ import {
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
-  STATUS_UNINITIALIZED,
-  CONFIG_ASYNC,
-  REACTIVE_JOINED,
-  REACTIVE_STAGED_READ
+  STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { notifyStatus } from "./async.js";
@@ -87,9 +84,13 @@ export let laneSeamsHook: ((t: Transaction | null) => void) | null = null;
 export let laneCorrectionsHook: (() => boolean) | null = null;
 export let endLanesHook: ((u: Transaction) => void) | null = null;
 export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
-/** R5 (lanes.ts `laneSeams` parks a frame flight): the landing's re-derive
- * of a reader adopts the flight instead (true: adopted, nothing to queue). */
-export let laneAdoptHook: ((r: Computed<any>) => boolean) | null = null;
+/** R5 (verdict.ts: the seam parks a frame flight of a reader that reads
+ * ahead): the landing's re-derive of the reader adopts the flight instead
+ * (`adoptParked`; true: adopted, nothing to queue). */
+export let laneAdoptHook: ((r: Computed<any>, visit?: number) => boolean) | null = null;
+/** R5 at the seam (verdict.ts `r5`): a reader whose probe is unanswered, a
+ * hold's parked flight still up (`r` null), the seam's end (both null). */
+export let r5Hook: ((r: Computed<any> | null, t: Transaction | null) => unknown) | null = null;
 /** core.ts `frameRead` served lane work or a verdict reader a held node's
  * committed value (lanes.ts `laneServed`). */
 export let laneServedHook:
@@ -109,7 +110,6 @@ export function installLaneHooks(
   seams: NonNullable<typeof laneSeamsHook>,
   end: NonNullable<typeof endLanesHook>,
   blocked: NonNullable<typeof lanesBlockedHook>,
-  adopt: NonNullable<typeof laneAdoptHook>,
   served: NonNullable<typeof laneServedHook>
 ): void {
   laneReadHook = read;
@@ -118,7 +118,6 @@ export function installLaneHooks(
   laneSeamsHook = seams;
   endLanesHook = end;
   lanesBlockedHook = blocked;
-  laneAdoptHook = adopt;
   laneServedHook = served;
 }
 // The guess layer (guesses.ts; installed when `createOptimistic` or
@@ -208,11 +207,6 @@ export let attachHook: ((node: Computed<any>) => boolean) | null = null;
 export let holdStagingHook:
   | ((c: Computed<any>, el?: Signal<any> | Computed<any>) => unknown)
   | null = null;
-/** A pass that asks leaves the display for the hold it read (F-2's producer
- * clause; verdict.ts `askerJoins`). */
-export let askerJoinsHook:
-  | ((c: Computed<any>, el: Signal<any> | Computed<any>, t: Transaction | null) => void)
-  | null = null;
 export function installVerdictHooks(
   observeFlight: NonNullable<typeof observeFlightHook>,
   holdWork: NonNullable<typeof holdWorkHook>,
@@ -220,7 +214,8 @@ export function installVerdictHooks(
   keepReaders: NonNullable<typeof keepReadersHook>,
   attach: NonNullable<typeof attachHook>,
   holdStaging: NonNullable<typeof holdStagingHook>,
-  askerJoins: NonNullable<typeof askerJoinsHook>
+  adopt: NonNullable<typeof laneAdoptHook>,
+  r5: NonNullable<typeof r5Hook>
 ): void {
   observeFlightHook = observeFlight;
   holdWorkHook = holdWork;
@@ -228,7 +223,8 @@ export function installVerdictHooks(
   keepReadersHook = keepReaders;
   attachHook = attach;
   holdStagingHook = holdStaging;
-  askerJoinsHook = askerJoins;
+  laneAdoptHook = adopt;
+  r5Hook = r5;
 }
 /** External-source bridge (wired by enableExternalSource(); undefined while
  * no config is active — including after _resetExternalSourceConfig()). */
@@ -1304,7 +1300,7 @@ export class GlobalQueue implements IQueue {
  * overwrote the value that run was for) — the re-derivation's run replaces
  * it. Truthy when an effect re-derives (`land`). */
 export function reruns(u: Transaction): unknown {
-  let frame;
+  let frame: unknown;
   for (let i = 0; i < u._reruns.length; i++) {
     const r = u._reruns[i];
     // An errored reader's display is its error (D-39): the landing gives it
@@ -1337,8 +1333,13 @@ export function reruns(u: Transaction): unknown {
       // the screen). So does a memo the landing holds (CONFIG_HELD: its
       // staged value is in this frame): the held runs read it, so shown
       // first they showed the stale pass the re-derivation replaces — one
-      // frame reveals the change (F-1, A15; #4648).
-      frame ||= (r as any)._type || s === r || r._config & CONFIG_HELD;
+      // frame reveals the change (F-1, A15; #4648). And any other: a memo
+      // that asks, or one over it (D-25: a memo over a verdict memo is a
+      // verdict reader), was served the screen and asked the screen's
+      // question (F-6, S-51); it asks the landed world's now — the held
+      // runs park with that flight, never shown beside the answer it
+      // replaces.
+      frame = 1;
       // A lane's reveal leaves the mark to the transaction: a reader that
       // also read a held node as committed (`staleReader`) still observes
       // that flight until it re-runs — cleared here, the transaction landed
@@ -1350,9 +1351,10 @@ export function reruns(u: Transaction): unknown {
       // frame being replaced — void too (#3404).
       for (let c = r._firstChild; c !== null; c = c._nextSibling)
         if ((c as any)._type) (c as any)._modified = false;
-      // A frame flight the seam parked (lanes.ts `laneSeams`, R5) asked the
+      // A frame flight the seam parked (verdict.ts `r5`, R5) asked the
       // question this landing would: adopted, it is asked once (F-9).
-      if (!laneAdoptHook?.(r)) enqueueSub(r);
+      laneAdoptHook?.(r);
+      enqueueSub(r);
     }
   }
   u._reruns.length = 0;
@@ -1510,22 +1512,8 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
   // A store's guess carrier: the readers of the keys it changed read their
   // leaves — dirtied as the lane's work too (store/optimistic.ts).
   if (node._config & CONFIG_SLOT_NODE) GlobalQueue._slotDirty?.(node as Signal<any>, l);
-  const display = l._parent!._verdict === l;
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const c = s._sub;
-    // F-2's producer clause: a reader that asks (CONFIG_ASYNC) and is the
-    // frame's — held, or joined this flush — asked of the truth already; a
-    // verdict lane's re-derivation of what it read is display work with
-    // the same value beneath, and re-runs it only to ask again (S-51).
-    if (
-      display &&
-      c._config & CONFIG_ASYNC &&
-      (c._config & CONFIG_HELD || c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ)) &&
-      !c._x?._transaction?._lane
-    ) {
-      deleteFromHeap(c, dirtyQueue);
-      continue;
-    }
     let t = c._x?._transaction,
       render = (c as any)._type === EFFECT_RENDER,
       same: boolean;

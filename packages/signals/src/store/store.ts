@@ -1953,6 +1953,22 @@ function pullFamily(target: StoreTarget): void {
     // Only a computation has deps to link: a bare owner (`mapArray`'s row
     // update under `runWithOwner`, #4805) reads as untracked.
     if (c?._deps !== undefined && fw._config & CONFIG_STAGED_ERROR) link(fw, c);
+    // D-30: a derive that is a verdict reader only through what it reads
+    // (below) and waits on a flight it read as a lane's work: its reader
+    // reads that flight as the memo's reader would. A branch a display-ahead
+    // read mounted is born held on it (S-46) — read through the derive
+    // alone, it waited with the lane and attached at the lane's reveal,
+    // ahead of the landing its memo form attaches at.
+    // (The condition is spelled out, as below: behind a helper the branch
+    // does not fold away without the verdict engine.)
+    if (
+      observeFlightHook &&
+      fw._config & CONFIG_VERDICT &&
+      !(fw._flags & (EFFECT_RENDER << 21)) &&
+      tracking
+    )
+      for (let l = fw._deps; l; l = l._nextDep)
+        if ((l._dep as Computed<any>)._statusFlags & STATUS_PENDING) readNode(l._dep);
     readNode(fw);
   } else {
     // #4782: the pull a tracked read makes — the derive brought up to date

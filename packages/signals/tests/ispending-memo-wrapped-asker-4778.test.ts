@@ -1,10 +1,12 @@
 /**
  * #4778. A sync memo over `isPending(id)` read by the display and by an
- * async derivation is read by both: one version per node, so it is the
- * hold's (D-25, ruled 2026-11-12; #3905 out of scope). The async asks once,
- * of the truth, as it does reading `isPending` inline (S-51, F-2's producer
- * clause: the display shows, it never asks), and the display behind the
- * memo shows the hold's answer.
+ * async derivation. A pass that asks is a display-ahead reader like a sync
+ * one (F-6, S-51 as re-ruled 2026-11-12): reading `isPending(id)` inline or
+ * through the memo, the async derivation runs on the screen with the
+ * probe's answer — it asks `true` and shows it beside the memo's `true`,
+ * whole (F-1, D-23) — and asks again on the landed world at the landing.
+ * Before, the async asked of the truth (`false`) and showed its stale
+ * answer beside the display's `true`.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -25,9 +27,10 @@ const tick = async () => {
 };
 
 describe("#4778", () => {
-  it("an async derivation asks of the truth inline or through a sync memo; the shared memo is the hold's", async () => {
+  it("an async derivation reads isPending ahead, inline or through a sync memo, as the display does", async () => {
     let run!: () => any;
-    const shown: Record<string, string> = {};
+    const gate = Promise.withResolvers<void>();
+    const shown: string[] = [];
     const asked: Record<string, boolean[]> = { direct: [], wrapped: [] };
     createRoot(() => {
       const [id, setId] = createSignal(0);
@@ -46,21 +49,27 @@ describe("#4778", () => {
       });
       createRenderEffect(
         () => [String(pending()), direct(), wrapped()].join(" "),
-        v => void (shown.all = v)
+        // (An effect has no comparator: a run that repeats the text shows nothing.)
+        v => void (shown.at(-1) !== v && shown.push(v))
       );
       run = action(function* () {
         setId(1);
-        yield new Promise(() => {});
+        yield gate.promise;
       });
     });
     flush();
     await tick();
-    expect(shown.all).toBe("false false false");
+    expect(shown).toEqual(["false false false"]);
     run();
     flush();
     await tick();
-    // Both ask of the truth (S-51): in the hold's world `id` is final.
-    expect(asked).toEqual({ direct: [false, false], wrapped: [false, false] });
-    expect(shown.all).toBe("false false false");
+    // Both ask of the screen: `id` is pending there (F-6).
+    expect(asked).toEqual({ direct: [false, true], wrapped: [false, true] });
+    expect(shown).toEqual(["false false false", "true true true"]);
+    gate.resolve();
+    await tick();
+    // The landing asks again on the landed world; the commit shows whole.
+    expect(asked).toEqual({ direct: [false, true, false], wrapped: [false, true, false] });
+    expect(shown).toEqual(["false false false", "true true true", "false false false"]);
   });
 });
