@@ -1484,6 +1484,12 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
   if (__OBSERVE__ && fanOut >= GRAPH_SIZE_WARN_AT) noteFanOut(node, fanOut);
 }
 
+/** Every flight `c` waits on is a `refresh()` re-ask (`_reask`): its own,
+ * with no sources, or each source's, through a source that waits on
+ * another's flight (a projection over the re-asked memo, #4824). */
+function reasks(c: Computed<any>): boolean {
+  return [...(c._x!._pendingSources ?? [c])].every(p => (p === c ? p._x!._reask : reasks(p)));
+}
 /** Lane work re-staged (lanes.ts; `recompute`): the node's subscribers are
  * notified (`insertSubs`), and the lane's members among them re-derive as
  * the lane's work (REACTIVE_LANE_DIRTY), their runs held with it — not as
@@ -1508,7 +1514,9 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
   if (node._config & CONFIG_SLOT_NODE) GlobalQueue._slotDirty?.(node as Signal<any>, l);
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const c = s._sub;
-    let t = c._x?._transaction;
+    let t = c._x?._transaction,
+      render = (c as any)._type === EFFECT_RENDER,
+      same: boolean;
     // A reader a hold has pending on its re-ask (a correction's
     // re-derivation waiting on a refresh) re-derives from the guess as the
     // lane's work, seated there before its pass: lane work reads the
@@ -1526,15 +1534,17 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
     // lane this flush moves; its pass reads that lane's guess and links the
     // two (`enterLane`, A15), and `dissolveLane` skips a node it lost.
     if (
-      t &&
-      !(c as any)._type &&
-      (c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
       (c._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
-      (resolveTx(t) === resolveTx(l._parent!) ||
-        [...(c._x!._pendingSources ?? [c])].every(p => p._x!._reask))
+      // A render effect pending on another hold's re-asks, held by it or
+      // by none, the same (#4824): its first read of the re-asked rows threw
+      // it back out of the lane, and the guess beside a reader that showed
+      // it waited on the refresh (F-1, F-11).
+      (t ? (c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD : render) &&
+      ((same = !!t && resolveTx(t) === resolveTx(l._parent!)),
+      (c as any)._type ? render && !same && reasks(c) : same || reasks(c))
     )
       list(c, (t = l));
-    if ((c as any)._type === EFFECT_RENDER && node._config & CONFIG_VERDICT)
+    if (render && node._config & CONFIG_VERDICT)
       ((c._config |= CONFIG_VERDICT), (c._flags &= ~REACTIVE_LANE_DIRTY));
     if (t?._lane ? sameLane(t, l) : (c as any)._type) c._flags |= REACTIVE_LANE_DIRTY;
   }

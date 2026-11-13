@@ -418,6 +418,15 @@ export function laneStage(
   }
   if (!(el as any)._type) {
     if (!(el._config & CONFIG_OVERRIDE)) {
+      // A hold's staging of it is void in a guess lane: the readers that
+      // derived from that staging re-derive, though the lane's value may
+      // equal the screen (no change to notify them by) — their held runs
+      // carry the void staging, and the hold's landing would apply them over
+      // the guess (#4825; as a mainline pass superseding one does, core.ts
+      // `recompute`, #4378). A verdict lane's display-ahead pass leaves the
+      // frame's question with its readers (S-51).
+      if (el._config & CONFIG_HELD && el._pendingValue !== NOT_PENDING && l._parent!._verdict !== l)
+        insertSubs(el);
       el._pendingValue = NOT_PENDING;
       el._config = (el._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_OVERRIDE;
       ext(el);
