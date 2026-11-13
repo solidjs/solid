@@ -1,7 +1,7 @@
 import { createRoot, createSignal, flush, createMemo, Loading } from "solid-js";
 import htmlTag from "../src/tagged-jsx.js";
 import { expect, it, describe, beforeEach, vi } from "vitest";
-import { insert, render, registerElementClaim } from "@solidjs/web";
+import { insert, render, registerElementClaim, setTrustedTypesPolicy } from "@solidjs/web";
 
 const For = (props: any) => {
   return createMemo(() => props.each.map((v: any) => props.children(v))) as any;
@@ -1369,5 +1369,22 @@ describe("Tagged JSX Integration Tests", () => {
         expect(first).not.toBe(second);
         expect(claimed).toEqual([first, second]);
       }));
+  });
+});
+
+describe("Trusted Types", () => {
+  it("decodes text and attribute references through the app's policy", () => {
+    const createHTML = vi.fn((html: string) => html);
+    setTrustedTypesPolicy({ createHTML });
+    try {
+      createRoot(dispose => {
+        const el = html`<a title="x &amp; y">a &amp; b</a>` as HTMLElement;
+        expect(el.outerHTML).toBe('<a title="x &amp; y">a &amp; b</a>');
+        dispose();
+      });
+      expect(createHTML.mock.calls).toEqual([['<i a="x &amp; y"></i>'], ["a &amp; b"]]);
+    } finally {
+      setTrustedTypesPolicy(undefined);
+    }
   });
 });

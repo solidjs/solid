@@ -21,6 +21,7 @@
 // agreement, unlike the registered-symbol brands this module otherwise
 // duplicates by design. The prod build folds the call out with the gate.
 import { DEV, OBSERVE } from "solid-js";
+import { trustedHTML } from "@solidjs/web";
 // Replaced per build: the observe tier's flight stamps fold out of prod.
 const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 
@@ -2556,7 +2557,7 @@ function removeUntil(parent, n, stop) {
 /** Parse an HTML string into a document fragment, preserving comments. */
 export function parseFragment(html) {
   const template = document.createElement("template");
-  template.innerHTML = html;
+  template.innerHTML = trustedHTML(html);
   return template.content;
 }
 

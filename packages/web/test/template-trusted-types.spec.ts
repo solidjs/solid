@@ -9,8 +9,13 @@
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { setTrustedTypesPolicy, template } from "../src/client.js";
+import { setTrustedTypesPolicy as setPackagePolicy } from "@solidjs/web";
+import { parseFragment } from "../frames/src/frame-client.js";
 
-afterEach(() => setTrustedTypesPolicy(undefined));
+afterEach(() => {
+  setTrustedTypesPolicy(undefined);
+  setPackagePolicy(undefined);
+});
 
 describe("setTrustedTypesPolicy", () => {
   test("template() assigns the TrustedHTML the policy creates", () => {
@@ -44,5 +49,18 @@ describe("setTrustedTypesPolicy", () => {
 
   test("template() assigns the string without a policy", () => {
     expect(template("<div>First</div>")().outerHTML).toBe("<div>First</div>");
+  });
+});
+
+describe("frames' streamed HTML", () => {
+  test("parseFragment parses through the policy", () => {
+    const createHTML = vi.fn((html: string) => html);
+    // The frames client reaches the runtime through the package specifier.
+    setPackagePolicy({ createHTML });
+
+    const fragment = parseFragment("<p>streamed<!--marker--></p>");
+
+    expect(createHTML.mock.calls).toEqual([["<p>streamed<!--marker--></p>"]]);
+    expect((fragment.firstChild as Element).outerHTML).toBe("<p>streamed<!--marker--></p>");
   });
 });

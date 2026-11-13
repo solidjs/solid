@@ -469,6 +469,15 @@ export function setTrustedTypesPolicy(value) {
   policy = value;
 }
 
+/** Markup Solid itself parses (templates, frames' streamed HTML, `html`'s
+ * text decoding), through the policy `setTrustedTypesPolicy` set.
+ * @internal */
+export function trustedHTML(html: string): string;
+
+export function trustedHTML(html) {
+  return policy ? policy.createHTML(html) : html;
+}
+
 function create(html, bypassGuard, flag) {
   if ("_SOLID_DEV_" && isHydrating() && !bypassGuard)
     throw new Error(
@@ -487,7 +496,7 @@ function create(html, bypassGuard, flag) {
         "where the document shell already exists."
     );
   const t = document.createElement("template");
-  t.innerHTML = policy ? policy.createHTML(html) : html;
+  t.innerHTML = trustedHTML(html);
   const node = t.content.firstChild;
   return flag === 2 ? node.firstChild : node;
 } /**
