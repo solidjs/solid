@@ -43,6 +43,29 @@ describe("delegated dispatch restores the native Event", () => {
     expect(seen[0]).toBe(outer);
   });
 
+  test("currentTarget is simulated without a per-event getter", () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    let outer!: HTMLDivElement, btn!: HTMLButtonElement;
+    const seen: any[] = [];
+    const record = (e: Event) => {
+      const own = Object.getOwnPropertyDescriptor(e, "currentTarget")!;
+      seen.push(own.get, e.currentTarget);
+    };
+    const dispose = render(
+      () => (
+        <div ref={outer} onClick={record}>
+          <button ref={btn} onClick={record} />
+        </div>
+      ),
+      root
+    );
+    btn.click();
+    dispose();
+    root.remove();
+    expect(seen).toEqual([undefined, btn, undefined, outer]);
+  });
+
   test.fails("the same Event object dispatched twice runs the handler twice", () => {
     const root = document.createElement("div");
     document.body.appendChild(root);

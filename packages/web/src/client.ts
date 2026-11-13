@@ -3045,14 +3045,16 @@ function eventHandler(e, container, state) {
 
   let node = resumeNode || e.target;
   const key = EVENT_KEY + e.type;
-  const retarget = value =>
-    Object.defineProperty(e, "target", {
+  const define = (name, value) =>
+    Object.defineProperty(e, name, {
       configurable: true,
       value
     });
   const handleNode = () => {
     const handler = node[key];
     if (handler && !node.disabled) {
+      // currentTarget as data: V8 can retain a per-event getter in the event type's shape
+      define("currentTarget", node);
       const data = node[`${key}Data`];
       data !== undefined
         ? handler.call(node, data, e)
@@ -3065,7 +3067,7 @@ function eventHandler(e, container, state) {
       typeof node.host !== "string" &&
       !node.host._$host &&
       node.contains(e.target) &&
-      retarget(node.host);
+      define("target", node.host);
     return true;
   };
   // The walk ends at the owner, the boundary of event delegation.
@@ -3074,13 +3076,6 @@ function eventHandler(e, container, state) {
     while (node && handleNode() && !atOwner()) node = parentOf(node);
   };
 
-  // simulate currentTarget; the owner is the boundary of the walk
-  Object.defineProperty(e, "currentTarget", {
-    configurable: true,
-    get() {
-      return node || owner;
-    }
-  });
   if (resumeNode) {
     // If the boundary was the target, the inner walk already fired it.
     // Resume above it so boundary handlers do not run twice.
@@ -3089,7 +3084,7 @@ function eventHandler(e, container, state) {
   } else if (e.composedPath) {
     const path = e.composedPath();
     if (path.length) {
-      retarget(path[0]);
+      define("target", path[0]);
       for (let i = 0; i < path.length; i++) {
         node = path[i];
         if (!handleNode()) break;
