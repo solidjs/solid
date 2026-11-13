@@ -1,19 +1,25 @@
 import {
   setAttributionHooks,
+  storeTools,
   type AttributionHooks,
+  type StoreTools,
   type InteractionRef,
   type NavigationRef,
   type Transition
 } from "./attribution-hooks.js";
 import {
   CONFIG_GUESS,
+  CONFIG_HELD,
   CONFIG_OVERRIDE,
+  CONFIG_SLOT_NODE,
   CONFIG_KEY_BAG,
   CONFIG_PLUMBING,
   CONFIG_WIDE,
   CONFIG_SUPERSEDES,
   CONFIG_VERDICT,
-  NOT_PENDING
+  NOT_PENDING,
+  REACTIVE_DISPOSED,
+  STATUS_UNINITIALIZED
 } from "./constants.js";
 import {
   anyExcluded,
@@ -291,6 +297,40 @@ export interface FlushEvent {
    * interactions shared the drain.
    */
   interaction?: ChangeOrigin;
+  /**
+   * What the drain changed on screen: each signal, memo or store property
+   * whose shown value differs from what it showed before the drain — a
+   * commit, a held transition's landing, an optimistic value appearing or
+   * lifting. One entry per node, in no promised order. Nodes that got their
+   * first value, and effects, are not listed.
+   */
+  changes: FlushChange[];
+}
+
+/** One node whose shown value a drain changed (`FlushEvent.changes`). */
+export interface FlushChange {
+  /** The node, in the id space of `RerunEvent.nodeId` and `ChangeRecord.nodeId`. */
+  nodeId: number;
+  nodeName: string;
+  /** A store property's node: the property, as a string. */
+  key?: string;
+  /**
+   * Who staged the value that is now shown — the action step, effect,
+   * interaction or navigation — when one was open. A held write keeps the
+   * origin it was staged under, so a landing's changes name their action.
+   */
+  origin?: ChangeOrigin;
+}
+
+/**
+ * Beside a `flush` record (`OBSERVE.records.subscribe("flush", (event, live) => …)`):
+ * the live side of `event.changes`, index for index — the node, and, for a
+ * listener that subscribed with `{ bodies: true }`, the values before and
+ * after. The values are live, not copies: a store's objects keep changing
+ * after the record, so a listener that keeps them copies them on delivery.
+ */
+export interface FlushLive {
+  changes: { node: Signal<any> | Computed<any>; prev?: unknown; value?: unknown }[];
 }
 
 /**
@@ -2212,13 +2252,92 @@ function checkRelayTear(
 // a fresh container is pure cost: every reader of `user` (any path below it)
 // re-runs for the one leaf that moved, where a draft mutation would re-run
 // only the readers of `name`. The store's notify sees both containers at the
-// write and reports a leaf census (identity on unwrapped values, capped); the
+// write (`storeWrite`), and the engine takes a leaf census (identity on
+// unwrapped values, capped); the
 // verdict is the whole detector: a replacement whose leaves are mostly the
 // SAME values is a spread-copy, and one whose leaves are mostly different is
 // new data (reconcile's job — and UNSTABLE_LIST_IDENTITY's, downstream). Once
 // per store path.
 
 const immutableReported = new Set<string>();
+
+const REPLACED_CENSUS_MAX = 64;
+function sameLeaf(tools: StoreTools, a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+  return tools.unwrapValue(a) === tools.unwrapValue(b) || tools.targetsEqual(a, b);
+}
+/** storeWrite: the containers a setter batch replaced wholesale, each with its
+ * leaf census — through the `StoreTools` the store registered (the engine
+ * does not import the store; see attribution-hooks.ts). */
+function censusReplacedContainers(
+  t: object,
+  old: Record<PropertyKey, any>,
+  pb: Record<PropertyKey, any>,
+  writtenKeys: Iterable<PropertyKey> | null
+): void {
+  const tools = storeTools;
+  // Shallow stores (and raw / unwrappable leaves) invalidate the whole
+  // replaced value as one unit — leaf draft assignment does not narrow
+  // who re-runs (#4686). The spread-copy diagnostic only helps deep stores.
+  if (tools === null || tools.isShallow(t)) return;
+  const keys = writtenKeys ?? Reflect.ownKeys(pb);
+  const isArray = Array.isArray(pb);
+  const owner = tools.rootOwner(t);
+  const deleted = tools.deleted(t);
+  // Items the array held before the write: an index that now holds one of
+  // them was moved into place (an in-place splice / shift), not replaced.
+  let oldArrayItems: Set<unknown> | null = null;
+  for (const key of keys) {
+    if ((isArray && key === "length") || key === tools.ownerKey) continue;
+    if (deleted?.has(key)) continue;
+    const ov = tools.unwrapValue(old[key as any]);
+    const nv = tools.unwrapValue(pb[key as any]);
+    if (
+      ov === null ||
+      nv === null ||
+      typeof ov !== "object" ||
+      typeof nv !== "object" ||
+      ov === nv ||
+      tools.targetsEqual(ov, nv)
+    )
+      continue;
+    // A raw / unwrappable previous value is itself a leaf: replacing it is
+    // the write, not a container copy the store could have mutated in place.
+    if (tools.isRawValue(ov) || !tools.isWrappable(ov)) continue;
+    if (isArray) {
+      if (oldArrayItems === null) {
+        oldArrayItems = new Set<unknown>();
+        for (const item of old as unknown[]) oldArrayItems.add(tools.unwrapValue(item));
+      }
+      if (oldArrayItems.has(nv)) continue;
+    }
+    const isArr = Array.isArray(nv);
+    if (isArr !== Array.isArray(ov)) continue;
+    let total: number;
+    let unchanged = 0;
+    if (isArr) {
+      total = (nv as unknown[]).length;
+      if (total > REPLACED_CENSUS_MAX) continue;
+      const oldItems = new Set<unknown>();
+      for (const item of ov as unknown[]) oldItems.add(tools.unwrapValue(item));
+      for (const item of nv as unknown[]) if (oldItems.has(tools.unwrapValue(item))) unchanged++;
+    } else {
+      const nkeys = Object.keys(nv);
+      total = nkeys.length;
+      if (total > REPLACED_CENSUS_MAX) continue;
+      for (const k of nkeys) if (sameLeaf(tools, (ov as any)[k], (nv as any)[k])) unchanged++;
+    }
+    checkImmutableUpdate(
+      tools.pathOf(t) + "." + String(key),
+      isArr,
+      total,
+      unchanged,
+      isArr ? (ov as unknown[]).length : Object.keys(ov).length,
+      owner
+    );
+  }
+}
 
 function checkImmutableUpdate(
   path: string,
@@ -3766,6 +3885,119 @@ function noteFlushRun(
   else if (flush.interaction !== interaction) flush.interaction = null;
 }
 
+// --- What each drain showed ---------------------------------------------------
+//
+// Core says where a value was staged (`staged`: queued for a commit, or put
+// on a transaction's or a lane's list), never where it became visible: a
+// commit, a held transition's landing, a lane's reveal or its lift. The
+// engine keeps what the screen showed of each staged node and compares it
+// with what it shows at `flushEnd`. A difference is a change the drain
+// showed. A node stays watched while its shown value can still change
+// without a new staging (held, or on a lane), and is dropped once settled.
+//
+// The same comparison is OPTIMISTIC_REVERTED's: a guess the screen showed
+// that is replaced by something else. Its truth is the value it covered
+// (reverted: nothing came true) or a different one (superseded).
+interface Watched {
+  /** What the screen showed of the node at the last drain end (or before its staging). */
+  shown: unknown;
+  /** `shown` is an optimistic guess. */
+  guess: boolean;
+  /** The committed value beneath the guess, while `guess`. */
+  covered: unknown;
+  /** Who staged the value the drain will show, when an origin was open. */
+  origin: ChangeOrigin | undefined;
+}
+// Strong on the node, walked at every drain end: a node leaves when it
+// settles (`unsettled`) or is disposed, and a held or lane node always
+// settles — its transaction lands, merges or dissolves (`unhold`, `land`,
+// `dissolveLane`); nothing drops one without clearing `_transaction`.
+const watched = new Map<Signal<any> | Computed<any>, Watched>();
+
+/** What the screen shows of `n` — a revealed guess included (NOT_PENDING: none yet). */
+function shownOf(n: Signal<any> | Computed<any>): unknown {
+  return (n as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ? NOT_PENDING : n._value;
+}
+
+/** The screen shows `n`'s optimistic guess (not a derived override or a companion). */
+function showsGuess(n: Signal<any> | Computed<any>): boolean {
+  return (n._config & CONFIG_GUESS) !== 0 && !!n._x?._shown;
+}
+
+/** Its shown value can still change without a new staging: staged, held, or on a lane. */
+function unsettled(n: Signal<any> | Computed<any>): boolean {
+  return (
+    n._pendingValue !== NOT_PENDING ||
+    (n._config & (CONFIG_HELD | CONFIG_OVERRIDE)) !== 0 ||
+    (n._x != null && n._x._transaction !== null)
+  );
+}
+
+/** Watch `n` from here even with no flush listener (a fallback's output). */
+function watch(n: Computed<any>): void {
+  if (!watched.has(n))
+    watched.set(n, { shown: shownOf(n), guess: false, covered: n._value, origin: undefined });
+}
+
+function trackStaged(el: Signal<any> | Computed<any>): void {
+  // Effects are not state; their values are what they rendered.
+  if ((el as { _type?: number })._type) return;
+  const w = watched.get(el);
+  if (w !== undefined) {
+    const origin = ambientOrigin();
+    if (origin !== undefined) w.origin = origin;
+    return;
+  }
+  // Watched for the flush record's audience, or for the revert finding (a
+  // guess enters a lane through `list`). Nothing wants it: no origin walk —
+  // this runs on every write while the engine is enabled.
+  if (!records.observed("flush") && !(options.optimisticReverts && el._x?._transaction?._lane))
+    return;
+  const guess = showsGuess(el);
+  watched.set(el, { shown: shownOf(el), guess, covered: el._value, origin: ambientOrigin() });
+}
+
+/** flushEnd: compare, judge the reverts, and list the changes for the record (`live` beside it). */
+function drainChanges(record: boolean, live: FlushLive["changes"]): FlushChange[] {
+  const changes: FlushChange[] = [];
+  if (watched.size === 0) return changes;
+  const bodies = record && records.observed("flush", "bodies");
+  for (const [n, w] of watched) {
+    if ((n as Computed<any>)._flags & REACTIVE_DISPOSED) {
+      watched.delete(n);
+      continue;
+    }
+    const now = shownOf(n);
+    if (!Object.is(now, w.shown)) {
+      const fallback = pendingFallbacks.get(n as Computed<any>);
+      if (fallback !== undefined) displayFallback(fallback);
+      const guess = showsGuess(n);
+      if (w.guess && !guess && now !== NOT_PENDING && w.shown !== NOT_PENDING)
+        checkOptimisticRevert(
+          n,
+          w.shown,
+          now,
+          Object.is(now, w.covered) ? "reverted" : "superseded"
+        );
+      if (record && w.shown !== NOT_PENDING && now !== NOT_PENDING && !excludedNode(n)) {
+        const change: FlushChange = { nodeId: devId(n), nodeName: nodeName(n) };
+        if (n._config & CONFIG_SLOT_NODE) change.key = String((n as { _key?: PropertyKey })._key);
+        if (w.origin !== undefined) change.origin = w.origin;
+        changes.push(change);
+        live.push(bodies ? { node: n, prev: w.shown, value: now } : { node: n });
+      }
+      // A guess's truth is what the screen showed before it appeared; a new
+      // guess over a shown guess keeps covering the same truth.
+      if (guess && !w.guess) w.covered = w.shown;
+      w.shown = now;
+      w.origin = undefined;
+      w.guess = guess;
+    }
+    if (!unsettled(n) && !pendingFallbacks.has(n as Computed<any>)) watched.delete(n);
+  }
+  return changes;
+}
+
 function trackFlushStart(): void {
   if (!records.observed("flush")) return;
   openFlush = { at: now(), runs: 0, created: 0, held: false, interaction: undefined };
@@ -3778,19 +4010,18 @@ function trackFlushStart(): void {
 // its boundary); `gen` stamps the show with the tracking generation so a show
 // that predates a reinstall cannot emit against the new window.
 //
-// The show the boundary reports is the SWAP — a staged write, which lands
-// with its transaction's commit (#3540: `on` follows the frame) and is on
-// screen once the drain that committed it has run its effects. Until then
-// the fallback is not displayed: an open is `staged` — under the transaction
-// it lands with (`transitionSettled` moves it to the settling drain;
-// `transitionMerged` follows a fold), or under the current drain when no
-// transaction carries it, the lane swap included (its readers run in this
-// drain). `flushEnd` — the "committed, screen updated" instant — stamps the
-// drain's opens with their `at`. A hide that finds the open still staged was
-// never displayed: the content landed before the frame did and the sweep
-// cleared the swap ahead of the commit, or the commit's own sweep cleared it
-// before any effect ran (the LOADING_ON_OUTSIDE_HOLD shape). It drops the
-// open and makes no record, and the folds hear neither show nor hide.
+// The show the boundary reports is the SWAP: the boundary's output computing
+// the fallback, a value that lands with its frame (#3540: `on` follows the
+// frame) — committed this drain, held until its transaction lands, or shown
+// with a lane. Until the screen shows it the fallback is not displayed: the
+// open is pending on its output, which the drain-end comparison watches
+// (`drainChanges`); the drain that shows the output's new value stamps the
+// open's `at`. A mount outside any drain shows it as the mount returns. A
+// hide that finds the open still pending was never displayed: the content
+// landed before the frame did and the sweep cleared the swap ahead of the
+// commit, or the commit's own sweep cleared it before any effect ran (the
+// LOADING_ON_OUTSIDE_HOLD shape). It drops the open and makes no record, and
+// the folds hear neither show nor hide.
 interface OpenFallback {
   at: number;
   gen: number;
@@ -3799,23 +4030,22 @@ interface OpenFallback {
   boundary: object;
   tree: Computed<any> | undefined;
   interaction: ChangeOrigin | undefined;
-  /** Pending display: the transaction it lands with, or `DRAIN` for this flush's end. */
-  staged: Transition | typeof DRAIN | null;
+  /** The output it waits on to be displayed; `null` once displayed. */
+  pending: Computed<any> | null;
 }
-/** The key for swaps no transaction carries — an object, so the map below can be weak. */
-const DRAIN: { readonly drain: true } = { drain: true };
 const openFallbacks = new WeakMap<object, OpenFallback>();
-// Weak on the transaction: one that is dropped without settling or merging
-// (its boundary disposed, its queues discarded) takes its staged opens with it.
-const stagedFallbacks = new WeakMap<Transition | typeof DRAIN, OpenFallback[]>();
+/** Opens waiting for their output's display, by output. */
+const pendingFallbacks = new Map<Computed<any>, OpenFallback>();
 /** Bumped by `resetTracking` — the engine's install generation. */
 let trackingGen = 0;
+/** Between `flushStart` and `flushEnd`. */
+let draining = false;
 
 function trackFallback(
   boundary: object,
   tree: Computed<any> | undefined,
   shown: boolean,
-  transition: Transition | null
+  output: Computed<any> | undefined
 ): void {
   if (shown) {
     // Folds count showings too, and the flash finding needs the show's
@@ -3825,7 +4055,6 @@ function trackFallback(
     // The wait is the enclosing recompute's cause's interaction — the read
     // that registered the pending source runs inside one — else the ambient.
     const causes = enclosingCauses();
-    const staged = transition ?? DRAIN;
     const open: OpenFallback = {
       at: now(),
       gen: trackingGen,
@@ -3833,22 +4062,26 @@ function trackFallback(
       boundary,
       tree,
       interaction: causes !== null ? interactionIn(causes) : (currentInteraction ?? undefined),
-      staged
+      pending: null
     };
     openFallbacks.set(boundary, open);
-    const list = stagedFallbacks.get(staged);
-    if (list === undefined) stagedFallbacks.set(staged, [open]);
-    else list.push(open);
+    // A mount outside any drain: its first value is published as the mount
+    // returns, with no drain to show it in.
+    if (output === undefined || (!draining && shownOf(output) === NOT_PENDING))
+      displayFallback(open);
+    else {
+      open.pending = output;
+      pendingFallbacks.set(output, open);
+      watch(output);
+    }
     return;
   }
   const open = openFallbacks.get(boundary);
   if (open === undefined) return;
   openFallbacks.delete(boundary);
-  if (open.staged !== null) {
-    // Cleared before its commit: never on screen.
-    const list = stagedFallbacks.get(open.staged)!;
-    list.splice(list.indexOf(open), 1);
-    if (list.length === 0) stagedFallbacks.delete(open.staged);
+  if (open.pending !== null) {
+    // Cleared before the screen showed it: never displayed.
+    pendingFallbacks.delete(open.pending);
     return;
   }
   if (open.gen !== trackingGen) return;
@@ -3866,37 +4099,20 @@ function trackFallback(
   records.emit("fallback", event, subtree);
 }
 
-/** flushEnd: the drain's committed swaps have rendered — those fallbacks are on screen from here. */
-function displayFallbacks(): void {
-  const list = stagedFallbacks.get(DRAIN);
-  if (list === undefined) return;
-  stagedFallbacks.delete(DRAIN);
-  const at = now();
-  for (const open of list) {
-    open.staged = null;
-    open.at = at;
-    if (open.gen === trackingGen)
-      for (const f of folds) f.fallback?.(open.boundary, open.tree, true);
-  }
-}
-
-/** transitionSettled (`from` a transaction, into this drain) and
- * transitionMerged (`from` the outgoing, into the surviving transaction):
- * the swaps staged under `from` now land with `into`. */
-function rebaseFallbacks(from: Transition, into: Transition | typeof DRAIN): void {
-  const list = stagedFallbacks.get(from);
-  if (list === undefined) return;
-  stagedFallbacks.delete(from);
-  for (const open of list) open.staged = into;
-  const target = stagedFallbacks.get(into);
-  if (target === undefined) stagedFallbacks.set(into, list);
-  else target.push(...list);
+/** The screen shows the fallback from here. */
+function displayFallback(open: OpenFallback): void {
+  if (open.pending !== null) pendingFallbacks.delete(open.pending);
+  open.pending = null;
+  open.at = now();
+  if (open.gen === trackingGen) for (const f of folds) f.fallback?.(open.boundary, open.tree, true);
 }
 
 /** flushEnd: every open, closed, unheld navigation's (and interaction's) writes just committed. */
 function trackFlushEnd(): void {
   // The drain's own record first: the interactions it settles below waited on it.
   const flush = openFlush;
+  const live: FlushLive = { changes: [] };
+  const changes = drainChanges(flush !== null, live.changes);
   if (flush !== null) {
     openFlush = null;
     const event: FlushEvent = {
@@ -3904,14 +4120,13 @@ function trackFlushEnd(): void {
       durationMs: now() - flush.at,
       runs: flush.runs,
       created: flush.created,
-      held: flush.held
+      held: flush.held,
+      changes
     };
     if (flush.interaction != null) event.interaction = flush.interaction;
-    records.emit("flush", event, undefined);
+    records.emit("flush", event, live);
   }
   drainSeq++;
-  // The swaps this drain committed have rendered.
-  displayFallbacks();
   // Landed first: they settled before anything this drain settles below.
   for (let i = 0; i < landedGraphs.length; i++) trackGraph(landedGraphs[i]);
   landedGraphs.length = 0;
@@ -4294,18 +4509,17 @@ function navigationData(origin: ChangeOrigin): Record<string, unknown> {
 // The engine's implementation of the core's dev hook points. Installed by
 // enable(), uninstalled by disable() — while uninstalled the core pays one
 // null check per site and nothing else.
-let asyncStartSeq = 0;
-let asyncStartTime = 0;
-let asyncStartValue: unknown;
 const engineHooks: AttributionHooks = {
   interactionStart,
   interactionEnd,
   originStart,
   originEnd,
   flushStart() {
+    draining = true;
     trackFlushStart();
   },
   flushEnd() {
+    draining = false;
     trackFlushEnd();
   },
   recomputeStart(el, create) {
@@ -4331,12 +4545,12 @@ const engineHooks: AttributionHooks = {
             : enclosingInteraction()
     });
   },
-  derivedChanged(el) {
-    const frame = frames[frames.length - 1];
-    stampDerived(el, frame !== undefined && frame.causes !== null ? frame.causes : []);
-  },
-  recomputeEnd(el, _create, changed, optimistic, transition, held) {
+  recomputeEnd(el, create, changed, phase, held) {
     const frame = frames.pop();
+    // A memo's re-run that changed its value is a derived change: its
+    // subscribers name it as their cause, chaining back to the root write.
+    if (changed && !create && !(el as { _type?: number })._type)
+      stampDerived(el, frame !== undefined && frame.causes !== null ? frame.causes : []);
     // enable() can land mid-recompute: no opening frame, nothing to report.
     if (frame === undefined) return;
     const totalMs = now() - frame.start;
@@ -4359,13 +4573,7 @@ const engineHooks: AttributionHooks = {
     // plain-flush memo commits and in `_value` for direct ones. Overlay runs
     // are excluded — an optimistic re-derive legitimately produces fresh
     // equivalents while the lane settles.
-    if (
-      frame.causes !== null &&
-      changed &&
-      !optimistic &&
-      !transition &&
-      !(el as { _type?: number })._type
-    )
+    if (frame.causes !== null && changed && phase === "plain" && !(el as { _type?: number })._type)
       checkUnstableOutput(
         el,
         frame.prevValue,
@@ -4377,15 +4585,7 @@ const engineHooks: AttributionHooks = {
     // proves nothing. Reported as changed, so no consumer counts it as waste.
     if (!changed && (el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value) === undefined)
       changed = true;
-    if (frame.causes !== null)
-      recordRerun(
-        el,
-        frame,
-        { selfMs, totalMs },
-        changed,
-        optimistic ? "optimistic" : transition ? "held" : "plain",
-        held
-      );
+    if (frame.causes !== null) recordRerun(el, frame, { selfMs, totalMs }, changed, phase, held);
     else if (!excludedNode(el)) {
       // Creation runs still get the wide-scope check: a memo can be born with
       // its coarse-read problem already in place — and their time is charged
@@ -4405,7 +4605,7 @@ const engineHooks: AttributionHooks = {
           depCount: captureDeps(el).length,
           selfMs,
           totalMs,
-          phase: optimistic ? "optimistic" : transition ? "held" : "plain",
+          phase,
           held
         };
         if (frame.interaction !== undefined) event.interaction = frame.interaction;
@@ -4423,35 +4623,10 @@ const engineHooks: AttributionHooks = {
   flightStart(el, flight) {
     trackFlightStart(el, flight);
   },
-  asyncStart(el) {
-    asyncStartSeq = (el as AttributedNode)._devChange?.seq ?? 0;
-    asyncStartTime = el._time;
-    asyncStartValue = el._value;
-  },
-  asyncEnd(el, prev, value, direct) {
-    if (direct) {
-      // Core calls this unconditionally (hook calls cannot live inside its
-      // try blocks — see attribution-hooks.ts), so committed-ness is detected
-      // here against the asyncStart snapshot: a direct commit moves `_value`
-      // (or `_time`, for a same-reference commit under `equals: false`), and
-      // a transition hold parks the value in `_pendingValue`. A landing the
-      // equality gate swallowed moves none of them and must leave no stamp.
-      const committed =
-        el._value !== asyncStartValue ||
-        el._time !== asyncStartTime ||
-        (el as Computed<any>)._pendingValue === value;
-      if (committed) stampWrite(el, "async", prev === undefined ? NO_VALUES : prev, value);
-      // Flight over either way — an equality-swallowed landing still spent
-      // the wall time (finalizeFlight only chains through a fresh stamp).
-      finalizeFlight(el);
-      return;
-    }
-    // Landed through setSignal: reclassify its "write" stamp as an async
-    // landing — but only if it actually stamped (the value changed) since
-    // asyncStart; a no-change landing must leave no fresh stamp behind.
-    const change = (el as AttributedNode)._devChange;
-    if (change !== undefined && change.seq > asyncStartSeq && change.kind === "write")
-      stampWrite(el, "async", NO_VALUES, value);
+  asyncLanded(el, value, changed) {
+    if (changed) stampWrite(el, "async", NO_VALUES, value);
+    // Flight over either way — an equality-swallowed landing still spent
+    // the wall time (finalizeFlight only chains through a fresh stamp).
     finalizeFlight(el);
   },
   effectRunStart(el) {
@@ -4505,24 +4680,22 @@ const engineHooks: AttributionHooks = {
   },
   transitionSettled(t) {
     trackHoldSettled(t);
-    rebaseFallbacks(t, DRAIN);
   },
   transitionMerged(target, outgoing) {
     trackHoldMerge(target, outgoing);
-    rebaseFallbacks(outgoing, target);
   },
-  storeReplaced(path, isArray, total, unchanged, prevTotal, owner) {
-    checkImmutableUpdate(path, isArray, total, unchanged, prevTotal, owner);
+  storeWrite(target, old, written, keys) {
+    censusReplacedContainers(target, old, written, keys);
   },
   listChurn(el, removed, created, newLen, keyed) {
     checkListIdentity(el, removed, created, newLen, keyed);
   },
-  boundaryFallback(boundary, tree, shown, transition) {
+  boundaryFallback(boundary, tree, shown, output) {
     // The folds hear the show at its display (see trackFallback), not here.
-    trackFallback(boundary, tree, shown, transition ?? null);
+    trackFallback(boundary, tree, shown, output);
   },
-  optimisticReverted(el, shown, truth, how) {
-    checkOptimisticRevert(el, shown, truth, how);
+  staged(el) {
+    trackStaged(el);
   },
   currentOrigin() {
     return ambientOrigin();
@@ -4564,9 +4737,11 @@ function resetWindows(): void {
 /** The live tracking state — reset only when the engine is (un)installed. */
 function resetTracking(): void {
   frames.length = 0;
+  watched.clear();
   activeHold = null;
   openFlush = null;
-  stagedFallbacks.delete(DRAIN);
+  pendingFallbacks.clear();
+  draining = false;
   trackingGen++;
   openNavs.clear();
   landedGraphs.length = 0;

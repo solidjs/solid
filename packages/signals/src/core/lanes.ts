@@ -65,7 +65,6 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import { attrHooks } from "./attribution-hooks.js";
 import { bornInto, creatorReads, ext, stagedRead, tracking } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
 import { removePendingSource, settlePendingSource } from "./async.js";
@@ -520,17 +519,7 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
       // The parent landed: a guess lands the truth beneath it or reverts to
       // the one it covered; a derivation's latest (its staging, else what it
       // shows) commits, its frame with it; what the screen showed and
-      // changes notifies. Observe: a displayed guess that lifts to
-      // something else — the truth staged beneath it (superseded by a
-      // landing held there) or the value it covered (reverted: nothing came
-      // true).
-      if (__OBSERVE__ && guess && l._shown && attrHooks !== null && truth !== shown)
-        attrHooks.optimisticReverted(
-          n,
-          shown,
-          truth,
-          n._pendingValue !== NOT_PENDING ? "superseded" : "reverted"
-        );
+      // changes notifies.
       // A derivation the revert re-derives (dirtied by the guess's
       // notification — listed before it), or one still in flight, shows the
       // lane's answer beside inputs that are the truth now: a fresh reader

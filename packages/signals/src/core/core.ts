@@ -820,7 +820,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     clearDeps(el);
     clearInFlight(el);
     if (__OBSERVE__ && attrHooks !== null)
-      attrHooks.recomputeEnd(el, create, false, false, false, false);
+      attrHooks.recomputeEnd(el, create, false, "plain", false);
     if (laneStageHook) setPassLane(prevLane);
     return;
   }
@@ -888,11 +888,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       !isSame(el, compareValue, value);
 
     // A committed derived change becomes a cause for this node's subscribers,
-    // chaining their attribution through this node to the root write.
-    if (__OBSERVE__ && attrHooks !== null) {
-      devChanged = !!valueChanged && !el._x?._error;
-      if (devChanged && !isEffect && !create) attrHooks.derivedChanged(el);
-    }
+    // chaining their attribution through this node to the root write
+    // (`recomputeEnd`'s `changed`).
+    if (__OBSERVE__ && attrHooks !== null) devChanged = !!valueChanged && !el._x?._error;
 
     // Effects use `_equals: false` (no per-effect closure). The side effects that
     // the equals closure used to perform — flagging the effect dirty and enqueueing
@@ -1095,8 +1093,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el,
       create,
       devChanged,
-      lane !== null,
-      flushTransaction !== null || passTx !== null || (el._config & CONFIG_HELD) !== 0,
+      lane !== null
+        ? "optimistic"
+        : flushTransaction !== null || passTx !== null || (el._config & CONFIG_HELD) !== 0
+          ? "held"
+          : "plain",
       el._pendingValue !== NOT_PENDING
     );
   // A staged value, a parked frame (L2: the commit retires it), or status the
@@ -2903,6 +2904,31 @@ export function isSame(el: Signal<any>, a: unknown, b: unknown): unknown {
   }
 }
 
+/** Observe: the async node `landThroughSetSignal` is landing, and whether its write passed the equality gate. */
+let landing: object | null = null;
+let landed = false;
+
+/**
+ * Observe: an async landing through `setSignal` (async.ts). Its write is not
+ * reported as a `write` — the landing reports it, as `asyncLanded` — and the
+ * answer is whether the value changed (passed the equality gate).
+ */
+export function landThroughSetSignal(el: Computed<any>, value: unknown): boolean {
+  // Saved and restored, not reset: a landing that reaches another landing
+  // synchronously (a write hook, a comparator) must not clear the outer's.
+  const outerLanding = landing;
+  const outerLanded = landed;
+  landing = el;
+  landed = false;
+  try {
+    setSignal(el, () => value);
+    return landed;
+  } finally {
+    landing = outerLanding;
+    landed = outerLanded;
+  }
+}
+
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   if (writeHook !== null) writeHook(el);
   if (
@@ -2956,8 +2982,13 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     (custom === false ? currentValue !== v : !isSame(el, currentValue, v));
   if (!valueChanged) return v;
 
-  // Attribution hook: this committed write is where a re-run chain begins.
-  if (__OBSERVE__ && attrHooks !== null) attrHooks.write(el, currentValue, v);
+  // Attribution hook: this committed write is where a re-run chain begins —
+  // unless it is an async landing (`landThroughSetSignal`), which the
+  // landing reports itself, once.
+  if (__OBSERVE__ && attrHooks !== null) {
+    if (el === landing) landed = true;
+    else attrHooks.write(el, currentValue, v);
+  }
 
   // A write during hydration's snapshot capture to a source that has no
   // snapshot — created BEFORE capture began (module-level state: an identity

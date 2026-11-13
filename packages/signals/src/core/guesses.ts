@@ -124,6 +124,8 @@ export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T)
   if (typeof v === "function") v = (v as (prev: T) => T)(prev);
   if (n._equals && n._equals(prev, v) && !(n._config & CONFIG_GUESS)) return v;
   pendingGuesses.push(n, v, question || nextQuestion());
+  // Observe: staged where it was written, so the guess carries its writer's origin.
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.staged(n);
   // What this action read goes with its guess to the seam (#4788).
   for (let i = 0; i < readGuesses.length; i += 2)
     if (readGuesses[i + 1] === question) readFrom.push(readGuesses[i] as Transaction);
@@ -240,8 +242,8 @@ const applyGuessesAt = (parent: Transaction | null): void => {
  * rows) must not tie them together; a pass that derives from the held
  * truth joins the parent on its own (`joinPass`). */
 /** The correction round is replacing a guess with the value it covered (no
- * landing beneath it): observe's "reverted"; the lane gives back the
- * guesses it took (#4336, lanes.ts `endLanes`, `revertLanding`). */
+ * landing beneath it): the lane gives back the guesses it took (#4336,
+ * lanes.ts `endLanes`, `revertLanding`). */
 let reverting = false;
 
 export function supersede(n: Signal<any> | Computed<any>, value: unknown, changed: boolean): void {
@@ -256,11 +258,6 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
   if (changed && n._config & CONFIG_SLOT_NODE && GlobalQueue._echoes?.(latestOf(n), value))
     changed = false;
   if (changed) {
-    // Observe: a displayed guess is being replaced by a differing truth — a
-    // landing's (superseded), or the value it covered (reverted: the body
-    // ended with nothing coming true).
-    if (__OBSERVE__ && l._shown && attrHooks !== null)
-      attrHooks.optimisticReverted(n, latestOf(n), value, reverting ? "reverted" : "superseded");
     dissolveLane(l, parent, n);
     if (reverting) marked.add(l);
     // What the screen showed stays the screen until the parent lands (A18

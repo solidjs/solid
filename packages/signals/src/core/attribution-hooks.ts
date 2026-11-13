@@ -76,24 +76,32 @@ export interface AttributionHooks {
   recomputeStart(el: Computed<any>, create: boolean): void;
   /**
    * The recompute finished. `changed` = committed a changed value (false for
-   * errored runs); `optimistic` = ran under an optimistic lane / lane-dirty
-   * posture; `transition` = a transition was active or owns this node;
-   * `held` = the value went to `_pendingValue` (a transition hold) rather
-   * than committing directly — its reveal happens later on the transition's
-   * own schedule.
+   * errored runs) — for a memo's re-run, a derived change its subscribers
+   * will name as their cause; `phase` = the posture it ran under: a lane's
+   * work (`"optimistic"`), a hold open or owning the node (`"held"`), or
+   * neither (`"plain"`); `held` = the value went to `_pendingValue` rather
+   * than committing directly — its reveal happens later on its own schedule.
    */
   recomputeEnd(
     el: Computed<any>,
     create: boolean,
     changed: boolean,
-    optimistic: boolean,
-    transition: boolean,
+    phase: "plain" | "held" | "optimistic",
     held: boolean
   ): void;
-  /** A non-effect computed committed a changed value during a re-run. */
-  derivedChanged(el: Computed<any>): void;
   /** A signal write committed (value passed the equality gate). */
   write(el: Signal<any> | Computed<any>, prev: unknown, value: unknown): void;
+  /**
+   * A value for `el` was staged: queued for this flush's commit
+   * (`queuePendingNode`), written as an optimistic guess (`optimisticWrite`),
+   * or put on a transaction's or lane's list (`list`).
+   * What the screen shows of `el` may change at the end of this drain, or of
+   * a later one if the value is held. The engine compares what `el` showed
+   * before with what it shows at `flushEnd` — the one place a drain's visible
+   * changes are known — so core never has to say where a value became visible
+   * (a commit, a landing, a lane's reveal or lift).
+   */
+  staged(el: Signal<any> | Computed<any>): void;
   /** refresh() invalidated this node (self-invalidation, no dep changed). */
   refreshed(el: Computed<any>): void;
   /**
@@ -107,17 +115,13 @@ export interface AttributionHooks {
    * carry their true start time instead of the moment the graph saw them.
    */
   flightStart(el: Computed<any>, flight: object): void;
-  /** An async landing is about to apply its value (before any branch). */
-  asyncStart(el: Computed<any>): void;
   /**
-   * The async landing finished. `direct` = the landing applies the value
-   * itself (lane/override paths); false = it went through setSignal, whose
-   * own `write` hook already saw any committed change. Fired whether or not
-   * the landing committed — call sites cannot carry that fact out of their
-   * try blocks (see the try rule above), so the engine derives committed-ness
-   * from the node's state against its asyncStart snapshot.
+   * An async landing applied its value. `changed`: it committed or staged a
+   * change (it passed the equality gate) — a write the engine stamps as an
+   * async landing; false, the flight is over with nothing changed. A landing
+   * through `setSignal` is reported here only, never also as a `write`.
    */
-  asyncEnd(el: Computed<any>, prev: unknown, value: unknown, direct: boolean): void;
+  asyncLanded(el: Computed<any>, value: unknown, changed: boolean): void;
   /**
    * An effect's imperative half (its effect callback) is about to run /
    * has run. Both fire outside the run's try; `effectRunEnd` fires whether
@@ -152,27 +156,19 @@ export interface AttributionHooks {
   /** `outgoing` was folded into `target` (`outgoing._done = target`). */
   transitionMerged(target: Transition, outgoing: Transition): void;
   /**
-   * A store setter batch replaced the container at `path` (e.g. `store.user`)
-   * with a different one (both non-null, same array-ness, not the same
-   * logical slot), and this is the leaf census of the new container against
-   * the old: `total` leaves (own keys, or items) in the new one, `unchanged`
-   * of which are the same value as before (identity, judged on unwrapped
-   * values — object keys compared by key, array items by membership), and
-   * `prevTotal` leaves in the old one. Containers above 64 leaves are not
-   * announced. Fired per written key from the write channel's notify. The
-   * engine decides whether the replacement was a spread-copy worth a
-   * diagnostic. `owner` is the owner the store root was created under
-   * (undefined when unrecorded): the finding is about the store, not about
-   * whoever wrote it, so an `OBSERVE.exclude`d panel's store stays silent
-   * however its writes arrive.
+   * A store setter batch is writing `target`'s container: `old` the
+   * committed backing, `written` the new one, `keys` the keys this setter
+   * wrote (`null`: any of them — an array length write, accessors, a
+   * non-plain prototype). Fired once per setter exit, before its nodes are
+   * told. The engine judges what it needs from the two containers (a spread
+   * copy where a draft mutation would do), through the `StoreTools` the
+   * store registered.
    */
-  storeReplaced(
-    path: string,
-    isArray: boolean,
-    total: number,
-    unchanged: number,
-    prevTotal: number,
-    owner: Owner | null | undefined
+  storeWrite(
+    target: object,
+    old: Record<PropertyKey, any>,
+    written: Record<PropertyKey, any>,
+    keys: Iterable<PropertyKey> | null
   ): void;
   /**
    * A `mapArray` update both disposed and created rows: `removed` are the
@@ -196,33 +192,18 @@ export interface AttributionHooks {
    * the boundary. Fired at the source-set transitions (first pending source
    * registers / last one clears), not per flush.
    *
-   * A show is the boundary's SWAP, a staged write: `transition` is the one
-   * it lands with (`transitionSettled` is its display instant), or `null`
-   * when this drain commits it (`flushEnd`) — the lane swap included, whose
-   * readers run in this drain. A hide before that commit means the fallback
-   * was never displayed — the content landed first and the sweep cleared the
+   * A show is the boundary's SWAP: `output`, the boundary's value, is
+   * computing the fallback. The fallback is displayed when the screen shows
+   * the output's new value (`staged` and the drain-end comparison: a commit,
+   * a landing, a lane's reveal). A hide before that means the fallback was
+   * never displayed — the content landed first and the sweep cleared the
    * swap ahead of the frame (#3540).
    */
   boundaryFallback(
     boundary: object,
     tree: Computed<any> | undefined,
     shown: boolean,
-    transition?: Transition | null
-  ): void;
-  /**
-   * An optimistic override the screen displayed is being replaced by a
-   * different value. `"superseded"`: a new authoritative value landed that
-   * differs from the guess (tracked readers re-derive to it). `"reverted"`:
-   * nothing new landed and the guess lifts back to the committed value it
-   * covered (the action failed, or never wrote what it promised). `shown`
-   * is the override as displayed. Fired when the two differ by identity;
-   * the engine applies the node's own equality before judging.
-   */
-  optimisticReverted(
-    el: Signal<any> | Computed<any>,
-    shown: unknown,
-    truth: unknown,
-    how: "superseded" | "reverted"
+    output?: Computed<any>
   ): void;
   /**
    * The one query on the surface: the provenance a root write performed at
@@ -356,6 +337,36 @@ const INSTALLED = Symbol.for("@solidjs/signals/observe/attribution");
 export function setAttributionHooks(hooks: AttributionHooks | null): void {
   attrHooks = hooks;
   (globalThis as { [INSTALLED]?: AttributionHooks })[INSTALLED] = hooks ?? undefined;
+}
+
+/**
+ * What the engine needs of the store to judge a `storeWrite` (the
+ * spread-copy census), registered by the store module at its init. The
+ * engine reads these instead of importing the store: an app without stores
+ * then pays nothing for the store when it turns attribution on (the size
+ * scenario "CSR, observe tier + attribution engine enabled"), and core keeps
+ * its layering — nothing under `core/` imports `store/`. A `storeWrite`
+ * can only arrive once the store module has loaded and registered.
+ */
+export interface StoreTools {
+  /** The target's path from its root: `store.user.address`. */
+  pathOf(target: object): string;
+  /** A shallow store: a replaced value invalidates as one unit (#4686). */
+  isShallow(target: object): boolean;
+  /** The keys this batch deleted on the target, if any. */
+  deleted(target: object): Set<PropertyKey> | null;
+  /** The owner the store root was created under (undefined when unrecorded). */
+  rootOwner(target: object): Owner | null | undefined;
+  /** The backing's owner slot, not a leaf. */
+  ownerKey: PropertyKey;
+  unwrapValue(v: unknown): unknown;
+  targetsEqual(a: unknown, b: unknown): boolean;
+  isRawValue(v: unknown): boolean;
+  isWrappable(v: unknown): boolean;
+}
+export let storeTools: StoreTools | null = null;
+export function registerStoreTools(tools: StoreTools): void {
+  storeTools = tools;
 }
 
 /**
