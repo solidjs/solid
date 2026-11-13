@@ -734,8 +734,12 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
         // reader of a transaction, REACTIVE_FRAME_READ — both reruns apply).
         // Before the throw below: a leaf that waits on a lane that has never
         // shown has no flight to settle it — only the reveal re-derives it,
-        // and its pending holds its frame until then (#4338).
-        if (!(c._flags & REACTIVE_SCREEN_READ)) {
+        // and its pending holds its frame until then (#4338). Not a member's
+        // own flight in a lane that showed and is not held: the reveal has
+        // nothing new for the leaf, which re-derives when that flight lands
+        // — re-queued at every reveal, each re-derivation read the same
+        // flight and queued the next, and the flush never settled (#4840).
+        if (!(c._flags & REACTIVE_SCREEN_READ) && (l._held || !l._shown)) {
           c._flags |= REACTIVE_FRAME_READ | REACTIVE_SCREEN_READ;
           l._reruns.push(c);
         }
