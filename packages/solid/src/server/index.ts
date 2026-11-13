@@ -58,6 +58,8 @@ export {
 } from "./signals.js";
 /** @internal */
 export { runRefCallback } from "./signals.js";
+/** @internal */
+export { strictReadTracked } from "./signals.js";
 export type { ClientErrorContext, ClientErrorHook, ClientErrorsConfig } from "./signals.js";
 // `createOwner`: a bare owner, for the runtimes' own scopes (`NoHydration`,
 // `Portal`, a frame's fill). Exported at runtime (typed for renderers through

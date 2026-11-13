@@ -39,6 +39,7 @@ impl<'a> AstDomTransform<'a, '_> {
                     .and_then(|element| element.as_expression())
                     .map(|expression| expression.clone_in(self.allocator));
                 if let Some(bound) = bound {
+                    let bound = self.strict_handler(span, bound);
                     let mut statements = vec![self.delegated_assignment_statement(
                         span,
                         element_id,
@@ -46,6 +47,7 @@ impl<'a> AstDomTransform<'a, '_> {
                         bound,
                     )];
                     if let Some(data) = data {
+                        let data = self.strict_handler(span, data);
                         statements.push(self.delegated_assignment_statement(
                             span,
                             element_id,
@@ -66,6 +68,7 @@ impl<'a> AstDomTransform<'a, '_> {
                 )];
             }
 
+            let handler = self.strict_handler(span, handler);
             return vec![self.add_event_helper_statement(
                 span,
                 element_id,
@@ -88,8 +91,9 @@ impl<'a> AstDomTransform<'a, '_> {
                 .map(|expression| expression.clone_in(self.allocator));
             if let Some(bound) = bound {
                 let listener = match data {
+                    // Read at dispatch, inside the listener: nothing to check.
                     Some(data) => self.event_handler_with_data(span, bound, data),
-                    None => bound,
+                    None => self.strict_handler(span, bound),
                 };
                 return vec![self.add_event_listener_statement(
                     span,
@@ -104,7 +108,50 @@ impl<'a> AstDomTransform<'a, '_> {
             return vec![self.add_event_listener_statement(span, element_id, &event_name, handler)];
         }
 
+        let handler = self.strict_handler(span, handler);
         vec![self.add_event_helper_statement(span, element_id, &event_name, handler, false)]
+    }
+
+    /// Dev DOM output: `_$strictHandler(() => <handler>)` for a handler
+    /// expression that can read reactive state (anything but an identifier, a
+    /// function or a literal), so the dev runtime warns on a reactive read
+    /// where the handler is bound (#1742) while still tracking it. Production
+    /// output keeps `<handler>`. Port of Babel's `strictHandler` (dom/element.ts).
+    fn strict_handler(&mut self, span: Span, handler: Expression<'a>) -> Expression<'a> {
+        if !self.dev
+            || matches!(
+                handler,
+                Expression::Identifier(_)
+                    | Expression::ArrowFunctionExpression(_)
+                    | Expression::FunctionExpression(_)
+                    | Expression::StringLiteral(_)
+                    | Expression::NumericLiteral(_)
+                    | Expression::BooleanLiteral(_)
+                    | Expression::NullLiteral(_)
+                    | Expression::BigIntLiteral(_)
+                    | Expression::RegExpLiteral(_)
+                    | Expression::TemplateLiteral(_)
+            )
+        {
+            return handler;
+        }
+        self.template_state.uses_strict_handler = true;
+        let params = self.ast().formal_parameters(
+            span,
+            oxc_ast::ast::FormalParameterKind::ArrowFormalParameters,
+            self.ast().vec(),
+            None,
+        );
+        let body = self.ast().function_body(
+            span,
+            self.ast().vec(),
+            self.ast()
+                .vec1(self.ast().statement_expression(span, handler)),
+        );
+        let thunk = self
+            .ast()
+            .expression_arrow_function(span, true, false, None, params, None, body);
+        self.call_identifier(span, "_$strictHandler", vec![thunk])
     }
 
     fn should_delegate_event(&self, event_name: &str) -> bool {

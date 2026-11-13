@@ -18,7 +18,8 @@ import {
   enforceLoadingBoundary,
   resetErrorHalt,
   ROOT_ERROR_HOOK,
-  OBSERVE
+  OBSERVE,
+  strictReadTracked
 } from "solid-js";
 import type { ClientErrorHook, Owner } from "solid-js";
 import {
@@ -735,6 +736,23 @@ export function setStatefulProperty(node, name, value) {
   if ("_SOLID_DEV_") checkStatefulWrite(node, name, value);
   node[name] = value;
   if ("_SOLID_DEV_") recordStatefulWrite(node, name, value);
+}
+
+/**
+ * An event handler expression from dev-compiled DOM output (#1742):
+ * `onClick={props.onClick}` compiles to `strictHandler(() => props.onClick)`
+ * where production output inlines `props.onClick`. A handler is bound once,
+ * where its element is created, so a reactive read in the expression is a
+ * mistake: dev warns `STRICT_READ_UNTRACKED` (a pending async read throws
+ * `PENDING_ASYNC_UNTRACKED_READ`). The read still tracks, so dev re-mounts
+ * on a change exactly as production does. Production compile output never
+ * imports it, so it tree-shakes away.
+ *
+ * @internal Compiler output only.
+ */
+export function strictHandler<T>(fn: () => T): T;
+export function strictHandler(fn) {
+  return "_SOLID_DEV_" ? strictReadTracked(fn) : fn();
 }
 
 // === Element claims ===

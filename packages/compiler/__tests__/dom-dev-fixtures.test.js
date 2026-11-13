@@ -7,7 +7,8 @@ const oxcDomDevFixtures = path.resolve(__dirname, "fixtures/dom-dev");
 
 const fixtureParity = {
   lowerShow: "subset",
-  statefulProperties: "subset"
+  statefulProperties: "subset",
+  strictEventHandlers: "subset"
 };
 
 function readFixture(name) {

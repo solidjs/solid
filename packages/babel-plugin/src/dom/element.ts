@@ -489,6 +489,27 @@ export function setAttr(
   }
 }
 
+/**
+ * Dev DOM output reads an event handler expression that can read reactive
+ * state (anything but an identifier, a function or a literal) through
+ * `strictHandler(() => expr)` (#1742): a handler is bound once, where its
+ * element is created, so the dev runtime warns on a reactive read there while
+ * tracking it as production does. Production output keeps `expr`, byte for
+ * byte. Mirrored by the native compiler's `strict_handler` (dom/events.rs).
+ */
+function strictHandler(
+  path: BabelPath,
+  config: { dev?: boolean },
+  handler: babelTypes.Expression
+): babelTypes.Expression {
+  if (!config.dev || t.isIdentifier(handler) || t.isFunction(handler) || t.isLiteral(handler))
+    return handler;
+  return t.callExpression(
+    registerImportMethod(path, "strictHandler", getRendererConfig(path, "dom").moduleName),
+    [t.arrowFunctionExpression([], handler)]
+  );
+}
+
 function detectResolvableEventHandler(
   attribute: BabelPath,
   handler: babelTypes.Expression
@@ -1124,7 +1145,7 @@ function transformAttributes(
                     t.assignmentExpression(
                       "=",
                       t.memberExpression(elem, t.identifier(`_$$${ev}Data`)),
-                      handler.elements[1] as babelTypes.Expression
+                      strictHandler(path, config, handler.elements[1] as babelTypes.Expression)
                     )
                   )
                 );
@@ -1135,7 +1156,7 @@ function transformAttributes(
                   t.assignmentExpression(
                     "=",
                     t.memberExpression(elem, t.identifier(`_$$${ev}`)),
-                    handler
+                    strictHandler(path, config, handler)
                   )
                 )
               );
@@ -1158,7 +1179,12 @@ function transformAttributes(
                       "addEvent",
                       getRendererConfig(path, "dom").moduleName
                     ),
-                    [elem, t.stringLiteral(ev), handler, t.booleanLiteral(true)]
+                    [
+                      elem,
+                      t.stringLiteral(ev),
+                      strictHandler(path, config, handler),
+                      t.booleanLiteral(true)
+                    ]
                   )
                 )
               );
@@ -1175,7 +1201,8 @@ function transformAttributes(
                     t.identifier("e")
                   ])
                 );
-              } else handler = handler.elements[0] as babelTypes.Expression;
+              } else
+                handler = strictHandler(path, config, handler.elements[0] as babelTypes.Expression);
               results.exprs.unshift(
                 t.expressionStatement(
                   t.callExpression(t.memberExpression(elem, t.identifier("addEventListener")), [
@@ -1202,7 +1229,7 @@ function transformAttributes(
                       "addEvent",
                       getRendererConfig(path, "dom").moduleName
                     ),
-                    [elem, t.stringLiteral(ev), handler]
+                    [elem, t.stringLiteral(ev), strictHandler(path, config, handler)]
                   )
                 )
               );

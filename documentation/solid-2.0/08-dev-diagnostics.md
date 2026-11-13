@@ -418,6 +418,15 @@ This also fires for store property access in the same contexts.
 
 A server component's slot fill runs as a component body does — once, untracked — so a top-level read in it fires this too, with the context naming the fill ("the \`comment\` template-slot fill").
 
+**Event handler expressions (#1742).** An event handler is bound once, where its element is created, so the expression on `onClick={…}` (or the `[handler, data]` array form) is not reactive. In dev DOM output both compilers read every handler expression that can read reactive state (anything but an identifier, an inline function or a literal) in a strict window, and a reactive read there warns with the label "an event handler expression": "Reactive value "[name]" read in an event handler expression. Event handlers are not reactive: read the value inside the handler function instead." The read still tracks in dev, as it does in production (the enclosing branch re-runs and re-mounts the element when it changes); the warning only says so. A pending async read in that window throws `PENDING_ASYNC_UNTRACKED_READ`, as it would in a component body. The common forwarded case stays quiet: `onClick={props.onClick}` reads nothing reactive when the parent passed a plain function; it warns when the parent passed a reactive expression (`onClick={selected() ? a : b}`), at the element that binds it. Elements only: on a component, `onClick` is an ordinary prop. Spreads bind handlers inside their own effect and are not checked. Production output is unchanged byte for byte.
+
+```jsx
+// Warns: `selected()` is read where the handler is bound
+<Button onClick={selected() ? save : cancel} />;
+// Fine: read inside the handler, when the event fires
+<Button onClick={() => (selected() ? save() : cancel())} />;
+```
+
 #### `UNTRACKED_READ_AFTER_AWAIT`
 
 **Message:** "[name] was first read after an `await` in an async computation, so it is not a dependency: the computation will not re-run when it changes. Read it before the first `await`, or wrap the read in untrack() if a one-time value is intended."
