@@ -431,13 +431,15 @@ export function latest<T>(fn: () => T): T {
  * @description https://v2.solidjs.com/reference/solid-js/reactivity/is-pending
  */
 export function isPending(fn: () => any): boolean {
-  if (markVerdictReader(1)) return (fn(), false);
+  // (A frame's pass again, `reask`: the thunk reads plainly and finds
+  // nothing — the same swallow, below.)
+  const plain = markVerdictReader(1);
   const prevProbing = probing;
   const prevFound = probeFound;
   const prevVerdict = verdict;
-  probing = true;
+  probing = !plain;
   probeFound = false;
-  setVerdict(verdictValue);
+  if (!plain) setVerdict(verdictValue);
   try {
     fn();
     return probeFound;
