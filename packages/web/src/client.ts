@@ -443,12 +443,31 @@ export function render(code, element, init, options = {}) {
   };
 }
 
-// Template markup is static compiler output, so it goes through a named
-// Trusted Types policy: a page that enforces `require-trusted-types-for
-// 'script'` allows it with `trusted-types solid`. `undefined` is "no Trusted
-// Types here", `0` is "the page refused the policy" (asked once, so one
-// violation report); either way the plain string is assigned.
 let policy;
+
+/**
+ * Sets the Trusted Types policy that compiled templates are created through.
+ *
+ * A page that enforces `require-trusted-types-for 'script'` rejects the plain
+ * string `template()` assigns to `innerHTML`. With a policy set, `template()`
+ * assigns the `TrustedHTML` that `policy.createHTML(markup)` returns, where
+ * `markup` is the static markup the compiler emitted for a template. The app
+ * creates the policy, so its name and its checks stay under the app's
+ * Content Security Policy:
+ *
+ * ```ts
+ * setTrustedTypesPolicy(trustedTypes.createPolicy("my-app", { createHTML: html => html }));
+ * ```
+ *
+ * Call it before the first render. `undefined` goes back to plain strings.
+ */
+export function setTrustedTypesPolicy(
+  policy: { createHTML(html: string): unknown } | undefined
+): void;
+
+export function setTrustedTypesPolicy(value) {
+  policy = value;
+}
 
 function create(html, bypassGuard, flag) {
   if ("_SOLID_DEV_" && isHydrating() && !bypassGuard)
@@ -468,11 +487,6 @@ function create(html, bypassGuard, flag) {
         "where the document shell already exists."
     );
   const t = document.createElement("template");
-  try {
-    policy ??= globalThis.trustedTypes?.createPolicy("solid", { createHTML: s => s });
-  } catch {
-    policy = 0;
-  }
   t.innerHTML = policy ? policy.createHTML(html) : html;
   const node = t.content.firstChild;
   return flag === 2 ? node.firstChild : node;

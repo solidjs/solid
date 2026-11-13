@@ -4,53 +4,45 @@
  * Template creation under Trusted Types.
  *
  * A page that enforces `require-trusted-types-for 'script'` rejects a plain
- * string assigned to `innerHTML`, so `template()` passes its static markup
- * through a policy named `solid`.
+ * string assigned to `innerHTML`. The app hands its own policy to
+ * `setTrustedTypesPolicy`, and `template()` assigns what that policy creates.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { setTrustedTypesPolicy, template } from "../src/client.js";
 
-const load = () => import("../src/client.js");
+afterEach(() => setTrustedTypesPolicy(undefined));
 
-afterEach(() => {
-  delete (globalThis as any).trustedTypes;
-  vi.resetModules();
-});
-
-describe("template() under Trusted Types", () => {
-  test("creates templates through the `solid` policy", async () => {
-    const createHTML = vi.fn((html: string) => ({ toString: () => html }));
-    const createPolicy = vi.fn((_name: string, _rules: { createHTML(html: string): string }) => ({
-      createHTML
-    }));
-    (globalThis as any).trustedTypes = { createPolicy };
-    const { template } = await load();
-
-    const first = template("<div>First</div>")();
-    const second = template("<span>Second</span>")();
-
-    expect(first.outerHTML).toBe("<div>First</div>");
-    expect(second.outerHTML).toBe("<span>Second</span>");
-    expect(createPolicy).toHaveBeenCalledTimes(1);
-    expect(createPolicy.mock.calls[0][0]).toBe("solid");
-    expect(createPolicy.mock.calls[0][1].createHTML("<p></p>")).toBe("<p></p>");
-    expect(createHTML.mock.calls).toEqual([["<div>First</div>"], ["<span>Second</span>"]]);
-  });
-
-  test("assigns the string when the page does not allow the policy", async () => {
-    const createPolicy = vi.fn(() => {
-      throw new TypeError("Policy solid disallowed.");
+describe("setTrustedTypesPolicy", () => {
+  test("template() assigns the TrustedHTML the policy creates", () => {
+    const assigned: unknown[] = [];
+    const setter = vi.spyOn(Element.prototype, "innerHTML", "set").mockImplementation(function (
+      this: HTMLTemplateElement,
+      value
+    ) {
+      assigned.push(value);
+      this.content.appendChild(document.createElement("div"));
     });
-    (globalThis as any).trustedTypes = { createPolicy };
-    const { template } = await load();
+    const createHTML = vi.fn((html: string) => ({ html }));
+    setTrustedTypesPolicy({ createHTML });
 
-    expect(template("<div>First</div>")().outerHTML).toBe("<div>First</div>");
-    expect(template("<span>Second</span>")().outerHTML).toBe("<span>Second</span>");
-    expect(createPolicy).toHaveBeenCalledTimes(1);
+    template("<div>First</div>")();
+    setter.mockRestore();
+
+    expect(createHTML.mock.calls).toEqual([["<div>First</div>"]]);
+    expect(assigned).toEqual([createHTML.mock.results[0].value]);
   });
 
-  test("assigns the string without Trusted Types support", async () => {
-    const { template } = await load();
+  test("each template is created once", () => {
+    const createHTML = vi.fn((html: string) => html);
+    setTrustedTypesPolicy({ createHTML });
+    const create = template("<span>Second</span>");
 
+    expect(create().outerHTML).toBe("<span>Second</span>");
+    expect(create().outerHTML).toBe("<span>Second</span>");
+    expect(createHTML).toHaveBeenCalledTimes(1);
+  });
+
+  test("template() assigns the string without a policy", () => {
     expect(template("<div>First</div>")().outerHTML).toBe("<div>First</div>");
   });
 });

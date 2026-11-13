@@ -7609,6 +7609,7 @@ export {
   notSup as addEvent,
   notSup as render,
   notSup as template,
+  notSup as setTrustedTypesPolicy,
   notSup as setProperty,
   notSup as setStatefulProperty,
   notSup as className,
