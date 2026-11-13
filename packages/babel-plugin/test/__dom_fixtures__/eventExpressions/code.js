@@ -23,6 +23,16 @@ const template = (
   </div>
 );
 
+const handlerFactories = (
+  <div>
+    <button onChange={makeHandler()}>Change Factory</button>
+    <button onChange={[makeHandler(), id]}>Change Factory Data</button>
+    <button onClick={makeHandler()}>Click Factory</button>
+    <button onClick={[makeHandler(), rowId]}>Click Factory Data</button>
+    <button onClick={maybeHandler?.()}>Click Optional Factory</button>
+  </div>
+);
+
 const lowercaseAttributes = (
   <div>
     <button onclick="console.log('static')">Static Attribute</button>

@@ -1,5 +1,5 @@
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::{AssignmentOperator, AssignmentTarget, Expression, Statement};
+use oxc_ast::ast::{AssignmentOperator, AssignmentTarget, ChainElement, Expression, Statement};
 use oxc_span::Span;
 
 use crate::dom::element::AstDomTransform;
@@ -17,6 +17,7 @@ impl<'a> AstDomTransform<'a, '_> {
         handler: Expression<'a>,
     ) -> std::vec::Vec<Statement<'a>> {
         let event_name = to_event_name(name);
+        let handler = self.untracked_event_handler(span, handler);
 
         if self.should_delegate_event(&event_name) {
             self.register_delegated_event(&event_name);
@@ -39,6 +40,7 @@ impl<'a> AstDomTransform<'a, '_> {
                     .and_then(|element| element.as_expression())
                     .map(|expression| expression.clone_in(self.allocator));
                 if let Some(bound) = bound {
+                    let bound = self.untracked_event_handler(span, bound);
                     let mut statements = vec![self.delegated_assignment_statement(
                         span,
                         element_id,
@@ -89,7 +91,7 @@ impl<'a> AstDomTransform<'a, '_> {
             if let Some(bound) = bound {
                 let listener = match data {
                     Some(data) => self.event_handler_with_data(span, bound, data),
-                    None => bound,
+                    None => self.untracked_event_handler(span, bound),
                 };
                 return vec![self.add_event_listener_statement(
                     span,
@@ -197,6 +199,50 @@ impl<'a> AstDomTransform<'a, '_> {
             }
             _ => false,
         }
+    }
+
+    /// A handler built by a call (`onChange={makeHandler()}`) is evaluated
+    /// where the element is created — inside a branch's tracked compute — so
+    /// a signal read in the factory re-ran the branch and remounted its
+    /// siblings (#1742). The call runs as `untrack(() => call)`, labelled in
+    /// dev so a read there reports STRICT_READ_UNTRACKED. Port of Babel's
+    /// `untrackEventHandler` (dom/element.ts).
+    fn untracked_event_handler(&mut self, span: Span, handler: Expression<'a>) -> Expression<'a> {
+        let is_call = match &handler {
+            Expression::CallExpression(_) => true,
+            Expression::ChainExpression(chain) => {
+                matches!(chain.expression, ChainElement::CallExpression(_))
+            }
+            _ => false,
+        };
+        if !is_call {
+            return handler;
+        }
+        self.template_state.uses_untrack = true;
+        let params = self.ast().formal_parameters(
+            span,
+            oxc_ast::ast::FormalParameterKind::ArrowFormalParameters,
+            self.ast().vec(),
+            None,
+        );
+        let body = self.ast().function_body(
+            span,
+            self.ast().vec(),
+            self.ast()
+                .vec1(self.ast().statement_expression(span, handler)),
+        );
+        let thunk = self
+            .ast()
+            .expression_arrow_function(span, true, false, None, params, None, body);
+        let mut args = vec![thunk];
+        if self.dev {
+            args.push(self.ast().expression_string_literal(
+                span,
+                self.ast().str("an event handler"),
+                None,
+            ));
+        }
+        self.call_identifier(span, "_$untrack", args)
     }
 
     /// `e => <handler>(<data>, e)`

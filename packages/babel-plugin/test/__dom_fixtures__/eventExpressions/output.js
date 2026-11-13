@@ -3,11 +3,15 @@ import { delegateEvents as _$delegateEvents } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { spread as _$spread } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
+import { untrack as _$untrack } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
 var _tmpl$ = /*#__PURE__*/ _$template(
     `<div id=main><button>Change Bound</button><button>Change Bound</button><button>Change Bound</button><button>Change Bound</button><button>Change Bound</button><button>Click Delegated</button><button>Click Delegated</button><button>Click Delegated</button><button>Click Delegated</button><button>Click Delegated`
   ),
   _tmpl$2 = /*#__PURE__*/ _$template(
+    `<div><button>Change Factory</button><button>Change Factory Data</button><button>Click Factory</button><button>Click Factory Data</button><button>Click Optional Factory`
+  ),
+  _tmpl$3 = /*#__PURE__*/ _$template(
     `<div><button onclick="console.log('static')">Static Attribute</button><button>Identifier Attribute</button><button>Dynamic Attribute</button><button>Function Attribute</button><button>Spread Attribute`
   );
 function hoisted1() {
@@ -47,10 +51,37 @@ var _el$10 = _tmpl$2(),
   _el$13 = _el$12.nextSibling,
   _el$14 = _el$13.nextSibling,
   _el$15 = _el$14.nextSibling;
-_$setAttribute(_el$12, "onclick", code);
-_$setAttribute(_el$14, "onclick", () => console.log("not a handler"));
-_$spread(
+_$addEvent(
+  _el$11,
+  "change",
+  _$untrack(() => makeHandler())
+);
+_el$12.addEventListener("change", e => makeHandler()(id, e));
+_$addEvent(
+  _el$13,
+  "click",
+  _$untrack(() => makeHandler()),
+  true
+);
+_el$14._$$click = _$untrack(() => makeHandler());
+_el$14._$$clickData = rowId;
+_$addEvent(
   _el$15,
+  "click",
+  _$untrack(() => maybeHandler?.()),
+  true
+);
+const handlerFactories = _el$10;
+var _el$16 = _tmpl$3(),
+  _el$17 = _el$16.firstChild,
+  _el$18 = _el$17.nextSibling,
+  _el$19 = _el$18.nextSibling,
+  _el$20 = _el$19.nextSibling,
+  _el$21 = _el$20.nextSibling;
+_$setAttribute(_el$18, "onclick", code);
+_$setAttribute(_el$20, "onclick", () => console.log("not a handler"));
+_$spread(
+  _el$21,
   [
     rest,
     {
@@ -62,8 +93,8 @@ _$spread(
 _$effect(
   () => state.code,
   _v$ => {
-    _$setAttribute(_el$13, "onmouseover", _v$);
+    _$setAttribute(_el$19, "onmouseover", _v$);
   }
 );
-const lowercaseAttributes = _el$10;
+const lowercaseAttributes = _el$16;
 _$delegateEvents(["click"]);

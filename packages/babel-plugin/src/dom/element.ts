@@ -507,6 +507,29 @@ function detectResolvableEventHandler(
 }
 
 /**
+ * A handler built by a call (`onChange={makeHandler()}`) is evaluated where
+ * the element is created — inside a branch's tracked compute — so a signal
+ * read in the factory re-ran the branch and remounted its siblings (#1742).
+ * Handlers are not reactive: the call runs untracked, and in dev a read there
+ * reports STRICT_READ_UNTRACKED like the same mistake through a component
+ * prop. Identifiers, functions and member expressions are left as written.
+ * Mirrored by the native compiler's `untracked_event_handler` (dom/events.rs).
+ */
+function untrackEventHandler(
+  path: BabelPath,
+  handler: babelTypes.Expression,
+  dev: boolean | undefined
+): babelTypes.Expression {
+  if (!t.isCallExpression(handler) && !t.isOptionalCallExpression(handler)) return handler;
+  const args: babelTypes.Expression[] = [t.arrowFunctionExpression([], handler)];
+  if (dev) args.push(t.stringLiteral("an event handler"));
+  return t.callExpression(
+    registerImportMethod(path, "untrack", getRendererConfig(path, "dom").moduleName),
+    args
+  );
+}
+
+/**
  * Whether an `<input>` may be a checkbox or radio, whose nullish
  * value/defaultValue removes the `value` attribute (restoring the native "on"
  * submission value) instead of clearing it to "" like a text field (#4017).
@@ -1115,7 +1138,7 @@ function transformAttributes(
             const programData = attribute.scope.getProgramParent().data as ProgramDataWithEvents;
             const events = programData.events || (programData.events = new Set());
             events.add(ev);
-            let handler = value.expression;
+            let handler = untrackEventHandler(path, value.expression, config.dev);
             const resolveable = detectResolvableEventHandler(attribute, handler);
             if (t.isArrayExpression(handler)) {
               if (handler.elements.length > 1) {
@@ -1129,7 +1152,11 @@ function transformAttributes(
                   )
                 );
               }
-              handler = handler.elements[0] as babelTypes.Expression;
+              handler = untrackEventHandler(
+                path,
+                handler.elements[0] as babelTypes.Expression,
+                config.dev
+              );
               results.exprs.unshift(
                 t.expressionStatement(
                   t.assignmentExpression(
@@ -1164,7 +1191,7 @@ function transformAttributes(
               );
             }
           } else {
-            let handler = value.expression;
+            let handler = untrackEventHandler(path, value.expression, config.dev);
             const resolveable = detectResolvableEventHandler(attribute, handler);
             if (t.isArrayExpression(handler)) {
               if (handler.elements.length > 1) {
@@ -1175,7 +1202,12 @@ function transformAttributes(
                     t.identifier("e")
                   ])
                 );
-              } else handler = handler.elements[0] as babelTypes.Expression;
+              } else
+                handler = untrackEventHandler(
+                  path,
+                  handler.elements[0] as babelTypes.Expression,
+                  config.dev
+                );
               results.exprs.unshift(
                 t.expressionStatement(
                   t.callExpression(t.memberExpression(elem, t.identifier("addEventListener")), [
