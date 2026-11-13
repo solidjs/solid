@@ -8,7 +8,9 @@
  */
 import {
   $REFRESH,
+  CONFIG_GUESS,
   CONFIG_HELD,
+  CONFIG_SLOT_NODE,
   CONFIG_OVERRIDE,
   CONFIG_STAGED_ERROR,
   CONFIG_VERDICT,
@@ -17,7 +19,17 @@ import {
   STATUS_ERROR,
   STATUS_PENDING
 } from "../core/constants.js";
-import { context, pullComputed, read, setSignal, signal, tracking, untrack } from "../core/core.js";
+import {
+  context,
+  isEqual,
+  pullComputed,
+  read,
+  setSignal,
+  signal,
+  slotSignal,
+  tracking,
+  untrack
+} from "../core/core.js";
 import { link } from "../core/graph.js";
 import { getObserver } from "../core/owner.js";
 import {
@@ -65,9 +77,11 @@ let writing = 0;
  * bundle without optimistic stores carries no guess engine. */
 let guess: ((n: Signal<any>, v: any) => void) | null = null;
 let guessed: ((n: Signal<any>) => any) | null = null;
-export function installThinGuesses(w: typeof guess, g: typeof guessed): void {
+let under: ((n: Signal<any>) => any) | null = null;
+export function installThinGuesses(w: typeof guess, g: typeof guessed, u: typeof under): void {
   guess = w;
   guessed = g;
+  under = u;
 }
 /** The open setter is a user's (not the derive's draft or landing). */
 let userWrite = false;
@@ -104,7 +118,11 @@ export const unwrapThin = (v: any): any => v?.[$THIN]?.v ?? v;
  * else reads through core (tracked or not: a pass joins a hold either way). */
 function peek(node: Signal<any>, t: Target): any {
   // An optimistic family's user draft composes on what the user sees.
-  if (guessed !== null && userWrite && t._fam?.opt && inDraft(t)) return guessed(node);
+  if (guessed !== null && t._fam?.opt && inDraft(t)) {
+    if (userWrite) return guessed(node);
+    // The derive writes the truth: it composes on the truth beneath a guess.
+    if (node._config & CONFIG_GUESS) return under!(node);
+  }
   if (inDraft(t)) return node._pendingValue !== NOT_PENDING ? node._pendingValue : node._value;
   return tracking ? untrack(() => read(node)) : read(node);
 }
@@ -115,7 +133,10 @@ function nodeOf(t: Target, key: PropertyKey): Signal<any> {
   const n = (t.n ??= Object.create(null) as Record<PropertyKey, Signal<any>>);
   let node = n[key];
   if (node === undefined) {
-    node = n[key] = signal(seed(t, key), nodeOpts);
+    // The store's one-literal slot node (px/pxv wrap cache pre-shaped),
+    // minus the slot-release dispatch (not built in the spike).
+    node = n[key] = slotSignal(seed(t, key), isEqual, t, key, false);
+    node._config &= ~CONFIG_SLOT_NODE;
     if (t._fam !== null) t._fam.live.add(t as any);
   }
   return node;
@@ -286,7 +307,12 @@ function traps(t: Target): ProxyHandler<any> {
         node = nodeOf(t, key);
       }
       const v = tracked ? read(node) : peek(node, t);
-      return v === ABSENT ? undefined : child(t, v);
+      if (v === null || typeof v !== "object") return v === ABSENT ? undefined : v;
+      if ((node as any).pxv === v) return (node as any).px;
+      const p = child(t, v);
+      (node as any).px = p;
+      (node as any).pxv = v;
+      return p;
     },
     has(_, key) {
       if (key === $THIN || key === $PROXY || key === $TRACK) return true;
@@ -380,6 +406,9 @@ export function thinReconcile(proxy: any, next: any, keyFn: ((v: any) => any) | 
   const t: Target = proxy[$THIN];
   next = unwrapThin(next);
   if (next === t.v) return;
+  const map: WeakMap<object, any> = (t._fam?.map as any) ?? targets;
+  // Descend only where a proxy exists below: a subtree nobody read has no
+  // identity or readers to keep, so the new value just takes the slot.
   const merge = (pv: any, nv: any): any => {
     nv = unwrapThin(nv);
     if (
@@ -389,12 +418,19 @@ export function thinReconcile(proxy: any, next: any, keyFn: ((v: any) => any) | 
       Array.isArray(pv) !== Array.isArray(nv)
     )
       return nv;
+    const pt = map.get(pv);
+    if (pt === undefined) return nv;
     if (keyFn !== null) {
-      const pk = keyFn(wrap(pv, t._fam));
+      const pk = keyFn(pt.p);
       if (pk !== undefined && pk !== keyFn(nv)) return nv;
     }
-    thinReconcile(wrap(pv, t._fam), nv, keyFn);
+    thinReconcile(pt.p, nv, keyFn);
     return pv;
+  };
+  const keyOf = (p: any): any => {
+    if (!isWrappable(p)) return undefined;
+    const pt = map.get(p);
+    return keyFn!(pt !== undefined ? pt.p : p);
   };
   if (t.r) {
     const len = valueOf(t, "length");
@@ -403,12 +439,12 @@ export function thinReconcile(proxy: any, next: any, keyFn: ((v: any) => any) | 
       const nv = next[i];
       let pv = i < len ? valueOf(t, i) : undefined;
       const nk = keyFn !== null && isWrappable(nv) ? keyFn(nv) : undefined;
-      if (nk !== undefined && !(isWrappable(pv) && keyFn!(wrap(pv, t._fam)) === nk)) {
+      if (nk !== undefined && keyOf(pv) !== nk) {
         if (byKey === null) {
           byKey = new Map();
           for (let j = 0; j < len; j++) {
             const p = valueOf(t, j);
-            const k = isWrappable(p) ? keyFn!(wrap(p, t._fam)) : undefined;
+            const k = keyOf(p);
             if (k !== undefined && !byKey.has(k)) byKey.set(k, p);
           }
         }
@@ -421,7 +457,7 @@ export function thinReconcile(proxy: any, next: any, keyFn: ((v: any) => any) | 
     return;
   }
   for (const key of keysOf(t)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
-  for (const key of Reflect.ownKeys(next)) {
+  for (const key in next) {
     const pv = valueOf(t, key);
     write(t, key, merge(pv === ABSENT ? undefined : pv, next[key]));
   }
