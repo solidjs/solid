@@ -496,7 +496,9 @@ function create(html, bypassGuard, flag) {
         "where the document shell already exists."
     );
   const t = document.createElement("template");
-  t.innerHTML = trustedHTML(html);
+  // Inline, not `trustedHTML(html)`: with no setter call `policy` folds away
+  // and the bundle pays nothing.
+  t.innerHTML = policy ? policy.createHTML(html) : html;
   const node = t.content.firstChild;
   return flag === 2 ? node.firstChild : node;
 } /**
