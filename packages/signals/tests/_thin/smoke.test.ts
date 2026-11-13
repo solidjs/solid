@@ -105,3 +105,74 @@ it("thin smoke", () => {
   });
   expect(snapshot(s).n).toBe((snapshot(s) as any).n);
 });
+import { createProjection, createSignal, isPending, action, refresh } from "../../src/index.js";
+it("thin derive: sync draft + returned keyed list", () => {
+  const [src, setSrc] = createSignal([
+    { id: 1, t: "a" },
+    { id: 2, t: "b" }
+  ]);
+  const log: any[] = [];
+  let p: any;
+  createRoot(() => {
+    p = createProjection(
+      (d: any) => src().map(r => ({ ...r, up: r.t.toUpperCase() })),
+      [] as any[]
+    );
+    createEffect(
+      () => p.map((r: any) => r.up).join(),
+      v => {
+        log.push(v);
+      }
+    );
+  });
+  flush();
+  const row = p[1];
+  setSrc([
+    { id: 2, t: "c" },
+    { id: 1, t: "a" }
+  ]);
+  flush();
+  expect(log).toEqual(["A,B", "C,A"]);
+  expect(p[0]).toBe(row);
+  const [sel, setSel] = createSignal(1);
+  let q: any;
+  createRoot(() => {
+    q = createProjection((d: any) => {
+      d[sel()] = true;
+      d[sel() === 1 ? 2 : 1] = false;
+    }, {} as any);
+  });
+  flush();
+  expect(q[1]).toBe(true);
+  setSel(2);
+  flush();
+  expect([q[1], q[2]]).toEqual([false, true]);
+});
+it("thin derive: async", async () => {
+  const [id, setId] = createSignal(1);
+  const log: any[] = [];
+  createRoot(() => {
+    const [s] = createStore(
+      async (d: any) => {
+        const v = id();
+        await Promise.resolve();
+        d.v = v * 10;
+      },
+      { v: 0 } as any
+    );
+    createEffect(
+      () => s.v,
+      v => {
+        log.push(v);
+      }
+    );
+  });
+  flush();
+  await new Promise(r => setTimeout(r, 0));
+  flush();
+  setId(2);
+  flush();
+  await new Promise(r => setTimeout(r, 0));
+  flush();
+  expect(log).toEqual([10, 20]);
+});

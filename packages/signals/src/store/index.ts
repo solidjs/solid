@@ -26,10 +26,13 @@ export type {
   ArrayFilterFn
 } from "./storePath.js";
 
-import { createOptimisticStore } from "./optimistic.js";
-import { createProjection, createStoreDerived } from "./projection.js";
+import { createOptimisticStore as createOptimisticStoreOld } from "./optimistic.js";
+import { createProjection as createProjectionOld, createStoreDerived } from "./projection.js";
 import { reconcileState } from "./reconcile.js";
+import { $TARGET } from "./types.js";
 import { $THIN, createThinStore, thinReconcile, thinSnapshot } from "./thin.js";
+import { createThinProjection, createThinStoreDerived } from "./thinProjection.js";
+import { createThinOptimisticStore } from "./thinOptimistic.js";
 import {
   createStore as createPlainStore,
   deep as deepStore,
@@ -46,7 +49,16 @@ import type {
   StoreSetter
 } from "./types.js";
 
-export { createOptimisticStore, createProjection };
+export const createOptimisticStore: typeof createOptimisticStoreOld = ((a: any, b: any, c: any) =>
+  (globalThis as any).THIN_STORE &&
+  !(typeof a === "function" ? b : a)?.[$TARGET] &&
+  !(typeof a === "function" ? c : b)?.shallow
+    ? createThinOptimisticStore(a, b, c)
+    : createOptimisticStoreOld(a, b, c)) as any;
+export const createProjection: typeof createProjectionOld = ((fn: any, seed: any, options: any) =>
+  (globalThis as any).THIN_STORE && !seed?.[$TARGET] && !options?.shallow
+    ? createThinProjection(fn, seed, options)
+    : createProjectionOld(fn, seed, options)) as any;
 /** The store's internal record behind a proxy (`store[$TARGET]`). Kept
  * under `next`'s public name; its shape is the L2 target's (plan plan sec. 31–32:
  * the symbol-keyed legacy record is gone with the representation). */
@@ -102,7 +114,11 @@ export function createStore<T extends object = {}>(
   options?: ProjectionOptions
 ): ProjectionStoreReturn<T>;
 export function createStore(first: any, second?: any, third?: any): any {
-  if (typeof first === "function") return createStoreDerived(first, second, third);
+  if (typeof first === "function") {
+    if ((globalThis as any).THIN_STORE && !(second as any)?.[$TARGET] && !third?.shallow)
+      return createThinStoreDerived(first, second, third) as any;
+    return createStoreDerived(first, second, third);
+  }
   if ((globalThis as any).THIN_STORE && !second?.shallow) return createThinStore(first) as any;
   return createPlainStore(first, second) as [Store<any>, StoreSetter<any>];
 }
