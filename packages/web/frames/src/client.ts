@@ -41,7 +41,7 @@ import type { Element as SolidElement } from "solid-js";
 // answer, and the DOM runtime's declared claim roots and frame exclusion of
 // the root sweep — installed from here (see installRevealHook) so a page
 // without server components never carries it.
-import { installServerComponentHydration, insert } from "@solidjs/web";
+import { installServerComponentHydration, insert, trustedHTML } from "@solidjs/web";
 import {
   createFrame,
   createFrameElement,
@@ -54,6 +54,7 @@ import {
   releaseDeferHolds,
   setDeferDriver,
   setDeferMountWatch,
+  setTrustedHTML,
   tierLoaders,
   tierLoads,
   type TierModule
@@ -93,6 +94,10 @@ import {
 // install wires the shared host's `revive` (getFrameHost). The seroval
 // plugin itself needs no wiring — it rides the codec's default plugin set,
 // in the lazy codec chunk.
+// Server HTML is parsed through the app's Trusted Types policy
+// (`setTrustedTypesPolicy`, `@solidjs/web`) when it set one. The frame runtime
+// imports nothing of the DOM runtime, so its wrap is installed from here.
+setTrustedHTML(trustedHTML);
 const TRACE_STATE = Symbol.for("solid.container-trace-state");
 tierLoaders.trace = () => import("@solidjs/web/frames/trace");
 // The regions tier (frames savings pass §3 row C4): nested server-content

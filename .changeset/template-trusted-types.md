@@ -2,4 +2,4 @@
 "@solidjs/web": patch
 ---
 
-Add `setTrustedTypesPolicy(policy)`, so compiled JSX renders on pages that enforce `require-trusted-types-for 'script'`. The app passes a Trusted Types policy it created, and `template()` assigns the `TrustedHTML` that policy returns for its markup. Nothing changes for apps that do not call it.
+Add `setTrustedTypesPolicy(policy)`, so Solid renders on pages that enforce `require-trusted-types-for 'script'`. The app passes a Trusted Types policy it created, and the runtime assigns the `TrustedHTML` that policy returns, both for compiled template markup and for the server HTML the frames client parses. Nothing changes for apps that do not call it.
