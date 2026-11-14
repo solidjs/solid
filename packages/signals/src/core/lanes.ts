@@ -102,7 +102,8 @@ import {
   globalQueue,
   hiddenHook,
   installLaneHooks,
-  r5Hook
+  r5Hook,
+  reasks
 } from "./scheduler.js";
 import { SLOT_C, SLOT_DV, SLOT_LV, SLOT_P, SLOT_T, shadowActual } from "./seat.js";
 import type { Computed, Owner, Signal } from "./types.js";
@@ -762,9 +763,15 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
       if (c._config & CONFIG_VERDICT && !isVerdict(l)) entered.push(c);
     }
   }
+  // A render effect of the lane reading a member that waits on `refresh()`
+  // re-asks only reads what it shows: a re-ask holds nothing new (D-34 ¶3,
+  // `blockedBy` lets such a member's lane reveal), so a row the lane builds
+  // binds beside the reader that shows it (F-1, #4864).
   enterLane(l, c);
   if (__TEST__ && !pending) shadowActual(SLOT_LV);
-  return pending ? NOT_PENDING : latestOf(el);
+  return pending && !(guessed && (c as any)._type === EFFECT_RENDER && reasks(el as Computed<any>))
+    ? NOT_PENDING
+    : latestOf(el);
 }
 
 /** A guess in `l` whose own truth is in flight (its refetch — authoritative:
