@@ -56,6 +56,8 @@ const protoOf = Object.getPrototypeOf;
 const nameStore = (..._: any[]): void => {};
 import {
   $THIN,
+  isThin,
+  thinChain,
   thinReconcile,
   thinRunDirect as runDirect,
   thinSetter as storeSetter,
@@ -400,6 +402,13 @@ export function createProjectionInternal<T extends object = {}>(
   // Seedless (`fn` takes no draft): the root starts as an empty record. It is
   // a draft like any seed, never observable before the first landing (A25).
   seed ||= {} as T;
+  // A store as the seed: the derived store chains to it (#2941).
+  let seedStore: any = null;
+  if (isThin(seed)) {
+    seedStore = seed;
+    const raw = (seed as any)[$THIN].v;
+    seed = (Array.isArray(raw) ? [] : Object.create(Object.getPrototypeOf(raw))) as T;
+  }
   const keyOption = options?.key === undefined ? "id" : options.key;
   const fam: StoreFamily = {
     map: new WeakMap(),
@@ -418,6 +427,7 @@ export function createProjectionInternal<T extends object = {}>(
           : (row: any) => (isWrappable(row) ? row[keyOption] : undefined)
   };
   const store = thinWrap(seed as any, fam) as Store<T>;
+  if (seedStore !== null) thinChain(store, seedStore);
   if (fam._shallow) {
     ((store as any)[$THIN] as StoreTarget).s = true;
     markRawIngest(seed);

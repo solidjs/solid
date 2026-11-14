@@ -323,6 +323,7 @@ describe("createStore shallow", () => {
     const [state, setState] = createStore(rows, { shallow: true });
     const reversed = rows.slice().reverse();
     setState(reconcile(reversed));
+    flush(); // F-10: the reconcile shows at its flush
     expect(state[0]).toBe(rows[3]);
     expect(state[0].id).toBe(3);
   });

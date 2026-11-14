@@ -56,7 +56,7 @@ export const createOptimisticStore: typeof createOptimisticStoreOld = ((a: any, 
     ? createThinOptimisticStore(a, b, c)
     : createOptimisticStoreOld(a, b, c)) as any;
 export const createProjection: typeof createProjectionOld = ((fn: any, seed: any, options: any) =>
-  (globalThis as any).THIN_STORE && !seed?.[$TARGET] && !options?.shallow
+  (globalThis as any).THIN_STORE && !seed?.[$TARGET]
     ? createThinProjection(fn, seed, options)
     : createProjectionOld(fn, seed, options)) as any;
 /** The store's internal record behind a proxy (`store[$TARGET]`). Kept
@@ -115,11 +115,12 @@ export function createStore<T extends object = {}>(
 ): ProjectionStoreReturn<T>;
 export function createStore(first: any, second?: any, third?: any): any {
   if (typeof first === "function") {
-    if ((globalThis as any).THIN_STORE && !(second as any)?.[$TARGET] && !third?.shallow)
+    if ((globalThis as any).THIN_STORE && !(second as any)?.[$TARGET])
       return createThinStoreDerived(first, second, third) as any;
     return createStoreDerived(first, second, third);
   }
-  if ((globalThis as any).THIN_STORE && !second?.shallow) return createThinStore(first) as any;
+  if ((globalThis as any).THIN_STORE && !first?.[$TARGET])
+    return createThinStore(first, second?.shallow) as any;
   return createPlainStore(first, second) as [Store<any>, StoreSetter<any>];
 }
 

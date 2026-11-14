@@ -8,8 +8,10 @@
  */
 import {
   $REFRESH,
+  CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
   CONFIG_HELD,
+  CONFIG_NO_SNAPSHOT,
   CONFIG_SLOT_NODE,
   CONFIG_OVERRIDE,
   CONFIG_STAGED_ERROR,
@@ -21,7 +23,13 @@ import {
 } from "../core/constants.js";
 import {
   context,
+  disposalDepth,
+  inRefCallback,
   isEqual,
+  ownedScopeWriteMessage,
+  REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE,
+  strictRead,
+  strictReadActive,
   pullComputed,
   read,
   setSignal,
@@ -32,7 +40,13 @@ import {
   untrack,
   verdict
 } from "../core/core.js";
-import { asyncTailFlights, checkPostAwaitRead, emitDiagnostic } from "../core/dev.js";
+import {
+  asyncTailFlights,
+  checkPostAwaitRead,
+  emitDiagnostic,
+  reportDiagnostic,
+  warnStrictReadUntracked
+} from "../core/dev.js";
 import { link, setSlotUnobserved, slotUnobservedHook } from "../core/graph.js";
 import { getObserver } from "../core/owner.js";
 import {
@@ -46,7 +60,7 @@ import {
 } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { StoreFamily } from "./target.js";
-import { $PROXY, $TRACK, isRawValue, isWrappable, writeOverride } from "./types.js";
+import { $PROXY, $TRACK, isRawValue, isWrappable, markRaw, writeOverride } from "./types.js";
 
 export const $THIN = Symbol(__DEV__ ? "THIN_TARGET" : 0);
 // Slot release is not built in the spike: a thin node stays. Another
@@ -141,6 +155,13 @@ const wrap = thinWrap;
  * holder the post-await read warning reports once per (store.ts `storeRoot`). */
 const devRoot: WeakMap<Target, Target> | null = __DEV__ ? new WeakMap() : null;
 function child(t: Target, v: any): any {
+  if (t.s) {
+    // A shallow slot serves verbatim; a store placed in it is served
+    // through the slot's chain to it (#2932: each level its own proxies).
+    const ct: Target | undefined =
+      t._fam !== null && isWrappable(v) ? (t._fam.map.get(v) as any) : undefined;
+    return ct !== undefined && ct.c !== null ? ct.p : v;
+  }
   if (!isWrappable(v) || isRawValue(v)) return v;
   const p = wrap(v, t._fam);
   if (__DEV__) {
@@ -201,11 +222,19 @@ function nodeOf(t: Target, key: PropertyKey, init: any = seed(t, key)): Signal<a
   let node = n[key];
   if (node === undefined) {
     // The store's one-literal slot node (px/pxv wrap cache pre-shaped).
-    node = n[key] = slotSignal(init, Object.is, t, key, false);
+    node = n[key] = slot(t, init, Object.is, key);
     if (!hasOwn.call(t.v, key)) t.x = true;
     if (t._fam !== null) t._fam.live.add(t as any);
   }
   return node;
+}
+/** A target's node. A derived store's are the derive's own work: a write
+ * to one during hydration's capture is no client write to hold (core
+ * `captureWriteSnapshot`; the deep engine's leaves never reach it). */
+function slot<V>(t: Target, v: V, eq: (a: V, b: V) => boolean, key: PropertyKey): Signal<V> {
+  const s = slotSignal(v, eq, t, key, false);
+  if (t._fam !== null) s._config |= CONFIG_NO_SNAPSHOT;
+  return s;
 }
 /** The logical value of `key` in the reader's frame (ABSENT when not own). */
 function valueOf(t: Target, key: PropertyKey, mode = 0): any {
@@ -248,7 +277,7 @@ function keysOf(t: Target): (string | symbol)[] {
 function track(t: Target): void {
   if (!inDraft(t) && getObserver() !== null) {
     if (t.k === null) {
-      t.k = slotSignal(0, isEqual, t, $TRACK, false);
+      t.k = slot(t, 0, isEqual, $TRACK);
       if (t._fam !== null) t._fam.live.add(t as any);
     }
     read(t.k);
@@ -446,6 +475,21 @@ function traps(t: Target): ProxyHandler<any> {
         (node !== undefined || hasOwn.call(t.v, key))
       )
         checkPostAwaitRead(node, devRoot!.get(t) ?? t, undefined, key, false);
+      // Dev strictRead: an untracked read in a labeled scope never updates
+      // its reader (store.ts; `then` is the promise engine's probe).
+      if (
+        __DEV__ &&
+        strictRead &&
+        typeof key === "string" &&
+        key !== "then" &&
+        getObserver() === null &&
+        !inDraft(t) &&
+        strictReadActive()
+      )
+        warnStrictReadUntracked(strictRead, {
+          nodeName: key,
+          data: { strictRead, property: key, source: "store" }
+        });
       if (node === undefined) {
         const own = hasOwn.call(t.v, key);
         // Pollution guard; `constructor` withheld from drafts only (#4670).
@@ -479,11 +523,15 @@ function traps(t: Target): ProxyHandler<any> {
       if (!inDraft(t) && getObserver() !== null) {
         const h = (t.h ??= Object.create(null) as Record<PropertyKey, Signal<boolean>>);
         if (h[key] === undefined) {
-          h[key] = slotSignal(valueOf(t, key) !== ABSENT, isEqual, t, key, false);
+          // Presence without the value (an accessor is not run for `in`).
+          const node = t.n?.[key];
+          const here = node !== undefined ? peek(node, t, 2) !== ABSENT : hasOwn.call(t.v, key);
+          h[key] = slot(t, here, isEqual, key);
           if (t._fam !== null) t._fam.live.add(t as any);
         }
         return read(h[key]);
       }
+      if (t.n?.[key] === undefined) return key in t.v;
       const v = valueOf(t, key, 2);
       return v !== ABSENT || (!hasOwn.call(t.v, key) && key in t.v);
     },
@@ -511,7 +559,8 @@ function traps(t: Target): ProxyHandler<any> {
       };
     },
     defineProperty(_, key, d) {
-      if (!inDraft(t) || key === "__proto__") return true;
+      if (!inDraft(t)) return (__DEV__ && warnOutside(t, key, "defineProperty"), true);
+      if (key === "__proto__") return true;
       // A plain data property is a write; anything else is boxed whole into
       // the slot (staged with the frame like any value).
       if (!d.get && !d.set && d.enumerable !== false && d.writable !== false)
@@ -520,7 +569,9 @@ function traps(t: Target): ProxyHandler<any> {
       return true;
     },
     set(_, key, value) {
-      if (!inDraft(t) || key === "__proto__") return true;
+      if (!inDraft(t)) return (__DEV__ && warnOutside(t, key, "set"), true);
+      if (key === "__proto__") return true;
+      if (t.s) return (rawThin(value), writeSlot(t, key, value), true);
       const v = unwrapThin(value);
       // A derive's new child over a child carrying guesses: the truth lands
       // into it, so the guesses re-base over it (D-34, #4336).
@@ -553,6 +604,7 @@ function traps(t: Target): ProxyHandler<any> {
     },
     deleteProperty(_, key) {
       if (inDraft(t)) write(t, key, ABSENT);
+      else if (__DEV__) warnOutside(t, key, "deleteProperty");
       return true;
     },
     getPrototypeOf: () => Object.getPrototypeOf(t.v)
@@ -566,7 +618,7 @@ function chainTraps(t: Target, base: ProxyHandler<any>): ProxyHandler<any> {
   const inner = (fn: () => any): any => (inDraft(t) ? untrack(fn) : fn());
   const tracked = (): boolean => {
     if (inDraft(t) || getObserver() === null) return false;
-    read((t.cv ??= slotSignal(0, isEqual, t, $PROXY, false)));
+    read((t.cv ??= slot(t, 0, isEqual, $PROXY)));
     return true;
   };
   const get = (_: any, key: PropertyKey, receiver: any): any => {
@@ -581,7 +633,10 @@ function chainTraps(t: Target, base: ProxyHandler<any>): ProxyHandler<any> {
       return t.c[key];
     if (node === undefined && tr) node = nodeOf(t, key);
     const v = node === undefined ? DELEGATE : tr ? read(node) : peek(node, t);
-    if (v === DELEGATE) return inner(() => t.c[key]);
+    if (v === DELEGATE) {
+      const iv = inner(() => t.c[key]);
+      return t._fam !== null && isThin(iv) && iv[$THIN]._fam !== t._fam ? subChain(t, key, iv) : iv;
+    }
     return v === ABSENT ? undefined : child(t, v);
   };
   const has = (_: any, key: PropertyKey): boolean => {
@@ -609,7 +664,27 @@ function chainTraps(t: Target, base: ProxyHandler<any>): ProxyHandler<any> {
     }
   };
 }
+/** A chained target's child read through the chain is this family's own
+ * proxy, chained to the inner child: a write through it stays in this store
+ * (#2932, each level its own proxies). */
+const subChains = new WeakMap<Target, Map<PropertyKey, Target>>();
+function subChain(t: Target, key: PropertyKey, iv: any): any {
+  let m = subChains.get(t);
+  if (m === undefined) subChains.set(t, (m = new Map()));
+  const r = iv[$THIN].r;
+  let e = m.get(key);
+  if (e === undefined || e.r !== r) {
+    const raw = r ? [] : {};
+    thinWrap(raw, t._fam);
+    e = t._fam!.map.get(raw) as unknown as Target;
+    m.set(key, e);
+  }
+  chainTo(e, iv);
+  return e.p;
+}
 const baseTraps = new WeakMap<Target, ProxyHandler<any>>();
+/** A derived store seeded with another store reads it through live. */
+export const thinChain = (proxy: any, next: any): void => chainTo(proxy[$THIN], next);
 function chainTo(t: Target, next: any): void {
   if (t.c === next) return;
   if (!baseTraps.has(t)) baseTraps.set(t, { ...t.hd! });
@@ -665,7 +740,69 @@ function devGuardStoreSetterResult(result: any): void {
   throw new Error(ASYNC_SETTER);
 }
 
+/** Dev: a store setter inside an owned scope (a memo body) is the
+ * owned-scope write violation (store.ts `devGuardStoreSetterWrite`). */
+function devGuardOwnedWrite(): void {
+  if (
+    context &&
+    !(context._config & CONFIG_CHILDREN_FORBIDDEN) &&
+    !disposalDepth &&
+    !inRefCallback()
+  ) {
+    emitDiagnostic({
+      code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
+      kind: "write",
+      severity: "error",
+      message: REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE,
+      ownerId: context.id,
+      ownerName: (context as any)._name,
+      data: { operation: "setStore" }
+    });
+    throw new Error(ownedScopeWriteMessage(context));
+  }
+}
+
+/** Dev: a write outside the setter is ignored; said once per target+key
+ * (#4179, store.ts `warnWriteOutsideSetter`). */
+const warnedOutside: WeakMap<Target, Set<PropertyKey>> | null = __DEV__ ? new WeakMap() : null;
+function warnOutside(
+  t: Target,
+  key: PropertyKey,
+  operation: "set" | "defineProperty" | "deleteProperty"
+): void {
+  let keys = warnedOutside!.get(t);
+  if (keys === undefined) warnedOutside!.set(t, (keys = new Set()));
+  if (keys.has(key)) return;
+  keys.add(key);
+  const name = String(key);
+  const access =
+    typeof key === "string" && /^[A-Za-z_$][\w$]*$/.test(key)
+      ? `.${key}`
+      : typeof key === "string" && /^\d+$/.test(key)
+        ? `[${key}]`
+        : `[${typeof key === "string" ? JSON.stringify(key) : name}]`;
+  const hint =
+    operation === "deleteProperty"
+      ? `setStore(s => { delete s${access} })`
+      : `setStore(s => { s${access} = value })`;
+  reportDiagnostic(
+    emitDiagnostic({
+      code: "STORE_WRITE_OUTSIDE_SETTER",
+      kind: "write",
+      severity: "warn",
+      message:
+        `[STORE_WRITE_OUTSIDE_SETTER] ${
+          operation === "deleteProperty" ? "Deleting" : "Writing"
+        } store property "${name}" outside its setter was ignored. ` +
+        `Stores are read-only outside the setter's draft: use \`${hint}\`.`,
+      nodeName: name,
+      data: { operation, property: name }
+    })
+  );
+}
+
 export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true): void {
+  if (__DEV__ && guard) devGuardOwnedWrite();
   const prevUser = userWrite;
   userWrite = guard;
   const t0: Target = (proxy as any)[$THIN];
@@ -691,10 +828,27 @@ export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true
 }
 
 export function createThinStore<T extends object>(
-  value: T
+  value: T,
+  shallow?: boolean
 ): [T, (fn: (draft: T) => T | void) => void] {
-  const proxy = wrap(unwrapThin(value));
+  const raw = unwrapThin(value);
+  if (shallow) {
+    if (Array.isArray(raw)) for (const v of raw) rawThin(v);
+    else for (const k in raw) rawThin(raw[k]);
+  }
+  const proxy = wrap(raw);
+  if (shallow) proxy[$THIN].s = true;
   return [proxy, fn => thinSetter(proxy, fn)];
+}
+/** A shallow store's record is raw by contract (types.ts `markRawOne`); a
+ * store placed in it stays a store. */
+function rawThin(v: any): void {
+  if (!isWrappable(v) || thinProxies.has(v)) return;
+  if (__DEV__ && targets.has(v))
+    throw new Error(
+      "shallow store: an ingested record is already tracked as a deep store — one value cannot present both wrapped and raw"
+    );
+  markRaw(v);
 }
 
 /** Keyed merge of `next` into the store (inside a setter). */
@@ -727,6 +881,18 @@ function reconcileTarget(
         throw new Error(__DEV__ ? "Cannot reconcile states with different identity" : "");
       return replace(t, next);
     }
+  }
+  if (t.s && t._fam === null) {
+    if (t.r) {
+      const len = valueOf(t, "length");
+      for (let i = 0; i < next.length; i++) (rawThin(next[i]), write(t, i, next[i]));
+      for (let i = next.length; i < len; i++) write(t, i, ABSENT);
+      write(t, "length", next.length);
+    } else {
+      for (const key of keysOf(t)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
+      for (const key of Reflect.ownKeys(next)) (rawThin(next[key]), write(t, key, next[key]));
+    }
+    return;
   }
   const map: WeakMap<object, any> = (t._fam?.map as any) ?? targets;
   // Descend only where a proxy exists below: a subtree nobody read has no
