@@ -1,15 +1,27 @@
 import { guessedValueOf, optimisticWrite, pendingGuessOf, take } from "../core/guesses.js";
 import { underOf } from "../core/truth.js";
-import { CONFIG_GUESS, CONFIG_OVERRIDE, NOT_PENDING, REACTIVE_REASK } from "../core/constants.js";
-import { context } from "../core/core.js";
+import { setLaneValue } from "../core/lanes.js";
+import {
+  CONFIG_GUESS,
+  CONFIG_OVERRIDE,
+  EFFECT_RENDER,
+  NOT_PENDING,
+  REACTIVE_REASK,
+  STATUS_PENDING
+} from "../core/constants.js";
+import { link } from "../core/graph.js";
+import { context, read } from "../core/core.js";
 import {
   clock,
   GlobalQueue,
   installStoreHooks,
   joinFuture,
+  laneDirty,
+  list,
   merge,
   passLane,
   resolveTx,
+  staleReader,
   storeCommitHook,
   storeParkHook,
   txOf,
@@ -19,8 +31,11 @@ import type { Computed, Signal } from "../core/types.js";
 import {
   $THIN,
   installThinGuesses,
+  installThinListGuess,
   installThinStands,
   isThin,
+  nodeOfThin,
+  ABSENT_THIN,
   linkedTo,
   thinSetter as storeSetter
 } from "./thin.js";
@@ -95,6 +110,84 @@ GlobalQueue._slotTake = (n: any, back?: boolean) => {
   for (const m of all) if (m._config & CONFIG_GUESS && txOf(m) === g) take(m, d, m !== n);
   return true;
 };
+// store/optimistic.ts `_laneRebase`, the #4525 re-base: a truth landing on
+// a list guess written over a new question's flight. The new answer decides
+// the rows the guess only carried over from the old one; rows the guess
+// added stay, rows it removed stay removed. The truth stages beneath (true)
+// and the guess's lane takes the composition, key by key.
+const prevRebase = GlobalQueue._laneRebase;
+GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
+  const t = el._host;
+  if (t === undefined || "px" in t) return prevRebase?.(el, truth, older);
+  if (!t.over || !t.r) return older;
+  const keyFn = t._fam?.key;
+  const d = t._fam?.node;
+  if (!keyFn || !d) return older;
+  const lane = txOf(el);
+  if (d._x?._transaction) lane.over = d._x._transaction;
+  rebase(t, el, truth, lane, keyFn);
+  return true;
+};
+function rebase(t: any, el: any, v: unknown, lane: Transaction, keyFn: (r: any) => any): void {
+  const n = t.n as Record<PropertyKey, any>;
+  const val = (node: any, f: (x: any) => unknown) =>
+    node === undefined ? undefined : node === el ? v : f(node);
+  const truthOf = (node: any) =>
+    val(node, x =>
+      x._config & CONFIG_GUESS
+        ? underOf(x)
+        : x._pendingValue !== NOT_PENDING
+          ? x._pendingValue
+          : x._value
+    );
+  const rows = (of: (node: any) => unknown): any[] => {
+    const len = of(n.length) as number;
+    const out: any[] = [];
+    for (let i = 0; i < len; i++) out.push(of(n[i]) ?? t.v[i]);
+    return out;
+  };
+  const kOf = (r: any) => (isWrappable(r) ? keyFn(r) : undefined);
+  const truthRows = rows(truthOf);
+  // The guess as written and the answer it was written over (recorded at
+  // the write): a later landing composes from them, not from a re-base.
+  if (!t.lg) return;
+  const guessRows: any[] = t.lg.guess;
+  const old: Set<unknown> = t.lg.old;
+  const removed = new Set([...old].filter(k => !guessRows.some(g => kOf(g) === k)));
+  const byKey = new Map(truthRows.map(r => [kOf(r), r]));
+  const used = new Set();
+  const next: any[] = [];
+  for (const g of guessRows) {
+    const k = kOf(g);
+    if (k !== undefined && byKey.has(k)) (next.push(byKey.get(k)), used.add(k));
+    else if (k === undefined || !old.has(k)) next.push(g);
+  }
+  for (const r of truthRows) {
+    const k = kOf(r);
+    if (!used.has(k) && !removed.has(k)) next.push(r);
+  }
+  const at = (key: PropertyKey, value: unknown) => {
+    const node = n[key as any] ?? nodeOfThin(t, key);
+    if (!(node._config & CONFIG_OVERRIDE)) {
+      node._config |= CONFIG_OVERRIDE | CONFIG_GUESS;
+      list(node, lane);
+    }
+    setLaneValue(node, lane, value);
+    laneDirty(node, lane);
+  };
+  const len = Math.max(truthRows.length, guessRows.length);
+  for (let i = 0; i < len; i++) at(i, i < next.length ? next[i] : ABSENT_THIN);
+  at("length", next.length);
+  if (t.k !== null) at2(t.k, lane);
+}
+function at2(k: any, lane: Transaction): void {
+  if (!(k._config & CONFIG_OVERRIDE)) {
+    k._config |= CONFIG_OVERRIDE | CONFIG_GUESS;
+    list(k, lane);
+  }
+  setLaneValue(k, lane, (guessedValueOf(k) as number) + 1);
+  laneDirty(k, lane);
+}
 // store/optimistic.ts `park`: a new question from mainline over a guess a
 // frame still reads holds the flush with the guess's action (D-34, #4336).
 const asked = new Set<any>();
@@ -120,16 +213,70 @@ installStoreHooks(
 );
 // store/optimistic.ts `stands` (A17; over a new question only a target
 // carrying a guess stands in, F-2/F-6; a linked reader keeps observing, #4536).
+// A list guess written while the derive asks a new question (an input
+// changed, not a `refresh()`): it does not answer that question (D-34 ¶3,
+// the #4525 mark).
+installThinListGuess((t: any) => {
+  const d = t._fam!.node!;
+  if (!d || !(d._statusFlags & STATUS_PENDING) || reasked(d)) return;
+  t.over = true;
+  // The guess as written (the draft's view, last write wins) and the answer
+  // it was written over (committed: guesses apply at the seam).
+  const n = t.n as Record<PropertyKey, any>;
+  const rows = (of: (node: any, i: PropertyKey) => unknown): any[] => {
+    const len = of(n.length, "length") as number;
+    const out: any[] = [];
+    for (let i = 0; i < len; i++) out.push(of(n[i], i));
+    return out;
+  };
+  const kf = t._fam.key;
+  t.lg = {
+    guess: rows((x, i) => (x === undefined ? t.v[i] : guessedValueOf(x))),
+    old:
+      t.lg?.old ??
+      new Set(
+        rows((x, i) => (x === undefined ? t.v[i] : x._value)).map((r: any) =>
+          isWrappable(r) ? kf(r) : undefined
+        )
+      )
+  };
+});
+/** store/optimistic.ts `held`: a derivation a pending render effect reads,
+ * through any chain of pending derivations (#4561). */
+function held(c: any, seen = new Set()): true | undefined {
+  for (let s = c._subs; s; s = s._nextSub) {
+    const r: any = s._sub;
+    if (
+      r._statusFlags & STATUS_PENDING &&
+      (r._type === EFFECT_RENDER || (!r._type && !seen.has(r) && (seen.add(r), held(r, seen))))
+    )
+      return true;
+  }
+}
+let heldC: unknown, heldAt: number;
 installThinStands(t => {
   const f: any = t._fam;
-  if (live(f).length === 0) return false;
+  if (live(f).length === 0) return ((t as any).over = false);
   const a = f._asked;
   const own = (n: any) => n !== null && n !== undefined && n._config & CONFIG_OVERRIDE;
   const has = () =>
     own(t.k) || (t.n !== null && Reflect.ownKeys(t.n).some(k => own(t.n![k as any])));
   if ((a === clock + 1 && passLane === null && !has()) || a === ~clock) return false;
   const c: any = context;
-  return !(c?._deps !== undefined && linkedTo(c, f.node));
+  const d = f.node;
+  // Linked by this pass's hold (below): its other reads keep the guess.
+  if (c?._deps !== undefined && linkedTo(c, d)) return heldC === c && heldAt === clock ? 2 : false;
+  // A guess over a question in flight it does not answer (#4525): a reader
+  // in the frame's hold keeps observing the flight (F-1, #4561) — linked as
+  // a stale reader of its hold, and served the guess like lane work.
+  if ((t as any).over && c?._statusFlags & STATUS_PENDING) {
+    if (c._type === EFFECT_RENDER) read(d);
+    else if (held(c)) {
+      if (!d._x?._transaction) read(d);
+      else return (link(d, c), staleReader(c, txOf(d)), (heldC = c), (heldAt = clock), 2);
+    }
+  }
+  return true;
 });
 
 export function createThinOptimisticStore<T extends object = {}>(

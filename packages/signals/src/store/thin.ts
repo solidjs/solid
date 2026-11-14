@@ -251,6 +251,7 @@ function put(t: Target, node: Signal<any>, v: any): void {
   if (guess !== null && userWrite && t._fam?.opt) {
     guess(node, v);
     ((t._fam as any).g ??= new Set()).add(node);
+    if (t.r) listGuess?.(t);
   } else {
     setSignal(node, v);
     if (t._fam !== null && !userWrite) holdWithDerive(t, node);
@@ -274,6 +275,9 @@ function write(t: Target, key: PropertyKey, v: any): void {
 // ---------------------------------------------------------------------------
 // derived stores: ported from store.ts as-is (they speak core nodes only)
 
+/** For the optimistic engine (thinOptimistic.ts). */
+export const nodeOfThin = (t: any, key: PropertyKey): Signal<any> => nodeOf(t, key);
+export { ABSENT as ABSENT_THIN };
 export function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
   for (let s = n._subs; s !== null; s = s._nextSub) if (s._sub === c) return true;
   return false;
@@ -282,7 +286,16 @@ export function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
 /** store.ts `pullFamily`: bring the derive up to date before serving. */
 /** The optimistic engine's judgement (thinOptimistic.ts): the family's
  * guesses stand in for its flight (A17). */
-let stands: (t: Target) => boolean = () => false;
+let stands: (t: Target) => boolean | 2 = () => false;
+/** A pass in a frame's hold served a list guess's values like lane work
+ * (#4561): its reads of guessed leaves this pass are the guess. */
+let serving: unknown = null;
+/** A user's guess on a list (thinOptimistic.ts marks one written over a new
+ * question's flight, #4525). */
+let listGuess: ((t: Target) => void) | null = null;
+export function installThinListGuess(fn: typeof listGuess): void {
+  listGuess = fn;
+}
 export function installThinStands(fn: typeof stands): void {
   stands = fn;
 }
@@ -292,7 +305,10 @@ function pullFamily(t: Target): void {
   if (fw._statusFlags & (STATUS_PENDING | STATUS_ERROR) || fw._config & CONFIG_STAGED_ERROR) {
     // Guesses that stand in for the flight (A17) are the display: a reader
     // is served the leaves and does not suspend on the derive.
-    if (verdict === null && fw._statusFlags & STATUS_PENDING && stands(t)) return;
+    if (verdict === null && fw._statusFlags & STATUS_PENDING) {
+      const st = stands(t);
+      if (st) return void (st === 2 && (serving = context));
+    }
     const c: any = context;
     if (
       c !== null &&
@@ -418,7 +434,9 @@ function traps(t: Target): ProxyHandler<any> {
         if (!tracked) return own ? child(t, t.v[key]) : undefined;
         node = nodeOf(t, key);
       }
-      const v = tracked ? read(node) : peek(node, t, 1);
+      let v = tracked ? read(node) : peek(node, t, 1);
+      if (serving !== null && serving === context && node._config & CONFIG_GUESS)
+        v = guessed!(node);
       if (v === null || typeof v !== "object") return v === ABSENT ? undefined : v;
       if ((node as any).pxv === v) return (node as any).px;
       if (v instanceof Box) return v.d.get ? v.d.get.call(receiver) : child(t, v.d.value);
