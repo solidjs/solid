@@ -13,14 +13,19 @@ import { pipeSettle } from "./stream-settle-harness.js";
 async function serializeShared(cyclic: boolean) {
   const { state: streamState, html } = await pipeSettle(() => {
     const key = createMemo(async () => ({ id: 1 }));
+    type Shared = { id: number };
+    type Cycle = { self?: Cycle };
     const [state] = createStore(
       async draft => {
         draft.key = key();
-        const value: any = {};
+        const value: Cycle = {};
         if (cyclic) value.self = value;
         draft.value = value;
       },
-      { key: undefined, value: undefined },
+      {
+        key: undefined as Shared | undefined,
+        value: undefined as Cycle | undefined
+      },
       { shallow: true, deferStream: true }
     );
     return Loading({
