@@ -7,7 +7,7 @@ import {
   REACTIVE_RECOMPUTING_DEPS
 } from "./constants.js";
 import { dirtyQueue } from "./scheduler.js";
-import type { Computed, Root } from "./types.js";
+import type { Computed, Owner, Root } from "./types.js";
 
 /**
  * Schedule one subscriber to re-run on the next flush: inserted into the
@@ -143,6 +143,24 @@ function adjustHeight(el: Computed<unknown>, heap: Heap) {
   }
   if (el._height !== newHeight) {
     el._height = newHeight;
+    liftOwned(el, newHeight);
     for (let s = el._subs; s !== null; s = s._nextSub) insertIntoHeapHeight(s._sub, heap);
   }
+}
+
+/**
+ * A raised node's owned computations (through roots) move above it (#4848).
+ * The heap places a node above its direct owner only, at insert, so an owner
+ * raised after its children's birth left a grandchild at or below it, to run
+ * before the owner whose run disposes it. Paid when a height changes, never
+ * per insert. A child waiting in the heap keeps its seat this pass (its next
+ * insert lifts it above its owner); what it owns moves either way.
+ */
+function liftOwned(o: Owner, h: number) {
+  for (let c = o._firstChild as Computed<any> | null; c; c = c._nextSibling as Computed<any> | null)
+    if ((c as unknown as Root)._root) liftOwned(c, h);
+    else if (c._height <= h) {
+      if (!(c._flags & (REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT))) c._height = h + 1;
+      liftOwned(c, h + 1);
+    }
 }
