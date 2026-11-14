@@ -30,40 +30,50 @@ function deferred<T>() {
 }
 
 describe("Projection async behavior", () => {
-  it("resolves async draft and transforms into new value", async () => {
-    const [$x, setX] = createSignal(1);
+  // F-10 (ruled 2026-11-13): a continuation's write shows at the flush that
+  // carries it — the landing, one hop after the write. The deep engine serves
+  // its pending backing to an untracked read before that (a known deviation,
+  // as #3576); the thin engine (spike) follows F-10.
+  ((globalThis as any).THIN_STORE ? it : it.fails)(
+    "resolves async draft and transforms into new value",
+    async () => {
+      const [$x, setX] = createSignal(1);
 
-    let runs = 0;
-    let proj;
+      let runs = 0;
+      let proj;
 
-    createRoot(() => {
-      proj = createProjection(
-        async draft => {
-          const v = $x();
-          await Promise.resolve();
-          draft.value = v * 2;
-          runs++;
-        },
-        { value: 0 }
-      );
-    });
+      createRoot(() => {
+        proj = createProjection(
+          async draft => {
+            const v = $x();
+            await Promise.resolve();
+            draft.value = v * 2;
+            runs++;
+          },
+          { value: 0 }
+        );
+      });
 
-    flush();
-    // The seed is a draft for the derive function, never an observable value
-    // (#2897): until the first resolution settles, reads throw NotReady.
-    expect(() => proj.value).toThrow(NotReadyError);
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(proj.value).toBe(2);
-    expect(runs).toBe(1);
+      flush();
+      // The seed is a draft for the derive function, never an observable value
+      // (#2897): until the first resolution settles, reads throw NotReady.
+      expect(() => proj.value).toThrow(NotReadyError);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(proj.value).toBe(2);
+      expect(runs).toBe(1);
 
-    setX(2);
-    flush();
+      setX(2);
+      flush();
 
-    await Promise.resolve();
-    expect(proj.value).toBe(4);
-    expect(runs).toBe(2);
-  });
+      await Promise.resolve();
+      // Written, not landed: the committed value until the landing's flush.
+      expect(runs).toBe(2);
+      expect(proj.value).toBe(2);
+      await Promise.resolve();
+      expect(proj.value).toBe(4);
+    }
+  );
 
   it("does not self-track through array splice has checks", async () => {
     const mockedItems = [
@@ -122,82 +132,101 @@ describe("Projection async behavior", () => {
     expect(runs).toBe(2);
   });
 
-  it("async projection preserves identity only for unchanged paths", async () => {
-    const [$x, setX] = createSignal({ a: 1, b: 2 });
+  // F-10 (ruled 2026-11-13): a continuation's write shows at the flush that
+  // carries it — the landing, one hop after the write. The deep engine serves
+  // its pending backing to an untracked read before that (a known deviation,
+  // as #3576); the thin engine (spike) follows F-10.
+  ((globalThis as any).THIN_STORE ? it : it.fails)(
+    "async projection preserves identity only for unchanged paths",
+    async () => {
+      const [$x, setX] = createSignal({ a: 1, b: 2 });
 
-    let proj;
+      let proj;
 
-    createRoot(() => {
-      proj = createProjection(
-        async draft => {
-          const v = $x();
-          await Promise.resolve();
-          draft.a = v.a;
-          draft.b = v.b;
-        },
-        { a: 0, b: 0 }
-      );
-    });
+      createRoot(() => {
+        proj = createProjection(
+          async draft => {
+            const v = $x();
+            await Promise.resolve();
+            draft.a = v.a;
+            draft.b = v.b;
+          },
+          { a: 0, b: 0 }
+        );
+      });
 
-    flush();
-    // Draft writes land on the store value one microtask before the async
-    // settles; the store stays unreadable (NotReady) until the settle (#2897).
-    await Promise.resolve();
-    expect(() => proj.a).toThrow(NotReadyError);
-    await Promise.resolve();
+      flush();
+      // Draft writes land on the store value one microtask before the async
+      // settles; the store stays unreadable (NotReady) until the settle (#2897).
+      await Promise.resolve();
+      expect(() => proj.a).toThrow(NotReadyError);
+      await Promise.resolve();
 
-    const firstProj = proj;
-    const firstA = proj.a;
-    const firstB = proj.b;
+      const firstProj = proj;
+      const firstA = proj.a;
+      const firstB = proj.b;
 
-    setX({ a: 1, b: 3 });
-    flush();
-    await Promise.resolve();
+      setX({ a: 1, b: 3 });
+      flush();
+      await Promise.resolve();
+      expect(proj.b).toBe(firstB);
+      await Promise.resolve();
 
-    expect(proj).toBe(firstProj);
-    expect(proj.a).toBe(firstA);
-    expect(proj.b).not.toBe(firstB);
-  });
+      expect(proj).toBe(firstProj);
+      expect(proj.a).toBe(firstA);
+      expect(proj.b).not.toBe(firstB);
+    }
+  );
 
-  it("async iterable projection yields multiple transformed snapshots", async () => {
-    let proj;
+  // F-10 (ruled 2026-11-13): a continuation's write shows at the flush that
+  // carries it — the landing, one hop after the write. The deep engine serves
+  // its pending backing to an untracked read before that (a known deviation,
+  // as #3576); the thin engine (spike) follows F-10.
+  ((globalThis as any).THIN_STORE ? it : it.fails)(
+    "async iterable projection yields multiple transformed snapshots",
+    async () => {
+      let proj;
 
-    createRoot(() => {
-      proj = createProjection(
-        async function* (draft) {
-          draft.phase = "start";
-          yield;
+      createRoot(() => {
+        proj = createProjection(
+          async function* (draft) {
+            draft.phase = "start";
+            yield;
 
-          await Promise.resolve();
-          draft.phase = "middle";
-          yield;
+            await Promise.resolve();
+            draft.phase = "middle";
+            yield;
 
-          await Promise.resolve();
-          draft.phase = "end";
-        },
-        { phase: "init" }
-      );
-    });
+            await Promise.resolve();
+            draft.phase = "end";
+          },
+          { phase: "init" }
+        );
+      });
 
-    flush();
-    // Uninitialized only until the first yield — but an async generator's
-    // first next() resolves in a microtask, so even the synchronous first
-    // yield can't beat the window: the seed ("init") is never observable, and
-    // reads throw until "start" lands two ticks later (#2897).
-    expect(() => proj.phase).toThrow(NotReadyError);
-    await Promise.resolve();
-    expect(() => proj.phase).toThrow(NotReadyError);
-    await Promise.resolve();
-    expect(proj.phase).toBe("start");
+      flush();
+      // Uninitialized only until the first yield — but an async generator's
+      // first next() resolves in a microtask, so even the synchronous first
+      // yield can't beat the window: the seed ("init") is never observable, and
+      // reads throw until "start" lands two ticks later (#2897).
+      expect(() => proj.phase).toThrow(NotReadyError);
+      await Promise.resolve();
+      expect(() => proj.phase).toThrow(NotReadyError);
+      await Promise.resolve();
+      expect(proj.phase).toBe("start");
 
-    await Promise.resolve();
-    expect(proj.phase).toBe("middle");
+      // Each later yield lands one hop after its write (F-10).
+      await Promise.resolve();
+      expect(proj.phase).toBe("start");
+      await Promise.resolve();
+      expect(proj.phase).toBe("middle");
 
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(proj.phase).toBe("end");
-  });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(proj.phase).toBe("end");
+    }
+  );
 
   it("derive continuation can READ its own draft after an await (push/length)", async () => {
     // Regression: `state.push(item)` after an `await` first READS
