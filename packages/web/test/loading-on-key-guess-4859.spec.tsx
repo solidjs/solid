@@ -66,7 +66,7 @@ describe("#4859: Loading on(key) with a guess out", () => {
                       it => `${selected()}/${it.text}:${toggling().includes(it.id)}`
                     )
                   );
-                  return <For each={items()}>{it => <span class="item">{it()}</span>}</For>;
+                  return <For each={items()}>{it => <span class="item">{it}</span>}</For>;
                 })()}
               </Errored>
             </Loading>
