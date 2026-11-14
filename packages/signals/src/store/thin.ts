@@ -35,6 +35,7 @@ import {
   pullComputed,
   read,
   setSignal,
+  writeHook,
   signal,
   slotSignal,
   tracking,
@@ -45,12 +46,22 @@ import {
 import {
   asyncTailFlights,
   checkPostAwaitRead,
+  DEV,
   emitDiagnostic,
+  devStoreSlotWriter,
+  registerDevStoreSlotWriter,
+  registerGraph,
   reportDiagnostic,
   warnStrictReadUntracked
 } from "../core/dev.js";
+import {
+  attrHooks,
+  registerStoreTools,
+  storeTools,
+  type StoreTools
+} from "../core/attribution-hooks.js";
 import { link, setSlotUnobserved, slotUnobservedHook } from "../core/graph.js";
-import { getObserver } from "../core/owner.js";
+import { getObserver, getOwner } from "../core/owner.js";
 import {
   flushTransaction,
   GlobalQueue,
@@ -62,7 +73,9 @@ import {
   txOf
 } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
-import type { StoreFamily } from "./target.js";
+import { storeOwners, type StoreFamily } from "./target.js";
+import { thinParents } from "./thinParents.js";
+import { signalHook } from "../core/identities.js";
 import { affectsHooks } from "./hooks.js";
 import {
   $PROXY,
@@ -305,9 +318,82 @@ function holdsKeys(t: Target): boolean {
 /** A target's node. A derived store's are the derive's own work: a write
  * to one during hydration's capture is no client write to hold (core
  * `captureWriteSnapshot`; the deep engine's leaves never reach it). */
+// Observe: a target's first parent and key (the path attribution names it
+// by), the root's declared name and loc.
+const obsParent = thinParents as unknown as WeakMap<Target, [Target, PropertyKey]>;
+const obsNames = __OBSERVE__ ? new WeakMap<Target, string>() : null;
+const obsLocs = __OBSERVE__ ? new WeakMap<Target, string>() : null;
+function rootOf(t: Target): Target {
+  for (let p; (p = obsParent.get(t)) !== undefined; ) t = p[0];
+  return t;
+}
+function noteParent(c: any, t: Target, key: PropertyKey): void {
+  const ct: Target | undefined = c?.[$THIN];
+  if (ct !== undefined && ct !== t && !obsParent.has(ct) && rootOf(t) !== ct)
+    obsParent.set(ct, [t, key]);
+}
+/** A store's declared name and loc (store.ts `nameStore`). */
+export function thinNameStore(proxy: any, name?: string, loc?: string): void {
+  if (__OBSERVE__ && attrHooks !== null) {
+    if (name) obsNames!.set(proxy[$THIN], name);
+    if (loc) obsLocs!.set(proxy[$THIN], loc);
+  }
+}
+let internalWrite = false;
+/** createStore's observe registration (store.ts): owner graph, name, loc. */
+export function thinObserveStore(proxy: any, options?: { name?: string; loc?: string }): void {
+  if (!__OBSERVE__) return;
+  const owner = getOwner();
+  internalWrite = true;
+  registerGraph(proxy, owner);
+  internalWrite = false;
+  if (attrHooks !== null) {
+    const t: Target = proxy[$THIN];
+    storeOwners!.set(t as any, owner);
+    thinNameStore(proxy, options?.name, options?.loc);
+  }
+  if (!toolsWrapped) wrapTools();
+  if (__DEV__ && !writerChained) chainDevWriter();
+}
+let toolsWrapped = false;
+/** The attribution engine's store tools answer thin targets too (the deep
+ * store registers them; a thin target has no `px`). */
+function wrapTools(): void {
+  toolsWrapped = true;
+  const deep: StoreTools | null = storeTools;
+  const thin = (x: any): boolean => x !== null && typeof x === "object" && !("px" in x);
+  const pick = <K extends keyof StoreTools>(k: K, f: StoreTools[K]): StoreTools[K] =>
+    ((...a: any[]) =>
+      thin(a[0]) || deep === null ? (f as any)(...a) : (deep[k] as any)(...a)) as any;
+  registerStoreTools({
+    pathOf: pick("pathOf", (t: any) => {
+      let path = "";
+      for (let p; (p = obsParent.get(t)) !== undefined; t = p[0]) path = "." + String(p[1]) + path;
+      return "store" + path;
+    }),
+    isShallow: pick("isShallow", (t: any) => t.s),
+    deleted: pick("deleted", () => null),
+    rootOwner: pick("rootOwner", (t: any) => storeOwners!.get(rootOf(t) as any)),
+    ownerKey: deep?.ownerKey ?? Symbol(),
+    unwrapValue: (v: any) => (isThin(v) ? v[$THIN].v : deep ? deep.unwrapValue(v) : v),
+    targetsEqual: (a: any, b: any) =>
+      isThin(a) || isThin(b) ? unwrapThin(a) === unwrapThin(b) : !!deep?.targetsEqual(a, b),
+    isRawValue: (v: any) => (deep ? deep.isRawValue(v) : isRawValue(v)),
+    isWrappable: (v: any) => isWrappable(v)
+  });
+}
 function slot<V>(t: Target, v: V, eq: (a: V, b: V) => boolean, key: PropertyKey): Signal<V> {
   const s = slotSignal(v, eq, t, key, false);
   if (t._fam !== null) s._config |= CONFIG_NO_SNAPSHOT;
+  // Attribution names a value node by its store path segment and places it
+  // under the root's owner (store.ts `getNode`); engine installed only.
+  if (__OBSERVE__ && attrHooks !== null) {
+    const r = rootOf(t);
+    if (typeof key !== "symbol")
+      (s as any)._name = (obsNames!.get(r) ?? "store") + "." + String(key);
+    (s as any)._loc = obsLocs!.get(r);
+    (s as any)._owner = storeOwners!.get(r as any) ?? null;
+  }
   // A node born on a record a live `affects()` mark covers inherits it.
   if (affectsHooks !== null) affectsHooks._born(t as any, s, key);
   return s;
@@ -441,6 +527,14 @@ function write(t: Target, key: PropertyKey, v: any): void {
   // was already this (A18): the guess is judged with the rest of the
   // landing, not left over a key set the landing moved.
   if (Object.is(prev, v) && (userWrite || !(node._config & CONFIG_GUESS))) return;
+  if (__DEV__ && DEV.hooks.onStoreNodeUpdate && !(t.r && key === "length"))
+    DEV.hooks.onStoreNodeUpdate(
+      t.p,
+      key,
+      v === ABSENT ? undefined : v,
+      prev === ABSENT ? undefined : prev
+    );
+  if (__OBSERVE__ && attrHooks !== null && userWrite) noteWrite(t, key, prev, v);
   put(t, node, () => v);
   t.w = true;
   const h = t.h?.[key];
@@ -643,7 +737,12 @@ const BASE: ProxyHandler<any> = {
         const v = Reflect.get(t.v, key, receiver);
         return typeof v === "function" ? v : child(t, v);
       }
-      if (!tracked) return own ? child(t, t.v[key]) : undefined;
+      if (!tracked) {
+        if (!own) return undefined;
+        const p = child(t, t.v[key]);
+        if ((__OBSERVE__ && attrHooks !== null) || signalHook !== null) noteParent(p, t, key);
+        return p;
+      }
       node = nodeOf(t, key);
     }
     let v = tracked ? read(node) : peek(node, t, 1);
@@ -659,6 +758,7 @@ const BASE: ProxyHandler<any> = {
     if (v instanceof Box) return v.d.get ? v.d.get.call(receiver) : child(t, v.d.value);
     const p = child(t, v);
     if (__DEV__ && p?.[$THIN]?.c) subKeys!.set(p[$THIN], key);
+    if ((__OBSERVE__ && attrHooks !== null) || signalHook !== null) noteParent(p, t, key);
     (node as any).px = p;
     (node as any).pxv = v;
     return p;
@@ -732,7 +832,7 @@ const BASE: ProxyHandler<any> = {
   },
   set(_, key, value) {
     const t: Target = _[$S];
-    if (!inDraft(t)) return (__DEV__ && warnOutside(t, key, "set"), true);
+    if (!inDraft(t)) return (__DEV__ && !internalWrite && warnOutside(t, key, "set"), true);
     if (key === "__proto__") return true;
     // #4808: a nested write through a store still loading its first answer
     // is dropped, as a write to that store is (A25); the chain stays.
@@ -1006,7 +1106,39 @@ function warnOutside(
   );
 }
 
+/** A setter's written keys per target and their prior values, for the
+ * attribution engine's spread-copy census (`storeWrite`, observe only). */
+let obsWrites: Map<Target, Map<PropertyKey, any>> | null = null;
+function noteWrite(t: Target, key: PropertyKey, prev: any, v: any): void {
+  const m = (obsWrites ??= new Map());
+  let w = m.get(t);
+  if (w === undefined) {
+    m.set(t, (w = new Map()));
+    // An array's old items (the census's moved-row check).
+    if (t.r)
+      (w as any).items = Array.from({ length: valueOf(t, "length") }, (_, i) => valueOf(t, i));
+  }
+  const u = (x: any) => (x === ABSENT ? undefined : x);
+  const e = w.get(key);
+  w.set(key, [e === undefined ? u(prev) : e[0], u(v)]);
+}
+function flushWrites(): void {
+  const m = obsWrites;
+  obsWrites = null;
+  if (m === null || attrHooks === null) return;
+  if (!toolsWrapped) wrapTools();
+  for (const [t, w] of m) {
+    const old: any = t.r ? [...(w as any).items] : {};
+    const pb: any = t.r ? [] : {};
+    for (const [k, [ov, nv]] of w) {
+      old[k as any] = ov;
+      pb[k as any] = nv;
+    }
+    attrHooks.storeWrite(t as any, old, pb, w.keys());
+  }
+}
 export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true): void {
+  if (writeHook !== null) writeHook(proxy as object);
   if (__DEV__ && guard) devGuardOwnedWrite();
   const prevUser = userWrite;
   userWrite = guard;
@@ -1029,12 +1161,14 @@ export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true
     writing--;
     scopes.pop();
     userWrite = prevUser;
+    if (__OBSERVE__ && writing === 0 && obsWrites !== null) flushWrites();
   }
 }
 
 export function createThinStore<T extends object>(
   value: T,
-  shallow?: boolean
+  shallow?: boolean,
+  options?: { name?: string; loc?: string }
 ): [T, (fn: (draft: T) => T | void) => void] {
   const raw = unwrapThin(value);
   if (shallow) {
@@ -1042,7 +1176,10 @@ export function createThinStore<T extends object>(
     else for (const k in raw) rawThin(raw[k]);
   }
   const proxy = wrap(raw);
+  // Dependency edges (store/edges.ts): the root is named like a plain signal.
+  if (signalHook !== null) signalHook(proxy[$THIN]);
   if (shallow) proxy[$THIN].s = true;
+  if (__OBSERVE__) thinObserveStore(proxy, options);
   return [proxy, fn => thinSetter(proxy, fn)];
 }
 /** A shallow store's record is raw by contract (types.ts `markRawOne`); a
@@ -1266,4 +1403,20 @@ export function thinDeep(value: any, seen = new Map<object, any>()): any {
   if (arr) copy.length = value.length;
   for (const k of keys) if (!arr || k !== "length") copy[k] = thinDeep(value[k], seen);
   return copy;
+}
+
+// Devtools `DEV.setSignal` on a thin slot node goes through the setter;
+// any other node goes to the writer registered before (the deep store's).
+// Chained at the first thin store, after every module registered.
+let writerChained = false;
+function chainDevWriter(): void {
+  writerChained = true;
+  const prev = devStoreSlotWriter();
+  registerDevStoreSlotWriter((node, value) => {
+    const host = (node as any)._host;
+    const key = (node as any)._key;
+    if (host && !("px" in host) && host.p && key !== $TRACK && host.n?.[key] === node)
+      return thinSetter(host.p, (d: any) => void (d[key] = value));
+    prev ? prev(node, value) : setSignal(node, value as any);
+  });
 }

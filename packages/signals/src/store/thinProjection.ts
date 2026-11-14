@@ -53,7 +53,6 @@ export function installThinAsk(fn: typeof thinAsk): void {
   thinAsk = fn;
 }
 const protoOf = Object.getPrototypeOf;
-const nameStore = (..._: any[]): void => {};
 import {
   $THIN,
   isThin,
@@ -61,7 +60,8 @@ import {
   thinReconcile,
   thinRunDirect as runDirect,
   thinSetter as storeSetter,
-  thinWrap
+  thinWrap,
+  thinNameStore as nameStore
 } from "./thin.js";
 import { storeOwners, type StoreFamily, type StoreTarget } from "./target.js";
 import {

@@ -120,7 +120,7 @@ export function createStore(first: any, second?: any, third?: any): any {
     return createStoreDerived(first, second, third);
   }
   if ((globalThis as any).THIN_STORE && !first?.[$TARGET])
-    return createThinStore(first, second?.shallow) as any;
+    return createThinStore(first, second?.shallow, second) as any;
   return createPlainStore(first, second) as [Store<any>, StoreSetter<any>];
 }
 
