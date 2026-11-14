@@ -1,5 +1,92 @@
 # solid-js
 
+## 2.0.0-rc.22
+
+### Patch Changes
+
+- cf839ea: Context providers no longer create an owner of their own: the provided value now sits on the two memos that resolve the provider's children, so each provider allocates one node and one bound function fewer.
+- 8858189: The `flush` record lists what each drain changed on screen; the attribution hooks shrink around it
+  - **`FlushEvent.changes`**: one entry per signal, memo or store property whose shown value the drain changed — by a commit, a held transition's landing, or an optimistic value appearing or lifting — with `nodeId`, `nodeName`, `key` (store properties) and `origin` (the action step, effect, interaction or navigation that staged the value; a held write keeps its origin, so a landing names its action). First values and effects are not listed. New types `FlushChange` and `FlushLive`: the record's `live` is now `{ changes: [{ node, prev?, value? }] }`, index for index with `event.changes`, the values only for a listener that subscribed with `{ bodies: true }`.
+  - **Visibility is judged once, by the engine.** Core reports where a value was staged (`AttributionHooks.staged`, from `queuePendingNode` and `list`), never where it became visible; the engine compares what each staged node showed before and after the drain. `OPTIMISTIC_REVERTED` and the `fallback` record's display instant are judged from that comparison. Removed: the `optimisticReverted` hook, the engine's per-transaction copy of staged fallbacks (`stagedFallbacks` and its rebasing on settle/merge), and the `schedule()` a mounting boundary made so the engine got a drain end.
+  - **Hook inputs reduced to what core knows** (internal `AttributionHooks`): `recomputeEnd(el, create, changed, phase, held)` replaces the `optimistic`/`transition` pair with the `phase` the engine derived from them, and absorbs `derivedChanged`; `asyncLanded(el, value, changed)` replaces `asyncStart` + `asyncEnd(direct)` — an async landing through `setSignal` is reported once, not first as a `write` (the engine no longer snapshots the node to tell whether it committed); `storeWrite(target, old, written, keys)` replaces `storeReplaced`, and the immutable-update census moves from the store into the engine; `boundaryFallback` takes the boundary's output instead of the transaction its swap is staged under.
+
+- c50abb6: A `dynamic` mount of a live server component that switches arguments and comes back to its first call (a windowed view scrolling back to the slice the page was served with) shows that call again. The equals gate compared the incoming binding with the one the memo holds, which is the first resolution's, so the way back read as "nothing changed" and the mount stayed on the other address.
+
+  A live connection cancelled before its body's `start` arrived now reads as a death, and the loop reconnects. A remount replaying a warm store gives up on a row-op record by cancelling the new connection so the resume re-sends the hole whole; with nothing open yet, the end read as a completion and the mount was left with no live connection.
+
+- e76279f: Dev now warns `OPTIMISTIC_WRITE_WHILE_LOADING` when an optimistic setter runs while its source, which has answered before, is loading a new question. The setter composes on the previous answer, and the new answer replaces the guess (#4795).
+- 32b4294: Fail renderToStream when the default serializer reports a synchronous error before the first flush, matching asynchronous failures. No HTML is sent, onCompleteAll is skipped, and createSSRResponse returns 500 when consuming the stream. An error an `<Errored>` contained does not fail the render when it cannot be serialized: its record and the rejection of its source, deferStream or streamed, are sent as a plain Error with its message, the fallback stays, and the error hook hears the failure once. A rejection nothing contained still fails the render.
+- 9c917ea: A ref callback that reads a sync memo on a row mounted while an async memo is in flight no longer leaves that update held forever (#4767). Refs run in the attribute effect's commit half with no owner; a memo born into the hold has only a staged value, and an ownerless read of it threw `NotReadyError` (A19 exception 1), which errored the effect mid-hold so the transaction never landed. `runRefCallback` now marks the read, and `serve` returns the staged value only when the ref's creating pass was born into that memo's hold (F-7); production `ref()` always goes through `runRefCallback` so the mark is present outside dev too.
+- 7230c08: A ref callback (`ref={el => …}`) now runs the way a render effect's callback runs at creation (#4761). It is untracked and runs in the context of the pass that creates the element, so its reads see what that pass is building. Before, it ran with no owner, so its reads were outside reads that saw the screen before the pass committed. A non-keyed `<Show>`/`<Match>` branch that an optimistic write had hidden could not come back: its ref read the narrowed accessor, got the old falsy condition, and threw a stale read that halted the app.
+
+  A ref still owns nothing. In dev, creating a memo, effect or root inside it throws `PRIMITIVE_IN_EFFECT_CALLBACK`, and `onCleanup` inside it throws `CLEANUP_IN_FORBIDDEN_SCOPE`. Set those up in the factory that returns the ref, which runs in the component body. Writes, `refresh`, action calls and `onFlush` stay allowed in a ref, as in an effect callback.
+
+- c8c5eb1: Server rendering only treats nodes the runtime made as finished markup. `ssr()`, `ssrElement()` and the frames sink now stamp their nodes with the `Symbol.for("solid.ssrNode")` symbol (as `$`, a value no data can hold), and every insert position checks it instead of the object's shape. A plain object with a `t` key (or `t`, `h` and `p`), such as one parsed from JSON, is data: it renders nothing and gets the dev warning UNRECOGNIZED_INSERT_VALUE, like any other plain object. The async-memo landing check (ASYNC_MEMO_ELEMENT) uses the same brand, so such data now serializes like other data instead of being refused. Server only; no client bytes.
+- 8a6de0f: Dev builds now warn with `STRICT_READ_UNTRACKED` (#1742) when an element's event handler expression reads reactive state, e.g. `onClick={selected() ? a : b}` or a `props.onClick` the parent passed a reactive expression. A handler is bound once, where its element is created, so such a read is not meant to be reactive; the warning says to read the value inside the handler function instead. A pending async read there throws `PENDING_ASYNC_UNTRACKED_READ`, as in a component body. The read still tracks, so dev re-mounts on a change exactly as production does.
+
+  Production output is unchanged byte for byte. In dev DOM output both compilers wrap each handler expression that can read reactive state (anything but an identifier, an inline function or a literal), including the `[handler, data]` form's bound values on delegated events, in a new `strictHandler(() => expr)` helper from `@solidjs/web`. It reads `expr` through `strictReadTracked`, a dev-only strict-read window that keeps tracking (internal, from `@solidjs/signals` via `solid-js`). No production-compiled module imports either, so they tree-shake away.
+
+- Updated dependencies [5755ddd]
+- Updated dependencies [ddf8281]
+- Updated dependencies [cf32a50]
+- Updated dependencies [ce7b4bb]
+- Updated dependencies [aaf528d]
+- Updated dependencies [d476295]
+- Updated dependencies [f6b6737]
+- Updated dependencies [2789ca9]
+- Updated dependencies [db3d13d]
+- Updated dependencies [bc423eb]
+- Updated dependencies [58e47eb]
+- Updated dependencies [8858189]
+- Updated dependencies [5208944]
+- Updated dependencies [6751472]
+- Updated dependencies [5ecd72f]
+- Updated dependencies [4de85c2]
+- Updated dependencies [6b7474b]
+- Updated dependencies [dc33de6]
+- Updated dependencies [f00ce6f]
+- Updated dependencies [da402ca]
+- Updated dependencies [e90c209]
+- Updated dependencies [dba2aad]
+- Updated dependencies [e20b4e7]
+- Updated dependencies [79b6541]
+- Updated dependencies [45498e3]
+- Updated dependencies [e0f31bc]
+- Updated dependencies [1bdd973]
+- Updated dependencies [0895916]
+- Updated dependencies [edeb5db]
+- Updated dependencies [a01fd92]
+- Updated dependencies [d00f055]
+- Updated dependencies [38b6f85]
+- Updated dependencies [4fe7532]
+- Updated dependencies [ccb438d]
+- Updated dependencies [78eaf88]
+- Updated dependencies [cd4de28]
+- Updated dependencies [e76279f]
+- Updated dependencies [ab3fc44]
+- Updated dependencies [8b7254a]
+- Updated dependencies [46a72c0]
+- Updated dependencies [abbb806]
+- Updated dependencies [6681c1b]
+- Updated dependencies [640841d]
+- Updated dependencies [57a7f42]
+- Updated dependencies [a8b8b67]
+- Updated dependencies [9c917ea]
+- Updated dependencies [7230c08]
+- Updated dependencies [9d4f077]
+- Updated dependencies [fb672ca]
+- Updated dependencies [e76279f]
+- Updated dependencies [b050983]
+- Updated dependencies [9de15ba]
+- Updated dependencies [d06e7a7]
+- Updated dependencies [c981680]
+- Updated dependencies [b3e9fb8]
+- Updated dependencies [8a6de0f]
+- Updated dependencies [bcef104]
+- Updated dependencies [eef34fd]
+- Updated dependencies [ebd6283]
+  - @solidjs/signals@2.0.0-rc.22
+
 ## 2.0.0-rc.21
 
 ### Patch Changes

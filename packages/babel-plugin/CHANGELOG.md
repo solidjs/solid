@@ -1,5 +1,18 @@
 # @solidjs/babel-plugin
 
+## 2.0.0-rc.22
+
+### Patch Changes
+
+- d70dda5: Carry authored `istanbul`/`c8` ignore pragmas through the remaining #2138 cases: a pragma immediately before a component (including through a fragment) leads that component's `children` getter, pragmas inside fragments are preserved, and SSR prop-hoist copies them onto the shared descriptor's `get()`.
+- bf71c28: DOM output no longer declares positional walks to nodes nothing reads. A text node ahead of an appended expression, like `User : ` in `<h1>User : {name()}</h1>`, used to get `var _el$3 = _el$2.firstChild` even though the insert appends with a `null` marker. A minifier keeps that property read, since it could be a getter, so it shipped as `_el$2.firstChild;`. Both compilers now drop a `firstChild`/`nextSibling` walk when no later statement reads its node, including a walk that only fed another dropped walk.
+- 96ffcf7: Production builds compile a `<Show>` that needs no component to the ternary it renders: no `keyed`, no spread, only `when` and `fallback`, with JSX children or a one-parameter callback whose `when` is a plain read (each `u()` reads `when` again). Dev builds keep the component and its stale-read error. The `lowerShow` option overrides the default (`!dev`). The native compiler's SSR pass also no longer returns a TSRX module's static templates unescaped when one element in the module is marked as safe.
+- b2cb0c7: The server build escapes string literals in a ternary branch, after `&&`, and in every `return` of a function child, including a `return` inside `if`, `switch`, `try` or a loop. The server now renders them as text, as the client does, in children and in attribute values (#4710). A function value in an attribute keeps its literals as written at every depth, because the server stringifies its source.
+- 701cbb3: SSR escapes the children of `<style>` and `<script>` under `<svg>` and `<math>`. There they are ordinary elements whose text parses as markup, so only HTML-namespace `<style>`/`<script>` render raw text (#4704).
+- 8a6de0f: Dev builds now warn with `STRICT_READ_UNTRACKED` (#1742) when an element's event handler expression reads reactive state, e.g. `onClick={selected() ? a : b}` or a `props.onClick` the parent passed a reactive expression. A handler is bound once, where its element is created, so such a read is not meant to be reactive; the warning says to read the value inside the handler function instead. A pending async read there throws `PENDING_ASYNC_UNTRACKED_READ`, as in a component body. The read still tracks, so dev re-mounts on a change exactly as production does.
+
+  Production output is unchanged byte for byte. In dev DOM output both compilers wrap each handler expression that can read reactive state (anything but an identifier, an inline function or a literal), including the `[handler, data]` form's bound values on delegated events, in a new `strictHandler(() => expr)` helper from `@solidjs/web`. It reads `expr` through `strictReadTracked`, a dev-only strict-read window that keeps tracking (internal, from `@solidjs/signals` via `solid-js`). No production-compiled module imports either, so they tree-shake away.
+
 ## 2.0.0-rc.21
 
 ### Patch Changes
