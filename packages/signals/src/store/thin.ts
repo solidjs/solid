@@ -11,6 +11,9 @@ import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
   CONFIG_HELD,
+  CONFIG_MANUAL_WRITE,
+  REACTIVE_CHECK,
+  REACTIVE_DIRTY,
   CONFIG_NO_SNAPSHOT,
   REACTIVE_RECOMPUTING_DEPS,
   CONFIG_SLOT_NODE,
@@ -62,7 +65,9 @@ import {
 } from "../core/attribution-hooks.js";
 import { link, setSlotUnobserved, slotUnobservedHook } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
+import { insertIntoHeap } from "../core/heap.js";
 import {
+  dirtyQueue,
   flushTransaction,
   GlobalQueue,
   holdNode,
@@ -70,6 +75,7 @@ import {
   list,
   observeFlightHook,
   passLane,
+  schedule,
   txOf
 } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
@@ -518,8 +524,21 @@ function put(t: Target, node: Signal<any>, v: any): void {
     ((t._fam as any).g ??= new Set()).add(node);
     if (t.r) listGuess?.(t);
   } else {
+    // A34 (3), #3612: a user write to a derivation another transaction
+    // holds is the draft's prior state; the hold re-derives over it.
+    if (
+      userWrite &&
+      t._fam?.node &&
+      (node._config & (CONFIG_HELD | CONFIG_MANUAL_WRITE)) === CONFIG_HELD &&
+      txOf(node) !== flushTransaction
+    )
+      heldHit = t._fam.node;
     setSignal(node, v);
-    if (t._fam !== null && !userWrite) holdWithDerive(t, node);
+    // The derive's write is a derivation; a user setter's a proposal.
+    if (t._fam !== null)
+      userWrite
+        ? (node._config |= CONFIG_MANUAL_WRITE)
+        : ((node._config &= ~CONFIG_MANUAL_WRITE), holdWithDerive(t, node));
   }
 }
 function write(t: Target, key: PropertyKey, v: any): void {
@@ -1231,7 +1250,17 @@ export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true
     userWrite = prevUser;
     if (__OBSERVE__ && writing === 0 && obsWrites !== null) flushWrites();
   }
+  const fw: any = heldHit;
+  if (fw !== null && writing === 0) {
+    heldHit = null;
+    if (!(fw._flags & REACTIVE_DIRTY)) {
+      fw._flags = (fw._flags & ~REACTIVE_CHECK) | REACTIVE_DIRTY;
+      insertIntoHeap(fw, dirtyQueue);
+      schedule();
+    }
+  }
 }
+let heldHit: Computed<any> | null = null;
 
 export function createThinStore<T extends object>(
   value: T,
