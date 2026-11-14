@@ -7,7 +7,7 @@ import {
   REACTIVE_RECOMPUTING_DEPS
 } from "./constants.js";
 import { dirtyQueue } from "./scheduler.js";
-import type { Computed, Root } from "./types.js";
+import type { Computed } from "./types.js";
 
 /**
  * Schedule one subscriber to re-run on the next flush: inserted into the
@@ -35,11 +35,12 @@ export function increaseHeapSize(n: number, heap: Heap): void {
 }
 
 function actualInsertIntoHeap(n: Computed<unknown>, heap: Heap) {
-  const parentHeight =
-    ((n._parent as Root)?._root
-      ? (n._parent as Root)._parentComputed?._height
-      : (n._parent as Computed<any> | null)?._height) ?? -1;
-  if (parentHeight >= n._height) n._height = parentHeight + 1;
+  // Above every owning computation, not only the direct one (roots have no
+  // height): an owner raised since this node's birth (its sources deepened,
+  // `adjustHeight`) left the node at or below it, and the node ran before the
+  // owner whose run disposes it (#4848).
+  for (let p = n._parent as Computed<any> | null; p; p = p._parent as Computed<any> | null)
+    if (p._height >= n._height) n._height = p._height + 1;
   const height = n._height;
   const heapAtHeight = heap._heap[height];
   if (heapAtHeight === undefined) heap._heap[height] = n;
