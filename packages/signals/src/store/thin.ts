@@ -77,6 +77,8 @@ interface Target {
   cv: Signal<number> | null;
   /** the proxy handler (swapped for the chain's) */
   hd: ProxyHandler<any> | null;
+  /** written: a node may differ from the raw */
+  w?: boolean;
 }
 /** A chained target's key with no own value reads the chained store. */
 const DELEGATE = {};
@@ -184,7 +186,7 @@ function nodeOf(t: Target, key: PropertyKey, init: any = seed(t, key)): Signal<a
   let node = n[key];
   if (node === undefined) {
     // The store's one-literal slot node (px/pxv wrap cache pre-shaped).
-    node = n[key] = slotSignal(init, isEqual, t, key, false);
+    node = n[key] = slotSignal(init, Object.is, t, key, false);
     if (t._fam !== null) t._fam.live.add(t as any);
   }
   return node;
@@ -202,6 +204,15 @@ function keysOf(t: Target): (string | symbol)[] {
     const keys: string[] = [];
     for (let i = 0; i < len; i++) if (valueOf(t, i) !== ABSENT) keys.push("" + i);
     keys.push("length");
+    // Non-index metadata (symbols, named keys) of the array.
+    const meta = (k: PropertyKey) =>
+      k !== "length" && (typeof k === "symbol" || "" + (+k >>> 0) !== k);
+    for (const k of Reflect.ownKeys(t.v))
+      if (meta(k) && valueOf(t, k) !== ABSENT) keys.push(k as any);
+    if (n !== null)
+      for (const k of Reflect.ownKeys(n))
+        if (meta(k) && !hasOwn.call(t.v, k) && peek(n[k as any], t, 2) !== ABSENT)
+          keys.push(k as any);
     return keys;
   }
   if (t.c !== null) {
@@ -246,12 +257,13 @@ function put(t: Target, node: Signal<any>, v: any): void {
   }
 }
 function write(t: Target, key: PropertyKey, v: any): void {
-  if (t.n?.[key] === undefined && seed(t, key) === v) return;
+  if (t.n?.[key] === undefined && Object.is(seed(t, key), v)) return;
   const node = nodeOf(t, key);
   let prev = peek(node, t);
   if (prev === DELEGATE) prev = innerValue(t, key);
-  if (prev === v) return;
+  if (Object.is(prev, v)) return;
   put(t, node, () => v);
+  t.w = true;
   const h = t.h?.[key];
   if (h !== undefined) put(t, h, v !== ABSENT);
   // Structure: membership for records; position is content for arrays.
@@ -360,7 +372,8 @@ function writeSlot(t: Target, key: PropertyKey, v: any): void {
     const len = valueOf(t, "length");
     if (key === "length") {
       for (let i = v; i < len; i++) write(t, i, ABSENT);
-    } else if (typeof key === "string" && +key >= len) write(t, "length", +key + 1);
+    } else if (typeof key === "string" && "" + (+key >>> 0) === key && +key >= len)
+      write(t, "length", +key + 1);
   }
   write(t, key, v);
 }
@@ -368,6 +381,10 @@ function writeSlot(t: Target, key: PropertyKey, v: any): void {
 function famGuessing(fam: any): boolean {
   if (fam.g) for (const n of fam.g) if (carries(n)) return true;
   return false;
+}
+/** A property defined through a draft with a getter or non-default attributes. */
+class Box {
+  constructor(public d: PropertyDescriptor) {}
 }
 const carries = (n: any): boolean => n != null && (n._config & CONFIG_OVERRIDE) !== 0;
 function hasGuess(t: Target): boolean {
@@ -387,6 +404,12 @@ function traps(t: Target): ProxyHandler<any> {
       const tracked = !inDraft(t) && getObserver() !== null;
       if (node === undefined) {
         const own = hasOwn.call(t.v, key);
+        // Pollution guard; `constructor` withheld from drafts only (#4670).
+        if (
+          !own &&
+          (key === "__proto__" || key === "prototype" || (key === "constructor" && inDraft(t)))
+        )
+          return undefined;
         // Accessors and prototype members run against the proxy.
         if (own ? lookupGetter.call(t.v, key) !== undefined : key in t.v) {
           const v = Reflect.get(t.v, key, receiver);
@@ -398,6 +421,7 @@ function traps(t: Target): ProxyHandler<any> {
       const v = tracked ? read(node) : peek(node, t, 1);
       if (v === null || typeof v !== "object") return v === ABSENT ? undefined : v;
       if ((node as any).pxv === v) return (node as any).px;
+      if (v instanceof Box) return v.d.get ? v.d.get.call(receiver) : child(t, v.d.value);
       const p = child(t, v);
       (node as any).px = p;
       (node as any).pxv = v;
@@ -427,6 +451,10 @@ function traps(t: Target): ProxyHandler<any> {
         return { value: valueOf(t, key), writable: true, enumerable: false, configurable: false };
       const v = this.has!(_, key) ? valueOf(t, key) : ABSENT;
       if (v === ABSENT) return undefined;
+      if (v instanceof Box)
+        return v.d.get || v.d.set
+          ? { ...v.d, configurable: true }
+          : { ...v.d, value: child(t, v.d.value), configurable: true };
       const d = Object.getOwnPropertyDescriptor(t.v, key);
       if (d && (d.get || d.set)) return ((d.configurable = true), d);
       return {
@@ -435,6 +463,15 @@ function traps(t: Target): ProxyHandler<any> {
         enumerable: d ? d.enumerable : true,
         configurable: true
       };
+    },
+    defineProperty(_, key, d) {
+      if (!inDraft(t) || key === "__proto__") return true;
+      // A plain data property is a write; anything else is boxed whole into
+      // the slot (staged with the frame like any value).
+      if (!d.get && !d.set && d.enumerable !== false && d.writable !== false)
+        writeSlot(t, key, unwrapThin(d.value));
+      else write(t, key, new Box(d.get || d.set ? d : { ...d, value: unwrapThin(d.value) }));
+      return true;
     },
     set(_, key, value) {
       if (!inDraft(t) || key === "__proto__") return true;
@@ -615,7 +652,14 @@ export function thinReconcile(
   const map: WeakMap<object, any> = (t._fam?.map as any) ?? targets;
   // Descend only where a proxy exists below: a subtree nobody read has no
   // identity or readers to keep, so the new value just takes the slot.
+  let sent: Set<any> | undefined;
   const merge = (pv: any, nv: any): any => {
+    // The same raw re-sent over a row a write moved off it: back to the raw.
+    if (pv === nv && isWrappable(nv)) {
+      const pt = map.get(pv);
+      if (pt?.w) (thinReconcile(pt.p, nv, keyFn, 0), (pt.w = false));
+      return nv;
+    }
     // A store inside a derive's value: the slot chains to it (#2864).
     if (t._fam !== null && isThin(nv) && nv[$THIN]._fam !== t._fam) {
       let pt: Target | undefined = isWrappable(pv) ? map.get(pv) : undefined;
@@ -636,7 +680,10 @@ export function thinReconcile(
     )
       return nv;
     const pt = map.get(pv);
-    if (pt === undefined) return nv;
+    // A raw already wrapped, or re-sent at another slot, is its own row:
+    // identity travels with the raw (#4001).
+    if (pt === undefined || map.has(nv) || (sent ??= new Set(Object.values(next))).has(pv))
+      return nv;
     if (keyFn !== null) {
       const pk = keyFn(pt.p);
       if (pk !== undefined && pk !== keyFn(nv)) return nv;
@@ -680,6 +727,15 @@ export function thinReconcile(
   }
 }
 
+/** A snapshot copy's property: a boxed or non-plain one keeps its attributes. */
+function setProp(copy: any, raw: any, k: PropertyKey, v: any): void {
+  const d = v instanceof Box ? v.d : Object.getOwnPropertyDescriptor(raw, k);
+  if (d !== undefined && (d.get || d.set)) return void Object.defineProperty(copy, k, d);
+  if (v instanceof Box) v = v.d.value;
+  if (d === undefined || (d.enumerable && d.writable)) copy[k] = v;
+  else if (typeof k === "symbol" && !d.enumerable) return;
+  else Object.defineProperty(copy, k, { ...d, value: v, configurable: true });
+}
 /** Plain copy of the reader's frame; untouched subtrees keep source identity. */
 export function thinSnapshot(
   value: any,
@@ -687,7 +743,7 @@ export function thinSnapshot(
   fam: StoreFamily | null = isThin(value) ? value[$THIN]._fam : null
 ): any {
   const raw = unwrapThin(value);
-  if (!isWrappable(raw)) return raw;
+  if (raw === null || typeof raw !== "object") return raw;
   const t: Target | undefined = ((fam?.map as any) ?? targets).get(raw);
   if (t === undefined) return raw;
   if (seen.has(raw)) return seen.get(raw);
@@ -714,15 +770,17 @@ export function thinSnapshot(
       copy = t.r ? [] : Object.create(Object.getPrototypeOf(raw));
       seen.set(raw, copy);
       if (t.r) copy.length = valueOf(t, "length");
-      for (const k of keys) if (k !== "length" || !t.r) copy[k] = valueOf(t, k);
+      for (const k of keys) if (k !== "length" || !t.r) setProp(copy, raw, k, valueOf(t, k));
     }
   };
   if (t.n !== null) start();
   for (const k of keys) {
     if (t.r && k === "length") continue;
-    const v = copy !== null ? copy[k] : raw[k];
+    const d = Object.getOwnPropertyDescriptor(copy ?? raw, k);
+    if (d === undefined || d.get || d.set) continue;
+    const v = d.value;
     const s = thinSnapshot(v, seen, fam);
-    if (s !== v) (start(), (copy[k] = s));
+    if (s !== v) (start(), Object.defineProperty(copy, k, { ...d, value: s }));
   }
   return copy ?? raw;
 }
