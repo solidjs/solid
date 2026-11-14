@@ -1,6 +1,6 @@
 import { guessedValueOf, optimisticWrite, pendingGuessOf, take } from "../core/guesses.js";
 import { covered, underOf } from "../core/truth.js";
-import { setLaneValue } from "../core/lanes.js";
+import { lanes, setLaneValue } from "../core/lanes.js";
 import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
@@ -27,6 +27,7 @@ import {
   staleReader,
   storeCommitHook,
   storeParkHook,
+  transactions,
   txOf,
   type Transaction
 } from "../core/scheduler.js";
@@ -40,6 +41,7 @@ import {
   nodeOfThin,
   ABSENT_THIN,
   linkedTo,
+  releaseSettled,
   thinSetter as storeSetter,
   unwrapThin
 } from "./thin.js";
@@ -265,7 +267,15 @@ installStoreHooks(
           }
     }
   },
-  () => prevCommit?.()
+  () => {
+    prevCommit?.();
+    releaseSettled(
+      n =>
+        pendingGuessOf(n) !== NOT_PENDING ||
+        transactions.some(u => u._nodes.includes(n)) ||
+        lanes.some(l => l._nodes.includes(n))
+    );
+  }
 );
 // store/optimistic.ts `stands` (A17; over a new question only a target
 // carrying a guess stands in, F-2/F-6; a linked reader keeps observing, #4536).

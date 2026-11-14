@@ -71,6 +71,7 @@ import {
   flushTransaction,
   GlobalQueue,
   holdNode,
+  joinFuture,
   laneStageHook,
   list,
   observeFlightHook,
@@ -105,15 +106,16 @@ setSlotUnobserved((node: any) => ("px" in node._host ? prevSlotHook?.(node) : re
  * says what it says (#3351): nothing is lost, the next read re-creates it
  * from the seed. A target with no node leaves its family's live index. A
  * written node, or one a frame still carries, stays. */
-function release(node: any): void {
+function release(node: any, settled?: boolean): void {
   if (
     node._subs !== null ||
     node._pendingValue !== NOT_PENDING ||
-    node._config & (CONFIG_OVERRIDE | CONFIG_HELD | CONFIG_GUESS) ||
-    // One a lane ever carried may come back (a revert's kept guess, #4336).
-    node._x !== null
+    node._config & (CONFIG_OVERRIDE | CONFIG_HELD | CONFIG_GUESS)
   )
     return;
+  // One a lane carried may come back while anything is still out (a
+  // revert's kept guess, #4336): released once everything settled (S7).
+  if (node._x !== null && !settled) return void (laneCarried ??= new Set()).add(node);
   const t: Target = node._host;
   const key = node._key;
   if (key === $TRACK) {
@@ -128,6 +130,18 @@ function release(node: any): void {
     delete t.h![key];
   } else return;
   if (t._fam !== null && t.k === null && empty(t.n) && empty(t.h)) t._fam.live.delete(t as any);
+}
+let laneCarried: Set<any> | null = null;
+/** At a commit: release the lane-carried nodes nobody reads that no live
+ * transaction or lane still lists (thinOptimistic.ts). A derive's family
+ * keeps them: its re-run can bring a displaced guess back (#4336). */
+export function releaseSettled(live: (n: any) => boolean): void {
+  const s = laneCarried;
+  if (s !== null) {
+    laneCarried = null;
+    for (const n of s)
+      live(n) || n._host._fam?.node ? (laneCarried ??= new Set()).add(n) : release(n, true);
+  }
 }
 // A staged write to a node nobody reads: the release waits for its commit.
 GlobalQueue._slotCommitted = (n: any) => ("px" in n._host ? undefined : release(n));
@@ -539,6 +553,10 @@ function put(t: Target, node: Signal<any>, v: any): void {
       userWrite
         ? (node._config |= CONFIG_MANUAL_WRITE)
         : ((node._config &= ~CONFIG_MANUAL_WRITE), holdWithDerive(t, node));
+    // A continuation's write held with the derive: its readers re-run in
+    // the hold's flush, staged with it (F-10; store.ts `notifyContainer`).
+    if (!userWrite && !t._fam?.opt && flushTransaction === null && node._config & CONFIG_HELD)
+      joinFuture(txOf(node));
   }
 }
 function write(t: Target, key: PropertyKey, v: any): void {
