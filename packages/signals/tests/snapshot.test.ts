@@ -690,6 +690,7 @@ describe("store snapshot support", () => {
     const [store, setStore] = createStore<number[]>([1, 2, 3]);
 
     setStore(() => []);
+    flush();
 
     expect(snapshot(store)).toEqual([]);
   });

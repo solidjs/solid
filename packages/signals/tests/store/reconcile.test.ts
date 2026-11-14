@@ -20,6 +20,7 @@ describe("setState with reconcile", () => {
     expect(state.data).toBe(2);
     expect(state.missing).toBe("soon");
     setState(reconcile({ data: 5 }, "id"));
+    flush();
     expect(state.data).toBe(5);
     expect(state.missing).toBeUndefined();
   });
@@ -29,6 +30,7 @@ describe("setState with reconcile", () => {
     expect(state[0]).toBe(null);
     expect(state[1]).toBe("a");
     setState(reconcile(["b", null], "id"));
+    flush();
     expect(state[0]).toBe("b");
     expect(state[1]).toBe(null);
   });
@@ -44,6 +46,7 @@ describe("setState with reconcile", () => {
     setState(s => {
       reconcile({ firstName: "Jake", middleName: "R" }, "id")(s.data.user);
     });
+    flush();
     expect(state.data.user.firstName).toBe("Jake");
     expect(state.data.user.middleName).toBe("R");
     expect(state.data.user.lastName).toBeUndefined();
@@ -61,18 +64,21 @@ describe("setState with reconcile", () => {
     setState(s => {
       reconcile([NED, JOHN, BRANDON], "id")(s.users);
     });
+    flush();
     expect(Object.is(snapshot(state.users[0]), NED)).toBe(true);
     expect(Object.is(snapshot(state.users[1]), JOHN)).toBe(true);
     expect(Object.is(snapshot(state.users[2]), BRANDON)).toBe(true);
     setState(s => {
       reconcile([NED, BRANDON, JOHN], "id")(s.users);
     });
+    flush();
     expect(Object.is(snapshot(state.users[0]), NED)).toBe(true);
     expect(Object.is(snapshot(state.users[1]), BRANDON)).toBe(true);
     expect(Object.is(snapshot(state.users[2]), JOHN)).toBe(true);
     setState(s => {
       reconcile([NED, BRANDON, JOHN, ARYA], "id")(s.users);
     });
+    flush();
     expect(Object.is(snapshot(state.users[0]), NED)).toBe(true);
     expect(Object.is(snapshot(state.users[1]), BRANDON)).toBe(true);
     expect(Object.is(snapshot(state.users[2]), JOHN)).toBe(true);
@@ -80,6 +86,7 @@ describe("setState with reconcile", () => {
     setState(s => {
       reconcile([BRANDON, JOHN, ARYA], "id")(s.users);
     });
+    flush();
     expect(Object.is(snapshot(state.users[0]), BRANDON)).toBe(true);
     expect(Object.is(snapshot(state.users[1]), JOHN)).toBe(true);
     expect(Object.is(snapshot(state.users[2]), ARYA)).toBe(true);
@@ -101,6 +108,7 @@ describe("setState with reconcile", () => {
     setState(s => {
       reconcile([{ ...NED }, { ...JOHN }, { ...BRANDON }], "")(s.users);
     });
+    flush();
     expect(state.users[0].id).toBe(2);
     expect(state.users[0].firstName).toBe("Ned");
     expect(state.users[1].id).toBe(1);
@@ -153,6 +161,7 @@ describe("setState with reconcile", () => {
     });
 
     setStore(reconcile({ value: { c: [1, 2, 3] } }, "id"));
+    flush();
     expect(store.value).toEqual({ c: [1, 2, 3] });
   });
 
@@ -161,11 +170,14 @@ describe("setState with reconcile", () => {
       value: [1, 2, 3]
     });
     setStore(reconcile({ value: { name: "John" } }, "id"));
+    flush();
     expect(Array.isArray(store.value)).toBeFalsy();
     expect(store.value).toEqual({ name: "John" });
     setStore(reconcile({ value: [1, 2, 3] }, "id"));
+    flush();
     expect(store.value).toEqual([1, 2, 3]);
     setStore(reconcile({ value: { q: "aa" } }, "id"));
+    flush();
     expect(store.value).toEqual({ q: "aa" });
   });
   test("Reconcile keyed trailing removal notifies $TRACK subscribers", () => {
@@ -217,6 +229,7 @@ describe("setState with reconcile", () => {
       { id: 2 }
     ]);
     setState(reconcile([{ id: 1 }, null, { id: 2, value: "updated" }], "id"));
+    flush();
     expect(snapshot(state)).toEqual([{ id: 1 }, null, { id: 2, value: "updated" }]);
   });
 
@@ -225,6 +238,7 @@ describe("setState with reconcile", () => {
       { id: 1, value: "object" }
     ]);
     setState(reconcile([5], "id"));
+    flush();
     expect(snapshot(state)).toEqual([5]);
   });
 
@@ -691,6 +705,7 @@ describe("reconcile without a key (positional merge)", () => {
         null
       )(s.rows);
     });
+    flush();
     expect(state.rows[0]).toBe(row0);
     expect(state.rows[1]).toBe(row1);
     expect(state.rows[0].id).toBe(7);
@@ -732,9 +747,11 @@ describe("reconcile without a key (positional merge)", () => {
       items: [{ v: 1 }, { v: 2 }]
     });
     setState(reconcile({ items: [{ v: 1 }, { v: 2 }, { v: 3 }] }, null));
+    flush();
     expect(state.items.length).toBe(3);
     expect(state.items[2].v).toBe(3);
     setState(reconcile({ items: [{ v: 9 }] }, null));
+    flush();
     expect(state.items.length).toBe(1);
     expect(state.items[0].v).toBe(9);
   });
@@ -809,6 +826,7 @@ describe("reconcile without a key (positional merge)", () => {
     const [state, setState] = createStore({ id: 1, v: 2 });
     // keyed (including the "id" default) this throws "different identity"; key: null must merge
     setState(reconcile({ id: 9, v: 3 }, null));
+    flush();
     expect(state.id).toBe(9);
     expect(state.v).toBe(3);
   });

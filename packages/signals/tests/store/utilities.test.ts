@@ -1723,6 +1723,7 @@ describe("snapshot", () => {
     setState(s => {
       s.a = 3;
     });
+    flush();
     const newImmutable = snapshot(state);
     expect(newImmutable).not.toBe(state);
     expect(newImmutable).toEqual({ a: 3, b: 2 });
@@ -1740,6 +1741,7 @@ describe("snapshot", () => {
     setState(s => {
       s.b.c = 3;
     });
+    flush();
     const newImmutable = snapshot(state);
     expect(newImmutable).not.toBe(state);
     expect(newImmutable).toEqual({ a: 1, b: { c: 3 } });
@@ -1755,6 +1757,7 @@ describe("snapshot", () => {
     setState(s => {
       s.a = 3;
     });
+    flush();
     const newImmutable = snapshot(state);
     expect(newImmutable).not.toBe(state);
     expect(newImmutable).toEqual({ a: 3, b: { c: 2 } });
@@ -1771,6 +1774,7 @@ describe("snapshot", () => {
     setState(s => {
       s.b[0] = 4;
     });
+    flush();
     const newImmutable = snapshot(state);
     expect(newImmutable).not.toBe(state);
     expect(newImmutable).toEqual({ a: 1, b: [4, 3] });
