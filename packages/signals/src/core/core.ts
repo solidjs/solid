@@ -686,7 +686,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // its body gates on is either _statusFlags or lives in the cold
     // extension — no extension, no status to clear. (_x from an unrelated
     // installer just makes clearStatus a cheap re-verified no-op.)
-    if (el._statusFlags !== 0 || el._x !== null) clearStatus(el, create);
+    // Lane work this pass served the committed value of a flight still in
+    // the air keeps the pending it had: the lane breaks out of the flight
+    // (A31), the node's world does not — a boundary waiting on it keeps its
+    // fallback (F-4, #4862; lanes.ts `laneServed`).
+    if (
+      (el._statusFlags !== 0 || el._x !== null) &&
+      !(passLane !== null && el._statusFlags & STATUS_PENDING && laneServedHook!(el, null, true))
+    )
+      clearStatus(el, create);
   } catch (e) {
     const notReady = e instanceof NotReadyError;
     // An error answers, and so does a loading window's unready read (D-25,

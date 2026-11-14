@@ -1214,9 +1214,12 @@ const laneServed = (
   // value of a flight (core.ts `stagedRead`): it derives from the write that
   // re-asked the flight, so it waits on it — never the new value beside the
   // old answer (F-1, F-2; S-57).
+  // Asked with `flight` (core.ts `recompute`): whether it was so served.
   if (el === null) {
-    if (served === c && servedGen === c._depGen && servedFlight!._statusFlags & STATUS_PENDING)
+    if (served === c && servedGen === c._depGen && servedFlight!._statusFlags & STATUS_PENDING) {
+      if (flight) return true;
       throw servedFlight!._x!._error;
+    }
     return;
   }
   // Lane work reading a flight that is not the lane's own (core.ts `read`,
