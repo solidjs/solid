@@ -1,7 +1,8 @@
 import { guessedValueOf, optimisticWrite, pendingGuessOf, take } from "../core/guesses.js";
-import { underOf } from "../core/truth.js";
+import { covered, underOf } from "../core/truth.js";
 import { setLaneValue } from "../core/lanes.js";
 import {
+  CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
   CONFIG_OVERRIDE,
   EFFECT_RENDER,
@@ -10,10 +11,12 @@ import {
   STATUS_PENDING
 } from "../core/constants.js";
 import { link } from "../core/graph.js";
-import { context, read } from "../core/core.js";
+import { devGuardOptimisticBeforeLoad, devWarnOptimisticWhileLoading } from "../core/dev.js";
+import { context, joinPassAt, read } from "../core/core.js";
 import {
   clock,
   GlobalQueue,
+  insertSubs,
   installStoreHooks,
   joinFuture,
   laneDirty,
@@ -119,7 +122,7 @@ const prevRebase = GlobalQueue._laneRebase;
 GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
   const t = el._host;
   if (t === undefined || "px" in t) return prevRebase?.(el, truth, older);
-  if (!t.over || !t.r) return older;
+  if (!t.over || !t.r) return !older && Array.isArray(t.v) && t._fam?.key ? fold(el, truth) : older;
   const keyFn = t._fam?.key;
   const d = t._fam?.node;
   if (!keyFn || !d) return older;
@@ -128,6 +131,37 @@ GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
   rebase(t, el, truth, lane, keyFn);
   return true;
 };
+/** store/optimistic.ts `fold` (D-34), key by key: a current truth landing
+ * on a shown keyed list's guess folds beneath it instead of voiding the
+ * lane. The guess stays the screen's until the hold commits, where rows
+ * pair by key (`reconcile`'s guessed rows); the graph outside the lane
+ * re-derives from the truth now (`foldedRead`). */
+function fold(el: any, truth: unknown): boolean {
+  const l = txOf(el);
+  if (!l._shown) return false;
+  const guess = guessedValueOf(el);
+  if (!Object.is(guess, truth) && !GlobalQueue._echoes!(guess, truth)) l.folded = foldedRead;
+  else GlobalQueue._confirmed?.(l);
+  if (l.folded) insertSubs(el);
+  joinFuture(resolveTx(l._parent ?? l));
+  return true;
+}
+function foldedRead(c: Computed<any> | null, el: any): unknown {
+  if (c !== null) {
+    if (
+      !(el._config & CONFIG_GUESS) ||
+      passLane !== null ||
+      (c as any)._type === EFFECT_RENDER ||
+      c._config & CONFIG_CHILDREN_FORBIDDEN ||
+      el._host?._fam?.node === c
+    )
+      return NOT_PENDING;
+    const l = txOf(el);
+    joinPassAt(c, resolveTx(l._parent ?? l));
+  }
+  if (el._pendingValue !== NOT_PENDING) return el._pendingValue;
+  return covered(el);
+}
 function rebase(t: any, el: any, v: unknown, lane: Transaction, keyFn: (r: any) => any): void {
   const n = t.n as Record<PropertyKey, any>;
   const val = (node: any, f: (x: any) => unknown) =>
@@ -299,5 +333,14 @@ export function createThinOptimisticStore<T extends object = {}>(
     (derived ? third : second) as ProjectionOptions,
     true
   );
-  return [store, (fn: (draft: T) => T | void) => storeSetter(store, fn)];
+  return [
+    store,
+    (fn: (draft: T) => T | void) => (
+      __DEV__ &&
+        derived &&
+        (devGuardOptimisticBeforeLoad((store as any)[$THIN]._fam.node),
+        devWarnOptimisticWhileLoading((store as any)[$THIN]._fam.node)),
+      storeSetter(store, fn)
+    )
+  ];
 }

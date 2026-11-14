@@ -423,7 +423,10 @@ function write(t: Target, key: PropertyKey, v: any): void {
   const node = nodeOf(t, key);
   let prev = peek(node, t);
   if (prev === DELEGATE) prev = innerValue(t, key);
-  if (Object.is(prev, v)) return;
+  // A derive's landing on a guess is its truth even when the truth beneath
+  // was already this (A18): the guess is judged with the rest of the
+  // landing, not left over a key set the landing moved.
+  if (Object.is(prev, v) && (userWrite || !(node._config & CONFIG_GUESS))) return;
   put(t, node, () => v);
   t.w = true;
   const h = t.h?.[key];
