@@ -3339,14 +3339,22 @@ function normalize(value, current, multi, doNotUnwrap) {
 // retargeting can route back to the slot's logical position in the source
 // tree. Tagging here — rather than intercepting individual DOM calls — covers
 // every insertion path (append, replaceChild, reconcile, hydration claim)
-// without touching the hot reconcile loops. `$$HOST` short-circuits nodes
-// already tagged for this host on subsequent updates.
+// without touching the hot reconcile loops. `$$HOST` holds the slot's
+// accessor and short-circuits nodes already tagged for this host on
+// subsequent updates. Every node shares one getter that reads it: V8 keeps an
+// accessor in a descriptor array that other nodes of the same shape share,
+// so a per-portal getter (the slot's closure, with its content) stayed
+// reachable from any live node of that shape after the portal was disposed
+// (#4852).
+function hostGetter(this: any) {
+  return this[$$HOST]();
+}
 function tagHost(value, host) {
   if (Array.isArray(value)) {
     for (let i = 0, len = value.length; i < len; i++) tagHost(value[i], host);
   } else if (value && value.nodeType && value[$$HOST] !== host) {
     value[$$HOST] = host;
-    Object.defineProperty(value, "_$host", { get: host, configurable: true });
+    Object.defineProperty(value, "_$host", { get: hostGetter, configurable: true });
   }
 }
 
