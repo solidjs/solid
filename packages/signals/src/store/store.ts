@@ -2392,7 +2392,16 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       return true;
     }
     if (key === "__proto__") return true; // pollution guard (core R30)
-    const uv = target.s ? value : unwrapValue(value);
+    // A derived store's draft keeps a proxy of another store (a plain store
+    // or another family; its own drafts still unwrap), and the key chains to
+    // it (§7b read-through; CS-R3, CS-R5) as the return form's backing does.
+    // Unwrapped, the family re-wrapped a raw that the source store's next
+    // write left behind (#4845). A plain store's raw dedupes to the source's
+    // own node (CS-R2), so plain stores unwrap as before.
+    const uv =
+      target.s || (target._fam && value?.[$TARGET]?._fam !== target._fam)
+        ? value
+        : unwrapValue(value);
     const pb = ensurePB(target);
     // #4146 (R1: node existence is unobservable; #3706: the hold's unit is
     // the key): a user setter writing a key a HELD container's staging left
