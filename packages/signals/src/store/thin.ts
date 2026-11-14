@@ -96,7 +96,6 @@ function release(node: any): void {
   )
     return;
   const t: Target = node._host;
-  if (t.c !== null) return;
   const key = node._key;
   if (key === $TRACK) {
     if (t.k !== node) return;
@@ -105,7 +104,8 @@ function release(node: any): void {
     if (!Object.is(node._value, seed(t, key))) return;
     delete t.n![key];
   } else if (t.h?.[key] === node) {
-    if (node._value !== (valueOf(t, key) !== ABSENT)) return;
+    // A chained target's presence is the chain's: not released here.
+    if (t.c !== null || node._value !== (valueOf(t, key) !== ABSENT)) return;
     delete t.h![key];
   } else return;
   if (t._fam !== null && t.k === null && empty(t.n) && empty(t.h)) t._fam.live.delete(t as any);
@@ -726,6 +726,16 @@ const BASE: ProxyHandler<any> = {
     if (t.c !== null && t.c[$THIN]._fam?.node?._statusFlags & STATUS_UNINITIALIZED)
       return (__DEV__ && devWriteThroughLoading(subKeys!.get(t)), true);
     if (t.s) return (rawThin(value), writeSlot(t, key, value), true);
+    // #4845: a derive's draft write of another store's proxy chains the
+    // key to it, as the return form does (CS-R3/CS-R5).
+    if (
+      t._fam !== null &&
+      !userWrite &&
+      isThin(value) &&
+      value[$THIN]._fam !== t._fam &&
+      !inDraft(value[$THIN])
+    )
+      return (writeSlot(t, key, chainSlot(t, valueOf(t, key), value)), true);
     const v = unwrapThin(value);
     // A derive's new child over a child carrying guesses: the truth lands
     // into it, so the guesses re-base over it (D-34, #4336).
@@ -866,6 +876,18 @@ function chainTo(t: Target, next: any): void {
   if (t.n !== null) for (const key of Reflect.ownKeys(t.n)) put(t, t.n[key as any], () => DELEGATE);
   if (was === null && t.k !== null) put(t, t.k, (x: number) => x + 1);
   if (t.cv !== null) put(t, t.cv, (x: number) => x + 1);
+}
+/** A family slot holding another store: a raw of this family's, chained
+ * to it (#2864, #4845). */
+function chainSlot(t: Target, pv: any, nv: any): any {
+  let pt: Target | undefined = isWrappable(pv) ? (t._fam!.map.get(pv) as any) : undefined;
+  if (pt === undefined || pt.r !== Array.isArray(nv)) {
+    pv = Array.isArray(nv) ? [] : {};
+    thinWrap(pv, t._fam);
+    pt = t._fam!.map.get(pv) as any;
+  }
+  chainTo(pt!, nv);
+  return pv;
 }
 /** Leave the chain: every key takes the value it showed as its own. */
 function unchain(t: Target): void {
@@ -1084,14 +1106,7 @@ function reconcileTarget(
     }
     // A store inside a derive's value: the slot chains to it (#2864).
     if (t._fam !== null && isThin(nv) && nv[$THIN]._fam !== t._fam) {
-      let pt: Target | undefined = isWrappable(pv) ? map.get(pv) : undefined;
-      if (pt === undefined || pt.r !== Array.isArray(nv)) {
-        pv = Array.isArray(nv) ? [] : {};
-        thinWrap(pv, t._fam);
-        pt = map.get(pv)!;
-      }
-      chainTo(pt!, nv);
-      return pv;
+      return chainSlot(t, pv, nv);
     }
     nv = unwrapThin(nv);
     if (
