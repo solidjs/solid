@@ -689,10 +689,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // Lane work this pass served the committed value of a flight still in
     // the air keeps the pending it had: the lane breaks out of the flight
     // (A31), the node's world does not — a boundary waiting on it keeps its
-    // fallback (F-4, #4862; lanes.ts `laneServed`).
+    // fallback (F-4, #4862; lanes.ts `laneServed`). (Behind the hook: a
+    // build without the lane engine folds the arm away.)
     if (
       (el._statusFlags !== 0 || el._x !== null) &&
-      !(passLane !== null && el._statusFlags & STATUS_PENDING && laneServedHook!(el, null, true))
+      !(laneServedHook && el._statusFlags & STATUS_PENDING && laneServedHook(el, null, true))
     )
       clearStatus(el, create);
   } catch (e) {
