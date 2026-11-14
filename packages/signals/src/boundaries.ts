@@ -77,8 +77,6 @@ import {
   heldUnder,
   joinFuture,
   passLane,
-  passTx,
-  resolveTx,
   schedule,
   setPassLane,
   txOf,
@@ -965,19 +963,11 @@ function fallback<T>(b: Boundary): T {
     out._flags |= REACTIVE_LANE_READ;
     b._lane = null;
   }
-  // Observe: a loading boundary starts showing its fallback — the swap lands
-  // with the frame's transaction, or this drain commits it (lane work, or no
-  // transaction). A mount's synchronous first show has no drain of its own:
-  // one is scheduled so the engine's display instant (`flushEnd`) comes.
-  if (__OBSERVE__ && !b._fallback && b._type & STATUS_PENDING && attrHooks !== null) {
-    attrHooks.boundaryFallback(
-      b,
-      b._tree,
-      true,
-      passLane !== null ? null : flushTransaction !== null ? resolveTx(flushTransaction) : passTx
-    );
-    if (!globalQueue._running) schedule();
-  }
+  // Observe: a loading boundary starts showing its fallback. The swap is the
+  // output's value; the engine watches it and counts the fallback displayed
+  // when the screen shows it (a commit, a landing, a lane's reveal).
+  if (__OBSERVE__ && !b._fallback && b._type & STATUS_PENDING && attrHooks !== null)
+    attrHooks.boundaryFallback(b, b._tree, true, out);
   b._fallback = true;
   // Built in its own scope, like `Show`'s function child, once per show
   // (D-39: the fallback is the display until a new answer replaces the

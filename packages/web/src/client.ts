@@ -18,7 +18,8 @@ import {
   enforceLoadingBoundary,
   resetErrorHalt,
   ROOT_ERROR_HOOK,
-  OBSERVE
+  OBSERVE,
+  strictReadTracked
 } from "solid-js";
 import type { ClientErrorHook, Owner } from "solid-js";
 import {
@@ -735,6 +736,23 @@ export function setStatefulProperty(node, name, value) {
   if ("_SOLID_DEV_") checkStatefulWrite(node, name, value);
   node[name] = value;
   if ("_SOLID_DEV_") recordStatefulWrite(node, name, value);
+}
+
+/**
+ * An event handler expression from dev-compiled DOM output (#1742):
+ * `onClick={props.onClick}` compiles to `strictHandler(() => props.onClick)`
+ * where production output inlines `props.onClick`. A handler is bound once,
+ * where its element is created, so a reactive read in the expression is a
+ * mistake: dev warns `STRICT_READ_UNTRACKED` (a pending async read throws
+ * `PENDING_ASYNC_UNTRACKED_READ`). The read still tracks, so dev re-mounts
+ * on a change exactly as production does. Production compile output never
+ * imports it, so it tree-shakes away.
+ *
+ * @internal Compiler output only.
+ */
+export function strictHandler<T>(fn: () => T): T;
+export function strictHandler(fn) {
+  return "_SOLID_DEV_" ? strictReadTracked(fn) : fn();
 }
 
 // === Element claims ===
@@ -3321,14 +3339,22 @@ function normalize(value, current, multi, doNotUnwrap) {
 // retargeting can route back to the slot's logical position in the source
 // tree. Tagging here — rather than intercepting individual DOM calls — covers
 // every insertion path (append, replaceChild, reconcile, hydration claim)
-// without touching the hot reconcile loops. `$$HOST` short-circuits nodes
-// already tagged for this host on subsequent updates.
+// without touching the hot reconcile loops. `$$HOST` holds the slot's
+// accessor and short-circuits nodes already tagged for this host on
+// subsequent updates. Every node shares one getter that reads it: V8 keeps an
+// accessor in a descriptor array that other nodes of the same shape share,
+// so a per-portal getter (the slot's closure, with its content) stayed
+// reachable from any live node of that shape after the portal was disposed
+// (#4852).
+function hostGetter(this: any) {
+  return this[$$HOST]();
+}
 function tagHost(value, host) {
   if (Array.isArray(value)) {
     for (let i = 0, len = value.length; i < len; i++) tagHost(value[i], host);
   } else if (value && value.nodeType && value[$$HOST] !== host) {
     value[$$HOST] = host;
-    Object.defineProperty(value, "_$host", { get: host, configurable: true });
+    Object.defineProperty(value, "_$host", { get: hostGetter, configurable: true });
   }
 }
 

@@ -861,14 +861,16 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
     // the boundary that caught it, and the commit halted (#4640).
     // A lane reader of a guess in its own lane reads the guess: the truth
     // staged beneath it is the hold's, not the lane's display (F-11, D-34),
-    // and the lane's seam would publish it now (D-41, #4751).
+    // and the lane's seam would publish it now (D-41, #4751). Nor does it
+    // carry a truth's staging: that is the hold's too, shown at its reveal —
+    // published by the lane, `<Errored>` flipped ahead of the hold and then
+    // recovered over the previous question's committed answer (F-1, #4841).
     for (let d = node._deps; d; d = d._nextDep)
       if (
         d._dep._config & CONFIG_STAGED_ERROR &&
         !(
-          d._dep._config & CONFIG_GUESS &&
           node._x?._transaction?._lane &&
-          d._dep._x!._transaction === node._x._transaction
+          (!(d._dep._config & CONFIG_GUESS) || d._dep._x!._transaction === node._x._transaction)
         )
       ) {
         node._pendingValue = el._pendingValue;

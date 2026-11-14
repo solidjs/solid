@@ -65,7 +65,6 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import { attrHooks } from "./attribution-hooks.js";
 import { bornInto, creatorReads, ext, stagedRead, tracking } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
 import { removePendingSource, settlePendingSource } from "./async.js";
@@ -520,17 +519,7 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
       // The parent landed: a guess lands the truth beneath it or reverts to
       // the one it covered; a derivation's latest (its staging, else what it
       // shows) commits, its frame with it; what the screen showed and
-      // changes notifies. Observe: a displayed guess that lifts to
-      // something else — the truth staged beneath it (superseded by a
-      // landing held there) or the value it covered (reverted: nothing came
-      // true).
-      if (__OBSERVE__ && guess && l._shown && attrHooks !== null && truth !== shown)
-        attrHooks.optimisticReverted(
-          n,
-          shown,
-          truth,
-          n._pendingValue !== NOT_PENDING ? "superseded" : "reverted"
-        );
+      // changes notifies.
       // A derivation the revert re-derives (dirtied by the guess's
       // notification — listed before it), or one still in flight, shows the
       // lane's answer beside inputs that are the truth now: a fresh reader
@@ -746,8 +735,12 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
         // reader of a transaction, REACTIVE_FRAME_READ — both reruns apply).
         // Before the throw below: a leaf that waits on a lane that has never
         // shown has no flight to settle it — only the reveal re-derives it,
-        // and its pending holds its frame until then (#4338).
-        if (!(c._flags & REACTIVE_SCREEN_READ)) {
+        // and its pending holds its frame until then (#4338). Not a member's
+        // own flight in a lane that showed and is not held: the reveal has
+        // nothing new for the leaf, which re-derives when that flight lands
+        // — re-queued at every reveal, each re-derivation read the same
+        // flight and queued the next, and the flush never settled (#4840).
+        if (!(c._flags & REACTIVE_SCREEN_READ) && (l._held || !l._shown)) {
           c._flags |= REACTIVE_FRAME_READ | REACTIVE_SCREEN_READ;
           l._reruns.push(c);
         }

@@ -13,6 +13,7 @@ import type {
   FallbackEvent,
   FlightEvent,
   FlushEvent,
+  FlushLive,
   GraphEvent,
   HoldEvent,
   InteractionEvent,
@@ -36,7 +37,8 @@ import {
   CONFIG_SLOT_NODE,
   REACTIVE_REASK,
   STATUS_PENDING,
-  STATUS_UNINITIALIZED
+  STATUS_UNINITIALIZED,
+  EVENT_HANDLER_READ
 } from "./constants.js";
 import { NotReadyError } from "./error.js";
 import type { Computed, Link, Owner, Root, Signal } from "./types.js";
@@ -310,8 +312,9 @@ export interface AttributionSlot {
  * about where there is one — the node that ran for `rerun`, `create` and
  * `effect`, the async node for `flight`, the boundary's subtree for
  * `fallback` (when the boundary reported one), the first held root signal
- * for `hold` (the subject the SILENT_HOLD finding names) — and `undefined`
- * for the records with no single subject (`flush`, `interaction`,
+ * for `hold` (the subject the SILENT_HOLD finding names), the changed
+ * nodes for `flush` (`FlushLive`, with their values under `bodies`) — and
+ * `undefined` for the records with no single subject (`interaction`,
  * `navigation`, `graph`). The records are the same objects the engine's
  * ring buffers hold (`attribution.history(type)`), delivered synchronously
  * the moment each is complete — a re-run at recompute end, a hold, a
@@ -327,7 +330,7 @@ export interface RecordTypes extends HostRecordTypes {
   rerun: { event: RerunEvent; live: Computed<any> };
   create: { event: CreateEvent; live: Computed<any> };
   effect: { event: EffectRunEvent; live: Computed<any> };
-  flush: { event: FlushEvent; live: undefined };
+  flush: { event: FlushEvent; live: FlushLive };
   flight: { event: FlightEvent; live: Computed<any> };
   fallback: { event: FallbackEvent; live: Computed<any> | undefined };
   interaction: { event: InteractionEvent; live: undefined };
@@ -1089,7 +1092,9 @@ export function throwPendingUntrackedRead(
 ): never {
   const message =
     `[PENDING_ASYNC_UNTRACKED_READ] Reading a pending async value directly in ${strictReadLabel}. ` +
-    `Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function).`;
+    (strictReadLabel === EVENT_HANDLER_READ
+      ? `Event handlers are not reactive: read the value inside the handler function instead.`
+      : `Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function).`);
   emitDiagnostic({
     code: "PENDING_ASYNC_UNTRACKED_READ",
     kind: "async",
@@ -1110,10 +1115,17 @@ export function warnStrictReadUntracked(
   // restate what "reactive value" already says.
   const nodeName = fields?.nodeName;
   const named = nodeName !== undefined && nodeName !== "signal" && nodeName !== "computed";
+  const value = `[STRICT_READ_UNTRACKED] Reactive value${named ? ` "${nodeName}"` : ""} read `;
   const message =
-    `[STRICT_READ_UNTRACKED] Reactive value${named ? ` "${nodeName}"` : ""} read directly in ` +
-    `${strictReadLabel} will not update. ` +
-    `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`;
+    strictReadLabel === EVENT_HANDLER_READ
+      ? // #1742: the read is tracked (the element re-mounts when it changes),
+        // but a handler is bound once: the repair is to read inside it.
+        value +
+        `in ${strictReadLabel}. Event handlers are not reactive: ` +
+        `read the value inside the handler function instead.`
+      : value +
+        `directly in ${strictReadLabel} will not update. ` +
+        `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`;
   reportDiagnostic(
     emitDiagnostic({
       code: "STRICT_READ_UNTRACKED",

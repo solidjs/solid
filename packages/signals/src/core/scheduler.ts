@@ -682,6 +682,7 @@ export function list(n: Signal<any>, t: Transaction): void {
   if (x._transaction === t) return;
   x._transaction = t;
   t._nodes.push(n);
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.staged(n);
 }
 
 /** Hold the (uncommitted) frame under a held pass: every computed in the
@@ -1438,6 +1439,7 @@ export function queuePendingNode(node: Signal<any>): void {
   if (__DEV__) lastStagedNodeName = (node as any)._name ?? null;
   pendingNodes.push(node);
   if (!globalQueue._running) markUnflushedStaged(); // A28
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.staged(node);
 }
 
 // Dev-only attribution for the flush loop guard (#3140): when the guard

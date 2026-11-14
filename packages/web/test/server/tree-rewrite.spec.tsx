@@ -111,14 +111,45 @@ describe("rewriteTree", () => {
     expect(taken).toEqual(["s"]);
   });
 
-  it("a cycle with nothing to swap still comes back as a cycle of copies, not a stack overflow", () => {
+  it("a cycle with nothing to swap comes back as itself, not a stack overflow (#4846)", () => {
     const { taken, visit } = seats();
-    const src: any = { a: 1 };
+    const src: any = { a: 1, keep: { k: 1 } };
     src.me = src;
     const out = rewriteTree(src, visit, false);
-    expect(out.a).toBe(1);
-    expect(out.me).toBe(out);
+    expect(out).toBe(src);
     expect(taken).toEqual([]);
+  });
+
+  it("a cycle beside a swap: only what reaches the swap is copied, the rest keeps its identity (#4846)", () => {
+    const { taken, visit } = seats();
+    // An async memo's answer, also written in its own record: the store's
+    // record must reference it, not a copy of it.
+    const key = { id: 1 };
+    const loop: any = { tag: "loop" };
+    loop.self = loop;
+    const src: any = { key, loop, list: [swappable("s")] };
+    const out = rewriteTree(src, visit, false);
+    expect(out).not.toBe(src);
+    expect(out.key).toBe(key);
+    expect(out.loop).toBe(loop);
+    expect(out.list).toEqual([{ seat: "s" }]);
+    expect(taken).toEqual(["s"]);
+  });
+
+  it("a cycle whose members reach a swap only through each other are all copied (#4846)", () => {
+    const { taken, visit } = seats();
+    // a -> b -> a, and a -> c (swap): b reaches the swap only through a, and
+    // is met before c, so its mark comes from its component.
+    const a: any = { name: "a" };
+    const b: any = { name: "b", a };
+    a.b = b;
+    a.c = { s: swappable("c") };
+    const out = rewriteTree({ root: a }, visit, false);
+    expect(out.root).not.toBe(a);
+    expect(out.root.b).not.toBe(b);
+    expect(out.root.b.a).toBe(out.root);
+    expect(out.root.c).toEqual({ s: { seat: "c" } });
+    expect(taken).toEqual(["c"]);
   });
 
   it("exotic values are not walked, on either pass", () => {

@@ -169,31 +169,36 @@ interface InteractionBucket {
 const feedbackSources = new Map<string, SourceBucket>();
 const feedbackInteractions = new Map<string, InteractionBucket>();
 const feedbackNavigations = new Map<string, FeedbackNavigation>();
-const flightStats = new Map<Computed<any>, FlightStats>();
+// Rows outlive their nodes; keyed weakly, a table row never keeps a disposed source or boundary.
+let flightRows = new WeakMap<Computed<any>, FlightStats>();
+const flightStats: FlightStats[] = [];
 interface FallbackBucket {
   row: FallbackStats;
   /** Start of the show currently on screen, or null. */
   shownAt: number | null;
 }
-const fallbackStats = new Map<object, FallbackBucket>();
+let fallbackRows = new WeakMap<object, FallbackBucket>();
+const fallbackStats: FallbackBucket[] = [];
 
 function flightBucket(el: Computed<any>): FlightStats {
-  let row = flightStats.get(el);
+  let row = flightRows.get(el);
   if (row === undefined) {
     row = { source: nodeName(el), flights: 0, landed: 0, abandoned: 0, landedMs: 0, worstMs: 0 };
-    flightStats.set(el, row);
+    flightRows.set(el, row);
+    flightStats.push(row);
   }
   return row;
 }
 
 function trackFallback(boundary: object, tree: Computed<any> | undefined, shown: boolean): void {
-  let bucket = fallbackStats.get(boundary);
+  let bucket = fallbackRows.get(boundary);
   if (bucket === undefined) {
     bucket = {
       row: { boundary: "boundary", shows: 0, shownMs: 0, worstMs: 0, flashes: 0 },
       shownAt: null
     };
-    fallbackStats.set(boundary, bucket);
+    fallbackRows.set(boundary, bucket);
+    fallbackStats.push(bucket);
   }
   // The first show can fire before the subtree exists; name on first sight.
   if (bucket.row.boundary === "boundary" && tree !== undefined) {
@@ -378,8 +383,10 @@ registerFold({
     feedbackSources.clear();
     feedbackInteractions.clear();
     feedbackNavigations.clear();
-    flightStats.clear();
-    fallbackStats.clear();
+    flightRows = new WeakMap();
+    flightStats.length = 0;
+    fallbackRows = new WeakMap();
+    fallbackStats.length = 0;
   }
 });
 
@@ -401,10 +408,10 @@ export function feedback(): AttributionFeedbackTables {
   const navigations = [...feedbackNavigations.values()]
     .map(row => ({ ...row }))
     .sort((a, b) => b.heldMs - a.heldMs || b.settledMs - a.settledMs);
-  const flights = [...flightStats.values()]
+  const flights = flightStats
     .map(row => ({ ...row }))
     .sort((a, b) => b.abandoned - a.abandoned || b.flights - a.flights);
-  const fallbacks = [...fallbackStats.values()]
+  const fallbacks = fallbackStats
     .map(bucket => ({ ...bucket.row }))
     .sort((a, b) => b.flashes - a.flashes || b.shownMs - a.shownMs);
   const sources = [...feedbackSources.values()]

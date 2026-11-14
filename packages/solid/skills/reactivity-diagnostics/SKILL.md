@@ -74,6 +74,14 @@ once and will never update. Move the read into a tracking scope: JSX, a
 memo, or an effect's compute function. If you intentionally want a one-time
 snapshot, wrap the read in `untrack()` to say so explicitly.
 
+When the context is "an event handler expression", the read is in the
+expression an element's handler is bound from (`onClick={selected() ? a : b}`,
+`onClick={makeHandler(id())}`, or a component prop forwarded to an element
+that the parent passed a reactive expression). Handlers are bound once and
+are not reactive: move the read inside the handler function
+(`onClick={() => (selected() ? a() : b())}`), and pass plain functions down
+as handler props.
+
 ### PENDING_ASYNC_UNTRACKED_READ
 
 Same shape as above but the value was a pending async computation, so there

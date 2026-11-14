@@ -26,6 +26,13 @@
  * the first pass — a cycle revisits its nodes on every level down to the
  * catch — and every node of the clone pass answer from the record, so a
  * visitor's side effects run once per node whichever way the walk went.
+ * The clone pass is copy-on-write too (#4846): it first marks, a strongly
+ * connected component at a time, the containers a replacement is reachable
+ * from, and copies only those. A subtree with nothing to replace keeps its
+ * identity on the cyclic path as on the acyclic one, so a value the
+ * serializer also writes in another record (an async memo's answer a store
+ * holds) stays one reference, and a cycle with nothing to replace comes
+ * back as itself.
  * Walks that replace nothing never pay the lookup. A value reachable at two
  * paths is one node: its replacement is shared (one seat for one iterable —
  * the identity the input had, which the serializer writes once and the
@@ -53,7 +60,10 @@ export function rewriteTree(value: any, visit: Visit, withPath: boolean): any {
   } catch (err) {
     if (err !== CYCLE) throw err;
   }
-  return clone(value, visit, path, state.memo || (state.memo = new Map()));
+  const memo = state.memo || (state.memo = new Map());
+  const marks: Marks = { at: new Map(), stack: [], changed: new Set(), next: 0 };
+  mark(value, visit, path, memo, marks);
+  return clone(value, memo, marks.changed);
 }
 
 function shape(value: any): 1 | 2 | 0 {
@@ -112,29 +122,109 @@ function cow(value: any, visit: Visit, path: string | undefined, depth: number, 
   return out;
 }
 
-// `value` is an object (the callers test).
-function clone(value: any, visit: Visit, path: string | undefined, memo: Map<any, any>) {
-  if (memo.has(value)) return memo.get(value);
+type Marks = {
+  /** A container's DFS index, then `Infinity` once its component is closed. */
+  at: Map<any, number>;
+  stack: any[];
+  /** The containers a replacement is reachable from: the ones copied. */
+  changed: Set<any>;
+  next: number;
+};
+
+/**
+ * The visit pass of the clone (Tarjan's components): each node is visited
+ * once (the first pass's replacements answer from `memo`), a replacement is
+ * recorded in `memo`, and a component is marked changed when one of its
+ * containers holds a replacement or a changed child outside it. Returns the
+ * lowest index reachable, or -1 for a node that is not a container walked.
+ */
+function mark(
+  value: any,
+  visit: Visit,
+  path: string | undefined,
+  memo: Map<any, any>,
+  m: Marks
+): number {
+  const seen = m.at.get(value);
+  if (seen !== undefined) return seen;
+  if (memo.has(value)) return -1;
   const r = visit(value, path);
   if (r !== DESCEND) {
     memo.set(value, r);
-    return r;
+    return -1;
   }
   const s = shape(value);
-  if (s === 0) return value;
-  const out = s === 1 ? value.slice() : { ...value };
+  if (s === 0) return -1;
+  const index = m.next++;
+  let low = index;
+  let changed = false;
+  // Registered on the first container child: a container whose children are
+  // all leaves closes alone and unchanged, so it costs no bookkeeping.
+  let open = false;
+  const keys: any[] = s === 1 ? value : Object.keys(value);
+  for (let i = 0; i < keys.length; i++) {
+    const k = s === 1 ? i : keys[i];
+    const c = value[k];
+    if (c === null || typeof c !== "object") continue;
+    if (!open) {
+      open = true;
+      m.at.set(value, index);
+      m.stack.push(value);
+    }
+    const l = mark(
+      c,
+      visit,
+      path === undefined ? undefined : s === 1 ? `${path}[${k}]` : `${path}.${k}`,
+      memo,
+      m
+    );
+    if (l >= 0 && l < low) low = l;
+    if ((memo.has(c) && memo.get(c) !== c) || (l === Infinity && m.changed.has(c))) changed = true;
+  }
+  if (!open) return -1;
+  if (low === index) {
+    m.at.set(value, Infinity);
+    if (m.stack[m.stack.length - 1] === value) {
+      // A component of one: no member but itself.
+      m.stack.pop();
+      if (changed) m.changed.add(value);
+      return Infinity;
+    }
+    // The component's root: its members are the stack above it.
+    const members = m.stack.splice(m.stack.lastIndexOf(value));
+    // A member's edge inside the component reads `low`, not a changed mark;
+    // an edge out of it (closed, `Infinity`) was judged above.
+    if (!changed)
+      for (const n of members)
+        if (m.changed.has(n)) {
+          changed = true;
+          break;
+        }
+    for (const n of members) {
+      m.at.set(n, Infinity);
+      if (changed) m.changed.add(n);
+    }
+    return Infinity;
+  }
+  if (changed) m.changed.add(value);
+  return low;
+}
+
+// `value` is an object (the callers test). Copies only what `mark` marked.
+function clone(value: any, memo: Map<any, any>, changed: Set<any>): any {
+  if (memo.has(value)) return memo.get(value);
+  if (!changed.has(value)) return value;
+  const out = Array.isArray(value) ? value.slice() : { ...value };
   memo.set(value, out);
-  if (s === 1) {
+  if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) {
       const c = value[i];
-      if (c !== null && typeof c === "object")
-        out[i] = clone(c, visit, path === undefined ? undefined : `${path}[${i}]`, memo);
+      if (c !== null && typeof c === "object") out[i] = clone(c, memo, changed);
     }
   } else {
     for (const k of Object.keys(value)) {
       const c = value[k];
-      if (c !== null && typeof c === "object")
-        out[k] = clone(c, visit, path === undefined ? undefined : `${path}.${k}`, memo);
+      if (c !== null && typeof c === "object") out[k] = clone(c, memo, changed);
     }
   }
   return out;

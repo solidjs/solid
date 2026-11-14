@@ -28,7 +28,7 @@
  * setter (`wk`); overlay drafts for large plain records; zero allocation
  * for adopted-but-unread objects.
  */
-import { attrHooks } from "../core/attribution-hooks.js";
+import { attrHooks, registerStoreTools } from "../core/attribution-hooks.js";
 import {
   $REFRESH,
   CONFIG_CHILDREN_FORBIDDEN,
@@ -527,7 +527,14 @@ function notifyContainer(k: Signal<any>, pb: Record<PropertyKey, any>): void {
   // on the guess (`laneWrite` → `supersede`, judged by `containerEquals`);
   // otherwise the structural readers are walked (the staging is already on
   // the node; the comparator is the store's, done).
-  if (k._config & CONFIG_OVERRIDE) setSignal(k, pb);
+  // Not a derive's lane pass that listed the container already (`stageOn` →
+  // `holdWithDerive`, #4478): there is no guess to land on, the staging is
+  // the lane's derivation, and its structural readers are walked like any
+  // (their reads of it are the lane's, `laneRead`). Taken as a landing, the
+  // write equalled the staging it already was and nobody heard of it: a
+  // `mapArray` over the projection kept the old arrangement for good (#4843).
+  if ((k._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === (CONFIG_OVERRIDE | CONFIG_GUESS))
+    setSignal(k, pb);
   else {
     if (k._config & CONFIG_HELD) joinFuture(txOf(k));
     if (snapshotCaptureActive) captureWriteSnapshot(k, k._value);
@@ -1047,86 +1054,6 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
 // ---------------------------------------------------------------------------
 // write-time notification (setter exit)
 
-/** Devtools and attribution: the containers a setter replaced wholesale. */
-function storePathOf(t: StoreTarget): string {
-  let path = "";
-  for (let cur: StoreTarget | null = t; cur !== null; cur = cur.u)
-    path = cur.pk === null ? "store" + path : "." + String(cur.pk) + path;
-  return path;
-}
-const REPLACED_CENSUS_MAX = 64;
-function sameLeaf(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
-  return unwrapValue(a) === unwrapValue(b) || targetsEqual(a, b);
-}
-function reportReplacedContainers(
-  t: StoreTarget,
-  old: Record<PropertyKey, any>,
-  pb: Record<PropertyKey, any>,
-  writtenKeys: Iterable<PropertyKey> | null
-): void {
-  // Shallow stores (and raw / unwrappable leaves) invalidate the whole
-  // replaced value as one unit — leaf draft assignment does not narrow
-  // who re-runs (#4686). The spread-copy diagnostic only helps deep stores.
-  if (t.s) return;
-  const keys = writtenKeys ?? Reflect.ownKeys(pb);
-  const isArray = Array.isArray(pb);
-  const owner = storeRootOwner(t);
-  // Items the array held before the write: an index that now holds one of
-  // them was moved into place (an in-place splice / shift), not replaced.
-  let oldArrayItems: Set<unknown> | null = null;
-  for (const key of keys) {
-    if ((isArray && key === "length") || key === $OWNER) continue;
-    if (t.del?.has(key)) continue;
-    const ov = unwrapValue(old[key as any]);
-    const nv = unwrapValue(pb[key as any]);
-    if (
-      ov === null ||
-      nv === null ||
-      typeof ov !== "object" ||
-      typeof nv !== "object" ||
-      ov === nv ||
-      targetsEqual(ov, nv)
-    )
-      continue;
-    // A raw / unwrappable previous value is itself a leaf: replacing it is
-    // the write, not a container copy the store could have mutated in place.
-    if (isRawValue(ov) || !isWrappable(ov)) continue;
-    if (isArray) {
-      if (oldArrayItems === null) {
-        oldArrayItems = new Set<unknown>();
-        for (const item of old as unknown[]) oldArrayItems.add(unwrapValue(item));
-      }
-      if (oldArrayItems.has(nv)) continue;
-    }
-    const isArr = Array.isArray(nv);
-    if (isArr !== Array.isArray(ov)) continue;
-    let total: number;
-    let unchanged = 0;
-    if (isArr) {
-      total = (nv as unknown[]).length;
-      if (total > REPLACED_CENSUS_MAX) continue;
-      const oldItems = new Set<unknown>();
-      for (const item of ov as unknown[]) oldItems.add(unwrapValue(item));
-      for (const item of nv as unknown[]) if (oldItems.has(unwrapValue(item))) unchanged++;
-    } else {
-      const nkeys = Object.keys(nv);
-      total = nkeys.length;
-      if (total > REPLACED_CENSUS_MAX) continue;
-      for (const k of nkeys) if (sameLeaf((ov as any)[k], (nv as any)[k])) unchanged++;
-    }
-    attrHooks!.storeReplaced(
-      storePathOf(t) + "." + String(key),
-      isArr,
-      total,
-      unchanged,
-      isArr ? (ov as unknown[]).length : Object.keys(ov).length,
-      owner
-    );
-  }
-}
-
 /** A user setter wrote a key whose staging is a derivation another
  * transaction holds (A34 (3), #3612): the hold re-derives over the write. */
 let heldDerivationHit = false;
@@ -1213,7 +1140,7 @@ function notifyWrites(t: StoreTarget): void {
   const wk0 = t.wk;
   const writtenKeys =
     wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
-  if (__OBSERVE__ && attrHooks !== null) reportReplacedContainers(t, old, pb, writtenKeys);
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.storeWrite(t, old, pb, writtenKeys);
   if (t._fam !== null && !heldDerivationHit && writtenKeys !== null)
     for (const key of writtenKeys)
       if (heldDerivation(t, nodes?.[key as any], key)) {
@@ -2477,7 +2404,16 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       return true;
     }
     if (key === "__proto__") return true; // pollution guard (core R30)
-    const uv = target.s ? value : unwrapValue(value);
+    // A derived store's draft keeps a proxy of another store (a plain store
+    // or another family; its own drafts still unwrap), and the key chains to
+    // it (§7b read-through; CS-R3, CS-R5) as the return form's backing does.
+    // Unwrapped, the family re-wrapped a raw that the source store's next
+    // write left behind (#4845). A plain store's raw dedupes to the source's
+    // own node (CS-R2), so plain stores unwrap as before.
+    const uv =
+      target.s || (target._fam && value?.[$TARGET]?._fam !== target._fam)
+        ? value
+        : unwrapValue(value);
     const pb = ensurePB(target);
     // #4146 (R1: node existence is unobservable; #3706: the hold's unit is
     // the key): a user setter writing a key a HELD container's staging left
@@ -3021,6 +2957,29 @@ function snapshotRecord(
     }
   }
   return copy ?? src;
+}
+
+// Observe: what the attribution engine needs of a store to judge a
+// `storeWrite` (its spread-copy census). Registered here so the engine never
+// imports this module — an app without stores does not load it for turning
+// attribution on.
+if (__OBSERVE__) {
+  registerStoreTools({
+    pathOf(target) {
+      let path = "";
+      for (let cur: StoreTarget | null = target as StoreTarget; cur !== null; cur = cur.u)
+        path = cur.pk === null ? "store" + path : "." + String(cur.pk) + path;
+      return path;
+    },
+    isShallow: target => (target as StoreTarget).s,
+    deleted: target => (target as StoreTarget).del,
+    rootOwner: target => storeRootOwner(target as StoreTarget),
+    ownerKey: $OWNER,
+    unwrapValue,
+    targetsEqual,
+    isRawValue,
+    isWrappable
+  });
 }
 
 // Devtools `DEV.setSignal` for store property slots (#4679): go through the
