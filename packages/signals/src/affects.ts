@@ -33,7 +33,7 @@ import type { Computed } from "./core/types.js";
 import { mark, repoll, unmark, type Marked } from "./affects-marks.js";
 import type { Accessor } from "./signals.js";
 import { installStoreAffects, releaseMarkScope, storeMarks } from "./store/affects.js";
-import { $TARGET, type Store } from "./store/types.js";
+import { $TARGET, $THIN, type Store } from "./store/types.js";
 
 /** Marks declared outside a transaction: released at the next seam. */
 const ambient: Marked[] = [];
@@ -98,7 +98,7 @@ export function affects(target: any, key?: PropertyKey): void {
     );
   // A store (the store half, store/affects.ts): the slot's leaf, or the
   // record's carrier and every live node under it.
-  const t = target?.[$TARGET];
+  const t = target?.[$TARGET] ?? target?.[$THIN]; // SPIKE: thin stores too
   if (t !== undefined) {
     installStoreAffects();
     const nodes = storeMarks(t, key);

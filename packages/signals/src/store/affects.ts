@@ -27,7 +27,7 @@ import { GlobalQueue, releaseMarksHook } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import { installAffectsHooks, optHooks, type AffectsHooks } from "./hooks.js";
 import { $OWNER, lookupTarget, type StoreFamily, type StoreTarget } from "./target.js";
-import { $TARGET } from "./types.js";
+import { $TARGET, $THIN } from "./types.js";
 
 type Marked = Signal<any> | Computed<any>;
 
@@ -55,6 +55,7 @@ function scopeOf(carrier: Marked, key: PropertyKey | undefined): Scope {
 /** The nodes an `affects(store[, key])` declaration marks (affects.ts
  * registers each). */
 export function storeMarks(t: StoreTarget, key: PropertyKey | undefined): Marked[] {
+  if (!("px" in t)) return GlobalQueue._thinMarks!(t, key, $AFFECTS, scopeOf); // SPIKE
   const node = GlobalQueue._storeNode!(t, key === undefined ? $AFFECTS : key);
   const entry = scopeOf(node, key);
   if (key === undefined) {
@@ -121,6 +122,9 @@ function covering(t: StoreTarget, key: PropertyKey | undefined, skip?: Marked): 
       if (backing === r) break;
       r = backing;
     }
+    // SPIKE: a chained thin target is covered through the store it reads.
+    const c = (t as any).c;
+    if (!("px" in t) && c && entry._scope.has(c[$THIN].v)) return carrier;
   }
   return null;
 }

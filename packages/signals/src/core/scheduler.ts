@@ -979,6 +979,15 @@ export class GlobalQueue implements IQueue {
   /** `affects()` on a store (store/affects.ts): a store's node for a key
    * (store/store.ts `getNode`); a bare registration (birth inheritance); a
    * witnessed mark on an untracked probe (verdict.ts). */
+  /** SPIKE: the thin store's half of `affects()` (store/affects.ts). */
+  declare static _thinMarks:
+    | ((
+        t: any,
+        key: PropertyKey | undefined,
+        carrierKey: PropertyKey,
+        scope: (n: any, k: PropertyKey | undefined) => { _scope: Set<object> }
+      ) => any[])
+    | undefined;
   declare static _storeNode: ((t: any, key: PropertyKey) => Signal<any>) | undefined;
   declare static _storeWrappable: ((v: unknown) => boolean) | undefined;
   declare static _mark: ((node: Signal<any> | Computed<any>) => void) | undefined;

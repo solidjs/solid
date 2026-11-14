@@ -62,7 +62,16 @@ import {
 } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { StoreFamily } from "./target.js";
-import { $PROXY, $TRACK, isRawValue, isWrappable, markRaw, writeOverride } from "./types.js";
+import { affectsHooks } from "./hooks.js";
+import {
+  $PROXY,
+  $TARGET,
+  $TRACK,
+  isRawValue,
+  isWrappable,
+  markRaw,
+  writeOverride
+} from "./types.js";
 
 import { $THIN } from "./types.js";
 export { $THIN };
@@ -224,7 +233,10 @@ export const unwrapThin = (v: any): any => (isThin(v) ? v[$THIN].v : v);
 
 /** The reader's frame of a node: the draft reads its own staging; everyone
  * else reads through core (tracked or not: a pass joins a hold either way). */
+/** The `affects()` walk reads the writer's view (the tick's guesses too). */
+let writerView = false;
 function peek(node: Signal<any>, t: Target, mode = 0): any {
+  if (writerView && guessed !== null && t._fam?.opt) return guessed(node);
   // An optimistic family's user draft composes on what the user sees.
   if (guessed !== null && t._fam?.opt && inDraft(t)) {
     if (userWrite) {
@@ -288,8 +300,52 @@ function holdsKeys(t: Target): boolean {
 function slot<V>(t: Target, v: V, eq: (a: V, b: V) => boolean, key: PropertyKey): Signal<V> {
   const s = slotSignal(v, eq, t, key, false);
   if (t._fam !== null) s._config |= CONFIG_NO_SNAPSHOT;
+  // A node born on a record a live `affects()` mark covers inherits it.
+  if (affectsHooks !== null) affectsHooks._born(t as any, s, key);
   return s;
 }
+/** The thin half of `affects(store[, key])` (store/affects.ts `storeMarks`):
+ * keyed, the slot's node and the record's identity; keyless, a carrier node
+ * and every live node reachable, the raws reachable as the scope. */
+GlobalQueue._thinMarks = (t: Target, key, carrierKey, scopeOf) => {
+  const node = nodeOf(t, key === undefined ? carrierKey : key);
+  const entry = scopeOf(node, key);
+  if (key !== undefined) return (entry._scope.add(t.v), [node]);
+  const found: Signal<any>[] = [node];
+  const visited = new Set<object>();
+  const walk = (v: any, fam: StoreFamily | null): void => {
+    const ct: Target | undefined = isThin(v)
+      ? v[$THIN]
+      : isWrappable(v)
+        ? ((fam?.map as any) ?? targets).get(v)
+        : undefined;
+    const raw = ct !== undefined ? ct.v : v;
+    if (!isWrappable(raw) || visited.has(raw)) return;
+    visited.add(raw);
+    entry._scope.add(raw);
+    if (ct !== undefined) {
+      if (ct.n !== null)
+        for (const k of Reflect.ownKeys(ct.n)) if (k !== carrierKey) found.push(ct.n[k as any]);
+      if (ct.h !== null) for (const k of Reflect.ownKeys(ct.h)) found.push(ct.h[k as any]);
+      if (ct.k !== null) found.push(ct.k);
+      for (const k of keysOf(ct)) {
+        const cv = valueOf(ct, k);
+        if (!(cv instanceof Box)) walk(cv, ct._fam ?? fam);
+      }
+    } else
+      for (const k of Reflect.ownKeys(raw)) {
+        const d = Object.getOwnPropertyDescriptor(raw, k)!;
+        if (d.get === undefined) walk(d.value, fam);
+      }
+  };
+  writerView = true;
+  try {
+    walk(t.p, t._fam);
+  } finally {
+    writerView = false;
+  }
+  return found;
+};
 /** The logical value of `key` in the reader's frame (ABSENT when not own). */
 function valueOf(t: Target, key: PropertyKey, mode = 0): any {
   const node = t.n?.[key];
@@ -512,8 +568,11 @@ const BASE: ProxyHandler<any> = {
   get(_, key, receiver) {
     const t: Target = _[$S];
     if (t.c !== null) return CHAIN.get!(_, key, receiver);
+    if (verdict !== null && affectsHooks !== null && getObserver() === null)
+      affectsHooks._witness(t as any, typeof key === "symbol" ? undefined : key);
     if (key === $THIN) return t;
     if (key === $PROXY) return receiver;
+    if (key === $TARGET) return undefined; // the deep engine's brand: no node
     if (key === $REFRESH) return t._fam?.node ?? undefined;
     if (t._fam !== null) pullFamily(t);
     if (key === $TRACK) return (track(t), undefined);
@@ -574,6 +633,8 @@ const BASE: ProxyHandler<any> = {
   has(_, key) {
     const t: Target = _[$S];
     if (t.c !== null) return CHAIN.has!(_, key);
+    if (verdict !== null && affectsHooks !== null && getObserver() === null)
+      affectsHooks._witness(t as any, key);
     if (key === $THIN || key === $PROXY || key === $TRACK) return true;
     if (t._fam !== null) pullFamily(t);
     if (!inDraft(t) && getObserver() !== null) {
@@ -594,6 +655,8 @@ const BASE: ProxyHandler<any> = {
   ownKeys(_) {
     const t: Target = _[$S];
     if (t.c !== null) return CHAIN.ownKeys!(_);
+    if (verdict !== null && affectsHooks !== null && getObserver() === null)
+      affectsHooks._witness(t as any, undefined);
     if (t._fam !== null) pullFamily(t);
     track(t);
     return keysOf(t);
@@ -601,6 +664,8 @@ const BASE: ProxyHandler<any> = {
   getOwnPropertyDescriptor(_, key) {
     const t: Target = _[$S];
     if (t.c !== null) return CHAIN.getOwnPropertyDescriptor!(_, key);
+    if (verdict !== null && affectsHooks !== null && getObserver() === null)
+      affectsHooks._witness(t as any, key);
     if (t.r && key === "length")
       return { value: valueOf(t, key), writable: true, enumerable: false, configurable: false };
     // An enumerator already holds the key set (`k`) this pass: it reads the
@@ -1024,6 +1089,17 @@ function reconcileTarget(
             const k = keyOf(p);
             if (k !== undefined && !byKey.has(k)) byKey.set(k, p);
           }
+          // The truth answering a guessed row (a push the user made) takes
+          // that row's identity: the row keeps its proxy and readers (D-34,
+          // store/optimistic.ts `pairRows`).
+          if (guessed !== null && t._fam?.opt && t.n !== null)
+            for (const key of Reflect.ownKeys(t.n)) {
+              const node = t.n[key as any];
+              if (!(node._config & CONFIG_GUESS)) continue;
+              const g = guessed(node);
+              const k = keyOf(g);
+              if (k !== undefined && !byKey.has(k)) byKey.set(k, g);
+            }
         }
         pv = byKey.get(nk);
       }
