@@ -76,6 +76,7 @@ import {
   list,
   observeFlightHook,
   passLane,
+  resolveTx,
   schedule,
   txOf
 } from "../core/scheduler.js";
@@ -561,6 +562,30 @@ function put(t: Target, node: Signal<any>, v: any): void {
       userWrite
         ? (node._config |= CONFIG_MANUAL_WRITE)
         : ((node._config &= ~CONFIG_MANUAL_WRITE), holdWithDerive(t, node));
+    // A derive landing on a list a shown guess arranged is held by the
+    // guess's action: the new rows never show beneath the guessed
+    // arrangement (D-34, #3743; store/optimistic.ts `fold`). Not a guess
+    // written over a question in flight (#4525, `over`), nor a landing of a
+    // question another action's lane asked over the guesses (`_asked` < 0,
+    // the re-base, #4336).
+    if (
+      !userWrite &&
+      t.r &&
+      t._fam?.opt &&
+      !(t as any).over &&
+      !((t._fam as any)._asked < 0) &&
+      t.n !== null
+    )
+      for (const k of Reflect.ownKeys(t.n)) {
+        const g = t.n[k as any];
+        if (g !== node && g._config & CONFIG_GUESS && g._x?._transaction) {
+          const l = txOf(g);
+          if (l._shown) {
+            joinFuture(resolveTx(l._parent ?? l));
+            break;
+          }
+        }
+      }
     // A continuation's write held with the derive: its readers re-run in
     // the hold's flush, staged with it (F-10; store.ts `notifyContainer`).
     if (!userWrite && !t._fam?.opt && flushTransaction === null && node._config & CONFIG_HELD)
