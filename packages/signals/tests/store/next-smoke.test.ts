@@ -6,6 +6,7 @@
  * read-your-writes, transient-node laziness.
  */
 import { describe, expect, it } from "vitest";
+import { deepOnly } from "../_thin/target.js";
 import { createEffect, createRoot, createStore, flush } from "../../src/index.js";
 import { isOwned, storeLookup } from "../../src/store/target.js";
 
@@ -62,7 +63,7 @@ describe("store-next increment 1", () => {
     expect(seenA).toEqual([1, 10]);
   });
 
-  it("drafts are read-your-writes; sources are never mutated (CoW)", () => {
+  deepOnly("drafts are read-your-writes; sources are never mutated (CoW)", () => {
     const source = { a: 1, nested: { c: 3 } };
     const [s, setS] = createStore(source);
     createRoot(() => {
@@ -102,7 +103,7 @@ describe("store-next increment 1", () => {
     expect(s.a).toBe(1);
   });
 
-  it("unobserved writes leave no permanent node (transient sweep)", () => {
+  deepOnly("unobserved writes leave no permanent node (transient sweep)", () => {
     const source = { a: 1, b: 2 };
     const [s, setS] = createStore(source);
     setS(d => {

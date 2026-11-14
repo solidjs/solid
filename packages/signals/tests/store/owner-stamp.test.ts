@@ -7,6 +7,7 @@
  * cross-family hand-off).
  */
 import { describe, expect, it } from "vitest";
+import { deepOnly } from "../_thin/target.js";
 import {
   createEffect,
   createProjection,
@@ -19,7 +20,7 @@ import {
 import { $OWNER, isOwned, storeLookup } from "../../src/store/target.js";
 
 describe("ownership stamp (#3360)", () => {
-  it("stamps the committed backing after a write; the user's object stays clean", () => {
+  deepOnly("stamps the committed backing after a write; the user's object stays clean", () => {
     const src = { a: 1, nested: { x: 1 } };
     const [s, set] = createStore(src);
     expect(isOwned(src)).toBe(false);
@@ -84,7 +85,7 @@ describe("ownership stamp (#3360)", () => {
     expect(isOwned(snap.nested)).toBe(false);
   });
 
-  it("never acquires a node or a has-node", () => {
+  deepOnly("never acquires a node or a has-node", () => {
     const src = { a: 1 };
     const [s, set] = createStore(src);
     createRoot(() => {
@@ -207,7 +208,7 @@ describe("ownership stamp (#3360)", () => {
     expect(snapshot(s)).toEqual({ a: { x: 3 }, b: { x: 3 } });
   });
 
-  it("a store's owned backing handed to a projection stays owned across families", () => {
+  deepOnly("a store's owned backing handed to a projection stays owned across families", () => {
     const src = { item: { x: 1 } };
     const [s, set] = createStore(src);
     set(d => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { deepOnly } from "../_thin/target.js";
 import {
   action,
   createEffect,
@@ -95,7 +96,7 @@ describe("deep() over a chained optimistic view (#3323)", () => {
     expect(runs.root - before).toBe(1);
   });
 
-  it("does not create a second view target for a row the walk reaches", () => {
+  deepOnly("does not create a second view target for a row the walk reaches", () => {
     createRoot(() => {
       const [base] = createStore<Row[]>([{ id: "a", qty: 1 }]);
       const [view] = createOptimisticStore<Row[]>(base);

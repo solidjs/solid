@@ -28,6 +28,7 @@ import {
   snapshot
 } from "../../src/index.js";
 import { $TARGET } from "../../src/store/store.js";
+import { deepOnly } from "../_thin/target.js";
 
 /** Parks an action on its own optimistic store; returns the settle handle. */
 function parkForeignAction() {
@@ -145,7 +146,7 @@ it("plain store and signal writes commit while a foreign action is in flight", a
   await settleForeign();
 });
 
-it("writes to an unobserved store inside an action hold until settle", async () => {
+deepOnly("writes to an unobserved store inside an action hold until settle", async () => {
   // No observers anywhere: the drain's pending-node held check has nothing
   // to consult — only the write-time transition stamp defers this fold.
   // Plain reads (and snapshot) serve the pending view, so the committed

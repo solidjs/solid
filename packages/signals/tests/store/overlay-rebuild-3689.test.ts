@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { deepOnly } from "../_thin/target.js";
 import {
   createEffect,
   createProjection,
@@ -46,7 +47,7 @@ const owned = (s: Rec) => {
 };
 
 describe("wide overlay folds that change the key set rebuild the backing (#3689)", () => {
-  it("rewrites and a few adds flatten in place; deletes and many adds rebuild", () => {
+  deepOnly("rewrites and a few adds flatten in place; deletes and many adds rebuild", () => {
     const [store, set] = owned(seed());
     const v0 = unwrap(store);
     const k5 = store.k5;
@@ -92,7 +93,7 @@ describe("wide overlay folds that change the key set rebuild the backing (#3689)
     expect(store.k5).toBe(k5);
   });
 
-  it("a delete then re-add of the same key is a rewrite — in place", () => {
+  deepOnly("a delete then re-add of the same key is a rewrite — in place", () => {
     const [store, set] = owned(seed());
     const v0 = unwrap(store);
     set(d => {
@@ -127,7 +128,7 @@ describe("wide overlay folds that change the key set rebuild the backing (#3689)
     expect((s as any).k401).toBeUndefined();
   });
 
-  it("a nested wide record re-points its parent slot on rebuild", () => {
+  deepOnly("a nested wide record re-points its parent slot on rebuild", () => {
     const [store, set] = createRoot(() =>
       createStore<{ label: string; items: Record<string, { n: number }> }>({
         label: "x",
@@ -195,7 +196,7 @@ describe("wide overlay folds that change the key set rebuild the backing (#3689)
     expect(seen).toEqual({ k0: [true, false, true], k5: [true], k999: [false, true, false] });
   });
 
-  it("the reporter's shape: a keyed-record projection sliding a 400-key window", () => {
+  deepOnly("the reporter's shape: a keyed-record projection sliding a 400-key window", () => {
     const F = 100;
     const [tick, setTick] = createSignal(0);
     const window = (i: number) => Array.from({ length: KEYS }, (_, k) => `k${i * F + k}`);
@@ -248,67 +249,73 @@ describe("wide overlay folds that change the key set rebuild the backing (#3689)
     expect(seen).toEqual({ k0: [true, false], k150: [true, false], k450: [false, true, false] });
   });
 
-  it("post-await landings with deletes commit immediately from a rebuilt backing", async () => {
-    let resolve!: (v: number) => void;
-    const [tick, setTick] = createSignal(1);
-    const proj = createRoot(() =>
-      createProjection<Record<string, { n: number } | undefined>>(
-        async draft => {
-          const i = tick();
-          const n = await new Promise<number>(r => (resolve = r));
-          delete draft[`k${i}`];
-          delete draft[`k${i + 1}`];
-          draft[`k${1000 + i}`] = { n };
-        },
-        seed(),
-        { key: null }
-      )
-    );
-    flush();
-    resolve(100);
-    await Promise.resolve();
-    await Promise.resolve();
-    // First landing privatizes the seed (clone path).
-    expect("k1" in proj).toBe(false);
-    expect(proj.k1001).toEqual({ n: 100 });
-    flush();
-    const v0 = unwrap(proj);
+  deepOnly(
+    "post-await landings with deletes commit immediately from a rebuilt backing",
+    async () => {
+      let resolve!: (v: number) => void;
+      const [tick, setTick] = createSignal(1);
+      const proj = createRoot(() =>
+        createProjection<Record<string, { n: number } | undefined>>(
+          async draft => {
+            const i = tick();
+            const n = await new Promise<number>(r => (resolve = r));
+            delete draft[`k${i}`];
+            delete draft[`k${i + 1}`];
+            draft[`k${1000 + i}`] = { n };
+          },
+          seed(),
+          { key: null }
+        )
+      );
+      flush();
+      resolve(100);
+      await Promise.resolve();
+      await Promise.resolve();
+      // First landing privatizes the seed (clone path).
+      expect("k1" in proj).toBe(false);
+      expect(proj.k1001).toEqual({ n: 100 });
+      flush();
+      const v0 = unwrap(proj);
 
-    setTick(7);
-    flush();
-    resolve(200);
-    await Promise.resolve();
-    await Promise.resolve();
-    // Landed truth is visible before any flush — the immediate commit took
-    // the rebuild's swap.
-    expect("k7" in proj).toBe(false);
-    expect("k8" in proj).toBe(false);
-    expect(proj.k1007).toEqual({ n: 200 });
-    expect(unwrap(proj)).not.toBe(v0);
-    flush();
-    expect(proj.k1007).toEqual({ n: 200 });
-    expect(proj.k9).toEqual({ n: 9 });
-    expect(Object.keys(proj)).toHaveLength(KEYS - 4 + 2);
-  });
+      setTick(7);
+      flush();
+      resolve(200);
+      await Promise.resolve();
+      await Promise.resolve();
+      // Landed truth is visible before any flush — the immediate commit took
+      // the rebuild's swap.
+      expect("k7" in proj).toBe(false);
+      expect("k8" in proj).toBe(false);
+      expect(proj.k1007).toEqual({ n: 200 });
+      expect(unwrap(proj)).not.toBe(v0);
+      flush();
+      expect(proj.k1007).toEqual({ n: 200 });
+      expect(proj.k9).toEqual({ n: 9 });
+      expect(Object.keys(proj)).toHaveLength(KEYS - 4 + 2);
+    }
+  );
 
-  it("past the descriptor-limit gate deletes stay in place, and the count follows them back down", () => {
-    const [store, set] = owned(seed(1100));
-    const v0 = unwrap(store);
-    // 1100 keys: above the gate — a delete fold flattens in place.
-    set(d => {
-      for (let i = 0; i < 300; i++) delete d[`k${i}`];
-    });
-    flush();
-    expect(unwrap(store)).toBe(v0);
-    expect(Object.keys(store)).toHaveLength(800);
-    expect("k0" in store).toBe(false);
-    // Now 800 as counted: the next delete fold rebuilds.
-    set(d => {
-      delete d.k300;
-    });
-    flush();
-    expect(unwrap(store)).not.toBe(v0);
-    expect(Object.keys(store)).toHaveLength(799);
-    expect(store.k301).toEqual({ n: 301 });
-  });
+  deepOnly(
+    "past the descriptor-limit gate deletes stay in place, and the count follows them back down",
+    () => {
+      const [store, set] = owned(seed(1100));
+      const v0 = unwrap(store);
+      // 1100 keys: above the gate — a delete fold flattens in place.
+      set(d => {
+        for (let i = 0; i < 300; i++) delete d[`k${i}`];
+      });
+      flush();
+      expect(unwrap(store)).toBe(v0);
+      expect(Object.keys(store)).toHaveLength(800);
+      expect("k0" in store).toBe(false);
+      // Now 800 as counted: the next delete fold rebuilds.
+      set(d => {
+        delete d.k300;
+      });
+      flush();
+      expect(unwrap(store)).not.toBe(v0);
+      expect(Object.keys(store)).toHaveLength(799);
+      expect(store.k301).toEqual({ n: 301 });
+    }
+  );
 });
