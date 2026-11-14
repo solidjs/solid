@@ -36,17 +36,37 @@ export interface WriteCost {
   downstreamMs: number;
 }
 export interface AttributionCostTables {
-  /** Ranked by self-time. */
+  /** Ranked by self-time. Collected scopes share one row per name and kind. */
   scopes: ScopeCost[];
   /** Ranked by the total downstream re-run time each root write caused. */
   writes: WriteCost[];
 }
 
-const scopeCosts = new Map<Computed<any>, ScopeCost>();
+// Rows outlive their nodes; keyed weakly, a table row never keeps a disposed scope.
+let scopeRows = new WeakMap<Computed<any>, ScopeCost>();
+const scopeCosts = new Set<ScopeCost>();
+// Collected scopes share one row per name and kind, so a remount adds no row.
+const retiredCosts = new Map<string, ScopeCost>();
+const createRetire = () =>
+  typeof FinalizationRegistry === "function"
+    ? new FinalizationRegistry<ScopeCost>(scope => {
+        if (!scopeCosts.delete(scope)) return;
+        const key = `${scope.kind}:${scope.name}`;
+        const sum = retiredCosts.get(key);
+        if (sum === undefined) retiredCosts.set(key, { ...scope });
+        else {
+          sum.runs += scope.runs;
+          sum.selfMs += scope.selfMs;
+          sum.wastedMs += scope.wastedMs;
+          sum.overlayMs += scope.overlayMs;
+        }
+      })
+    : undefined;
+let retire = createRetire();
 const writeCosts = new Map<string, WriteCost>();
 
 function recordCosts(el: Computed<any>, event: RerunEvent): void {
-  let scope = scopeCosts.get(el);
+  let scope = scopeRows.get(el);
   if (scope === undefined) {
     scope = {
       name: event.nodeName,
@@ -56,7 +76,9 @@ function recordCosts(el: Computed<any>, event: RerunEvent): void {
       wastedMs: 0,
       overlayMs: 0
     };
-    scopeCosts.set(el, scope);
+    scopeRows.set(el, scope);
+    scopeCosts.add(scope);
+    retire?.register(el, scope);
   }
   scope.runs++;
   scope.selfMs += event.selfMs;
@@ -75,7 +97,10 @@ function recordCosts(el: Computed<any>, event: RerunEvent): void {
 registerFold({
   rerun: recordCosts,
   reset() {
+    scopeRows = new WeakMap();
+    retire = createRetire();
     scopeCosts.clear();
+    retiredCosts.clear();
     writeCosts.clear();
   }
 });
@@ -87,7 +112,7 @@ registerFold({
  */
 export function costs(): AttributionCostTables {
   return {
-    scopes: [...scopeCosts.values()].sort((a, b) => b.selfMs - a.selfMs),
+    scopes: [...scopeCosts, ...retiredCosts.values()].sort((a, b) => b.selfMs - a.selfMs),
     writes: [...writeCosts.values()].sort((a, b) => b.downstreamMs - a.downstreamMs)
   };
 }
