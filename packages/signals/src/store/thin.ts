@@ -81,6 +81,8 @@ interface Target {
   hd: ProxyHandler<any> | null;
   /** written: a node may differ from the raw */
   w?: boolean;
+  /** a node exists for a key the raw lacks */
+  x?: boolean;
 }
 /** A chained target's key with no own value reads the chained store. */
 const DELEGATE = {};
@@ -200,6 +202,7 @@ function nodeOf(t: Target, key: PropertyKey, init: any = seed(t, key)): Signal<a
   if (node === undefined) {
     // The store's one-literal slot node (px/pxv wrap cache pre-shaped).
     node = n[key] = slotSignal(init, Object.is, t, key, false);
+    if (!hasOwn.call(t.v, key)) t.x = true;
     if (t._fam !== null) t._fam.live.add(t as any);
   }
   return node;
@@ -271,7 +274,8 @@ function put(t: Target, node: Signal<any>, v: any): void {
   }
 }
 function write(t: Target, key: PropertyKey, v: any): void {
-  if (t.n?.[key] === undefined && Object.is(seed(t, key), v)) return;
+  // No write has moved this target off its raw: every node holds the seed.
+  if ((!t.w || t.n?.[key] === undefined) && Object.is(seed(t, key), v)) return;
   const node = nodeOf(t, key);
   let prev = peek(node, t);
   if (prev === DELEGATE) prev = innerValue(t, key);
@@ -630,6 +634,7 @@ function unchain(t: Target): void {
   for (const key of Reflect.ownKeys(t.v))
     if (t.n?.[key as any] === undefined) nodeOf(t, key, ABSENT);
   t.c = null;
+  t.w = true; // its nodes hold the chain's values, not the raw's
   Object.assign(t.hd!, baseTraps.get(t)!);
   if (t.cv !== null) put(t, t.cv, (x: number) => x + 1);
 }
@@ -699,7 +704,15 @@ export function thinReconcile(
   keyFn: ((v: any) => any) | null,
   root: 0 | 1 | 2 = 1 // nested | root (a different entity swaps) | user root (throws)
 ): void {
-  const t: Target = proxy[$THIN];
+  reconcileTarget(proxy[$THIN], next, keyFn, root);
+}
+function reconcileTarget(
+  t: Target,
+  next: any,
+  keyFn: ((v: any) => any) | null,
+  root: 0 | 1 | 2
+): void {
+  const proxy = t.p;
   // A derive returned a store: chain to it (#2941); a plain value ends a chain.
   if (root === 1 && t._fam !== null) {
     if (isThin(next) && next[$THIN]._fam !== t._fam) return chainTo(t, next);
@@ -719,11 +732,18 @@ export function thinReconcile(
   // Descend only where a proxy exists below: a subtree nobody read has no
   // identity or readers to keep, so the new value just takes the slot.
   let sent: Set<any> | undefined;
+  const resent = (pv: any): boolean => {
+    if (t.r) return (sent ??= new Set(next)).has(pv);
+    for (const k in next) if (next[k] === pv) return true;
+    return false;
+  };
+  // The draft's value of a key: the raw's while no write moved it.
+  const cur = (key: PropertyKey): any => (!t.w && t.c === null ? seed(t, key) : valueOf(t, key));
   const merge = (pv: any, nv: any): any => {
     // The same raw re-sent over a row a write moved off it: back to the raw.
     if (pv === nv && isWrappable(nv)) {
       const pt = map.get(pv);
-      if (pt?.w) (thinReconcile(pt.p, nv, keyFn, 0), (pt.w = false));
+      if (pt?.w) (reconcileTarget(pt, nv, keyFn, 0), (pt.w = false));
       return nv;
     }
     // A store inside a derive's value: the slot chains to it (#2864).
@@ -748,32 +768,32 @@ export function thinReconcile(
     const pt = map.get(pv);
     // A raw already wrapped, or re-sent at another slot, is its own row:
     // identity travels with the raw (#4001).
-    if (pt === undefined || map.has(nv) || (sent ??= new Set(Object.values(next))).has(pv))
-      return nv;
+    if (pt === undefined || map.has(nv) || resent(pv)) return nv;
     if (keyFn !== null) {
-      const pk = keyFn(pt.p);
+      const pk = keyOf(pv);
       if (pk !== undefined && pk !== keyFn(nv)) return nv;
     }
-    thinReconcile(pt.p, nv, keyFn, 0);
+    reconcileTarget(pt, nv, keyFn, 0);
     return pv;
   };
+  // A row no write moved off its raw keys by the raw (no proxy read).
   const keyOf = (p: any): any => {
     if (!isWrappable(p)) return undefined;
     const pt = map.get(p);
-    return keyFn!(pt !== undefined ? pt.p : p);
+    return keyFn!(pt !== undefined && (pt.w || pt.c !== null) ? pt.p : p);
   };
   if (t.r) {
-    const len = valueOf(t, "length");
+    const len = cur("length");
     let byKey: Map<any, any> | null = null;
     for (let i = 0; i < next.length; i++) {
       const nv = next[i];
-      let pv = i < len ? valueOf(t, i) : undefined;
+      let pv = i < len ? cur(i) : undefined;
       const nk = keyFn !== null && isWrappable(nv) ? keyFn(nv) : undefined;
       if (nk !== undefined && keyOf(pv) !== nk) {
         if (byKey === null) {
           byKey = new Map();
           for (let j = 0; j < len; j++) {
-            const p = valueOf(t, j);
+            const p = cur(j);
             const k = keyOf(p);
             if (k !== undefined && !byKey.has(k)) byKey.set(k, p);
           }
@@ -786,9 +806,18 @@ export function thinReconcile(
     write(t, "length", next.length);
     return;
   }
-  for (const key of keysOf(t)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
+  // Keys `next` lacks go absent (`write` skips one already absent).
+  if (t.c !== null) {
+    for (const key of keysOf(t)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
+  } else {
+    for (const key of Reflect.ownKeys(t.v)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
+    const n = t.n;
+    if (n !== null && t.x)
+      for (const key of Reflect.ownKeys(n))
+        if (!hasOwn.call(t.v, key) && !hasOwn.call(next, key)) write(t, key, ABSENT);
+  }
   for (const key of Reflect.ownKeys(next)) {
-    const pv = valueOf(t, key);
+    const pv = cur(key);
     write(t, key, merge(pv === ABSENT ? undefined : pv, next[key]));
   }
 }
