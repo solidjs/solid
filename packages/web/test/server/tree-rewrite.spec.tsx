@@ -97,6 +97,21 @@ describe("rewriteTree", () => {
     expect(src.first).toEqual(swappable("g"));
   });
 
+  it("a cycle whose only swap is past the abort still clones (clone-pass onReplace)", () => {
+    // Key order hits `self` before `after`, so the first pass aborts with an
+    // empty memo; only the clone pass takes the seat. That path must still
+    // return the clone, not the author value.
+    const { taken, visit } = seats();
+    const src: any = { tag: "m" };
+    src.self = src;
+    src.after = swappable("h");
+    const out = rewriteTree(src, visit, false);
+    expect(out).not.toBe(src);
+    expect(out.self).toBe(out);
+    expect(out.after).toEqual({ seat: "h" });
+    expect(taken).toEqual(["h"]);
+  });
+
   it("a cycle through an array, and a shared acyclic subtree beside it", () => {
     const { taken, visit } = seats();
     const shared = { s: swappable("s"), keep: 1 };
@@ -111,13 +126,29 @@ describe("rewriteTree", () => {
     expect(taken).toEqual(["s"]);
   });
 
-  it("a cycle with nothing to swap still comes back as a cycle of copies, not a stack overflow", () => {
+  it("a cycle with nothing to swap keeps the author value (identity, including the cycle)", () => {
+    // Cloning an unchanged cyclic tree would only mint new objects (#4846): a
+    // shared leaf beside the cycle would stop being the same reference the
+    // serializer already saw on another record.
     const { taken, visit } = seats();
     const src: any = { a: 1 };
     src.me = src;
     const out = rewriteTree(src, visit, false);
-    expect(out.a).toBe(1);
-    expect(out.me).toBe(out);
+    expect(out).toBe(src);
+    expect(out.me).toBe(src);
+    expect(taken).toEqual([]);
+  });
+
+  it("a shared leaf beside a cycle keeps its identity when nothing is swapped (#4846)", () => {
+    const { taken, visit } = seats();
+    const shared = { id: 1 };
+    const value: any = {};
+    value.self = value;
+    const src = { key: shared, value };
+    const out = rewriteTree(src, visit, false);
+    expect(out).toBe(src);
+    expect(out.key).toBe(shared);
+    expect(out.value.self).toBe(out.value);
     expect(taken).toEqual([]);
   });
 
@@ -131,9 +162,10 @@ describe("rewriteTree", () => {
     expect(rewriteTree(src, visit, false)).toBe(src);
     src.self = src;
     const out = rewriteTree(src, visit, false);
+    expect(out).toBe(src);
     expect(out.box).toBe(src.box);
     expect(out.map).toBe(map);
-    expect(out.self).toBe(out);
+    expect(out.self).toBe(src);
     expect(taken).toEqual([]);
   });
 

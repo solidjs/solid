@@ -21,9 +21,12 @@
  * caught within one cycle-length past it, the pass aborts and the tree is
  * rewritten again as a memoized clone — one copy per container, a back-
  * reference resolving to the ancestor's copy. Only cyclic (or unusually
- * deep) values pay. Replacements are recorded as they are produced (a trace
- * envelope, a multicast seat, a scrubbed stand-in): a node seen again on
- * the first pass — a cycle revisits its nodes on every level down to the
+ * deep) values that the visitor actually rewrites pay that clone: when the
+ * visitor replaces nothing, the author value is kept, so a shared object
+ * beside the cycle stays the same reference the serializer already saw on
+ * another record (#4846). Replacements are recorded as they are produced (a
+ * trace envelope, a multicast seat, a scrubbed stand-in): a node seen again
+ * on the first pass — a cycle revisits its nodes on every level down to the
  * catch — and every node of the clone pass answer from the record, so a
  * visitor's side effects run once per node whichever way the walk went.
  * Walks that replace nothing never pay the lookup. A value reachable at two
@@ -53,7 +56,21 @@ export function rewriteTree(value: any, visit: Visit, withPath: boolean): any {
   } catch (err) {
     if (err !== CYCLE) throw err;
   }
-  return clone(value, visit, path, state.memo || (state.memo = new Map()));
+  // Cycle (or past-TRACK depth): rewrite as a memoized clone so back-references
+  // point at the rewritten copy. When the visitor replaces nothing, that clone
+  // would only break identity — a shared object beside the cycle would become a
+  // second copy, and cross-record hydration dedupe would miss it (#4846). Keep
+  // the author value in that case; its cycle structure is already correct.
+  const memo = state.memo || (state.memo = new Map());
+  // First-pass replacements are already in `memo` (cow only records when the
+  // visitor answered with a different value). The clone pass must still run so
+  // later seats past the abort are taken once — but if neither pass replaces
+  // anything, keep the author value.
+  let replaced = memo.size > 0;
+  const out = clone(value, visit, path, memo, () => {
+    replaced = true;
+  });
+  return replaced ? out : value;
 }
 
 function shape(value: any): 1 | 2 | 0 {
@@ -113,11 +130,18 @@ function cow(value: any, visit: Visit, path: string | undefined, depth: number, 
 }
 
 // `value` is an object (the callers test).
-function clone(value: any, visit: Visit, path: string | undefined, memo: Map<any, any>) {
+function clone(
+  value: any,
+  visit: Visit,
+  path: string | undefined,
+  memo: Map<any, any>,
+  onReplace?: () => void
+) {
   if (memo.has(value)) return memo.get(value);
   const r = visit(value, path);
   if (r !== DESCEND) {
     memo.set(value, r);
+    if (r !== value) onReplace?.();
     return r;
   }
   const s = shape(value);
@@ -128,13 +152,19 @@ function clone(value: any, visit: Visit, path: string | undefined, memo: Map<any
     for (let i = 0; i < value.length; i++) {
       const c = value[i];
       if (c !== null && typeof c === "object")
-        out[i] = clone(c, visit, path === undefined ? undefined : `${path}[${i}]`, memo);
+        out[i] = clone(c, visit, path === undefined ? undefined : `${path}[${i}]`, memo, onReplace);
     }
   } else {
     for (const k of Object.keys(value)) {
       const c = value[k];
       if (c !== null && typeof c === "object")
-        out[k] = clone(c, visit, path === undefined ? undefined : `${path}.${k}`, memo);
+        out[k] = clone(
+          c,
+          visit,
+          path === undefined ? undefined : `${path}.${k}`,
+          memo,
+          onReplace
+        );
     }
   }
   return out;
