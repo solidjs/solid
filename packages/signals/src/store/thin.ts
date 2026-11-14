@@ -159,6 +159,8 @@ interface Target {
   w?: boolean;
   /** a node exists for a key the raw lacks */
   x?: boolean;
+  /** prototype node (a class member read, or a swap) */
+  o?: Signal<any>;
 }
 /** A chained target's key with no own value reads the chained store. */
 const DELEGATE = {};
@@ -166,6 +168,7 @@ const DELEGATE = {};
 const targets = new WeakMap<object, Target>();
 const hasOwn = Object.prototype.hasOwnProperty;
 const lookupGetter = (Object.prototype as any).__lookupGetter__;
+const propertyIsEnumerable = Object.prototype.propertyIsEnumerable;
 const nodeOpts = { ownedWrite: true };
 let writing = 0;
 /** Optimistic families' guess hooks (thinOptimistic.ts installs them), so a
@@ -287,7 +290,15 @@ function peek(node: Signal<any>, t: Target, mode = 0): any {
   return tracking || (__DEV__ && asyncTailFlights !== 0) ? untrack(() => read(node)) : read(node);
 }
 function seed(t: Target, key: PropertyKey): any {
-  return t.c !== null ? DELEGATE : hasOwn.call(t.v, key) ? t.v[key] : ABSENT;
+  // An own accessor seeds as its descriptor, so a tracked reader holds a
+  // node that a data write replaces (#3949).
+  return t.c !== null
+    ? DELEGATE
+    : !hasOwn.call(t.v, key)
+      ? ABSENT
+      : lookupGetter.call(t.v, key) !== undefined
+        ? new Box(Object.getOwnPropertyDescriptor(t.v, key)!)
+        : t.v[key];
 }
 /** The chained store's raw value of `key` (ABSENT when not own). */
 const innerValue = (t: Target, key: PropertyKey): any => valueOf(t.c[$THIN], key);
@@ -644,6 +655,52 @@ function holdWithDerive(t: Target, node: Signal<any>): void {
   }
 }
 
+/** A held adoption's slot whose old and new values are the same row that
+ * nothing had proxied when the adoption ran: paired at its first read, as
+ * the adoption would have paired it (#3712, store.ts `adoptChild`). One
+ * target over the old raw, the new raw's differing leaves staged on it
+ * under the same hold; the slot reads as unchanged, so the row's own
+ * leaves decide (`id` the same in both frames holds no one, #3706). */
+function pairLate(t: Target, node: Signal<any>): void {
+  const ov = node._value;
+  const nv = node._pendingValue;
+  const fam = t._fam!;
+  const keyFn = t.r ? fam.key : null;
+  if (
+    t.s ||
+    keyFn === undefined ||
+    !isWrappable(ov) ||
+    !isWrappable(nv) ||
+    Array.isArray(ov) !== Array.isArray(nv) ||
+    protoOf(ov) !== protoOf(nv) ||
+    (keyFn !== null && keyFn(ov) !== keyFn(nv)) ||
+    fam.map.has(ov) ||
+    fam.map.has(nv)
+  )
+    return;
+  // A raw in both frames (rows swapped or reordered) is its own row.
+  for (const k of Reflect.ownKeys({ ...t.v, ...t.n })) {
+    const m = t.n![k as any];
+    const c = m ? m._value : t.v[k];
+    if (c === nv || (m && m._pendingValue !== NOT_PENDING ? m._pendingValue : c) === ov) return;
+  }
+  const ct: Target = wrap(ov, fam)[$THIN];
+  const x = node._x!;
+  for (const k of Reflect.ownKeys({ ...ov, ...nv })) {
+    const v = hasOwn.call(nv, k) ? nv[k] : ABSENT;
+    if (!Object.is(hasOwn.call(ov, k) ? ov[k] : ABSENT, v)) {
+      const m = nodeOf(ct, k);
+      m._pendingValue = v;
+      holdNode(m, x._transaction!);
+      m._x!._reask = x._reask;
+    }
+  }
+  ct.w = true;
+  // The slot itself is unchanged: no longer held.
+  node._pendingValue = NOT_PENDING;
+  node._config &= ~CONFIG_HELD;
+}
+
 export function thinRunDirect(fn: () => void): void {
   const was = directCommit;
   directCommit = true;
@@ -688,6 +745,12 @@ function hasGuess(t: Target): boolean {
 const polluting = (t: Target, key: PropertyKey): boolean =>
   key === "__proto__" || key === "prototype" || (key === "constructor" && inDraft(t));
 const protoOf = Object.getPrototypeOf;
+const NONE = Object.create(null);
+/** A record's prototype in the reader's frame: a node once a reader of a
+ * class member tracks it or a reconcile swaps it (A29, #3706). */
+const protoNode = (t: Target): Signal<any> =>
+  (t.o ??= slot(t, protoOf(t.v), Object.is, "[[Prototype]]"));
+const protoNow = (t: Target): any => (t.o ? peek(t.o, t) : protoOf(t.v));
 const BASE: ProxyHandler<any> = {
   get(_, key, receiver) {
     const t: Target = _[$S];
@@ -733,8 +796,11 @@ const BASE: ProxyHandler<any> = {
       // Pollution guard; `constructor` withheld from drafts only (#4670).
       if (!own && polluting(t, key)) return undefined;
       // Accessors and prototype members run against the proxy.
-      if (own ? lookupGetter.call(t.v, key) !== undefined : key in t.v) {
-        const v = Reflect.get(t.v, key, receiver);
+      let pr: any = t.v;
+      if (!own && !t.r && (t.o || protoOf(t.v) !== Object.prototype))
+        pr = (tracked ? read(protoNode(t)) : protoNow(t)) ?? NONE;
+      if (own ? !tracked && lookupGetter.call(t.v, key) !== undefined : key in pr) {
+        const v = Reflect.get(pr, key, receiver);
         return typeof v === "function" ? v : child(t, v);
       }
       if (!tracked) {
@@ -745,6 +811,8 @@ const BASE: ProxyHandler<any> = {
       }
       node = nodeOf(t, key);
     }
+    if ((node._config & (CONFIG_HELD | CONFIG_GUESS)) === CONFIG_HELD && t._fam !== null)
+      pairLate(t, node);
     let v = tracked ? read(node) : peek(node, t, 1);
     if (serving !== null && serving === context && node._config & CONFIG_GUESS) v = guessed!(node);
     if (v === null || typeof v !== "object")
@@ -883,7 +951,7 @@ const BASE: ProxyHandler<any> = {
     else if (__DEV__) warnOutside(t, key, "deleteProperty");
     return true;
   },
-  getPrototypeOf: _ => protoOf(_[$S].v),
+  getPrototypeOf: _ => protoNow(_[$S]),
   setPrototypeOf: () => false
 };
 
@@ -1330,14 +1398,28 @@ function reconcileTarget(
   }
   for (const key of Reflect.ownKeys(next)) {
     const pv = cur(key);
-    write(t, key, merge(pv === ABSENT ? undefined : pv, next[key]));
+    const nv = next[key];
+    // A key `next` hides keeps its attribute (A29, #3706).
+    if (!propertyIsEnumerable.call(next, key)) {
+      if (!(pv instanceof Box && !pv.d.enumerable && Object.is(pv.d.value, nv)))
+        write(
+          t,
+          key,
+          new Box({ value: nv, writable: true, enumerable: false, configurable: true })
+        );
+    } else write(t, key, merge(pv === ABSENT ? undefined : pv, nv));
   }
+  const np = protoOf(next);
+  if (t.c === null && np !== protoNow(t)) (put(t, protoNode(t), () => np), (t.w = true));
 }
 
 /** A snapshot copy's property: a boxed or non-plain one keeps its attributes. */
 function setProp(copy: any, raw: any, k: PropertyKey, v: any): void {
-  const d = v instanceof Box ? v.d : Object.getOwnPropertyDescriptor(raw, k);
-  if (d !== undefined && (d.get || d.set)) return void Object.defineProperty(copy, k, d);
+  let d = v instanceof Box ? v.d : Object.getOwnPropertyDescriptor(raw, k);
+  if (d !== undefined && (d.get || d.set)) {
+    if (v instanceof Box) return void Object.defineProperty(copy, k, d);
+    d = undefined; // a data write replaced the raw accessor (#3949)
+  }
   if (v instanceof Box) v = v.d.value;
   if (d === undefined || (d.enumerable && d.writable)) copy[k] = v;
   else if (typeof k === "symbol" && !d.enumerable) return;
@@ -1374,13 +1456,13 @@ export function thinSnapshot(
   const keys = keysOf(t);
   const start = () => {
     if (copy === null) {
-      copy = t.r ? [] : Object.create(Object.getPrototypeOf(raw));
+      copy = t.r ? [] : Object.create(protoNow(t));
       seen.set(raw, copy);
       if (t.r) copy.length = valueOf(t, "length");
       for (const k of keys) if (k !== "length" || !t.r) setProp(copy, raw, k, valueOf(t, k));
     }
   };
-  if (t.n !== null) start();
+  if (t.w) start(); // unwritten: every node holds the raw
   for (const k of keys) {
     if (t.r && k === "length") continue;
     const d = Object.getOwnPropertyDescriptor(copy ?? raw, k);
@@ -1392,17 +1474,17 @@ export function thinSnapshot(
   return copy ?? raw;
 }
 
-/** Tracking copy: subscribes to every reachable key set and value. */
-export function thinDeep(value: any, seen = new Map<object, any>()): any {
-  if (!isThin(value)) return value;
-  if (seen.has(value)) return seen.get(value);
-  const arr = Array.isArray(value);
-  const copy: any = arr ? [] : Object.create(Object.getPrototypeOf(value));
-  seen.set(value, copy);
-  const keys = Reflect.ownKeys(value);
-  if (arr) copy.length = value.length;
-  for (const k of keys) if (!arr || k !== "length") copy[k] = thinDeep(value[k], seen);
-  return copy;
+/** Tracking copy: subscribes to every reachable key set and value, and
+ * returns snapshot()'s copy (its shape and identity). */
+export function thinDeep(value: any): any {
+  const walk = (v: any, seen: Set<any>) => {
+    if (isThin(v) && !seen.has(v)) {
+      seen.add(v);
+      for (const k of Reflect.ownKeys(v)) walk(v[k], seen);
+    }
+  };
+  walk(value, new Set());
+  return thinSnapshot(value);
 }
 
 // Devtools `DEV.setSignal` on a thin slot node goes through the setter;
