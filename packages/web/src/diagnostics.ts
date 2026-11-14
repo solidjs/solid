@@ -168,7 +168,10 @@ function statefulRecord(node: Element, prop: string) {
  * `video.muted`, ...): Solid is about to write the same value it wrote last
  * time, but the element no longer holds what that write left there. Nothing
  * Solid wrote changed it, so the user did — typed, clicked, toggled — and
- * that edit never reached the bound signal; the write is about to erase it.
+ * that edit is not the bound value: it never reached the bound signal, or
+ * it did and the write is held while async work it started is pending (a
+ * plain read serves the previous value until then, #4872); the write is
+ * about to erase it.
  * The write re-applies an unchanged value because the binding re-ran
  * without its value changing: another binding in the same template effect
  * changed, a spread re-ran, or the source fired with an equal value
@@ -195,15 +198,18 @@ export function checkStatefulWrite(node: Element, prop: string, value: unknown):
     kind: "render",
     severity: "warn",
     message:
-      `[UNCOMMITTED_INPUT_OVERWRITTEN] ${element} was changed by the user, but the change was ` +
-      `never committed to the signal bound to \`${prop}\`, and Solid is writing the bound value ` +
-      `back over it: the user's input is lost. A compiled \`${prop}\` binding re-applies the ` +
-      `bound value whenever its effect runs — here with the value unchanged, because another ` +
-      `binding in the same template changed, a spread re-ran, or the source fired with an equal ` +
-      `value — and the signal is the source of truth. Write the signal on every edit ` +
-      `(\`${handler}={e => setValue(e.currentTarget.${prop})}\`, a draft signal you commit ` +
-      `later), use \`${defaultProp}\` for an uncontrolled element, or write a rejected edit back ` +
-      `explicitly (\`e.currentTarget.${prop} = next\`).`,
+      `[UNCOMMITTED_INPUT_OVERWRITTEN] ${element} was changed by the user, but the change is ` +
+      `not the value bound to \`${prop}\`, and Solid is writing the bound value back over it: ` +
+      `the user's input is lost. Either the change was never committed to the signal, or it was ` +
+      `and the write is held: async work that reads the signal is pending, and a plain read ` +
+      `returns the previous value until it settles. A compiled \`${prop}\` binding re-applies ` +
+      `the bound value whenever its effect runs — here with the value unchanged, because another ` +
+      `binding in the same template changed (an \`isPending\` read flipped), a spread re-ran, or ` +
+      `the source fired with an equal value — and the signal is the source of truth. Write the ` +
+      `signal on every edit (\`${handler}={e => setValue(e.currentTarget.${prop})}\`, a draft ` +
+      `signal you commit later), bind \`latest(value)\` to show a held write as it is made, use ` +
+      `\`${defaultProp}\` for an uncontrolled element, or write a rejected edit back explicitly ` +
+      `(\`e.currentTarget.${prop} = next\`).`,
     data: { tag, prop, type, name, id }
   });
 }
