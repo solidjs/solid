@@ -1,12 +1,17 @@
-import { guessedValueOf, optimisticWrite, pendingGuessOf } from "../core/guesses.js";
+import { guessedValueOf, optimisticWrite, pendingGuessOf, take } from "../core/guesses.js";
 import { underOf } from "../core/truth.js";
-import { CONFIG_OVERRIDE, NOT_PENDING, REACTIVE_REASK } from "../core/constants.js";
+import { CONFIG_GUESS, CONFIG_OVERRIDE, NOT_PENDING, REACTIVE_REASK } from "../core/constants.js";
 import { context } from "../core/core.js";
 import {
   clock,
+  GlobalQueue,
+  installStoreHooks,
   joinFuture,
+  merge,
   passLane,
   resolveTx,
+  storeCommitHook,
+  storeParkHook,
   txOf,
   type Transaction
 } from "../core/scheduler.js";
@@ -70,8 +75,49 @@ installThinAsk(fam => {
     if (passLane === null) a = clock + 1;
     else if (sameAction(txOf(n), passLane)) return;
   }
-  if ((fam._asked = a) > 0) joinFuture(null);
+  if ((fam._asked = a) > 0) (asked.add(fam), joinFuture(null));
 });
+// store/optimistic.ts `_slotTake`: the derive re-asking in another
+// action's lane takes the target's guesses of the action that guessed this
+// node — that lane's new question, which they do not answer (F-6, #4336).
+const prevTake = GlobalQueue._slotTake;
+GlobalQueue._slotTake = (n: any, back?: boolean) => {
+  const t = n._host;
+  if (t === undefined || "px" in t) return prevTake ? prevTake(n, back) : false;
+  if (back) return n;
+  const d = t._fam?.node?._x?._transaction;
+  const g = txOf(n);
+  if (!d?._lane || sameAction(d, g)) return false;
+  const all: Signal<any>[] = [];
+  if (t.n !== null) for (const k of Reflect.ownKeys(t.n)) all.push(t.n[k]);
+  if (t.h !== null) for (const k of Reflect.ownKeys(t.h)) all.push(t.h[k]);
+  if (t.k !== null) all.push(t.k);
+  for (const m of all) if (m._config & CONFIG_GUESS && txOf(m) === g) take(m, d, m !== n);
+  return true;
+};
+// store/optimistic.ts `park`: a new question from mainline over a guess a
+// frame still reads holds the flush with the guess's action (D-34, #4336).
+const asked = new Set<any>();
+const prevPark = storeParkHook;
+const prevCommit = storeCommitHook;
+installStoreHooks(
+  t => {
+    prevPark?.(t);
+    for (const fam of asked) {
+      if (fam._asked !== clock + 1) {
+        asked.delete(fam);
+        continue;
+      }
+      for (const n of live(fam))
+        for (let s = n._subs; s !== null; s = s._nextSub)
+          if (s._gen === (s._sub as any)._depGen) {
+            merge(txOf(n)._parent!, t);
+            break;
+          }
+    }
+  },
+  () => prevCommit?.()
+);
 // store/optimistic.ts `stands` (A17; over a new question only a target
 // carrying a guess stands in, F-2/F-6; a linked reader keeps observing, #4536).
 installThinStands(t => {

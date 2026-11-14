@@ -354,6 +354,27 @@ export function thinRunDirect(fn: () => void): void {
   }
 }
 
+/** A draft assignment: an array's length follows its indices. */
+function writeSlot(t: Target, key: PropertyKey, v: any): void {
+  if (t.r) {
+    const len = valueOf(t, "length");
+    if (key === "length") {
+      for (let i = v; i < len; i++) write(t, i, ABSENT);
+    } else if (typeof key === "string" && +key >= len) write(t, "length", +key + 1);
+  }
+  write(t, key, v);
+}
+/** An optimistic family with a guess out. */
+function famGuessing(fam: any): boolean {
+  if (fam.g) for (const n of fam.g) if (carries(n)) return true;
+  return false;
+}
+const carries = (n: any): boolean => n != null && (n._config & CONFIG_OVERRIDE) !== 0;
+function hasGuess(t: Target): boolean {
+  if (carries(t.k)) return true;
+  if (t.n !== null) for (const k of Reflect.ownKeys(t.n)) if (carries(t.n[k as any])) return true;
+  return false;
+}
 function traps(t: Target): ProxyHandler<any> {
   return {
     get(_, key, receiver) {
@@ -418,13 +439,33 @@ function traps(t: Target): ProxyHandler<any> {
     set(_, key, value) {
       if (!inDraft(t) || key === "__proto__") return true;
       const v = unwrapThin(value);
-      if (t.r) {
-        const len = valueOf(t, "length");
-        if (key === "length") {
-          for (let i = v; i < len; i++) write(t, i, ABSENT);
-        } else if (typeof key === "string" && +key >= len) write(t, "length", +key + 1);
+      // A derive's new child over a child carrying guesses: the truth lands
+      // into it, so the guesses re-base over it (D-34, #4336).
+      if (t._fam?.opt && !userWrite && guessed !== null && isWrappable(v)) {
+        const pv = valueOf(t, key);
+        let pt = isWrappable(pv)
+          ? (t._fam.map.get(pv) as unknown as Target | undefined)
+          : undefined;
+        if (pt === undefined || pt.r !== Array.isArray(v) || !famGuessing(t._fam)) {
+          // A keyed row: paired by key with the guessed row it answers
+          // (#4329, store/optimistic.ts `pairRows`).
+          pt = undefined;
+          const kf = t._fam.key;
+          const k = kf ? kf(v) : undefined;
+          if (k !== undefined)
+            for (const c of t._fam.live as unknown as Set<Target>)
+              if (c !== t && c.r === Array.isArray(v) && hasGuess(c) && kf!(c.p) === k) {
+                pt = c;
+                break;
+              }
+        }
+        if (pt !== undefined) {
+          thinReconcile(pt.p, v, t._fam.key ?? null, 0);
+          if (pv !== pt.v) writeSlot(t, key, pt.v);
+          return true;
+        }
       }
-      write(t, key, v);
+      writeSlot(t, key, v);
       return true;
     },
     deleteProperty(_, key) {
