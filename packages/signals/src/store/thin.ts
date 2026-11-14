@@ -307,7 +307,12 @@ function slot<V>(t: Target, v: V, eq: (a: V, b: V) => boolean, key: PropertyKey)
 /** The thin half of `affects(store[, key])` (store/affects.ts `storeMarks`):
  * keyed, the slot's node and the record's identity; keyless, a carrier node
  * and every live node reachable, the raws reachable as the scope. */
-GlobalQueue._thinMarks = (t: Target, key, carrierKey, scopeOf) => {
+export function thinMarks(
+  t: Target,
+  key: PropertyKey | undefined,
+  carrierKey: PropertyKey,
+  scopeOf: (n: any, k: PropertyKey | undefined) => { _scope: Set<object> }
+): any[] {
   const node = nodeOf(t, key === undefined ? carrierKey : key);
   const entry = scopeOf(node, key);
   if (key !== undefined) return (entry._scope.add(t.v), [node]);
@@ -345,7 +350,7 @@ GlobalQueue._thinMarks = (t: Target, key, carrierKey, scopeOf) => {
     writerView = false;
   }
   return found;
-};
+}
 /** The logical value of `key` in the reader's frame (ABSENT when not own). */
 function valueOf(t: Target, key: PropertyKey, mode = 0): any {
   const node = t.n?.[key];

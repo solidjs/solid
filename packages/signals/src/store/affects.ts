@@ -28,6 +28,7 @@ import type { Computed, Signal } from "../core/types.js";
 import { installAffectsHooks, optHooks, type AffectsHooks } from "./hooks.js";
 import { $OWNER, lookupTarget, type StoreFamily, type StoreTarget } from "./target.js";
 import { $TARGET, $THIN } from "./types.js";
+import { thinMarks } from "./thin.js"; // SPIKE
 
 type Marked = Signal<any> | Computed<any>;
 
@@ -55,7 +56,7 @@ function scopeOf(carrier: Marked, key: PropertyKey | undefined): Scope {
 /** The nodes an `affects(store[, key])` declaration marks (affects.ts
  * registers each). */
 export function storeMarks(t: StoreTarget, key: PropertyKey | undefined): Marked[] {
-  if (!("px" in t)) return GlobalQueue._thinMarks!(t, key, $AFFECTS, scopeOf); // SPIKE
+  if (!("px" in t)) return thinMarks(t as any, key, $AFFECTS, scopeOf); // SPIKE
   const node = GlobalQueue._storeNode!(t, key === undefined ? $AFFECTS : key);
   const entry = scopeOf(node, key);
   if (key === undefined) {
