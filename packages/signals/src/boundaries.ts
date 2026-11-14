@@ -182,6 +182,19 @@ const behindError = (b: Boundary | null): boolean =>
 const isCollecting = (b: Boundary): boolean =>
   b._type === STATUS_ERROR || !b._initialized || b._armed || behindError(b._parent);
 
+/** The statuses that keep reader `r` of `b`: `b`'s own and pending — and,
+ * behind an error fallback, an error that fallback shows (no error boundary
+ * between `r` and `b`): a loading boundary there whose reader answered with
+ * that error has nothing to reveal. Revealing re-derived the content, whose
+ * re-read retried the error's source: pending again, caught again, without
+ * end (#4870). The error's recovery answers the reader, which reveals it
+ * with the recovered content. */
+function keeps(b: Boundary, r: Computed<any>): number {
+  let l = behindError(b._parent) ? (r._context?.[BOUNDARY] as Boundary | undefined) : null;
+  while (l && l !== b && l._type !== STATUS_ERROR) l = l._parent;
+  return b._type | STATUS_PENDING | (l === b ? STATUS_ERROR : 0);
+}
+
 /** A reader `b` waits on: recorded for its `on`, and `b` visited at the seam. */
 function record(b: Boundary, node: Computed<any>, source = node): void {
   b._readers.set(node, source);
@@ -283,7 +296,7 @@ function catchStatus(
     if (collecting.size)
       for (let b: Boundary | null | undefined = boundaryOf(node); b; b = b._parent)
         if (
-          !((b._readers.get(node)?._statusFlags as number) & (b._type | STATUS_PENDING)) &&
+          !((b._readers.get(node)?._statusFlags as number) & keeps(b, node)) &&
           b._readers.delete(node) &&
           !prune(b, 0)
         ) {
@@ -429,6 +442,7 @@ export function prune(b: Boundary, pass?: boolean | 0): number {
   const mask = b._type | STATUS_PENDING;
   for (const [r, s] of b._readers) {
     if (!((r._flags | s._flags) & REACTIVE_DISPOSED)) {
+      const k = keeps(b, r);
       // An error staged on its source (D-41, `stageError`) is not settled:
       // it publishes with the commit. A reader that threw it now (a lane
       // pass, a reader of a node born staged) reached the boundary first
@@ -438,7 +452,7 @@ export function prune(b: Boundary, pass?: boolean | 0): number {
       // settled before it ran, a fresh boundary revealed into a hold its
       // pass then went pending in, which waited on that flight (#4568).
       if (
-        ((r._statusFlags & mask || (s._statusFlags & mask && reads(r, s))) &&
+        ((r._statusFlags & k || (s._statusFlags & k && reads(r, s))) &&
           !(mask & STATUS_ERROR && caughtBelow(b, r, s))) ||
         (mask & STATUS_ERROR && s._config & CONFIG_STAGED_ERROR) ||
         (r._config & CONFIG_VERDICT && r._flags & REACTIVE_IN_HEAP)
