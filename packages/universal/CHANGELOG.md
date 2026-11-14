@@ -1,5 +1,25 @@
 # @solidjs/universal
 
+## 2.0.0-rc.22
+
+### Patch Changes
+
+- 9c917ea: A ref callback that reads a sync memo on a row mounted while an async memo is in flight no longer leaves that update held forever (#4767). Refs run in the attribute effect's commit half with no owner; a memo born into the hold has only a staged value, and an ownerless read of it threw `NotReadyError` (A19 exception 1), which errored the effect mid-hold so the transaction never landed. `runRefCallback` now marks the read, and `serve` returns the staged value only when the ref's creating pass was born into that memo's hold (F-7); production `ref()` always goes through `runRefCallback` so the mark is present outside dev too.
+- 7230c08: A ref callback (`ref={el => …}`) now runs the way a render effect's callback runs at creation (#4761). It is untracked and runs in the context of the pass that creates the element, so its reads see what that pass is building. Before, it ran with no owner, so its reads were outside reads that saw the screen before the pass committed. A non-keyed `<Show>`/`<Match>` branch that an optimistic write had hidden could not come back: its ref read the narrowed accessor, got the old falsy condition, and threw a stale read that halted the app.
+
+  A ref still owns nothing. In dev, creating a memo, effect or root inside it throws `PRIMITIVE_IN_EFFECT_CALLBACK`, and `onCleanup` inside it throws `CLEANUP_IN_FORBIDDEN_SCOPE`. Set those up in the factory that returns the ref, which runs in the component body. Writes, `refresh`, action calls and `onFlush` stay allowed in a ref, as in an effect callback.
+
+- Updated dependencies [cf839ea]
+- Updated dependencies [8858189]
+- Updated dependencies [c50abb6]
+- Updated dependencies [e76279f]
+- Updated dependencies [32b4294]
+- Updated dependencies [9c917ea]
+- Updated dependencies [7230c08]
+- Updated dependencies [c8c5eb1]
+- Updated dependencies [8a6de0f]
+  - solid-js@2.0.0-rc.22
+
 ## 2.0.0-rc.21
 
 ### Patch Changes

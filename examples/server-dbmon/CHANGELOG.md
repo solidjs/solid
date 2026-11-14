@@ -1,5 +1,35 @@
 # server-dbmon-example
 
+## 0.0.1-rc.6
+
+### Patch Changes
+
+- Updated dependencies [366c0eb]
+- Updated dependencies [90d1a51]
+- Updated dependencies [cf839ea]
+- Updated dependencies [3ce08e9]
+- Updated dependencies [1212095]
+- Updated dependencies [8506dbf]
+- Updated dependencies [bd38a8f]
+- Updated dependencies [8858189]
+- Updated dependencies [54456c9]
+- Updated dependencies [c50abb6]
+- Updated dependencies [e76279f]
+- Updated dependencies [5a05b21]
+- Updated dependencies [246a491]
+- Updated dependencies [32b4294]
+- Updated dependencies [218fe4a]
+- Updated dependencies [dfb1812]
+- Updated dependencies [b38d592]
+- Updated dependencies [9c917ea]
+- Updated dependencies [7230c08]
+- Updated dependencies [c8c5eb1]
+- Updated dependencies [8a6de0f]
+- Updated dependencies [7b405e9]
+- Updated dependencies [b3731b0]
+  - @solidjs/web@2.0.0-rc.22
+  - solid-js@2.0.0-rc.22
+
 ## 0.0.1-rc.5
 
 ### Patch Changes
