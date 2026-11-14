@@ -40,7 +40,8 @@ import {
   nodeOfThin,
   ABSENT_THIN,
   linkedTo,
-  thinSetter as storeSetter
+  thinSetter as storeSetter,
+  unwrapThin
 } from "./thin.js";
 import { isWrappable } from "./types.js";
 
@@ -59,7 +60,28 @@ function trackedCopy(v: any): any {
 import { createProjectionInternal, installThinAsk } from "./thinProjection.js";
 import type { ProjectionOptions, Store } from "./types.js";
 
-installThinGuesses(optimisticWrite as any, guessedValueOf, underOf);
+/** store/optimistic.ts `echoes`: reconcile would write nothing into `a`
+ * from `b` (the server's echo of a guessed row, #3898). */
+function echoes(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (!isWrappable(a) || !isWrappable(b)) return false;
+  a = unwrapThin(a);
+  b = unwrapThin(b);
+  const ak = Object.keys(a);
+  if (Array.isArray(a) !== Array.isArray(b) || ak.length !== Object.keys(b).length) return false;
+  for (const k of ak)
+    if (!Object.prototype.hasOwnProperty.call(b, k) || !echoes(a[k], b[k])) return false;
+  return true;
+}
+const echo = (a: unknown, b: unknown): boolean => {
+  try {
+    return echoes(a, b);
+  } catch {
+    return false; // a cycle is not plain data
+  }
+};
+GlobalQueue._echoes ??= echo;
+installThinGuesses(optimisticWrite as any, guessedValueOf, underOf, echo);
 
 /** The family's guesses still in a lane. */
 function live(fam: any): Signal<any>[] {
@@ -140,7 +162,7 @@ function fold(el: any, truth: unknown): boolean {
   const l = txOf(el);
   if (!l._shown) return false;
   const guess = guessedValueOf(el);
-  if (!Object.is(guess, truth) && !GlobalQueue._echoes!(guess, truth)) l.folded = foldedRead;
+  if (!Object.is(guess, truth) && !echo(guess, truth)) l.folded = foldedRead;
   else GlobalQueue._confirmed?.(l);
   if (l.folded) insertSubs(el);
   joinFuture(resolveTx(l._parent ?? l));

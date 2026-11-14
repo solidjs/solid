@@ -160,7 +160,14 @@ let writing = 0;
 let guess: ((n: Signal<any>, v: any) => void) | null = null;
 let guessed: ((n: Signal<any>) => any) | null = null;
 let under: ((n: Signal<any>) => any) | null = null;
-export function installThinGuesses(w: typeof guess, g: typeof guessed, u: typeof under): void {
+let echo: ((a: any, b: any) => boolean) | null = null;
+export function installThinGuesses(
+  w: typeof guess,
+  g: typeof guessed,
+  u: typeof under,
+  e: typeof echo
+): void {
+  echo = e;
   guess = w;
   guessed = g;
   under = u;
@@ -424,6 +431,12 @@ function write(t: Target, key: PropertyKey, v: any): void {
   const node = nodeOf(t, key);
   let prev = peek(node, t);
   if (prev === DELEGATE) prev = innerValue(t, key);
+  // A guess of an object the truth beneath echoes is that object (#3672):
+  // its end compares against the truth's live value, not a copy's identity.
+  if (echo !== null && userWrite && t._fam?.opt && isWrappable(v)) {
+    const u = node._config & CONFIG_GUESS ? under!(node) : node._value;
+    if (u !== v && echo(u, v)) v = u;
+  }
   // A derive's landing on a guess is its truth even when the truth beneath
   // was already this (A18): the guess is judged with the rest of the
   // landing, not left over a key set the landing moved.
