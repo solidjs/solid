@@ -320,14 +320,22 @@ function seed(t: Target, key: PropertyKey): any {
         ? new Box(Object.getOwnPropertyDescriptor(t.v, key)!)
         : t.v[key];
 }
+/** A chained target's node compares a read-through as the chain's value:
+ * a guess the chain now says ends silently (A17, #3672). */
+const chainEq =
+  (t: Target, key: PropertyKey) =>
+  (a: any, b: any): boolean => {
+    const through = (v: any) => (v === DELEGATE ? untrack(() => innerValue(t, key)) : v);
+    return Object.is(through(a), through(b));
+  };
 /** The chained store's raw value of `key` (ABSENT when not own). */
-const innerValue = (t: Target, key: PropertyKey): any => valueOf(t.c[$THIN], key);
+const innerValue = (t: Target, key: PropertyKey): any => inner(t, () => valueOf(t.c[$THIN], key));
 function nodeOf(t: Target, key: PropertyKey, init: any = seed(t, key)): Signal<any> {
   const n = (t.n ??= Object.create(null) as Record<PropertyKey, Signal<any>>);
   let node = n[key];
   if (node === undefined) {
     // The store's one-literal slot node (px/pxv wrap cache pre-shaped).
-    node = n[key] = slot(t, init, Object.is, key);
+    node = n[key] = slot(t, init, t.c !== null ? chainEq(t, key) : Object.is, key);
     if (!hasOwn.call(t.v, key)) t.x = true;
     if (t._fam !== null) t._fam.live.add(t as any);
   }
@@ -995,7 +1003,18 @@ const BASE: ProxyHandler<any> = {
 /** A chained target's traps: a key with no own value reads the chained
  * store's proxy (its identity, its nodes: inner writes flow with no
  * re-derive, #2941); a switch of chain notifies through `cv`. */
-const inner = (t: Target, fn: () => any): any => (inDraft(t) ? untrack(fn) : fn());
+/** A read through the chain. A user's draft composes on what the user
+ * sees: the chain's own guesses too (the writer's view, #3672 shadow). */
+const inner = (t: Target, fn: () => any): any => {
+  if (!inDraft(t)) return fn();
+  const was = writerView;
+  writerView ||= userWrite;
+  try {
+    return untrack(fn);
+  } finally {
+    writerView = was;
+  }
+};
 function chainTracked(t: Target): boolean {
   if (inDraft(t) || getObserver() === null) return false;
   read((t.cv ??= slot(t, 0, isEqual, $PROXY)));
@@ -1024,6 +1043,9 @@ function chainGet(t: Target, key: PropertyKey, receiver: any): any {
     return t.c[key];
   if (node === undefined && tr) node = nodeOf(t, key);
   const v = node === undefined ? DELEGATE : tr ? read(node) : peek(node, t);
+  // A guess over the chain: its reader also hears the chain, so a guess
+  // that ends silently (equal through the chain, A17) leaves it listening.
+  if (tr && v !== DELEGATE && node!._config & CONFIG_GUESS) inner(t, () => t.c[key]);
   if (v === DELEGATE) {
     const iv = inner(t, () => t.c[key]);
     return t._fam !== null && isThin(iv) && iv[$THIN]._fam !== t._fam ? subChain(t, key, iv) : iv;
@@ -1051,6 +1073,10 @@ const CHAIN: ProxyHandler<any> = {
  * proxy, chained to the inner child: a write through it stays in this store
  * (#2932, each level its own proxies). */
 const subChains = new WeakMap<Target, Map<PropertyKey, Target>>();
+/** The raws a chain reads through: no data of their own (an echo compares
+ * them by identity, thinOptimistic.ts). */
+const chainRaws = new WeakSet<object>();
+export const chainedRaw = (v: any): boolean => v === DELEGATE || chainRaws.has(v);
 const subKeys = __DEV__ ? new WeakMap<Target, PropertyKey>() : null;
 function devWriteThroughLoading(key: PropertyKey | undefined): void {
   const name = String(key ?? "");
@@ -1076,6 +1102,7 @@ function subChain(t: Target, key: PropertyKey, iv: any): any {
   let e = m.get(key);
   if (e === undefined || e.r !== r) {
     const raw = r ? [] : {};
+    chainRaws.add(raw);
     thinWrap(raw, t._fam);
     e = t._fam!.map.get(raw) as unknown as Target;
     m.set(key, e);
@@ -1101,6 +1128,7 @@ function chainSlot(t: Target, pv: any, nv: any): any {
   let pt: Target | undefined = isWrappable(pv) ? (t._fam!.map.get(pv) as any) : undefined;
   if (pt === undefined || pt.r !== Array.isArray(nv)) {
     pv = Array.isArray(nv) ? [] : {};
+    chainRaws.add(pv);
     thinWrap(pv, t._fam);
     pt = t._fam!.map.get(pv) as any;
   }
@@ -1492,9 +1520,15 @@ export function thinSnapshot(
       if (t.r && k === "length") continue;
       const node = t.n?.[k as any];
       const own = node !== undefined && peek(node, t) !== DELEGATE;
+      const iv = own ? undefined : valueOf(it, k);
+      // A child read through the chain is this family's sub-chain: its
+      // guesses are part of the frame (#2932).
+      const sc = own ? undefined : subChains.get(t)?.get(k);
       copy[k] = own
         ? thinSnapshot(valueOf(t, k), seen, fam)
-        : thinSnapshot(valueOf(it, k), seen, it._fam);
+        : sc !== undefined && unwrapThin(sc.c) === iv
+          ? thinSnapshot(sc.p, seen, fam)
+          : thinSnapshot(iv, seen, it._fam);
     }
     return copy;
   }

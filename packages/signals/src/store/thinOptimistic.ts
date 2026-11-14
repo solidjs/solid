@@ -40,6 +40,7 @@ import {
   isThin,
   nodeOfThin,
   ABSENT_THIN,
+  chainedRaw,
   linkedTo,
   releaseSettled,
   thinSetter as storeSetter,
@@ -47,18 +48,6 @@ import {
 } from "./thin.js";
 import { isWrappable } from "./types.js";
 
-/** A deep plain copy read through the proxy, so every key it holds is tracked. */
-function trackedCopy(v: any): any {
-  if (!isWrappable(v)) return v;
-  if (Array.isArray(v)) {
-    const out = new Array(v.length);
-    for (let i = 0; i < v.length; i++) out[i] = trackedCopy(v[i]);
-    return out;
-  }
-  const out: any = Object.create(Object.getPrototypeOf(v));
-  for (const k of Reflect.ownKeys(v)) out[k] = trackedCopy(v[k]);
-  return out;
-}
 import { createProjectionInternal, installThinAsk } from "./thinProjection.js";
 import type { ProjectionOptions, Store } from "./types.js";
 
@@ -69,6 +58,8 @@ function echoes(a: any, b: any): boolean {
   if (!isWrappable(a) || !isWrappable(b)) return false;
   a = unwrapThin(a);
   b = unwrapThin(b);
+  if (a === b) return true;
+  if (chainedRaw(a) || chainedRaw(b)) return false;
   const ak = Object.keys(a);
   if (Array.isArray(a) !== Array.isArray(b) || ak.length !== Object.keys(b).length) return false;
   for (const k of ak)
@@ -350,14 +341,8 @@ export function createThinOptimisticStore<T extends object = {}>(
   second?: any,
   third?: any
 ): [Store<T>, (fn: (draft: T) => T | void) => void] {
-  // Chained over another store (#3672's shape): the view derives a tracked
-  // copy of the base, so base commits are the truth beneath the guesses.
-  if (typeof first !== "function" && isThin(first)) {
-    const base = first;
-    first = () => trackedCopy(base);
-    third = second;
-    second = Array.isArray(base) ? [] : {};
-  }
+  // Over another store (#3672's shape) the view chains to it (a store seed,
+  // createProjectionInternal): base commits are the truth beneath the guesses.
   const derived = typeof first === "function";
   const store = createProjectionInternal(
     (derived ? first : null) as any,

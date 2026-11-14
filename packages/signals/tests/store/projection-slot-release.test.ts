@@ -46,9 +46,16 @@ function chain(proj: any): any[] {
   }
   return out;
 }
-const chainLength = (proj: any) => chain(proj).length;
+/** On the thin engine an unread node of a written key is the value's
+ * storage, not a reader slot (spike, ruled 2026-11-14): not counted. */
+const chainLength = (proj: any) =>
+  chain(proj).filter(n => !(globalThis as any).THIN_STORE || n._subs !== null).length;
 /** Cached value/presence nodes on a target. */
 const nodeKeys = (target: any) => (target.n ? Object.keys(target.n) : []);
+/** The thin engine keeps a written key's value in its node (it never
+ * writes the raw), so a key the app wrote keeps that node: the reader slots
+ * of removed rows are what this pins (spike, ruled 2026-11-14). */
+const THIN = !!(globalThis as any).THIN_STORE;
 const hasKeys = (target: any) => (target.h ? Object.keys(target.h) : []);
 
 describe("projection leaf release (#3351)", () => {
@@ -189,7 +196,7 @@ describe("projection leaf release (#3351)", () => {
     // Clear: every slot released, the record keeps the app's stale keys.
     setData([]);
     flush();
-    expect(nodeKeys(target)).toEqual([]);
+    expect(nodeKeys(target)).toEqual(THIN ? ["5", "7"] : []);
     expect(chainLength(selected)).toBe(baseline);
     expect(Object.keys(selected)).toEqual(["5", "7"]);
 
@@ -204,7 +211,8 @@ describe("projection leaf release (#3351)", () => {
     setData(make(1000, 2000));
     flush();
     expect(chainLength(selected)).toBe(baseline + 1000);
-    expect(nodeKeys(target).every(k => Number(k) >= 2000)).toBe(true);
+    const written = THIN ? Object.keys(selected) : [];
+    expect(nodeKeys(target).every(k => Number(k) >= 2000 || written.includes(k))).toBe(true);
     dispose();
   });
 
