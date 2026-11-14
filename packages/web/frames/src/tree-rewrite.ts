@@ -158,13 +158,19 @@ function mark(
   const index = m.next++;
   let low = index;
   let changed = false;
-  m.at.set(value, index);
-  m.stack.push(value);
+  // Registered on the first container child: a container whose children are
+  // all leaves closes alone and unchanged, so it costs no bookkeeping.
+  let open = false;
   const keys: any[] = s === 1 ? value : Object.keys(value);
   for (let i = 0; i < keys.length; i++) {
     const k = s === 1 ? i : keys[i];
     const c = value[k];
     if (c === null || typeof c !== "object") continue;
+    if (!open) {
+      open = true;
+      m.at.set(value, index);
+      m.stack.push(value);
+    }
     const l = mark(
       c,
       visit,
@@ -175,10 +181,17 @@ function mark(
     if (l >= 0 && l < low) low = l;
     if ((memo.has(c) && memo.get(c) !== c) || (l === Infinity && m.changed.has(c))) changed = true;
   }
+  if (!open) return -1;
   if (low === index) {
+    m.at.set(value, Infinity);
+    if (m.stack[m.stack.length - 1] === value) {
+      // A component of one: no member but itself.
+      m.stack.pop();
+      if (changed) m.changed.add(value);
+      return Infinity;
+    }
     // The component's root: its members are the stack above it.
-    const at = m.stack.lastIndexOf(value);
-    const members = m.stack.splice(at);
+    const members = m.stack.splice(m.stack.lastIndexOf(value));
     // A member's edge inside the component reads `low`, not a changed mark;
     // an edge out of it (closed, `Infinity`) was judged above.
     if (!changed)
