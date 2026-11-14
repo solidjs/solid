@@ -133,6 +133,7 @@ import {
   $TRACK,
   $PATCH,
   writeOverride,
+  $THIN,
   installShallowView,
   isRawValue,
   isWrappable,
@@ -2202,6 +2203,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       if (key === $PROXY) return receiver;
       if (key === $OWNER) return undefined; // ownership stamp: never a user key
       if (key === $RECORD) return undefined; // a store is no view (see `viewOf`)
+      if (key === $THIN) return undefined; // SPIKE: not a thin store
       // refresh()/isPending resolve the projection computed through $REFRESH.
       if (key === $REFRESH) return target._fam?.node ?? undefined;
       if (key === $TRACK) {

@@ -1,3 +1,4 @@
+import { targetOf } from "../_thin/target.js";
 import { describe, expect, it } from "vitest";
 import {
   $TARGET,
@@ -37,7 +38,7 @@ const row = (i: number): Row => ({ id: "n" + i, pos: { x: i, y: 0 } });
  * index). */
 function chain(proj: any): any[] {
   const out: any[] = [];
-  for (const t of proj[$TARGET]._fam.live as Set<any>) {
+  for (const t of targetOf(proj)._fam.live as Set<any>) {
     if (t.n) for (const k of Reflect.ownKeys(t.n)) out.push(t.n[k]);
     if (t.h) for (const k of Reflect.ownKeys(t.h)) out.push(t.h[k]);
     if (t.k) out.push(t.k);
@@ -86,7 +87,7 @@ describe("projection leaf release (#3351)", () => {
     });
     flush();
     const baseline = chainLength(record);
-    const recordTarget = (record as any)[$TARGET];
+    const recordTarget = targetOf(record);
 
     setRows(Array.from({ length: N }, (_, i) => row(i)));
     flush();
@@ -159,7 +160,7 @@ describe("projection leaf release (#3351)", () => {
       return { selected, dispose };
     });
     flush();
-    const target = (selected as any)[$TARGET];
+    const target = targetOf(selected);
     const baseline = chainLength(selected);
     const make = (n: number, from = 0) =>
       Array.from({ length: n }, (_, i) => ({ id: from + i, label: "row " + (from + i) }));
@@ -242,7 +243,7 @@ describe("projection leaf release (#3351)", () => {
     setData(all);
     flush();
     expect(labels).toHaveLength(100);
-    const rowTargets = all.map((_, i) => (rows[i] as any)[$TARGET]);
+    const rowTargets = all.map((_, i) => targetOf(rows[i]));
     for (const t of rowTargets) expect(nodeKeys(t)).toEqual(["label"]);
     expect(chainLength(rows)).toBeGreaterThanOrEqual(baseline + 100);
 
@@ -291,7 +292,7 @@ describe("projection leaf release (#3351)", () => {
       return record;
     });
     flush();
-    const target = (record as any)[$TARGET];
+    const target = targetOf(record);
     expect(nodeKeys(target)).toEqual(["a"]);
     const linked = chainLength(record);
 
@@ -330,7 +331,7 @@ describe("projection leaf release (#3351)", () => {
       )
     );
     flush();
-    const target = (record as any)[$TARGET];
+    const target = targetOf(record);
     const before = chainLength(record);
     const dispose = createRoot(d => {
       createEffect(
@@ -387,7 +388,7 @@ describe("projection leaf release (#3351)", () => {
     });
     flush();
     expect(Object.keys(view)).toEqual([]);
-    expect(nodeKeys((view as any)[$TARGET])).toEqual([]);
+    expect(nodeKeys(targetOf(view))).toEqual([]);
     expect(chainLength(view)).toBe(baseline);
     dispose();
   });

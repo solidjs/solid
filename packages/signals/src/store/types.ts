@@ -111,6 +111,9 @@ export type NotWrappable =
 const rawValues = new WeakSet<object>();
 export let rawValuesUsed = false;
 
+/** SPIKE: the thin engine's target brand (here so other engines can ignore it). */
+export const $THIN = Symbol(__DEV__ ? "THIN_TARGET" : 0);
+
 export function isRawValue(value: any): boolean {
   return rawValuesUsed && rawValues.has(value);
 }

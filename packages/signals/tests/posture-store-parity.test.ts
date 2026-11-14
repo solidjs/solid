@@ -1,3 +1,4 @@
+import { targetOf } from "./_thin/target.js";
 /**
  * Posture matrix — store / signal PARITY pins (2026-09-16). Discovery source:
  * visibility-oracle-posture.test.ts over the store oracle's states
@@ -491,7 +492,7 @@ describe("S7 — optimistic override, the only reader gated away: the override i
     await settle();
     expect(s.n).toBe(0);
     // the slot map no longer holds a node for `n`
-    expect(((s as any)[$TARGET].n ?? {}).n).toBeUndefined();
+    expect((targetOf(s).n ?? {}).n).toBeUndefined();
   });
 });
 
@@ -537,7 +538,7 @@ describe("S7 (structural) — optimistic add/delete survives the only structural
       release();
       await settle();
       expect(structure()).toEqual([!live, !live, !live]);
-      expect(((s as any)[$TARGET].h ?? {}).k).toBeUndefined();
+      expect((targetOf(s).h ?? {}).k).toBeUndefined();
     });
   }
 });
@@ -641,7 +642,7 @@ async function s9Trace(source: S9Source, posture: S9Posture) {
     const [trigger, setTrigger] = createSignal(0);
     const [count, setCount] = createSignal(0);
     const [state, setState] = createStore({ count: 0 });
-    target = (state as any)[$TARGET];
+    target = targetOf(state);
     if (source === "store, untracked, container node")
       createRenderEffect(
         () => Object.keys(state),

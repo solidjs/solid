@@ -961,6 +961,7 @@ export class GlobalQueue implements IQueue {
    * store made the slot its derive's lane's derivation (optimistic.ts);
    * `back`: the slot's node now, for a guess that comes back (lanes.ts
    * `endLanes`). */
+  declare static _slotCommitted: ((n: Signal<any>) => void) | undefined;
   declare static _slotTake: ((n: Signal<any>, back?: boolean) => any) | undefined;
   /** A lane dirtied a store's guess carrier: the readers of the leaves of
    * the keys it changed re-derive as the lane's work (optimistic.ts). */
@@ -1587,6 +1588,8 @@ export function commitPendingNode(n: Signal<any>): void {
   if (!c._fn) {
     n._config &= ~(CONFIG_STAGED | CONFIG_HELD);
     applyStaged(n);
+    // SPIKE (thin store): a slot node nobody reads may leave its target now.
+    if (n._subs === null && n._config & CONFIG_SLOT_NODE) GlobalQueue._slotCommitted?.(n);
     return;
   }
   // Computeds only from here (`_statusFlags` is not a signal field). A

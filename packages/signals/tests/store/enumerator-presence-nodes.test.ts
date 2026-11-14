@@ -1,3 +1,4 @@
+import { targetOf } from "../_thin/target.js";
 import { describe, expect, it } from "vitest";
 import {
   $TARGET,
@@ -38,7 +39,7 @@ type Row = Record<string, number>;
 const never = () => new Promise<never>(() => {});
 
 function nodesOf(proxy: object) {
-  const t = (proxy as any)[$TARGET];
+  const t = targetOf(proxy);
   return {
     h: Object.keys(t.h ?? {}),
     k: t.k !== null,
@@ -209,7 +210,7 @@ describe("store enumerators subscribe to the key-set node only (#3664)", () => {
     // The writer births presence nodes to carry its overrides (`has`
     // births them too); the READER did not subscribe to them.
     expect(runs.at(-1)).toBe("b");
-    const t = (s as any)[$TARGET];
+    const t = targetOf(s);
     for (const key of Object.keys(t.h ?? {})) {
       let subs = 0;
       for (let l = t.h[key]._subs; l !== null; l = l._nextSub) subs++;

@@ -1,6 +1,6 @@
 import { CONFIG_KEY_BAG, SUPPORTS_PROXY } from "../core/constants.js";
 import { createMemo } from "../signals.js";
-import { $PROXY, $RECORD, $TARGET, ownEnumerableKeys } from "./types.js";
+import { $PROXY, $RECORD, $TARGET, $THIN, ownEnumerableKeys } from "./types.js";
 
 function trueFn() {
   return true;
@@ -821,7 +821,7 @@ const mergeTraps: ProxyHandler<MergeView> = {
     if (typeof property === "symbol") {
       if (property === $PROXY) return receiver;
       if (property === $RECORD) return view;
-      if (property === $TARGET) return undefined;
+      if (property === $TARGET || property === $THIN) return undefined; // SPIKE: $THIN
     }
     // A trap read counts toward the table (see `mergeReadTable`); the walk
     // itself is the record's. `mergeReadTable` and the plain walk of
@@ -886,7 +886,7 @@ const omitTraps: ProxyHandler<OmitView> = {
     // omitted keys (#3014). A consumer walks the omit record as ONE filtered
     // entry (`recordOf` tells the two records apart by class).
     if (property === $RECORD) return view;
-    if (property === $TARGET) return undefined;
+    if (property === $TARGET || property === $THIN) return undefined; // SPIKE: $THIN
     if (view.kind === SOURCE_MERGE) {
       const table = omitReadTable(view);
       if (table !== undefined) {

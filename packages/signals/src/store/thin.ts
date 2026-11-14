@@ -12,6 +12,7 @@ import {
   CONFIG_GUESS,
   CONFIG_HELD,
   CONFIG_NO_SNAPSHOT,
+  REACTIVE_RECOMPUTING_DEPS,
   CONFIG_SLOT_NODE,
   CONFIG_OVERRIDE,
   CONFIG_STAGED_ERROR,
@@ -51,6 +52,7 @@ import { link, setSlotUnobserved, slotUnobservedHook } from "../core/graph.js";
 import { getObserver } from "../core/owner.js";
 import {
   flushTransaction,
+  GlobalQueue,
   holdNode,
   laneStageHook,
   list,
@@ -62,11 +64,48 @@ import type { Computed, Signal } from "../core/types.js";
 import type { StoreFamily } from "./target.js";
 import { $PROXY, $TRACK, isRawValue, isWrappable, markRaw, writeOverride } from "./types.js";
 
-export const $THIN = Symbol(__DEV__ ? "THIN_TARGET" : 0);
+import { $THIN } from "./types.js";
+export { $THIN };
+/** The proxy shell's back-reference to its target (one shared handler). */
+const $S = Symbol();
 // Slot release is not built in the spike: a thin node stays. Another
 // engine's slot nodes (an old store's `px` target) go to its hook.
 const prevSlotHook = slotUnobservedHook;
-setSlotUnobserved((node: any) => ("px" in node._host ? prevSlotHook?.(node) : undefined));
+setSlotUnobserved((node: any) => ("px" in node._host ? prevSlotHook?.(node) : release(node)));
+/** A node whose last reader let go leaves its target when the raw already
+ * says what it says (#3351): nothing is lost, the next read re-creates it
+ * from the seed. A target with no node leaves its family's live index. A
+ * written node, or one a frame still carries, stays. */
+function release(node: any): void {
+  if (
+    node._subs !== null ||
+    node._pendingValue !== NOT_PENDING ||
+    node._config & (CONFIG_OVERRIDE | CONFIG_HELD | CONFIG_GUESS) ||
+    // One a lane ever carried may come back (a revert's kept guess, #4336).
+    node._x !== null
+  )
+    return;
+  const t: Target = node._host;
+  if (t.c !== null) return;
+  const key = node._key;
+  if (key === $TRACK) {
+    if (t.k !== node) return;
+    t.k = null;
+  } else if (t.n?.[key] === node) {
+    if (!Object.is(node._value, seed(t, key))) return;
+    delete t.n![key];
+  } else if (t.h?.[key] === node) {
+    if (node._value !== (valueOf(t, key) !== ABSENT)) return;
+    delete t.h![key];
+  } else return;
+  if (t._fam !== null && t.k === null && empty(t.n) && empty(t.h)) t._fam.live.delete(t as any);
+}
+// A staged write to a node nobody reads: the release waits for its commit.
+GlobalQueue._slotCommitted = (n: any) => ("px" in n._host ? undefined : release(n));
+const empty = (m: object | null): boolean => {
+  if (m !== null) for (const _ in m) return false;
+  return m === null || Object.getOwnPropertySymbols(m).length === 0;
+};
 const ABSENT: any = Symbol(__DEV__ ? "ABSENT" : 0);
 
 interface Target {
@@ -124,7 +163,8 @@ let directCommit = false;
 const thinProxies = new WeakSet<object>();
 /** A thin store proxy (asked without a trap: another engine's proxy would
  * answer a symbol read with a node). */
-export const isThin = (v: any): boolean => thinProxies.has(v);
+export const isThin = (v: any): boolean =>
+  v !== null && typeof v === "object" && v[$THIN] !== undefined;
 export function thinWrap(v: any, fam: StoreFamily | null = null): any {
   const map: WeakMap<object, any> = fam?.map ?? targets;
   let t: Target | undefined = map.get(v);
@@ -144,8 +184,9 @@ export function thinWrap(v: any, fam: StoreFamily | null = null): any {
       cv: null,
       hd: null
     };
-    t.p = new Proxy(r ? [] : {}, (t.hd = traps(t)));
-    thinProxies.add(t.p);
+    const shell: any = r ? [] : {};
+    shell[$S] = t;
+    t.p = new Proxy(shell, BASE);
     map.set(v, t);
   }
   return t.p;
@@ -179,7 +220,7 @@ let scopes: object[] = [];
 const scopeOf = (t: Target): object => t._fam ?? PLAIN;
 const inDraft = (t: Target): boolean =>
   (writing !== 0 && scopes.includes(scopeOf(t))) || (writeOverride && t._fam !== null);
-export const unwrapThin = (v: any): any => (thinProxies.has(v) ? v[$THIN].v : v);
+export const unwrapThin = (v: any): any => (isThin(v) ? v[$THIN].v : v);
 
 /** The reader's frame of a node: the draft reads its own staging; everyone
  * else reads through core (tracked or not: a pass joins a hold either way). */
@@ -227,6 +268,19 @@ function nodeOf(t: Target, key: PropertyKey, init: any = seed(t, key)): Signal<a
     if (t._fam !== null) t._fam.live.add(t as any);
   }
   return node;
+}
+/** The reader linked the key-set node in this pass (store.ts
+ * `observerHoldsContainer`). */
+function holdsKeys(t: Target): boolean {
+  const k = t.k;
+  const obs: any = getObserver();
+  if (k === null || obs === null || inDraft(t)) return false;
+  const l: any = k._subsTail;
+  return (
+    l !== null &&
+    l._sub === obs &&
+    (!(obs._flags & REACTIVE_RECOMPUTING_DEPS) || l._gen === obs._depGen)
+  );
 }
 /** A target's node. A derived store's are the derive's own work: a write
  * to one during hydration's capture is no client write to hold (core
@@ -454,216 +508,227 @@ function hasGuess(t: Target): boolean {
   if (t.n !== null) for (const k of Reflect.ownKeys(t.n)) if (carries(t.n[k as any])) return true;
   return false;
 }
-function traps(t: Target): ProxyHandler<any> {
-  return {
-    get(_, key, receiver) {
-      if (key === $THIN) return t;
-      if (key === $PROXY) return receiver;
-      if (key === $REFRESH) return t._fam?.node ?? undefined;
-      if (t._fam !== null) pullFamily(t);
-      if (key === $TRACK) return (track(t), undefined);
-      let node = t.n?.[key];
-      const tracked = !inDraft(t) && getObserver() !== null;
+const BASE: ProxyHandler<any> = {
+  get(_, key, receiver) {
+    const t: Target = _[$S];
+    if (t.c !== null) return CHAIN.get!(_, key, receiver);
+    if (key === $THIN) return t;
+    if (key === $PROXY) return receiver;
+    if (key === $REFRESH) return t._fam?.node ?? undefined;
+    if (t._fam !== null) pullFamily(t);
+    if (key === $TRACK) return (track(t), undefined);
+    let node = t.n?.[key];
+    const tracked = !inDraft(t) && getObserver() !== null;
+    if (
+      __DEV__ &&
+      asyncTailFlights !== 0 &&
+      untrackDepth === 0 &&
+      typeof key === "string" &&
+      key !== "then" &&
+      getObserver() === null &&
+      !inDraft(t) &&
+      (node !== undefined || hasOwn.call(t.v, key))
+    )
+      checkPostAwaitRead(node, devRoot!.get(t) ?? t, undefined, key, false);
+    // Dev strictRead: an untracked read in a labeled scope never updates
+    // its reader (store.ts; `then` is the promise engine's probe).
+    if (
+      __DEV__ &&
+      strictRead &&
+      typeof key === "string" &&
+      key !== "then" &&
+      getObserver() === null &&
+      !inDraft(t) &&
+      strictReadActive()
+    )
+      warnStrictReadUntracked(strictRead, {
+        nodeName: key,
+        data: { strictRead, property: key, source: "store" }
+      });
+    if (node === undefined) {
+      const own = hasOwn.call(t.v, key);
+      // Pollution guard; `constructor` withheld from drafts only (#4670).
       if (
-        __DEV__ &&
-        asyncTailFlights !== 0 &&
-        untrackDepth === 0 &&
-        typeof key === "string" &&
-        key !== "then" &&
-        getObserver() === null &&
-        !inDraft(t) &&
-        (node !== undefined || hasOwn.call(t.v, key))
+        !own &&
+        (key === "__proto__" || key === "prototype" || (key === "constructor" && inDraft(t)))
       )
-        checkPostAwaitRead(node, devRoot!.get(t) ?? t, undefined, key, false);
-      // Dev strictRead: an untracked read in a labeled scope never updates
-      // its reader (store.ts; `then` is the promise engine's probe).
-      if (
-        __DEV__ &&
-        strictRead &&
-        typeof key === "string" &&
-        key !== "then" &&
-        getObserver() === null &&
-        !inDraft(t) &&
-        strictReadActive()
-      )
-        warnStrictReadUntracked(strictRead, {
-          nodeName: key,
-          data: { strictRead, property: key, source: "store" }
-        });
-      if (node === undefined) {
-        const own = hasOwn.call(t.v, key);
-        // Pollution guard; `constructor` withheld from drafts only (#4670).
-        if (
-          !own &&
-          (key === "__proto__" || key === "prototype" || (key === "constructor" && inDraft(t)))
-        )
-          return undefined;
-        // Accessors and prototype members run against the proxy.
-        if (own ? lookupGetter.call(t.v, key) !== undefined : key in t.v) {
-          const v = Reflect.get(t.v, key, receiver);
-          return typeof v === "function" ? v : child(t, v);
-        }
-        if (!tracked) return own ? child(t, t.v[key]) : undefined;
-        node = nodeOf(t, key);
+        return undefined;
+      // Accessors and prototype members run against the proxy.
+      if (own ? lookupGetter.call(t.v, key) !== undefined : key in t.v) {
+        const v = Reflect.get(t.v, key, receiver);
+        return typeof v === "function" ? v : child(t, v);
       }
-      let v = tracked ? read(node) : peek(node, t, 1);
-      if (serving !== null && serving === context && node._config & CONFIG_GUESS)
-        v = guessed!(node);
-      if (v === null || typeof v !== "object") return v === ABSENT ? undefined : v;
-      if ((node as any).pxv === v) return (node as any).px;
-      if (v instanceof Box) return v.d.get ? v.d.get.call(receiver) : child(t, v.d.value);
-      const p = child(t, v);
-      (node as any).px = p;
-      (node as any).pxv = v;
-      return p;
-    },
-    has(_, key) {
-      if (key === $THIN || key === $PROXY || key === $TRACK) return true;
-      if (t._fam !== null) pullFamily(t);
-      if (!inDraft(t) && getObserver() !== null) {
-        const h = (t.h ??= Object.create(null) as Record<PropertyKey, Signal<boolean>>);
-        if (h[key] === undefined) {
-          // Presence without the value (an accessor is not run for `in`).
-          const node = t.n?.[key];
-          const here = node !== undefined ? peek(node, t, 2) !== ABSENT : hasOwn.call(t.v, key);
-          h[key] = slot(t, here, isEqual, key);
-          if (t._fam !== null) t._fam.live.add(t as any);
-        }
-        return read(h[key]);
+      if (!tracked) return own ? child(t, t.v[key]) : undefined;
+      node = nodeOf(t, key);
+    }
+    let v = tracked ? read(node) : peek(node, t, 1);
+    if (serving !== null && serving === context && node._config & CONFIG_GUESS) v = guessed!(node);
+    if (v === null || typeof v !== "object") return v === ABSENT ? undefined : v;
+    if ((node as any).pxv === v) return (node as any).px;
+    if (v instanceof Box) return v.d.get ? v.d.get.call(receiver) : child(t, v.d.value);
+    const p = child(t, v);
+    (node as any).px = p;
+    (node as any).pxv = v;
+    return p;
+  },
+  has(_, key) {
+    const t: Target = _[$S];
+    if (t.c !== null) return CHAIN.has!(_, key);
+    if (key === $THIN || key === $PROXY || key === $TRACK) return true;
+    if (t._fam !== null) pullFamily(t);
+    if (!inDraft(t) && getObserver() !== null) {
+      const h = (t.h ??= Object.create(null) as Record<PropertyKey, Signal<boolean>>);
+      if (h[key] === undefined) {
+        // Presence without the value (an accessor is not run for `in`).
+        const node = t.n?.[key];
+        const here = node !== undefined ? peek(node, t, 2) !== ABSENT : hasOwn.call(t.v, key);
+        h[key] = slot(t, here, isEqual, key);
+        if (t._fam !== null) t._fam.live.add(t as any);
       }
-      if (t.n?.[key] === undefined) return key in t.v;
-      const v = valueOf(t, key, 2);
-      return v !== ABSENT || (!hasOwn.call(t.v, key) && key in t.v);
-    },
-    ownKeys() {
-      if (t._fam !== null) pullFamily(t);
-      track(t);
-      return keysOf(t);
-    },
-    getOwnPropertyDescriptor(_, key) {
-      if (t.r && key === "length")
-        return { value: valueOf(t, key), writable: true, enumerable: false, configurable: false };
-      const v = this.has!(_, key) ? valueOf(t, key) : ABSENT;
-      if (v === ABSENT) return undefined;
-      if (v instanceof Box)
-        return v.d.get || v.d.set
-          ? { ...v.d, configurable: true }
-          : { ...v.d, value: child(t, v.d.value), configurable: true };
-      const d = Object.getOwnPropertyDescriptor(t.v, key);
-      if (d && (d.get || d.set)) return ((d.configurable = true), d);
-      return {
-        value: child(t, v),
-        writable: true,
-        enumerable: d ? d.enumerable : true,
-        configurable: true
-      };
-    },
-    defineProperty(_, key, d) {
-      if (!inDraft(t)) return (__DEV__ && warnOutside(t, key, "defineProperty"), true);
-      if (key === "__proto__") return true;
-      // A plain data property is a write; anything else is boxed whole into
-      // the slot (staged with the frame like any value).
-      if (!d.get && !d.set && d.enumerable !== false && d.writable !== false)
-        writeSlot(t, key, unwrapThin(d.value));
-      else write(t, key, new Box(d.get || d.set ? d : { ...d, value: unwrapThin(d.value) }));
-      return true;
-    },
-    set(_, key, value) {
-      if (!inDraft(t)) return (__DEV__ && warnOutside(t, key, "set"), true);
-      if (key === "__proto__") return true;
-      if (t.s) return (rawThin(value), writeSlot(t, key, value), true);
-      const v = unwrapThin(value);
-      // A derive's new child over a child carrying guesses: the truth lands
-      // into it, so the guesses re-base over it (D-34, #4336).
-      if (t._fam?.opt && !userWrite && guessed !== null && isWrappable(v)) {
-        const pv = valueOf(t, key);
-        let pt = isWrappable(pv)
-          ? (t._fam.map.get(pv) as unknown as Target | undefined)
-          : undefined;
-        if (pt === undefined || pt.r !== Array.isArray(v) || !famGuessing(t._fam)) {
-          // A keyed row: paired by key with the guessed row it answers
-          // (#4329, store/optimistic.ts `pairRows`).
-          pt = undefined;
-          const kf = t._fam.key;
-          const k = kf ? kf(v) : undefined;
-          if (k !== undefined)
-            for (const c of t._fam.live as unknown as Set<Target>)
-              if (c !== t && c.r === Array.isArray(v) && hasGuess(c) && kf!(c.p) === k) {
-                pt = c;
-                break;
-              }
-        }
-        if (pt !== undefined) {
-          thinReconcile(pt.p, v, t._fam.key ?? null, 0);
-          if (pv !== pt.v) writeSlot(t, key, pt.v);
-          return true;
-        }
+      return read(h[key]);
+    }
+    if (t.n?.[key] === undefined) return key in t.v;
+    const v = valueOf(t, key, 2);
+    return v !== ABSENT || (!hasOwn.call(t.v, key) && key in t.v);
+  },
+  ownKeys(_) {
+    const t: Target = _[$S];
+    if (t.c !== null) return CHAIN.ownKeys!(_);
+    if (t._fam !== null) pullFamily(t);
+    track(t);
+    return keysOf(t);
+  },
+  getOwnPropertyDescriptor(_, key) {
+    const t: Target = _[$S];
+    if (t.c !== null) return CHAIN.getOwnPropertyDescriptor!(_, key);
+    if (t.r && key === "length")
+      return { value: valueOf(t, key), writable: true, enumerable: false, configurable: false };
+    // An enumerator already holds the key set (`k`) this pass: it reads the
+    // frame, no presence node (#3664). A descriptor read alone tracks
+    // presence (R13).
+    const v = holdsKeys(t) || BASE.has!(_, key) ? valueOf(t, key) : ABSENT;
+    if (v === ABSENT) return undefined;
+    if (v instanceof Box)
+      return v.d.get || v.d.set
+        ? { ...v.d, configurable: true }
+        : { ...v.d, value: child(t, v.d.value), configurable: true };
+    const d = Object.getOwnPropertyDescriptor(t.v, key);
+    if (d && (d.get || d.set)) return ((d.configurable = true), d);
+    return {
+      value: child(t, v),
+      writable: true,
+      enumerable: d ? d.enumerable : true,
+      configurable: true
+    };
+  },
+  defineProperty(_, key, d) {
+    const t: Target = _[$S];
+    if (!inDraft(t)) return (__DEV__ && warnOutside(t, key, "defineProperty"), true);
+    if (key === "__proto__") return true;
+    // A plain data property is a write; anything else is boxed whole into
+    // the slot (staged with the frame like any value).
+    if (!d.get && !d.set && d.enumerable !== false && d.writable !== false)
+      writeSlot(t, key, unwrapThin(d.value));
+    else write(t, key, new Box(d.get || d.set ? d : { ...d, value: unwrapThin(d.value) }));
+    return true;
+  },
+  set(_, key, value) {
+    const t: Target = _[$S];
+    if (!inDraft(t)) return (__DEV__ && warnOutside(t, key, "set"), true);
+    if (key === "__proto__") return true;
+    if (t.s) return (rawThin(value), writeSlot(t, key, value), true);
+    const v = unwrapThin(value);
+    // A derive's new child over a child carrying guesses: the truth lands
+    // into it, so the guesses re-base over it (D-34, #4336).
+    if (t._fam?.opt && !userWrite && guessed !== null && isWrappable(v)) {
+      const pv = valueOf(t, key);
+      let pt = isWrappable(pv) ? (t._fam.map.get(pv) as unknown as Target | undefined) : undefined;
+      if (pt === undefined || pt.r !== Array.isArray(v) || !famGuessing(t._fam)) {
+        // A keyed row: paired by key with the guessed row it answers
+        // (#4329, store/optimistic.ts `pairRows`).
+        pt = undefined;
+        const kf = t._fam.key;
+        const k = kf ? kf(v) : undefined;
+        if (k !== undefined)
+          for (const c of t._fam.live as unknown as Set<Target>)
+            if (c !== t && c.r === Array.isArray(v) && hasGuess(c) && kf!(c.p) === k) {
+              pt = c;
+              break;
+            }
       }
-      writeSlot(t, key, v);
-      return true;
-    },
-    deleteProperty(_, key) {
-      if (inDraft(t)) write(t, key, ABSENT);
-      else if (__DEV__) warnOutside(t, key, "deleteProperty");
-      return true;
-    },
-    getPrototypeOf: () => Object.getPrototypeOf(t.v)
-  };
-}
+      if (pt !== undefined) {
+        thinReconcile(pt.p, v, t._fam.key ?? null, 0);
+        if (pv !== pt.v) writeSlot(t, key, pt.v);
+        return true;
+      }
+    }
+    writeSlot(t, key, v);
+    return true;
+  },
+  deleteProperty(_, key) {
+    const t: Target = _[$S];
+    if (inDraft(t)) write(t, key, ABSENT);
+    else if (__DEV__) warnOutside(t, key, "deleteProperty");
+    return true;
+  },
+  getPrototypeOf: _ => Object.getPrototypeOf(_[$S].v)
+};
 
 /** A chained target's traps: a key with no own value reads the chained
  * store's proxy (its identity, its nodes: inner writes flow with no
  * re-derive, #2941); a switch of chain notifies through `cv`. */
-function chainTraps(t: Target, base: ProxyHandler<any>): ProxyHandler<any> {
-  const inner = (fn: () => any): any => (inDraft(t) ? untrack(fn) : fn());
-  const tracked = (): boolean => {
-    if (inDraft(t) || getObserver() === null) return false;
-    read((t.cv ??= slot(t, 0, isEqual, $PROXY)));
-    return true;
-  };
-  const get = (_: any, key: PropertyKey, receiver: any): any => {
-    if (key === $THIN || key === $PROXY || key === $REFRESH) return base.get!(_, key, receiver);
-    if (t._fam !== null) pullFamily(t);
-    const tr = tracked();
-    if (key === $TRACK) return (track(t), inner(() => t.c[$TRACK]));
-    let node = t.n?.[key];
-    // A prototype member (an array method) is the chained store's.
-    const it: Target = t.c[$THIN];
-    if (node === undefined && !hasOwn.call(it.v, key) && it.n?.[key] === undefined && key in it.v)
-      return t.c[key];
-    if (node === undefined && tr) node = nodeOf(t, key);
-    const v = node === undefined ? DELEGATE : tr ? read(node) : peek(node, t);
-    if (v === DELEGATE) {
-      const iv = inner(() => t.c[key]);
-      return t._fam !== null && isThin(iv) && iv[$THIN]._fam !== t._fam ? subChain(t, key, iv) : iv;
-    }
-    return v === ABSENT ? undefined : child(t, v);
-  };
-  const has = (_: any, key: PropertyKey): boolean => {
-    if (key === $THIN || key === $PROXY || key === $TRACK) return true;
-    if (t._fam !== null) pullFamily(t);
-    const tr = tracked();
-    let node = t.n?.[key];
-    if (node === undefined && tr) node = nodeOf(t, key);
-    const v = node === undefined ? DELEGATE : tr ? read(node) : peek(node, t);
-    return v === DELEGATE ? inner(() => key in t.c) : v !== ABSENT;
-  };
-  return {
-    get,
-    has,
-    ownKeys() {
-      if (t._fam !== null) pullFamily(t);
-      if (tracked()) (track(t), Reflect.ownKeys(t.c));
-      return keysOf(t);
-    },
-    getOwnPropertyDescriptor(_, key) {
-      if (t.r && key === "length")
-        return { value: valueOf(t, key), writable: true, enumerable: false, configurable: false };
-      if (!has(_, key)) return undefined;
-      return { value: get(_, key, t.p), writable: true, enumerable: true, configurable: true };
-    }
-  };
+const inner = (t: Target, fn: () => any): any => (inDraft(t) ? untrack(fn) : fn());
+function chainTracked(t: Target): boolean {
+  if (inDraft(t) || getObserver() === null) return false;
+  read((t.cv ??= slot(t, 0, isEqual, $PROXY)));
+  return true;
 }
+function chainHas(t: Target, key: PropertyKey): boolean {
+  if (key === $THIN || key === $PROXY || key === $TRACK) return true;
+  if (t._fam !== null) pullFamily(t);
+  const tr = chainTracked(t);
+  let node = t.n?.[key];
+  if (node === undefined && tr) node = nodeOf(t, key);
+  const v = node === undefined ? DELEGATE : tr ? read(node) : peek(node, t);
+  return v === DELEGATE ? inner(t, () => key in t.c) : v !== ABSENT;
+}
+function chainGet(t: Target, key: PropertyKey, receiver: any): any {
+  if (key === $THIN) return t;
+  if (key === $PROXY) return receiver;
+  if (key === $REFRESH) return t._fam?.node ?? undefined;
+  if (t._fam !== null) pullFamily(t);
+  const tr = chainTracked(t);
+  if (key === $TRACK) return (track(t), inner(t, () => t.c[$TRACK]));
+  let node = t.n?.[key];
+  // A prototype member (an array method) is the chained store's.
+  const it: Target = t.c[$THIN];
+  if (node === undefined && !hasOwn.call(it.v, key) && it.n?.[key] === undefined && key in it.v)
+    return t.c[key];
+  if (node === undefined && tr) node = nodeOf(t, key);
+  const v = node === undefined ? DELEGATE : tr ? read(node) : peek(node, t);
+  if (v === DELEGATE) {
+    const iv = inner(t, () => t.c[key]);
+    return t._fam !== null && isThin(iv) && iv[$THIN]._fam !== t._fam ? subChain(t, key, iv) : iv;
+  }
+  return v === ABSENT ? undefined : child(t, v);
+}
+const CHAIN: ProxyHandler<any> = {
+  get: (_, key, receiver) => chainGet(_[$S], key, receiver),
+  has: (_, key) => chainHas(_[$S], key),
+  ownKeys(_) {
+    const t: Target = _[$S];
+    if (t._fam !== null) pullFamily(t);
+    if (chainTracked(t)) (track(t), Reflect.ownKeys(t.c));
+    return keysOf(t);
+  },
+  getOwnPropertyDescriptor(_, key) {
+    const t: Target = _[$S];
+    if (t.r && key === "length")
+      return { value: valueOf(t, key), writable: true, enumerable: false, configurable: false };
+    if (!chainHas(t, key)) return undefined;
+    return { value: chainGet(t, key, t.p), writable: true, enumerable: true, configurable: true };
+  }
+};
 /** A chained target's child read through the chain is this family's own
  * proxy, chained to the inner child: a write through it stays in this store
  * (#2932, each level its own proxies). */
@@ -682,15 +747,12 @@ function subChain(t: Target, key: PropertyKey, iv: any): any {
   chainTo(e, iv);
   return e.p;
 }
-const baseTraps = new WeakMap<Target, ProxyHandler<any>>();
 /** A derived store seeded with another store reads it through live. */
 export const thinChain = (proxy: any, next: any): void => chainTo(proxy[$THIN], next);
 function chainTo(t: Target, next: any): void {
   if (t.c === next) return;
-  if (!baseTraps.has(t)) baseTraps.set(t, { ...t.hd! });
   const was = t.c;
   t.c = next;
-  Object.assign(t.hd!, chainTraps(t, baseTraps.get(t)!));
   // Own values give way to the chain's (a guess or a pending write too).
   if (t.n !== null) for (const key of Reflect.ownKeys(t.n)) put(t, t.n[key as any], () => DELEGATE);
   if (was === null && t.k !== null) put(t, t.k, (x: number) => x + 1);
@@ -710,7 +772,6 @@ function unchain(t: Target): void {
     if (t.n?.[key as any] === undefined) nodeOf(t, key, ABSENT);
   t.c = null;
   t.w = true; // its nodes hold the chain's values, not the raw's
-  Object.assign(t.hd!, baseTraps.get(t)!);
   if (t.cv !== null) put(t, t.cv, (x: number) => x + 1);
 }
 
@@ -843,7 +904,7 @@ export function createThinStore<T extends object>(
 /** A shallow store's record is raw by contract (types.ts `markRawOne`); a
  * store placed in it stays a store. */
 function rawThin(v: any): void {
-  if (!isWrappable(v) || thinProxies.has(v)) return;
+  if (!isWrappable(v) || isThin(v)) return;
   if (__DEV__ && targets.has(v))
     throw new Error(
       "shallow store: an ingested record is already tracked as a deep store — one value cannot present both wrapped and raw"

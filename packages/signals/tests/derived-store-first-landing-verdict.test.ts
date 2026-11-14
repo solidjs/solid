@@ -1,3 +1,4 @@
+import { targetOf } from "./_thin/target.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { NOT_PENDING } from "../src/core/constants.js";
 import { $TARGET } from "../src/store/store.js";
@@ -72,7 +73,7 @@ describe("a derived store's first landing is not pending", () => {
         view1 = () => st1.v;
         if (stagedLeafReads)
           DEV!.hooks.onRead = n => {
-            const leaf = (st0 as any)[$TARGET].n?.v;
+            const leaf = targetOf(st0).n?.v;
             if (n === leaf && leaf._pendingValue !== NOT_PENDING) stagedLeafReads.n++;
           };
       }
