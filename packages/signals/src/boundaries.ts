@@ -191,7 +191,7 @@ function record(b: Boundary, node: Computed<any>, source = node): void {
 /** The reader goes to the fallback: recorded, and the output re-derives
  * (a no-op while the output's own pass is running — its post-check
  * decides). */
-function caught(b: Boundary, node: Computed<any>, error: unknown, source = node): void {
+function caught(b: Boundary, node: Computed<any>, error?: unknown, source = node): void {
   if (b._type === STATUS_ERROR) {
     // The error's source is the retry target, but the reader's selected
     // outcome owns publication. Do not lose a latest/optimistic lane when
@@ -899,8 +899,16 @@ function createBoundary<T>(
         throw e;
       }
       // Readers under it still unready (caught before, or while the read
-      // ran the content at a mount): the fallback.
-      if (isCollecting(b) && b._readers.size !== 0) return fallback(b);
+      // ran the content at a mount): the fallback. So is a tree the read
+      // itself ran into a pending (the status test above saw it clean): as
+      // lane work its read is served the committed tree (A31), and the
+      // pass that marked it pending, under it, could not re-derive this one
+      // mid-pass — an `on` re-armed by a guess showed the old content and
+      // its lane waited on the pending behind it (#4856).
+      if (isCollecting(b)) {
+        if (tree._statusFlags & type & STATUS_PENDING) caught(b, tree);
+        if (b._readers.size !== 0) return fallback(b);
+      }
       b._initialized = true;
       // Observe: the fallback stops showing (a hide before its commit means
       // it never displayed — the engine knows the swap it was staged with).
