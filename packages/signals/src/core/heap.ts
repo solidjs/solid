@@ -7,7 +7,7 @@ import {
   REACTIVE_RECOMPUTING_DEPS
 } from "./constants.js";
 import { dirtyQueue } from "./scheduler.js";
-import type { Computed } from "./types.js";
+import type { Computed, Owner, Root } from "./types.js";
 
 /**
  * Schedule one subscriber to re-run on the next flush: inserted into the
@@ -35,12 +35,11 @@ export function increaseHeapSize(n: number, heap: Heap): void {
 }
 
 function actualInsertIntoHeap(n: Computed<unknown>, heap: Heap) {
-  // Above every owning computation, not only the direct one (roots have no
-  // height): an owner raised since this node's birth (its sources deepened,
-  // `adjustHeight`) left the node at or below it, and the node ran before the
-  // owner whose run disposes it (#4848).
-  for (let p = n._parent as Computed<any> | null; p; p = p._parent as Computed<any> | null)
-    if (p._height >= n._height) n._height = p._height + 1;
+  const parentHeight =
+    ((n._parent as Root)?._root
+      ? (n._parent as Root)._parentComputed?._height
+      : (n._parent as Computed<any> | null)?._height) ?? -1;
+  if (parentHeight >= n._height) n._height = parentHeight + 1;
   const height = n._height;
   const heapAtHeight = heap._heap[height];
   if (heapAtHeight === undefined) heap._heap[height] = n;
@@ -144,6 +143,24 @@ function adjustHeight(el: Computed<unknown>, heap: Heap) {
   }
   if (el._height !== newHeight) {
     el._height = newHeight;
+    liftOwned(el, newHeight);
     for (let s = el._subs; s !== null; s = s._nextSub) insertIntoHeapHeight(s._sub, heap);
   }
+}
+
+/**
+ * A raised node's owned computations (through roots) move above it (#4848).
+ * The heap places a node above its direct owner only, at insert, so an owner
+ * raised after its children's birth left a grandchild at or below it, to run
+ * before the owner whose run disposes it. Paid when a height changes, never
+ * per insert. A child waiting in the heap keeps its seat this pass (its next
+ * insert lifts it above its owner); what it owns moves either way.
+ */
+function liftOwned(o: Owner, h: number) {
+  for (let c = o._firstChild as Computed<any> | null; c; c = c._nextSibling as Computed<any> | null)
+    if ((c as unknown as Root)._root) liftOwned(c, h);
+    else if (c._height <= h) {
+      if (!(c._flags & (REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT))) c._height = h + 1;
+      liftOwned(c, h + 1);
+    }
 }
