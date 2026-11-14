@@ -585,8 +585,16 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
         }
       }
       if (l._shown) {
+        // A derivation born in the lane (its staging, voided above, was its
+        // only value) whose frame stays: nothing in the truth may notify it
+        // (a row the truth keeps, its fields equal) — it re-derives on the
+        // truth now (D-34, F-1; #4861).
+        const born = !effect && (n as Computed<any>)._statusFlags & STATUS_UNINITIALIZED;
         commitPendingNode(n);
-        if (!effect) n._config |= CONFIG_INPUTS_PUBLISHED;
+        if (!effect) {
+          n._config |= CONFIG_INPUTS_PUBLISHED;
+          if (born) enqueueSub(n as Computed<any>);
+        }
         // A render effect born in the lane's frame (it never ran) whose
         // first run the held lane parked, dropped below: the frame stays, so
         // the row it draws must too — it runs on the committed world (F-1,
@@ -1221,9 +1229,12 @@ const laneServed = (
   // value of a flight (core.ts `stagedRead`): it derives from the write that
   // re-asked the flight, so it waits on it — never the new value beside the
   // old answer (F-1, F-2; S-57).
+  // Asked with `flight` (core.ts `recompute`): whether it was so served.
   if (el === null) {
-    if (served === c && servedGen === c._depGen && servedFlight!._statusFlags & STATUS_PENDING)
+    if (served === c && servedGen === c._depGen && servedFlight!._statusFlags & STATUS_PENDING) {
+      if (flight) return true;
       throw servedFlight!._x!._error;
+    }
     return;
   }
   // Lane work reading a flight that is not the lane's own (core.ts `read`,
