@@ -523,7 +523,14 @@ function notifyContainer(k: Signal<any>, pb: Record<PropertyKey, any>): void {
   // on the guess (`laneWrite` → `supersede`, judged by `containerEquals`);
   // otherwise the structural readers are walked (the staging is already on
   // the node; the comparator is the store's, done).
-  if (k._config & CONFIG_OVERRIDE) setSignal(k, pb);
+  // Not a derive's lane pass that listed the container already (`stageOn` →
+  // `holdWithDerive`, #4478): there is no guess to land on, the staging is
+  // the lane's derivation, and its structural readers are walked like any
+  // (their reads of it are the lane's, `laneRead`). Taken as a landing, the
+  // write equalled the staging it already was and nobody heard of it: a
+  // `mapArray` over the projection kept the old arrangement for good (#4843).
+  if ((k._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === (CONFIG_OVERRIDE | CONFIG_GUESS))
+    setSignal(k, pb);
   else {
     if (k._config & CONFIG_HELD) joinFuture(txOf(k));
     if (snapshotCaptureActive) captureWriteSnapshot(k, k._value);
