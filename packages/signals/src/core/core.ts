@@ -977,6 +977,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // re-stages, as below.
         if (isEffect && el._pendingValue === NOT_PENDING) el._value = value;
         else el._pendingValue = value;
+        // Born in the lane: no committed value until the lane lands (its
+        // correction re-derives it on the truth, lanes.ts `dissolveLane`).
+        if (create) el._statusFlags |= STATUS_UNINITIALIZED;
       } else if (
         create
           ? !(

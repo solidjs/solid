@@ -584,8 +584,16 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
         }
       }
       if (l._shown) {
+        // A derivation born in the lane (its staging, voided above, was its
+        // only value) whose frame stays: nothing in the truth may notify it
+        // (a row the truth keeps, its fields equal) — it re-derives on the
+        // truth now (D-34, F-1; #4861).
+        const born = !effect && (n as Computed<any>)._statusFlags & STATUS_UNINITIALIZED;
         commitPendingNode(n);
-        if (!effect) n._config |= CONFIG_INPUTS_PUBLISHED;
+        if (!effect) {
+          n._config |= CONFIG_INPUTS_PUBLISHED;
+          if (born) enqueueSub(n as Computed<any>);
+        }
         // A render effect born in the lane's frame (it never ran) whose
         // first run the held lane parked, dropped below: the frame stays, so
         // the row it draws must too — it runs on the committed world (F-1,
