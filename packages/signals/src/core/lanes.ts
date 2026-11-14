@@ -681,7 +681,8 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     // #4788 (D-33): an action's imperative read of a guess — its body, a
     // setter — that a guess it writes next may derive from.
     // A store target's carrier is noted per key (store/optimistic.ts).
-    if (guess && actionDepth && !(el._config & CONFIG_SLOT_NODE)) readGuesses.push(l, question);
+    if (guess && actionDepth && !(el._config & CONFIG_SLOT_NODE && "px" in (el as any)._host))
+      readGuesses.push(l, question); // SPIKE: a thin store's node is its own key
     return latestOf(el);
   }
   const pending = !guess && status & STATUS_PENDING;

@@ -30,7 +30,7 @@ import { createOptimisticStore as createOptimisticStoreOld } from "./optimistic.
 import { createProjection as createProjectionOld, createStoreDerived } from "./projection.js";
 import { reconcileState } from "./reconcile.js";
 import { $TARGET } from "./types.js";
-import { $THIN, createThinStore, thinReconcile, thinSnapshot } from "./thin.js";
+import { isThin, createThinStore, thinDeep, thinReconcile, thinSnapshot } from "./thin.js";
 import { createThinProjection, createThinStoreDerived } from "./thinProjection.js";
 import { createThinOptimisticStore } from "./thinOptimistic.js";
 import {
@@ -133,12 +133,13 @@ export function reconcile<T extends U, U>(
   key: string | ((item: NonNullable<any>) => any) | null = "id"
 ): (state: U) => T {
   return (state: U): T => {
-    if ((state as any)?.[$THIN]) {
+    if (isThin(state)) {
       const k: any = key;
       thinReconcile(
         state,
         value,
-        k === null ? null : typeof k === "string" ? (i: any) => i?.[k] : k
+        k === null ? null : typeof k === "string" ? (i: any) => i?.[k] : k,
+        2
       );
       return undefined as any;
     }
@@ -149,11 +150,12 @@ export function reconcile<T extends U, U>(
 /** Non-tracking snapshot of a store's current value (source identity for
  * unmodified subtrees). */
 export function snapshot<T>(value: T): T {
-  if ((value as any)?.[$THIN]) return thinSnapshot(value);
+  if (isThin(value)) return thinSnapshot(value);
   return snapshotStore(value);
 }
 
 /** Tracking snapshot: subscribes to every reachable record. */
 export function deep<T>(value: T): T {
+  if (isThin(value)) return thinDeep(value);
   return deepStore(value);
 }

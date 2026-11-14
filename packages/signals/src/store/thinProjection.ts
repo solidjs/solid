@@ -47,6 +47,11 @@ import {
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { optHooks } from "./hooks.js";
+/** The optimistic engine's re-ask judgement (thinOptimistic.ts installs it). */
+let thinAsk: ((fam: any) => ((n: any) => any) | void) | null = null;
+export function installThinAsk(fn: typeof thinAsk): void {
+  thinAsk = fn;
+}
 const protoOf = Object.getPrototypeOf;
 const nameStore = (..._: any[]): void => {};
 import {
@@ -166,7 +171,7 @@ function wakeFamily(fam: StoreFamily): void {
   const error = new NotReadyError(fw);
   fam._woke = true;
   // A leaf the optimistic engine keeps off the wake (`ask`).
-  const skip = optHooks?.ask(fam);
+  const skip = thinAsk?.(fam);
   forEachFamilyNode(fam, n => {
     if (n._subs === null || skip?.(n)) return;
     // The leaf carries the derive's pending as a propagated copy, as a memo

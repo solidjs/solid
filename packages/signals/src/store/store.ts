@@ -86,7 +86,7 @@ import {
 } from "../core/dev.js";
 import { signalHook } from "../core/identities.js";
 import { NotReadyError } from "../core/error.js";
-import { link, setSlotUnobserved } from "../core/graph.js";
+import { link, setSlotUnobserved, slotUnobservedHook } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
 import { checkForeignRead } from "../core/copies.js";
 import { insertIntoHeap } from "../core/heap.js";
@@ -325,7 +325,10 @@ const slotKept = (node: any): any =>
   node._pendingValue !== NOT_PENDING ||
   node._config & CONFIG_OVERRIDE ||
   node._host.k?._config & CONFIG_HELD;
+const prevSlotHook = slotUnobservedHook;
 setSlotUnobserved((node: any): void => {
+  // SPIKE: a thin store's node (no `px`) goes to the thin engine's hook.
+  if (!("px" in node._host)) return prevSlotHook?.(node);
   if (slotKept(node)) deferredReleases.add(node);
   else releaseSlot(node);
 });
