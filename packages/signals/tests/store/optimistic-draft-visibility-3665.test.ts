@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  $TARGET,
   action,
   createOptimisticStore,
   createRenderEffect,
@@ -10,6 +9,7 @@ import {
   flush,
   type NoFn
 } from "../../src/index.js";
+import { targetOf } from "../_thin/target.js";
 
 /**
  * A second optimistic-store setter in the same action sees the row the first
@@ -59,7 +59,7 @@ function twoSetters<T extends object>(
 }
 
 function nodesOf(proxy: object) {
-  const t = (proxy as any)[$TARGET];
+  const t = targetOf(proxy);
   return { h: Object.keys(t.h ?? {}), n: Object.keys(t.n ?? {}) };
 }
 

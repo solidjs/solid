@@ -20,7 +20,8 @@ import {
   EFFECT_RENDER,
   NOT_PENDING,
   STATUS_ERROR,
-  STATUS_PENDING
+  STATUS_PENDING,
+  STATUS_UNINITIALIZED
 } from "../core/constants.js";
 import {
   context,
@@ -552,8 +553,12 @@ function writeSlot(t: Target, key: PropertyKey, v: any): void {
     const len = valueOf(t, "length");
     if (key === "length") {
       for (let i = v; i < len; i++) write(t, i, ABSENT);
-    } else if (typeof key === "string" && "" + (+key >>> 0) === key && +key >= len)
-      write(t, "length", +key + 1);
+    } else if (typeof key === "string" && "" + (+key >>> 0) === key) {
+      if (+key >= len) write(t, "length", +key + 1);
+      // D-33: the list is the slot while a guess moved its length — an
+      // index write over it writes the list, so the two guesses entangle.
+      else if (userWrite && carries(t.n?.length)) put(t, t.n!.length, len);
+    }
   }
   write(t, key, v);
 }
@@ -572,6 +577,10 @@ function hasGuess(t: Target): boolean {
   if (t.n !== null) for (const k of Reflect.ownKeys(t.n)) if (carries(t.n[k as any])) return true;
   return false;
 }
+/** Pollution guard; `constructor` withheld from drafts only (#4670). */
+const polluting = (t: Target, key: PropertyKey): boolean =>
+  key === "__proto__" || key === "prototype" || (key === "constructor" && inDraft(t));
+const protoOf = Object.getPrototypeOf;
 const BASE: ProxyHandler<any> = {
   get(_, key, receiver) {
     const t: Target = _[$S];
@@ -615,11 +624,7 @@ const BASE: ProxyHandler<any> = {
     if (node === undefined) {
       const own = hasOwn.call(t.v, key);
       // Pollution guard; `constructor` withheld from drafts only (#4670).
-      if (
-        !own &&
-        (key === "__proto__" || key === "prototype" || (key === "constructor" && inDraft(t)))
-      )
-        return undefined;
+      if (!own && polluting(t, key)) return undefined;
       // Accessors and prototype members run against the proxy.
       if (own ? lookupGetter.call(t.v, key) !== undefined : key in t.v) {
         const v = Reflect.get(t.v, key, receiver);
@@ -630,10 +635,17 @@ const BASE: ProxyHandler<any> = {
     }
     let v = tracked ? read(node) : peek(node, t, 1);
     if (serving !== null && serving === context && node._config & CONFIG_GUESS) v = guessed!(node);
-    if (v === null || typeof v !== "object") return v === ABSENT ? undefined : v;
+    if (v === null || typeof v !== "object")
+      // A removed own key reads what the prototype says (#4674 ruling).
+      return v !== ABSENT
+        ? v
+        : polluting(t, key)
+          ? undefined
+          : Reflect.get(protoOf(t.v) ?? {}, key, receiver);
     if ((node as any).pxv === v) return (node as any).px;
     if (v instanceof Box) return v.d.get ? v.d.get.call(receiver) : child(t, v.d.value);
     const p = child(t, v);
+    if (__DEV__ && p?.[$THIN]?.c) subKeys!.set(p[$THIN], key);
     (node as any).px = p;
     (node as any).pxv = v;
     return p;
@@ -709,6 +721,10 @@ const BASE: ProxyHandler<any> = {
     const t: Target = _[$S];
     if (!inDraft(t)) return (__DEV__ && warnOutside(t, key, "set"), true);
     if (key === "__proto__") return true;
+    // #4808: a nested write through a store still loading its first answer
+    // is dropped, as a write to that store is (A25); the chain stays.
+    if (t.c !== null && t.c[$THIN]._fam?.node?._statusFlags & STATUS_UNINITIALIZED)
+      return (__DEV__ && devWriteThroughLoading(subKeys!.get(t)), true);
     if (t.s) return (rawThin(value), writeSlot(t, key, value), true);
     const v = unwrapThin(value);
     // A derive's new child over a child carrying guesses: the truth lands
@@ -744,7 +760,8 @@ const BASE: ProxyHandler<any> = {
     else if (__DEV__) warnOutside(t, key, "deleteProperty");
     return true;
   },
-  getPrototypeOf: _ => Object.getPrototypeOf(_[$S].v)
+  getPrototypeOf: _ => protoOf(_[$S].v),
+  setPrototypeOf: () => false
 };
 
 /** A chained target's traps: a key with no own value reads the chained
@@ -806,6 +823,24 @@ const CHAIN: ProxyHandler<any> = {
  * proxy, chained to the inner child: a write through it stays in this store
  * (#2932, each level its own proxies). */
 const subChains = new WeakMap<Target, Map<PropertyKey, Target>>();
+const subKeys = __DEV__ ? new WeakMap<Target, PropertyKey>() : null;
+function devWriteThroughLoading(key: PropertyKey | undefined): void {
+  const name = String(key ?? "");
+  reportDiagnostic(
+    emitDiagnostic({
+      code: "STORE_WRITE_THROUGH_LOADING",
+      kind: "write",
+      severity: "warn",
+      message:
+        `[STORE_WRITE_THROUGH_LOADING] A store setter wrote inside "${name}", which is another ` +
+        `store still loading its first answer. The write was dropped: when that store loads, its ` +
+        `answer is what shows, as for a write to a loading store itself. Write after it loads, or ` +
+        `replace the whole value: \`setStore(s => { s.${name} = value })\`.`,
+      nodeName: name,
+      data: { operation: "set", property: name }
+    })
+  );
+}
 function subChain(t: Target, key: PropertyKey, iv: any): any {
   let m = subChains.get(t);
   if (m === undefined) subChains.set(t, (m = new Map()));
@@ -816,6 +851,7 @@ function subChain(t: Target, key: PropertyKey, iv: any): any {
     thinWrap(raw, t._fam);
     e = t._fam!.map.get(raw) as unknown as Target;
     m.set(key, e);
+    if (__DEV__) subKeys!.set(e, key);
   }
   chainTo(e, iv);
   return e.p;
