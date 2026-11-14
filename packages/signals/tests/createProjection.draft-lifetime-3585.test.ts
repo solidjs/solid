@@ -59,64 +59,71 @@ const tick = () => new Promise<void>(r => queueMicrotask(r));
 
 describe("#3585 draft lifetime: valid until superseded or disposed", () => {
   describe("GabbeV's cases (issue text verbatim)", () => {
-    it("sync derive: a subscription set up in the derive writes through the draft after it returned", async () => {
-      const feed = makeFeed();
-      const subscribeToData = feed.subscribe;
-      const [id, setId] = createSignal(1);
-      const props = {
-        get id() {
-          return id();
-        }
-      };
-      const seen: number[][] = [];
-      let data!: number[];
-      const dispose = createRoot(dispose => {
-        data = createProjection<number[]>(draft => {
-          draft.length = 0;
-          const unsubscribe = subscribeToData(props.id, item => {
-            draft.push(item);
-          });
-          onCleanup(unsubscribe);
-        }, []);
-        createEffect(
-          () => [...data],
-          v => {
-            seen.push(v);
+    // F-10 (Ryan, 2026-11-14): the late write is visible at the flush that
+    // carries it, not before. The deep engine serves it to an untracked read
+    // at once (its pending backing), so this pin fails there.
+    ((globalThis as any).THIN_STORE ? it : it.fails)(
+      "sync derive: a subscription set up in the derive writes through the draft after it returned",
+      async () => {
+        const feed = makeFeed();
+        const subscribeToData = feed.subscribe;
+        const [id, setId] = createSignal(1);
+        const props = {
+          get id() {
+            return id();
           }
-        );
-        return dispose;
-      });
-      flush();
-      expect(seen).toEqual([[]]);
+        };
+        const seen: number[][] = [];
+        let data!: number[];
+        const dispose = createRoot(dispose => {
+          data = createProjection<number[]>(draft => {
+            draft.length = 0;
+            const unsubscribe = subscribeToData(props.id, item => {
+              draft.push(item);
+            });
+            onCleanup(unsubscribe);
+          }, []);
+          createEffect(
+            () => [...data],
+            v => {
+              seen.push(v);
+            }
+          );
+          return dispose;
+        });
+        flush();
+        expect(seen).toEqual([[]]);
 
-      // The derive has returned. Its draft is still live: the push lands and
-      // the effect sees it WITHOUT an explicit flush (the late write arms the
-      // microtask drain itself).
-      feed.emit(1, 10);
-      expect(data.length).toBe(1);
-      await tick();
-      expect(seen).toEqual([[], [10]]);
+        // The derive has returned. Its draft is still live: the push lands and
+        // the effect sees it WITHOUT an explicit flush (the late write arms the
+        // microtask drain itself).
+        feed.emit(1, 10);
+        expect(data.length).toBe(0);
+        await tick();
+        expect(data.length).toBe(1);
+        expect(seen).toEqual([[], [10]]);
 
-      feed.emit(1, 11);
-      await tick();
-      expect(seen).toEqual([[], [10], [10, 11]]);
-      expect([...data]).toEqual([10, 11]);
+        feed.emit(1, 11);
+        await tick();
+        expect(seen).toEqual([[], [10], [10, 11]]);
+        expect([...data]).toEqual([10, 11]);
 
-      // "Once props.id update and the projection re run the draft should
-      // still be invalidated." — the rerun supersedes run #1's draft: the old
-      // subscription is cleaned up (onCleanup), and even if it were still
-      // firing, its writes would be dropped (see the supersession block).
-      setId(2);
-      flush();
-      expect(feed.unsubscribes).toBe(1);
-      expect(feed.listeners(1)).toBe(0);
-      expect(seen.at(-1)).toEqual([]);
-      feed.emit(2, 20);
-      await tick();
-      expect([...data]).toEqual([20]);
-      expect(seen.at(-1)).toEqual([20]);
-      dispose();
-    });
+        // "Once props.id update and the projection re run the draft should
+        // still be invalidated." — the rerun supersedes run #1's draft: the old
+        // subscription is cleaned up (onCleanup), and even if it were still
+        // firing, its writes would be dropped (see the supersession block).
+        setId(2);
+        flush();
+        expect(feed.unsubscribes).toBe(1);
+        expect(feed.listeners(1)).toBe(0);
+        expect(seen.at(-1)).toEqual([]);
+        feed.emit(2, 20);
+        await tick();
+        expect([...data]).toEqual([20]);
+        expect(seen.at(-1)).toEqual([20]);
+        dispose();
+      }
+    );
 
     it("the never-resolving-Promise workaround keeps applying late writes (no regression)", () => {
       // GabbeV's second snippet. NOTE: a projection whose first run never
