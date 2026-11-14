@@ -250,6 +250,9 @@ function guessCarrier(t: StoreTarget, keys?: Set<PropertyKey>): any {
     holdNode(g, txOf(p));
   }
   g.guess = true;
+  // The question of the carrier's first writer: a later same-slot guess
+  // shares this carrier (D-33), and its question is the carrier's `_q`.
+  g.q0 = question;
   g.wk = null;
   g.del = null;
   g.removed = null;
@@ -680,6 +683,10 @@ GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
   // the guess for the hold's end, as a leaf's landing was — the screen keeps
   // the guess until the commit (D-34; #4690, the outside re-ask).
   if (!older && el.g !== null) return fold(el, truth);
+  // The truth of an action whose own guess is on this carrier, entangled
+  // with a later one's (same slot, D-33): the hold's own staging, beneath
+  // the guess until the hold commits — none of it shows before (#4874).
+  if (older && question >= el.q0) return true;
   // An older question's truth, or the #4525 re-base: the guess's edit over it.
   if (!Array.isArray(truth) || !Array.isArray(guess)) return true;
   const keyFn = t._fam?.key;
