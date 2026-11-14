@@ -28,9 +28,11 @@ import {
   signal,
   slotSignal,
   tracking,
+  untrackDepth,
   untrack,
   verdict
 } from "../core/core.js";
+import { asyncTailFlights, checkPostAwaitRead, emitDiagnostic } from "../core/dev.js";
 import { link, setSlotUnobserved, slotUnobservedHook } from "../core/graph.js";
 import { getObserver } from "../core/owner.js";
 import {
@@ -133,8 +135,17 @@ export function thinWrap(v: any, fam: StoreFamily | null = null): any {
   return t.p;
 }
 const wrap = thinWrap;
+/** Dev: each target's root (the first store it was reached from), the
+ * holder the post-await read warning reports once per (store.ts `storeRoot`). */
+const devRoot: WeakMap<Target, Target> | null = __DEV__ ? new WeakMap() : null;
 function child(t: Target, v: any): any {
-  return isWrappable(v) && !isRawValue(v) ? wrap(v, t._fam) : v;
+  if (!isWrappable(v) || isRawValue(v)) return v;
+  const p = wrap(v, t._fam);
+  if (__DEV__) {
+    const ct: Target = p[$THIN];
+    if (ct !== t && !devRoot!.has(ct)) devRoot!.set(ct, devRoot!.get(t) ?? t);
+  }
+  return p;
 }
 /** The scopes with an open setter: a family, or PLAIN for every plain store
  * (plain stores share one raw-to-target map, so they share one scope). A
@@ -174,7 +185,9 @@ function peek(node: Signal<any>, t: Target, mode = 0): any {
     ((globalThis as any).THIN_LEAK && !tracking && getObserver() === null && !(node as any)._subs)
   )
     return node._pendingValue !== NOT_PENDING ? node._pendingValue : node._value;
-  return tracking ? untrack(() => read(node)) : read(node);
+  // Dev: a read after an await is reported by the trap, once per store
+  // (core's per-node report is skipped under untrack).
+  return tracking || (__DEV__ && asyncTailFlights !== 0) ? untrack(() => read(node)) : read(node);
 }
 function seed(t: Target, key: PropertyKey): any {
   return t.c !== null ? DELEGATE : hasOwn.call(t.v, key) ? t.v[key] : ABSENT;
@@ -418,6 +431,17 @@ function traps(t: Target): ProxyHandler<any> {
       if (key === $TRACK) return (track(t), undefined);
       let node = t.n?.[key];
       const tracked = !inDraft(t) && getObserver() !== null;
+      if (
+        __DEV__ &&
+        asyncTailFlights !== 0 &&
+        untrackDepth === 0 &&
+        typeof key === "string" &&
+        key !== "then" &&
+        getObserver() === null &&
+        !inDraft(t) &&
+        (node !== undefined || hasOwn.call(t.v, key))
+      )
+        checkPostAwaitRead(node, devRoot!.get(t) ?? t, undefined, key, false);
       if (node === undefined) {
         const own = hasOwn.call(t.v, key);
         // Pollution guard; `constructor` withheld from drafts only (#4670).
@@ -616,14 +640,38 @@ function replace(t: Target, next: any): void {
   for (const key of Reflect.ownKeys(next)) write(t, key, unwrapThin(next[key]));
 }
 
+const ASYNC_SETTER =
+  "[ASYNC_STORE_SETTER] Store setter callback returned a Promise. A store setter is a synchronous transaction: " +
+  "the draft closes when the callback returns, so writes after an `await` are lost. " +
+  "Move the await into an action() and call the setter from there.";
+
+function devGuardStoreSetterResult(result: any): void {
+  if (result == null || (typeof result !== "object" && typeof result !== "function")) return;
+  if (typeof result.then !== "function") return;
+  emitDiagnostic({
+    code: "ASYNC_STORE_SETTER",
+    kind: "write",
+    severity: "error",
+    message: ASYNC_SETTER,
+    ownerId: context?.id,
+    ownerName: (context as any)?._name,
+    data: { operation: "setStore" }
+  });
+  throw new Error(ASYNC_SETTER);
+}
+
 export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true): void {
   const prevUser = userWrite;
   userWrite = guard;
   const t0: Target = (proxy as any)[$THIN];
   scopes.push(scopeOf(t0));
   writing++;
+  let result: any;
   try {
-    const result: any = fn(proxy);
+    result = fn(proxy);
+    // The sync writes stand (they notified); a thenable is the async-setter
+    // mistake, thrown before any adoption (store.ts `storeSetter`).
+    if (__DEV__ && guard) devGuardStoreSetterResult(result);
     if (result !== undefined && result !== proxy && isWrappable(result)) {
       const t: Target = (proxy as any)[$THIN];
       t._fam?.key !== undefined
