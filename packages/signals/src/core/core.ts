@@ -593,10 +593,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // re-ask does not launder (a poll during a quiet confirm stays quiet).
   // Nor a guess's new question whose answer is still held (#4336: an
   // action's refresh after an outside input change has not committed it).
+  // A held user write is not an answer (REACTIVE_MANUAL_WRITE): the refresh
+  // over it asks the same question (D-34 ¶3), so its readers stay the
+  // re-ask's and a later lane's guess reaches them (#4887, #4888).
   const reask =
     (el._flags & REACTIVE_REASK) !== 0 &&
     !(
-      (el._statusFlags & STATUS_PENDING || (guessing && el._pendingValue !== NOT_PENDING)) &&
+      (el._statusFlags & STATUS_PENDING ||
+        (guessing && el._pendingValue !== NOT_PENDING && !(el._flags & REACTIVE_MANUAL_WRITE))) &&
       el._x !== null &&
       !el._x._reask
     );
