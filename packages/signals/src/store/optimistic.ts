@@ -865,6 +865,23 @@ function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
       if (nv !== undefined && !lookupTarget(nv, t._fam)) reconcileState(nv, rt.px, keyFn, true);
     }
   }
+  // A row another store's guess added as it is (that store's proxy, not a
+  // copy) keeps its proxy when the landing returns its key (Q-D, as a row
+  // the guess added above): the lent row's target adopts the server object,
+  // so a guess of that store's still out on the row shows on through its
+  // own carrier until its action ends (F-11, #4902).
+  if (keyFn && Array.isArray(pb))
+    kgOf(t)?.forEach(c => {
+      const f = guessedValueOf(c);
+      if (Array.isArray(f))
+        for (const r of f) {
+          const ft = r?.[$TARGET];
+          if (ft?.px !== r || ft._fam === t._fam) continue;
+          const i = pb.findIndex(x => isWrappable(x) && sameKey(keyFn(x), keyFn(r)));
+          if (i >= 0 && !lookupTarget(pb[i], t._fam))
+            (reconcileState(pb[i], r, keyFn, true), (pb[i] = r));
+        }
+    });
 }
 
 /** #4788 (D-33): an action read `key` of `t` (`v`, else the writer's view
