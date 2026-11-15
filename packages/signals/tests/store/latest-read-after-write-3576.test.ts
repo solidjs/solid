@@ -25,13 +25,10 @@ function writeAndReadBack(withLatest: boolean, flushEach: boolean): number[] {
 // The current deep engine serves a projection's pending backing to an
 // untracked read before the flush (an F-10 deviation, ruled 2026-11-13: F-10
 // holds). The thin engine (spike) follows F-10.
-((globalThis as any).THIN_STORE ? it : it.fails)(
-  "unflushed writes stay invisible to untracked reads, with or without latest() (#3576, F-10)",
-  () => {
-    expect(writeAndReadBack(false, false)).toEqual([0, 0, 0, 0, 0, 4]);
-    expect(writeAndReadBack(true, false)).toEqual([0, 0, 0, 0, 0, 4]);
-  }
-);
+it("unflushed writes stay invisible to untracked reads, with or without latest() (#3576, F-10)", () => {
+  expect(writeAndReadBack(false, false)).toEqual([0, 0, 0, 0, 0, 4]);
+  expect(writeAndReadBack(true, false)).toEqual([0, 0, 0, 0, 0, 4]);
+});
 
 it("flushed writes show to untracked reads, with or without latest() (#3576)", () => {
   expect(writeAndReadBack(false, true)).toEqual([0, 1, 2, 3, 4, 4]);

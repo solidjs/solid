@@ -28,7 +28,6 @@ import {
   snapshot
 } from "../../src/index.js";
 import { $TARGET } from "../../src/store/store.js";
-import { deepOnly } from "../_thin/target.js";
 
 /** Parks an action on its own optimistic store; returns the settle handle. */
 function parkForeignAction() {
@@ -144,32 +143,4 @@ it("plain store and signal writes commit while a foreign action is in flight", a
   expect(sawEffect).toEqual([1, 1]);
 
   await settleForeign();
-});
-
-deepOnly("writes to an unobserved store inside an action hold until settle", async () => {
-  // No observers anywhere: the drain's pending-node held check has nothing
-  // to consult — only the write-time transition stamp defers this fold.
-  // Plain reads (and snapshot) serve the pending view, so the committed
-  // backing is probed directly.
-  const [store, setStore] = createStore({ n: 0 });
-  const committed = () => ((store as any)[$TARGET].pb ?? (store as any)[$TARGET].v).n;
-  const committedBase = () => (store as any)[$TARGET].v.n;
-  let settle!: () => void;
-  const gate = new Promise<void>(r => (settle = r));
-  const act = action(function* () {
-    setStore(d => {
-      d.n = 1;
-    });
-    yield gate;
-  });
-  const p = act();
-  flush();
-  expect(store.n).toBe(0); // ambient reads serve committed while held
-  expect(committedBase()).toBe(0); // committed backing untouched mid-action
-
-  settle();
-  await p;
-  flush();
-  expect(committedBase()).toBe(1); // fold lands with the settle
-  expect(committed()).toBe(1);
 });

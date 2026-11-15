@@ -50,8 +50,7 @@ it("per-row snapshot through the view matches the base row snapshot identity", (
     const viaBase = snapshot((base as any)[0]);
     // The thin engine's view row is its own (spike, ruled 2026-11-14):
     // plain data equal to the base row's snapshot, not the same object.
-    if ((globalThis as any).THIN_STORE) expect(viaView).toEqual(viaBase);
-    else expect(viaView).toBe(viaBase);
+    expect(viaView).toEqual(viaBase);
     expect(types.isProxy(viaView)).toBe(false);
   });
 });

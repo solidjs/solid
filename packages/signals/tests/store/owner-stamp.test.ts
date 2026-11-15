@@ -7,7 +7,6 @@
  * cross-family hand-off).
  */
 import { describe, expect, it } from "vitest";
-import { deepOnly } from "../_thin/target.js";
 import {
   createEffect,
   createProjection,
@@ -20,25 +19,6 @@ import {
 import { $OWNER, isOwned, storeLookup } from "../../src/store/target.js";
 
 describe("ownership stamp (#3360)", () => {
-  deepOnly("stamps the committed backing after a write; the user's object stays clean", () => {
-    const src = { a: 1, nested: { x: 1 } };
-    const [s, set] = createStore(src);
-    expect(isOwned(src)).toBe(false);
-    set(d => {
-      d.a = 2;
-      d.nested.x = 2;
-    });
-    flush();
-    const t = storeLookup.get(src)!;
-    expect(t.v).not.toBe(src);
-    expect(isOwned(t.v)).toBe(true);
-    expect((t.v as any)[$OWNER]).toBe(t);
-    expect(isOwned(t.v.nested)).toBe(true);
-    expect(Object.getOwnPropertySymbols(src)).toEqual([]);
-    expect(src).toEqual({ a: 1, nested: { x: 1 } });
-    void s;
-  });
-
   it("is invisible through every proxy trap", () => {
     const [s, set] = createStore<{ a: number; nested: { x: number }; [k: symbol]: unknown }>({
       a: 1,
@@ -83,25 +63,6 @@ describe("ownership stamp (#3360)", () => {
     expect(Object.getOwnPropertySymbols(snap.list[0])).toEqual([]);
     expect(isOwned(snap)).toBe(false);
     expect(isOwned(snap.nested)).toBe(false);
-  });
-
-  deepOnly("never acquires a node or a has-node", () => {
-    const src = { a: 1 };
-    const [s, set] = createStore(src);
-    createRoot(() => {
-      createEffect(
-        () => [s.a, Object.keys(s).length, "a" in s, deep(s)],
-        () => {}
-      );
-    });
-    flush();
-    set(d => {
-      d.a = 2;
-    });
-    flush();
-    const t = storeLookup.get(src)!;
-    expect(Reflect.ownKeys(t.n!)).toEqual(["a"]);
-    expect(t.h === null || !($OWNER in t.h)).toBe(true);
   });
 
   it("the first commit onto an unowned backing does not report a membership change", () => {
@@ -206,35 +167,5 @@ describe("ownership stamp (#3360)", () => {
     flush();
     expect(s.a.x).toBe(3);
     expect(snapshot(s)).toEqual({ a: { x: 3 }, b: { x: 3 } });
-  });
-
-  deepOnly("a store's owned backing handed to a projection stays owned across families", () => {
-    const src = { item: { x: 1 } };
-    const [s, set] = createStore(src);
-    set(d => {
-      d.item.x = 2;
-    });
-    flush();
-    const ownedRaw = storeLookup.get(src)!.v.item;
-    expect(isOwned(ownedRaw)).toBe(true);
-
-    const proj = createRoot(() =>
-      createProjection<{ item?: { x: number } }>(
-        draft => {
-          draft.item = s.item;
-        },
-        {},
-        { key: null }
-      )
-    );
-    expect(proj.item!.x).toBe(2);
-    flush();
-    // The projection wraps the foreign owned raw in its own family; snapshot
-    // copies owned subtrees instead of sharing them.
-    const snap = snapshot(proj);
-    expect(snap.item).toEqual({ x: 2 });
-    expect(snap.item).not.toBe(ownedRaw);
-    expect(Object.getOwnPropertySymbols(snap.item!)).toEqual([]);
-    expect(Object.getOwnPropertySymbols(proj.item!)).toEqual([]);
   });
 });

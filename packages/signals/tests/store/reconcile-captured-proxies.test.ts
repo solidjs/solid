@@ -228,6 +228,6 @@ describe("pruning is preserved (#2902)", () => {
     // Unobserved capture may detach — pinned as design. The thin engine
     // (spike, ruled 2026-11-14) keeps one target per raw row, so the capture
     // stays the live row: both are within "may".
-    expect(row.name).toBe((globalThis as any).THIN_STORE ? "b" : "a");
+    expect(row.name).toBe("b");
   });
 });
