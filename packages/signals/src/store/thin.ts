@@ -67,6 +67,7 @@ import {
   flushTransaction,
   GlobalQueue,
   holdNode,
+  installStoreHooks,
   joinFuture,
   laneStageHook,
   list,
@@ -99,17 +100,32 @@ export { $THIN };
 /** The proxy shell's back-reference to its target (one shared handler). */
 const $S = Symbol();
 setSlotUnobserved(release as any);
+let staged: Set<any> | null = null;
+// The commit seam (core `storeCommitHook`, once per flush): the nodes a
+// staged write kept try again; one still uncommitted goes back in the set.
+// A store build has a park hook too: core asks a derived store's family of
+// a status that reached its derive by propagation (`_fam.st`).
+installStoreHooks(
+  () => {},
+  () => {
+    const s = staged;
+    staged = null;
+    if (s !== null) for (const n of s) release(n);
+  }
+);
 /** A node whose last reader let go leaves its target when the raw already
  * says what it says (#3351): nothing is lost, the next read re-creates it
  * from the seed. A target with no node leaves its family's live index. A
  * written node, or one a frame still carries, stays. */
 function release(node: any, settled?: boolean): void {
+  if (node._subs !== null) return;
+  // A staged write or a guess the node still carries: released at its
+  // commit.
   if (
-    node._subs !== null ||
     node._pendingValue !== NOT_PENDING ||
     node._config & (CONFIG_OVERRIDE | CONFIG_HELD | CONFIG_GUESS)
   )
-    return;
+    return void (staged ??= new Set()).add(node);
   // One a lane carried may come back while anything is still out (a
   // revert's kept guess, #4336): released once everything settled (S7).
   if (node._x !== null && !settled) return void (laneCarried ??= new Set()).add(node);
@@ -144,8 +160,6 @@ export function releaseSettled(live: (n: any) => boolean): void {
       live(n) || n._host._fam?.node ? (laneCarried ??= new Set()).add(n) : release(n, true);
   }
 }
-// A staged write to a node nobody reads: the release waits for its commit.
-GlobalQueue._slotCommitted = release as any;
 const ABSENT: any = Symbol(__DEV__ ? "ABSENT" : 0);
 
 interface Target {

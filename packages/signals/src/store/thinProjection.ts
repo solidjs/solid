@@ -37,7 +37,6 @@ import { enqueueSub } from "../core/heap.js";
 import { getOwner, isDisposed } from "../core/owner.js";
 import {
   GlobalQueue,
-  installStoreHooks,
   insertSubs,
   observeFlightHook,
   passLane,
@@ -45,8 +44,7 @@ import {
   setPassLane,
   question,
   schedule,
-  setQuestion,
-  storeParkHook
+  setQuestion
 } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
@@ -523,10 +521,3 @@ export function createThinStoreDerived<T extends object = {}>(
  * landing) read it. */
 GlobalQueue._slotFlight = (n: Signal<any>): boolean =>
   ((n as any)._host?._fam?.node?._statusFlags & STATUS_PENDING) !== 0;
-// A store build has park and commit hooks: core asks a derived store's
-// family of a status that reached its derive by propagation (`_fam.st`).
-if (storeParkHook === null)
-  installStoreHooks(
-    () => {},
-    () => {}
-  );
