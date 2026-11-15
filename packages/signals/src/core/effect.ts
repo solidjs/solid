@@ -144,19 +144,19 @@ function notifyEffectStatus(this: Effect<any>): void {
       unwrapStatusError(actualError),
       __DEV__ && actualError instanceof StatusError ? actualError.source : undefined
     );
-  } else if (this._type === EFFECT_USER) {
-    // A run owed for a pass a new question has since made pending is for a
-    // world that will not commit (F-1, F-2): void — the effect re-runs when
-    // that question settles (`settlePendingSource`). A quiet re-ask keeps
-    // it: the pass still answers the question being asked (F-9).
+  } else if (
+    // A user effect's run owed for a pass a new question has since made
+    // pending is for a world that will not commit (F-1, F-2): void — the
+    // effect re-runs when that question settles (`settlePendingSource`). A
+    // quiet re-ask keeps it: the pass still answers the question asked (F-9).
+    this._type === EFFECT_USER
+  ) {
     if (
       actualStatus & STATUS_PENDING &&
       this._modified &&
       !(actualError as any)?.source?._x?._reask
-    ) {
-      this._modified = false;
-      ext(this)._blocked = true;
-    }
+    )
+      ext(this)._blocked = !(this._modified = false);
   } else if (this._type === EFFECT_RENDER) {
     globalQueue.notify(this, STATUS_PENDING | STATUS_ERROR, actualStatus, actualError);
     if (__DEV__ && _hitUnhandledAsync && resetUnhandledAsync()) {

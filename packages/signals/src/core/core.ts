@@ -2850,7 +2850,7 @@ export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): 
     // Lane work this pass served the committed value of a flight now reads
     // a staging of the flush (lanes.ts `laneServed`: it throws) — with or
     // without a transaction to be the flight's stale reader in yet (#4859).
-    if (passLane !== null) laneServedHook!(c, null);
+    if (laneServedHook && passLane !== null) laneServedHook(c, null);
     c._flags |= REACTIVE_STAGED_READ;
     if (__TEST__) shadowExternalRaise(c, RAISE_FL);
     // A verdict reader's too when it is an effect, before the frame has a

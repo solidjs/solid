@@ -1638,8 +1638,7 @@ export function commitPendingNode(n: Signal<any>): void {
   if (
     (c._statusFlags! & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
     c._x?._inFlight &&
-    !c._x._reask &&
-    !(n._config & CONFIG_STAGED_ERROR)
+    !c._x._reask
   )
     n._pendingValue = NOT_PENDING;
   const inFlight = n._pendingValue === NOT_PENDING && (c._statusFlags! & STATUS_PENDING) !== 0;
