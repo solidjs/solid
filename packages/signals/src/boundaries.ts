@@ -183,17 +183,17 @@ const isCollecting = (b: Boundary): boolean =>
   b._type === STATUS_ERROR || !b._initialized || b._armed || behindError(b._parent);
 
 /** The statuses that keep reader `r` of `b`: `b`'s own and pending — and,
- * behind an error fallback, an error that fallback shows (no error boundary
- * between `r` and `b`): a loading boundary there whose reader answered with
- * that error has nothing to reveal. Revealing re-derived the content, whose
+ * for a loading boundary behind an error fallback, the error of a reader
+ * directly under it (an error boundary between them shows that error
+ * itself; a held signal it waits on has no context): there is nothing to
+ * reveal, the error shows above. Revealing re-derived the content, whose
  * re-read retried the error's source: pending again, caught again, without
  * end (#4870). The error's recovery answers the reader, which reveals it
  * with the recovered content. */
-function keeps(b: Boundary, r: Computed<any>): number {
-  let l = behindError(b._parent) ? (r._context?.[BOUNDARY] as Boundary | undefined) : null;
-  while (l && l !== b && l._type !== STATUS_ERROR) l = l._parent;
-  return b._type | STATUS_PENDING | (l === b ? STATUS_ERROR : 0);
-}
+const keeps = (b: Boundary, r: Computed<any>): number =>
+  b._type |
+  STATUS_PENDING |
+  (behindError(b._parent) && r._context?.[BOUNDARY] === b ? STATUS_ERROR : 0);
 
 /** A reader `b` waits on: recorded for its `on`, and `b` visited at the seam. */
 function record(b: Boundary, node: Computed<any>, source = node): void {
