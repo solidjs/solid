@@ -194,6 +194,8 @@ export function runInServerComponentScope<T>(fn: () => T, _options?: { live?: bo
 export function creationStamp(): number {
   return 0;
 }
+/** @internal Boundary swaps and off-screen nodes (F-3): the head registry withdraws the tags of content behind a fallback (#4873). */
+export { setSwapHook, isHidden } from "@solidjs/signals";
 /** @internal A callback run before every signal or store write lands (deferred hydration). */
 export { setWriteHook } from "@solidjs/signals";
 /** @internal Dependency edges: name plain signals so a write reports which one; dev read watch. */
