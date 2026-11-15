@@ -14,10 +14,9 @@
  *     left with `X-Frame-Stream: ""` and a primary frame with id `""` — the
  *     client's `applyFlightResponse` then resolved the call to the
  *     envelope's `undefined` value and rendered nothing (#3641);
- *   - compiled SSR output arms the select-value gate (`ssrSelectValues`)
- *     through `@solidjs/web`; `renderToStream` reads it when it emits html,
- *     so the frames copy never resolved `<select value>` inside a server
- *     component.
+ *   - compiled SSR output renders through `@solidjs/web` (`ssrSelect` /
+ *     `ssrOption` for `<select value>`); a frames copy with its own runtime
+ *     once streamed `<select value>` inside a server component unresolved.
  *
  * `externalizeFramesServerRuntime` (rollup.config.js) resolves those
  * imports to `@solidjs/web/server-functions/server` and `@solidjs/web`; the
@@ -96,7 +95,7 @@ describe("frames/dist/server*.js share the server-function and SSR runtimes", ()
         ])
       );
       // The SSR runtime the sink drives must be the one compiled output
-      // arms (`ssrSelectValues`) and the app renders documents with.
+      // calls (`ssrSelect`, `ssrOption`) and the app renders documents with.
       const web = importedNames(code, "@solidjs/web");
       expect(web, `${file}: no import from @solidjs/web`).not.toBeNull();
       expect(web).toEqual(
@@ -111,8 +110,8 @@ describe("frames/dist/server*.js share the server-function and SSR runtimes", ()
         "function getEventServerFunctionInvocation",
         "function guardFailures",
         "function renderToStream",
-        "function ssrSelectValues",
-        "function resolveSSRSelectValues",
+        "function ssrSelect",
+        "function ssrOption",
         "function isResponseEnvelope"
       ]) {
         expect(code.includes(marker), `${file} inlines "${marker}"`).toBe(false);
@@ -157,10 +156,10 @@ describe("a single-flight server-component call carries its invocation id (#3641
   // The issue's reproduction, verbatim in shape: a flight source registered,
   // a POST server-component call with `X-Single-Flight`, then the frame
   // header and the primary frame's chunk ids. Plus the SSR-runtime seam:
-  // the select-value gate armed through `@solidjs/web` (what compiled output
-  // does) must be seen by the frame stream's renderer.
+  // a select's state provided through `@solidjs/web` (what compiled output
+  // does) must reach an option the frame stream's renderer renders.
   const PROBE = `
-    import { ssr, ssrSelectValues } from "@solidjs/web";
+    import { ssr, ssrSelect, ssrIn, ssrOption } from "@solidjs/web";
     import {
       configureServerFunctionsServer,
       createServerReference,
@@ -179,7 +178,20 @@ describe("a single-flight server-component call carries its invocation id (#3641
     createServerReference(registerServerReference("view-1", async () => () => "view markup"));
     createServerReference(
       registerServerReference("view-select", async () => () =>
-        ssr('<select value="b"><option value="a">A</option><option value="b">B</option></select>')
+        {
+          // As compiled \`<select value="b">\` with its options in a component.
+          const s = ssrSelect("b");
+          return ssr(
+            ["<select>", "</select>"],
+            ssrIn(s, () =>
+              ssr(
+                ['<option value="a"', '>A</option><option value="b"', ">B</option>"],
+                ssrOption("a"),
+                ssrOption("b")
+              )
+            )
+          );
+        }
       )
     );
 
@@ -223,7 +235,6 @@ describe("a single-flight server-component call carries its invocation id (#3641
     const res = await call("view-1", true);
     const chunks = await chunksOf(res);
 
-    ssrSelectValues();
     const frame = await chunksOf(await call("view-select", false));
 
     process.stdout.write(
@@ -276,7 +287,7 @@ describe("a single-flight server-component call carries its invocation id (#3641
         { id: "view-1", keys: [":complete"] },
         expect.objectContaining({ type: "outcome" })
       ]);
-      // The renderer behind the frame stream is the one compiled output arms.
+      // The renderer behind the frame stream is the one compiled output calls.
       expect(out.selectHtml).toBe(
         '<select><option value="a">A</option><option value="b" selected>B</option></select>'
       );

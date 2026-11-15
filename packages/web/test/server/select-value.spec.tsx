@@ -2,9 +2,9 @@
  * @jsxImportSource @solidjs/web
  *
  * SSR <select value> resolution (#3013). HTML has no `value` attribute on
- * <select>; the compilers emit the bound value as an attribute marker and the
- * server runtime resolves it into `selected` on the matching option at flush,
- * stripping the marker — so the pre-hydration markup shows the right option.
+ * <select>; the server marks the matching option `selected` as it renders it
+ * (#4891) and writes no value attribute, so the pre-hydration markup shows
+ * the right option.
  */
 import { describe, expect, test } from "vitest";
 import { renderToString, renderToStream, Loading } from "@solidjs/web";

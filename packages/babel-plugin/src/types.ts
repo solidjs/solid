@@ -200,6 +200,9 @@ export interface TransformInfo {
   toBeClosed?: Set<string>;
   parentResults?: TransformResult;
   hydratable?: boolean;
+  /** SSR: the enclosing same-template `<select>`'s bound-value state; `null`
+   * inside a select with no bound value (see ssr/element.ts). */
+  select?: t.Identifier | null;
 }
 
 export type BabelPath<TNode extends t.Node = t.Node> = NodePath<TNode>;
