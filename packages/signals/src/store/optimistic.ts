@@ -388,6 +388,9 @@ export function notifyOptimisticWrites(
   if (staged !== undefined) optStaged.delete(t);
   if (changed.size === 0 && del === null) return staged ?? null;
   const g = guessCarrier(t, del === null ? changed : new Set([...changed, ...del]));
+  // The questions of every action that guessed on this carrier: same-slot
+  // guesses share it (D-33), and its `_q` is only the newest's (#4874).
+  (g.qs ??= new Set()).add(question);
   // The record accumulates across a lane's writes to the same target.
   if (g.wk === null) g.wk = changed;
   else for (const key of changed) g.wk.add(key);
@@ -680,6 +683,10 @@ GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
   // the guess for the hold's end, as a leaf's landing was — the screen keeps
   // the guess until the commit (D-34; #4690, the outside re-ask).
   if (!older && el.g !== null) return fold(el, truth);
+  // The truth of an action whose own guess is on this carrier, entangled
+  // with a later one's (same slot, D-33): the hold's own staging, beneath
+  // the guess until the hold commits — none of it shows before (#4874).
+  if (older && el.qs?.has(question)) return true;
   // An older question's truth, or the #4525 re-base: the guess's edit over it.
   if (!Array.isArray(truth) || !Array.isArray(guess)) return true;
   const keyFn = t._fam?.key;
