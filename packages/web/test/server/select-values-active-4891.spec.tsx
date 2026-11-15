@@ -39,6 +39,22 @@ describe("SSR selectValuesActive is render-local (#4891)", () => {
     expect(html).not.toMatch(/<select[^>]*value=/);
   });
 
+  test("a nested select (not the template root) still resolves after a prior render", () => {
+    // Compiles to `["<div", "><select", …]` — re-arm must scan every segment.
+    renderToString(() => <div>no select</div>);
+    const html = renderToString(() => (
+      <div>
+        <select value="fr">
+          <option value="en">English</option>
+          <option value="fr">French</option>
+        </select>
+        <span>fr</span>
+      </div>
+    ));
+    expect(html).toMatch(/<option value="fr" selected>French<\/option>/);
+    expect(html).not.toMatch(/<select[^>]*value=/);
+  });
+
   test("select resolution still works on a later request after a select-free one", () => {
     renderToString(() => <div>no select</div>);
     const html = renderToString(() => (

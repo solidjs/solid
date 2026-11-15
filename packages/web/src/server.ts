@@ -4942,9 +4942,9 @@ export function ssr(t) {
   // Group fast-path (`hole.$g` set by compiler `_$ssrGroup`): one call
   // returns an array of values for >=N hole positions. The check is at
   // the END of the typeof chain so non-function holes don't pay for it.
-  // Re-arm after the per-render reset (#4891); module-scope markers run once.
-  const head = Array.isArray(t) ? t[0] : t;
-  if (typeof head === "string" && head.startsWith("<select")) selectValuesActive = true;
+  // Re-arm after the per-render reset (#4891). Markers are module-scope once,
+  // and a nested `<select>` lives in a later template string (not `t[0]`).
+  if (!selectValuesActive && ssrTemplateHasSelect(t)) selectValuesActive = true;
   const len = arguments.length;
   if (len === 1) return { t: t, $: SSR_NODE };
   let s = t[0];
@@ -5743,6 +5743,27 @@ function tagIs(html, i, name) {
 let selectValuesActive = false;
 export function ssrSelectValues() {
   selectValuesActive = true;
+}
+
+// True when a template string contains a real `<select` tag (not
+// `<selectedcontent`). Nested selects sit in later segments, e.g.
+// `["<div", "><select", …]` — checking only `t[0]` misses them.
+function ssrTemplateHasSelect(t) {
+  if (typeof t === "string") return selectTagInString(t);
+  if (!Array.isArray(t)) return false;
+  for (let i = 0; i < t.length; i++) {
+    if (typeof t[i] === "string" && selectTagInString(t[i])) return true;
+  }
+  return false;
+}
+function selectTagInString(s) {
+  let j = s.indexOf("<select");
+  while (j >= 0) {
+    const c = s.charCodeAt(j + 7);
+    if (c !== c || c === 32 || c === 62 || c === 47 || c === 9 || c === 10 || c === 13) return true;
+    j = s.indexOf("<select", j + 7);
+  }
+  return false;
 }
 
 export function resolveSSRSelectValues(html) {
