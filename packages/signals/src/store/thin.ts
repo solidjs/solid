@@ -125,12 +125,16 @@ function release(node: any, settled?: boolean): void {
   } else if (t.n?.[key] === node) {
     if (!Object.is(node._value, seed(t, key))) return;
     delete t.n![key];
+    t.q!--;
   } else if (t.h?.[key] === node) {
     // A chained target's presence is the chain's: not released here.
     if (t.c !== null || node._value !== (valueOf(t, key) !== ABSENT)) return;
     delete t.h![key];
+    t.q!--;
   } else return;
-  if (t._fam !== null && t.k === null && empty(t.n) && empty(t.h)) t._fam.live.delete(t as any);
+  // A count, not an enumeration: a wide map deleted key by key goes
+  // dictionary-mode, and a `for…in` per release was quadratic (clear).
+  if (t._fam !== null && t.k === null && t.q === 0) t._fam.live.delete(t as any);
 }
 let laneCarried: Set<any> | null = null;
 /** At a commit: release the lane-carried nodes nobody reads that no live
@@ -146,10 +150,6 @@ export function releaseSettled(live: (n: any) => boolean): void {
 }
 // A staged write to a node nobody reads: the release waits for its commit.
 GlobalQueue._slotCommitted = (n: any) => ("px" in n._host ? undefined : release(n));
-const empty = (m: object | null): boolean => {
-  if (m !== null) for (const _ in m) return false;
-  return m === null || Object.getOwnPropertySymbols(m).length === 0;
-};
 const ABSENT: any = Symbol(__DEV__ ? "ABSENT" : 0);
 
 interface Target {
@@ -177,11 +177,16 @@ interface Target {
   /** the proxy handler (swapped for the chain's) */
   hd: ProxyHandler<any> | null;
   /** written: a node may differ from the raw */
-  w?: boolean;
+  w: boolean;
   /** a node exists for a key the raw lacks */
-  x?: boolean;
+  x: boolean;
+  /** how many value and presence nodes it holds */
+  q: number;
   /** prototype node (a class member read, or a swap) */
-  o?: Signal<any>;
+  o: Signal<any> | null;
+  /** optimistic list guess state (thinOptimistic.ts) */
+  over: boolean;
+  lg: any;
 }
 /** A chained target's key with no own value reads the chained store. */
 const DELEGATE = {};
@@ -236,7 +241,14 @@ export function thinWrap(v: any, fam: StoreFamily | null = null): any {
       s: false,
       c: null,
       cv: null,
-      hd: null
+      hd: null,
+      // Every field up front: one hidden class for every target.
+      w: false,
+      x: false,
+      q: 0,
+      o: null,
+      over: false,
+      lg: null
     };
     const shell: any = r ? [] : {};
     shell[$S] = t;
@@ -311,15 +323,7 @@ function peek(node: Signal<any>, t: Target, mode = 0): any {
   return tracking || (__DEV__ && asyncTailFlights !== 0) ? untrack(() => read(node)) : read(node);
 }
 function seed(t: Target, key: PropertyKey): any {
-  // An own accessor seeds as its descriptor, so a tracked reader holds a
-  // node that a data write replaces (#3949).
-  return t.c !== null
-    ? DELEGATE
-    : !hasOwn.call(t.v, key)
-      ? ABSENT
-      : lookupGetter.call(t.v, key) !== undefined
-        ? new Box(Object.getOwnPropertyDescriptor(t.v, key)!)
-        : t.v[key];
+  return t.c !== null ? DELEGATE : hasOwn.call(t.v, key) ? t.v[key] : ABSENT;
 }
 /** A chained target's node compares a read-through as the chain's value:
  * a guess the chain now says ends silently (A17, #3672). */
@@ -337,6 +341,7 @@ function nodeOf(t: Target, key: PropertyKey, init: any = seed(t, key)): Signal<a
   if (node === undefined) {
     // The store's one-literal slot node (px/pxv wrap cache pre-shaped).
     node = n[key] = slot(t, init, t.c !== null ? chainEq(t, key) : Object.is, key);
+    t.q = (t.q || 0) + 1;
     if (!hasOwn.call(t.v, key)) t.x = true;
     if (t._fam !== null) t._fam.live.add(t as any);
   }
@@ -516,7 +521,7 @@ function keysOf(t: Target): (string | symbol)[] {
         if (!out.includes(key as any) && valueOf(t, key) !== ABSENT) out.push(key as any);
     return out;
   }
-  const keys = Reflect.ownKeys(t.v);
+  const keys = ownOf(t.v);
   if (n === null) return keys;
   const out = keys.filter(key => n[key] === undefined || peek(n[key], t, 2) !== ABSENT);
   for (const key of Reflect.ownKeys(n))
@@ -815,6 +820,13 @@ function hasGuess(t: Target): boolean {
 const polluting = (t: Target, key: PropertyKey): boolean =>
   key === "__proto__" || key === "prototype" || (key === "constructor" && inDraft(t));
 const protoOf = Object.getPrototypeOf;
+/** `Reflect.ownKeys` of a plain raw, several times faster on a fast-mode
+ * object (same order: names, then symbols). */
+const ownOf = (o: object): (string | symbol)[] => {
+  const k: (string | symbol)[] = Object.getOwnPropertyNames(o),
+    s = Object.getOwnPropertySymbols(o);
+  return s.length ? k.concat(s) : k;
+};
 const NONE = Object.create(null);
 /** A record's prototype in the reader's frame: a node once a reader of a
  * class member tracks it or a reconcile swaps it (A29, #3706). */
@@ -879,7 +891,15 @@ const BASE: ProxyHandler<any> = {
         if ((__OBSERVE__ && attrHooks !== null) || signalHook !== null) noteParent(p, t, key);
         return p;
       }
-      node = nodeOf(t, key);
+      // An own accessor seeds its node as its descriptor, so the tracked
+      // reader holds a node a data write replaces (#3949).
+      node = nodeOf(
+        t,
+        key,
+        own && lookupGetter.call(t.v, key) !== undefined
+          ? new Box(Object.getOwnPropertyDescriptor(t.v, key)!)
+          : seed(t, key)
+      );
     }
     if ((node._config & (CONFIG_HELD | CONFIG_GUESS)) === CONFIG_HELD && t._fam !== null)
       pairLate(t, node);
@@ -915,6 +935,7 @@ const BASE: ProxyHandler<any> = {
         const node = t.n?.[key];
         const here = node !== undefined ? peek(node, t, 2) !== ABSENT : hasOwn.call(t.v, key);
         h[key] = slot(t, here, isEqual, key);
+        t.q = (t.q || 0) + 1;
         if (t._fam !== null) t._fam.live.add(t as any);
       }
       return read(h[key]);
@@ -1170,8 +1191,7 @@ function unchain(t: Target): void {
   if (t.n !== null) for (const key of Reflect.ownKeys(t.n)) fix(t.n[key as any], key);
   for (const key of keysOf(it)) if (t.n?.[key] === undefined) nodeOf(t, key, valueOf(it, key));
   // A seed key the chain lacks reads absent too.
-  for (const key of Reflect.ownKeys(t.v))
-    if (t.n?.[key as any] === undefined) nodeOf(t, key, ABSENT);
+  for (const key of ownOf(t.v)) if (t.n?.[key as any] === undefined) nodeOf(t, key, ABSENT);
   t.c = null;
   t.w = true; // its nodes hold the chain's values, not the raw's
   if (t.cv !== null) put(t, t.cv, (x: number) => x + 1);
@@ -1180,7 +1200,7 @@ function unchain(t: Target): void {
 function replace(t: Target, next: any): void {
   if (next === t.v && t.n === null) return;
   for (const key of keysOf(t)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
-  for (const key of Reflect.ownKeys(next)) write(t, key, unwrapThin(next[key]));
+  for (const key of ownOf(next)) write(t, key, unwrapThin(next[key]));
 }
 
 const ASYNC_SETTER =
@@ -1370,6 +1390,61 @@ export function thinReconcile(
 ): void {
   reconcileTarget(proxy[$THIN], next, keyFn, root);
 }
+// Descend only where a proxy exists below: a subtree nobody read has no
+// identity or readers to keep, so the new value just takes the slot.
+let sentFor: any = null;
+let sentSet: Set<any> | null = null;
+/** `pv` is re-sent elsewhere in `next`, the parent's new value. */
+function resent(t: Target, next: any, pv: any): boolean {
+  if (t.r) {
+    if (sentFor !== next) ((sentFor = next), (sentSet = new Set(next)));
+    return sentSet!.has(pv);
+  }
+  for (const k in next) if (next[k] === pv) return true;
+  return false;
+}
+/** The draft's value of a key: the raw's while no write moved it. */
+const curOf = (t: Target, key: PropertyKey): any =>
+  !t.w && t.c === null ? seed(t, key) : valueOf(t, key);
+/** A row no write moved off its raw keys by the raw (no proxy read). */
+function keyOf(map: WeakMap<object, any>, keyFn: (v: any) => any, p: any): any {
+  if (!isWrappable(p)) return undefined;
+  const pt = map.get(p);
+  return keyFn(pt !== undefined && (pt.w || pt.c !== null) ? pt.p : p);
+}
+function merge(
+  t: Target,
+  next: any,
+  map: WeakMap<object, any>,
+  keyFn: ((v: any) => any) | null,
+  pv: any,
+  nv: any
+): any {
+  // The same raw re-sent over a row a write moved off it: back to the raw.
+  if (pv === nv) {
+    if (isWrappable(nv)) {
+      const pt = map.get(pv);
+      if (pt?.w) (reconcileTarget(pt, nv, keyFn, 0), (pt.w = false));
+    }
+    return nv;
+  }
+  if (typeof nv !== "object" || nv === null) return nv;
+  // A store inside a derive's value: the slot chains to it (#2864).
+  if (t._fam !== null && isThin(nv) && nv[$THIN]._fam !== t._fam) return chainSlot(t, pv, nv);
+  nv = unwrapThin(nv);
+  if (pv === nv || !isWrappable(pv) || !isWrappable(nv) || Array.isArray(pv) !== Array.isArray(nv))
+    return nv;
+  const pt = map.get(pv);
+  // A raw already wrapped, or re-sent at another slot, is its own row:
+  // identity travels with the raw (#4001).
+  if (pt === undefined || map.has(nv) || resent(t, next, pv)) return nv;
+  if (keyFn !== null) {
+    const pk = keyFn(pt.w || pt.c !== null ? pt.p : pv);
+    if (pk !== undefined && pk !== keyFn(nv)) return nv;
+  }
+  reconcileTarget(pt, nv, keyFn, 0);
+  return pv;
+}
 function reconcileTarget(
   t: Target,
   next: any,
@@ -1400,70 +1475,26 @@ function reconcileTarget(
       write(t, "length", next.length);
     } else {
       for (const key of keysOf(t)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
-      for (const key of Reflect.ownKeys(next)) (rawThin(next[key]), write(t, key, next[key]));
+      for (const key of ownOf(next)) (rawThin(next[key]), write(t, key, next[key]));
     }
     return;
   }
   const map: WeakMap<object, any> = (t._fam?.map as any) ?? targets;
-  // Descend only where a proxy exists below: a subtree nobody read has no
-  // identity or readers to keep, so the new value just takes the slot.
-  let sent: Set<any> | undefined;
-  const resent = (pv: any): boolean => {
-    if (t.r) return (sent ??= new Set(next)).has(pv);
-    for (const k in next) if (next[k] === pv) return true;
-    return false;
-  };
-  // The draft's value of a key: the raw's while no write moved it.
-  const cur = (key: PropertyKey): any => (!t.w && t.c === null ? seed(t, key) : valueOf(t, key));
-  const merge = (pv: any, nv: any): any => {
-    // The same raw re-sent over a row a write moved off it: back to the raw.
-    if (pv === nv && isWrappable(nv)) {
-      const pt = map.get(pv);
-      if (pt?.w) (reconcileTarget(pt, nv, keyFn, 0), (pt.w = false));
-      return nv;
-    }
-    // A store inside a derive's value: the slot chains to it (#2864).
-    if (t._fam !== null && isThin(nv) && nv[$THIN]._fam !== t._fam) {
-      return chainSlot(t, pv, nv);
-    }
-    nv = unwrapThin(nv);
-    if (
-      pv === nv ||
-      !isWrappable(pv) ||
-      !isWrappable(nv) ||
-      Array.isArray(pv) !== Array.isArray(nv)
-    )
-      return nv;
-    const pt = map.get(pv);
-    // A raw already wrapped, or re-sent at another slot, is its own row:
-    // identity travels with the raw (#4001).
-    if (pt === undefined || map.has(nv) || resent(pv)) return nv;
-    if (keyFn !== null) {
-      const pk = keyOf(pv);
-      if (pk !== undefined && pk !== keyFn(nv)) return nv;
-    }
-    reconcileTarget(pt, nv, keyFn, 0);
-    return pv;
-  };
-  // A row no write moved off its raw keys by the raw (no proxy read).
-  const keyOf = (p: any): any => {
-    if (!isWrappable(p)) return undefined;
-    const pt = map.get(p);
-    return keyFn!(pt !== undefined && (pt.w || pt.c !== null) ? pt.p : p);
-  };
   if (t.r) {
-    const len = cur("length");
+    const len = curOf(t, "length");
+    const sf = sentFor,
+      ss = sentSet;
     let byKey: Map<any, any> | null = null;
     for (let i = 0; i < next.length; i++) {
       const nv = next[i];
-      let pv = i < len ? cur(i) : undefined;
+      let pv = i < len ? curOf(t, i) : undefined;
       const nk = keyFn !== null && isWrappable(nv) ? keyFn(nv) : undefined;
-      if (nk !== undefined && keyOf(pv) !== nk) {
+      if (nk !== undefined && keyOf(map, keyFn!, pv) !== nk) {
         if (byKey === null) {
           byKey = new Map();
           for (let j = 0; j < len; j++) {
-            const p = cur(j);
-            const k = keyOf(p);
+            const p = curOf(t, j);
+            const k = keyOf(map, keyFn!, p);
             if (k !== undefined && !byKey.has(k)) byKey.set(k, p);
           }
           // The truth answering a guessed row (a push the user made) takes
@@ -1474,14 +1505,15 @@ function reconcileTarget(
               const node = t.n[key as any];
               if (!(node._config & CONFIG_GUESS)) continue;
               const g = guessed(node);
-              const k = keyOf(g);
+              const k = keyOf(map, keyFn!, g);
               if (k !== undefined && !byKey.has(k)) byKey.set(k, g);
             }
         }
         pv = byKey.get(nk);
       }
-      write(t, i, merge(pv, nv));
+      write(t, i, merge(t, next, map, keyFn, pv, nv));
     }
+    ((sentFor = sf), (sentSet = ss));
     for (let i = next.length; i < len; i++) write(t, i, ABSENT);
     write(t, "length", next.length);
     return;
@@ -1490,24 +1522,27 @@ function reconcileTarget(
   if (t.c !== null) {
     for (const key of keysOf(t)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
   } else {
-    for (const key of Reflect.ownKeys(t.v)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
+    for (const key of ownOf(t.v)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
     const n = t.n;
     if (n !== null && t.x)
       for (const key of Reflect.ownKeys(n))
         if (!hasOwn.call(t.v, key) && !hasOwn.call(next, key)) write(t, key, ABSENT);
   }
-  for (const key of Reflect.ownKeys(next)) {
-    const pv = cur(key);
+  const keys = ownOf(next);
+  // Only a record with a key `Object.keys` leaves out can hide one.
+  const hides = Object.keys(next).length !== keys.length;
+  for (const key of keys) {
+    const pv = curOf(t, key);
     const nv = next[key];
     // A key `next` hides keeps its attribute (A29, #3706).
-    if (!propertyIsEnumerable.call(next, key)) {
+    if (hides && !propertyIsEnumerable.call(next, key)) {
       if (!(pv instanceof Box && !pv.d.enumerable && Object.is(pv.d.value, nv)))
         write(
           t,
           key,
           new Box({ value: nv, writable: true, enumerable: false, configurable: true })
         );
-    } else write(t, key, merge(pv === ABSENT ? undefined : pv, nv));
+    } else write(t, key, merge(t, next, map, keyFn, pv === ABSENT ? undefined : pv, nv));
   }
   const np = protoOf(next);
   if (t.c === null && np !== protoNow(t)) (put(t, protoNode(t), () => np), (t.w = true));
