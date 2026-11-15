@@ -158,6 +158,14 @@ GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
   rebases.set(t, [lane, keyFn]);
   return true;
 };
+/** A list target's rows: each index's node through `of`, else the raw's. */
+function rowsOf(t: any, of: (node: any) => unknown): any[] {
+  const n = t.n ?? {};
+  const at = (k: PropertyKey) => (n[k] ? of(n[k]) : undefined) ?? t.v[k];
+  const out: any[] = [];
+  for (let i = 0, len = at("length") as number; i < len; i++) out.push(at(i));
+  return out;
+}
 function ownQuestion(t: any): boolean {
   const all = [t.k, ...(t.n ? Object.values(t.n) : [])] as any[];
   return all.some(n => n && n._config & CONFIG_GUESS && n._x?._q === question);
@@ -213,12 +221,6 @@ function rebase(t: any, el: any, v: unknown, lane: Transaction, keyFn: (r: any) 
           ? x._pendingValue
           : x._value
     );
-  const rows = (of: (node: any) => unknown): any[] => {
-    const len = of(n.length) as number;
-    const out: any[] = [];
-    for (let i = 0; i < len; i++) out.push(of(n[i]) ?? t.v[i]);
-    return out;
-  };
   const kOf = (r: any) => (isWrappable(r) ? keyFn(r) : undefined);
   // A truth row's key as the truth has it: a landing reconciles a new row
   // into the slot's row, staged on its leaves (the raw keeps the old key).
@@ -232,7 +234,7 @@ function rebase(t: any, el: any, v: unknown, lane: Transaction, keyFn: (r: any) 
     }
     return kOf(o);
   };
-  const truthRows = rows(truthOf);
+  const truthRows = rowsOf(t, truthOf);
   // The guess as written and the answer it was written over (recorded at
   // the write): a later landing composes from them, not from a re-base.
   if (!t.lg) return;
@@ -351,17 +353,10 @@ installThinListGuess(
     // keys it removes (store/optimistic.ts): a row of the view before the
     // setter it dropped, or one it only carried over from the committed
     // answer — a re-base keeps only the rows it added (D-35, #4482, #4656).
-    const n = t.n as Record<PropertyKey, any>;
-    const view = (of: (x: any) => unknown) => {
-      const len = (n.length ? of(n.length) : t.v.length) as number;
-      const out: any[] = [];
-      for (let i = 0; i < len; i++) out.push(n[i] === undefined ? t.v[i] : of(n[i]));
-      return out;
-    };
     const kOf = (r: any) => (isWrappable(r) ? kf(r) : undefined);
-    const guess = view(guessedValueOf);
+    const guess = rowsOf(t, guessedValueOf);
     const kept = new Set(guess.map(kOf));
-    const committed = view(x => (x._config & CONFIG_GUESS ? underOf(x) : x._value));
+    const committed = rowsOf(t, x => (x._config & CONFIG_GUESS ? underOf(x) : x._value));
     const base = new Set(committed);
     const removed = new Set();
     // The view's rows, then the committed answer's: a committed row the
@@ -376,12 +371,7 @@ installThinListGuess(
   (t: any, seq: number) => {
     if (t.ls === seq || !t._fam.key) return;
     t.ls = seq;
-    const n = t.n as Record<PropertyKey, any> | null;
-    const at = (k: PropertyKey) => (n?.[k as any] ? guessedValueOf(n[k as any]) : t.v[k as any]);
-    const len = at("length") as number;
-    const lo: any[] = [];
-    for (let i = 0; i < len; i++) lo.push(at(i));
-    t.lo = lo;
+    t.lo = rowsOf(t, guessedValueOf);
   }
 );
 
