@@ -231,13 +231,17 @@ function guessCarrier(t: StoreTarget, keys?: Set<PropertyKey>): any {
   // flush's: one lane), or a live one whose record shares a key (two
   // suggestions for one slot entangle their frames, A34 (1) — as the one
   // leaf node did); else a new one — another action's guess of other keys
-  // is its own lane's.
+  // is its own lane's. A corrected guess whose screen stays until its hold
+  // lands (D-34) counts for its keys: the setter composed on that screen,
+  // and the guess over it ends with that hold (#4869) — a new carrier over
+  // the committed frame would drop a write back to it as no change.
   for (let i = kg.length - 1; i >= 0; i--) {
     const g: any = kg[i];
     const live = g._config & (CONFIG_OVERRIDE | CONFIG_GUESS);
-    if (!live && pendingGuessOf(g) === NOT_PENDING) continue;
-    if (pendingGuessOf(g) !== NOT_PENDING || keys === undefined) return entangle(t, g, keys);
-    if (g.wk !== null) for (const key of keys) if (g.wk.has(key) || g.del?.has(key)) return g;
+    if (!live && pendingGuessOf(g) === NOT_PENDING && !(g._config & CONFIG_HELD && keys)) continue;
+    if (pendingGuessOf(g) !== NOT_PENDING || (live && keys === undefined))
+      return entangle(t, g, keys);
+    if (g.wk !== null) for (const key of keys!) if (g.wk.has(key) || g.del?.has(key)) return g;
   }
   const g: any = slotSignal(committed(t), patchEquals, t, $PATCH, false);
   if (__OBSERVE__) nameCarrier(g, t);
