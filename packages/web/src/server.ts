@@ -5762,15 +5762,20 @@ export function ssrSelectValues() {
   else armSelectValuesOnce = true;
 }
 
-function selectValuesActive(ctx = sharedConfig.context) {
+type SelectValuesContext = { _selectValues?: { active: boolean } } | null | undefined;
+
+function selectValuesActive(ctx: SelectValuesContext = sharedConfig.context) {
   return !!(ctx && ctx._selectValues && ctx._selectValues.active);
 }
 
-function armSelectValues(ctx) {
+function armSelectValues(ctx: SelectValuesContext) {
   if (ctx && ctx._selectValues) ctx._selectValues.active = true;
 }
 
-export function resolveSSRSelectValues(html, ctx = sharedConfig.context) {
+export function resolveSSRSelectValues(
+  html,
+  ctx: SelectValuesContext = sharedConfig.context
+) {
   // Region-jumping walk: attribute values escape `<` (ESCAPE_ATTR), so
   // every "<select" hit below is a genuine tag position — jump candidate to
   // candidate and walk tags ONLY inside value-carrying select regions;
