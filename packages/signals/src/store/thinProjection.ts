@@ -238,6 +238,18 @@ function familyStatus(this: StoreFamily, status: number, error?: unknown): void 
   else if (status & STATUS_ERROR) errorFamily(this, error);
 }
 
+/** The family's targets with a node. A write leaves a node where the deep
+ * store mutates the raw, so `size` (core `observeFlight`, #4479: an unread
+ * store's derive holds nothing, F-3, D-11) counts only a target a reader
+ * holds a node of. */
+class Live extends Set<any> {
+  get size(): number {
+    const read = (n: any) => n?._subs != null;
+    for (const t of this)
+      if (read(t.k) || [t.n, t.h].some(m => m && Object.values(m).some(read))) return 1;
+    return 0;
+  }
+}
 function forEachFamilyNode(fam: StoreFamily, fn: (n: Signal<any>) => void): void {
   for (const t of fam.live) {
     const nodes = t.n;
@@ -413,7 +425,7 @@ export function createProjectionInternal<T extends object = {}>(
   const fam: StoreFamily = {
     map: new WeakMap(),
     node: null,
-    live: new Set(),
+    live: new Live(),
     st: familyStatus,
     _shallow: !!options?.shallow,
     opt,
