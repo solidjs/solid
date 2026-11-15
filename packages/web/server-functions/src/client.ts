@@ -914,7 +914,8 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // function), so a mutation reads identically whichever body shape it
   // arrived in. What stays here is the plain body's decode and the
   // read-call exclusion, which are this transport's.
-  if (!isReadCall(options) && getFlightDataSourceIds().length > 0) {
+  const mutation = !isReadCall(options) && getFlightDataSourceIds().length > 0;
+  if (mutation) {
     const folded = response.headers.has(SINGLE_FLIGHT_HEADER);
     const metadata = hasFlightMetadata(response);
     if (metadata || folded) {
@@ -1001,8 +1002,7 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // an integration applies its default — a router revalidates every query
   // (`revalidate` omitted) after a direct call or a core `action`, as after
   // a form action. Its `data` is `undefined`; the value is the caller's.
-  if (!isReadCall(options) && getFlightDataSourceIds().length > 0)
-    await deliverFlightData(response, undefined);
+  if (mutation) await deliverFlightData(response);
   // Streaming result: wrap so stopping consumption stops the CALL. Without
   // this, `return()` (a `break` in for-await) only detaches the local
   // iterator — the fetch keeps downloading and the server keeps producing.
