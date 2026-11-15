@@ -948,6 +948,11 @@ export function resetErrorHalt(): void {
   halted = false;
   haltNotified = false;
   if (__DEV__) haltedAt = "";
+  // A throw out of the pure phase skips the `scheduled` recompute; re-arm it.
+  if (scheduled) {
+    scheduled = false;
+    schedule();
+  }
 }
 
 // CARVE 4: the queue tree (boundary CollectionQueues as children of the
