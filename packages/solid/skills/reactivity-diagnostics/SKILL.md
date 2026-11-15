@@ -1109,6 +1109,18 @@ setDraft(e.currentTarget.value)}`, commit the draft separately), use
 by writing the accepted value back in the handler (`e.currentTarget.value =
 next`) instead of re-asserting an equal value through the signal.
 
+### TABLE_ROWS_WITHOUT_TBODY
+
+Hydration found a `<table>` whose rows the server rendered directly under it
+(`<table><For each={rows}>{r => <tr>…</tr>}</For></table>`). The HTML parser
+does not allow `<tr>` as a child of `<table>`, so it moved the rows into a
+`<tbody>` it created; the rows are no longer where the template expects them
+and the list cannot update them after hydration. Warned once per table, in dev
+only. Fix: write the `<tbody>` yourself — `<table><tbody><For …>{r =>
+
+<tr>…</tr>}</For></tbody></table>` (or `<thead>`/`<tfoot>` for header and
+footer rows).
+
 ## Verifying a fix
 
 If you are working with `@solidjs/diagnostics`, re-run the capture after the
