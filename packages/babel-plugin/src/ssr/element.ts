@@ -21,7 +21,8 @@ import {
   canChildSlotAllocateIds,
   isFunctionShapedHole,
   isEventName,
-  isImportExpression
+  isImportExpression,
+  getStaticExpression
 } from "../shared/utils";
 import { transformNode, getCreateTemplate } from "../shared/transform";
 import { decodedAttrValue } from "../universal/element";
@@ -175,16 +176,6 @@ function groupAttributeClosures(path: BabelPath, results: SSRTransformResult): v
   );
 }
 
-// One marker statement per program: `_$ssrSelectValues();` after imports.
-const selectValuesMarked = new WeakSet<babelTypes.Program>();
-function registerSelectValues(path: BabelPath): void {
-  const program = path.findParent(p => t.isProgram(p.node))!;
-  if (selectValuesMarked.has(program.node as babelTypes.Program)) return;
-  selectValuesMarked.add(program.node as babelTypes.Program);
-  const marker = registerImportMethod(path, "ssrSelectValues", undefined);
-  (program as any).unshiftContainer("body", t.expressionStatement(t.callExpression(marker, [])));
-}
-
 export function transformElement(
   path: BabelPath<babelTypes.JSXElement> & { doNotEscape?: boolean },
   info: TransformInfo = {}
@@ -207,20 +198,6 @@ export function transformElement(
     !(path.node as { _foreignContent?: boolean })._foreignContent
   )
     path.doNotEscape = true;
-
-  // A `<select value=…>` (or a spread that could carry one) opts this module
-  // into the runtime's SSR select-value resolution pass. The pass is a
-  // full-output scan — the flag keeps every app that never binds a select
-  // value from paying it on any render (see resolveSSRSelectValues).
-  if (
-    tagName === "select" &&
-    path.node.openingElement.attributes.some(
-      a =>
-        t.isJSXSpreadAttribute(a) ||
-        (t.isJSXAttribute(a) && t.isJSXIdentifier(a.name) && a.name.name === "value")
-    )
-  )
-    registerSelectValues(path);
 
   // contains spread attributes
   if (path.node.openingElement.attributes.some(a => t.isJSXSpreadAttribute(a)))
@@ -251,6 +228,40 @@ export function transformElement(
     }
   }
 
+  // A bound `<select value>` (#3013, #4891): the value is read once, ahead
+  // of the children, into `ssrSelect`'s state on a transparent owner; the
+  // select writes no value attribute (HTML has none) and each option below
+  // asks `ssrOption` whether it is selected. `select` is that state for the
+  // options of this template: an identifier, `null` inside a select with no
+  // bound value, `undefined` outside any select (the option reads its owner).
+  let select = info.select;
+  let selectDecl: babelTypes.VariableDeclarator | undefined;
+  if (tagName === "select") {
+    select = null;
+    const attr = path
+      .get("openingElement")
+      .get("attributes")
+      .find(a => t.isJSXAttribute(a.node) && t.isJSXIdentifier(a.node.name, { name: "value" })) as
+      | JSXAttributeOnlyPath
+      | undefined;
+    if (attr) {
+      const v = attr.node.value;
+      const expr = t.isJSXExpressionContainer(v)
+        ? t.isJSXEmptyExpression(v.expression)
+          ? undefined
+          : (v.expression as babelTypes.Expression)
+        : (v as babelTypes.StringLiteral | null) || t.stringLiteral("");
+      attr.remove();
+      if (expr) {
+        select = path.scope.generateUidIdentifier("s$");
+        selectDecl = t.variableDeclarator(
+          select,
+          t.callExpression(registerImportMethod(path, "ssrSelect"), [expr])
+        );
+      }
+    }
+  }
+
   const voidTag = VoidElements.has(tagName),
     results: SSRTransformResult = {
       template: [`<${tagName}`],
@@ -275,16 +286,106 @@ export function transformElement(
       )
     );
   }
+  if (selectDecl) results.declarations.push(selectDecl);
+  // Read before the attribute pass, which escapes the value in place.
+  const option = tagName === "option" && select !== null ? optionHole(path, select) : undefined;
   transformAttributes(path, results, { ...config, ...info });
+  if (option) {
+    results.template.push("");
+    results.templateValues.push(
+      option.dynamic
+        ? hoistExpression(path, results, t.arrowFunctionExpression([], option.hole), {
+            group: true
+          })
+        : option.hole
+    );
+  }
   appendToTemplate(results.template, ">");
   if (!voidTag) {
-    transformChildren(path, results, { ...config, ...info });
+    transformChildren(path, results, { ...config, ...info, select });
     appendToTemplate(results.template, `</${tagName}>`);
   }
   // Run grouping once at the top-level element so contiguous closures
   // across nested elements can collapse into a single grouped function.
   if (info.topLevel) groupAttributeClosures(path, results);
   return results;
+}
+
+// Whether a static `value`, a literal string or number, else undefined.
+function literalText(node: babelTypes.Node | null | undefined): string | undefined {
+  if (t.isJSXExpressionContainer(node)) node = node.expression;
+  if (t.isStringLiteral(node) || t.isNumericLiteral(node)) return String(node.value);
+  if (t.isTemplateLiteral(node) && !node.expressions.length)
+    return node.quasis[0].value.cooked ?? undefined;
+  return undefined;
+}
+
+// A compiled `<option>`'s select-value hole: `ssrOption(value, select, own)`
+// writes ` selected` when the option matches its select's bound value.
+// `select` is the same-template select's state; without one the runtime
+// reads the option's owner. The value is the `value` attribute, else the
+// text content (spec: whitespace collapsed); an option whose text is markup
+// has no hole. `own` marks an option carrying `selected` itself, the
+// select's default. Static parts make one eager call; a dynamic part makes
+// a grouped thunk, evaluated with the option's other attribute holes.
+// Returns the call; the caller places it after the attributes.
+function optionHole(
+  path: BabelPath<babelTypes.JSXElement>,
+  select: babelTypes.Identifier | undefined
+): { hole: babelTypes.Expression; dynamic: boolean } | undefined {
+  let value: babelTypes.Expression | undefined;
+  let own: babelTypes.Expression | undefined;
+  let dynamic = false;
+  let hasValue = false;
+  for (const attr of path.node.openingElement.attributes) {
+    if (!t.isJSXAttribute(attr) || !t.isJSXIdentifier(attr.name)) continue;
+    const name = attr.name.name;
+    if (name !== "value" && name !== "selected") continue;
+    const v = attr.value;
+    if (t.isJSXExpressionContainer(v) && t.isJSXEmptyExpression(v.expression)) continue;
+    if (name === "selected") {
+      if (!v) own = t.numericLiteral(1);
+      else if (t.isJSXExpressionContainer(v) && t.isBooleanLiteral(v.expression))
+        own = v.expression.value ? t.numericLiteral(1) : undefined;
+      else if (t.isJSXExpressionContainer(v)) {
+        own = v.expression as babelTypes.Expression;
+        dynamic = true;
+      } else own = t.numericLiteral(1);
+      continue;
+    }
+    hasValue = true;
+    const text = v ? literalText(v) : "";
+    if (text !== undefined) value = t.stringLiteral(text);
+    else {
+      value = (v as babelTypes.JSXExpressionContainer).expression as babelTypes.Expression;
+      dynamic = true;
+    }
+  }
+  if (!hasValue) {
+    let text = "";
+    const children = path.get("children");
+    for (const childPath of children) {
+      const child = childPath.node;
+      if (t.isJSXText(child)) text += decode((child.extra?.raw as string | undefined) ?? "");
+      else if (t.isJSXExpressionContainer(child)) {
+        if (t.isJSXEmptyExpression(child.expression)) continue;
+        const lit = getStaticExpression(childPath as BabelPath<babelTypes.JSXExpressionContainer>);
+        if (lit !== false) text += String(lit);
+        else if (children.length === 1) {
+          value = child.expression as babelTypes.Expression;
+          dynamic = true;
+        } else return undefined;
+      } else return undefined;
+    }
+    if (!value) value = t.stringLiteral(text.replace(/\s+/g, " ").trim());
+  }
+  const args: babelTypes.Expression[] = [value!];
+  if (select || own) args.push(select ? t.cloneNode(select) : t.identifier("undefined"));
+  if (own) args.push(own);
+  return {
+    hole: t.cloneNode(t.callExpression(registerImportMethod(path, "ssrOption"), args), true),
+    dynamic
+  };
 }
 
 function setAttr(
@@ -1048,7 +1149,7 @@ function transformClasslistObject(
 function transformChildren(
   path: BabelPath<babelTypes.JSXElement> & { doNotEscape?: boolean },
   results: SSRTransformResult,
-  { hydratable }: SSRTransformInfo
+  { hydratable, select }: SSRTransformInfo
 ): void {
   const doNotEscape = path.doNotEscape;
   const tagName = getTagName(path.node);
@@ -1065,7 +1166,7 @@ function transformChildren(
       hydratable &&
       !(node.node as babelTypes.Node & { _childProperty?: boolean })._childProperty &&
       canChildSlotAllocateIds(node);
-    const child = transformNode(node, { doNotEscape, parentResults: results });
+    const child = transformNode(node, { doNotEscape, parentResults: results, select });
     if (!child) return;
     appendToTemplate(results.template, child.template as string | string[]);
     results.templateValues.push.apply(results.templateValues, child.templateValues || []);
@@ -1096,6 +1197,9 @@ function transformChildren(
       // children never classify as dynamic but are deferred holes all the
       // same, so they take the scope too.
       let expr = child.exprs[0] as babelTypes.Expression;
+      // A bound select's holes render under its owner, so an option a
+      // component or a later async pass produces finds the select's state.
+      if (select) expr = selectScoped(path, select, expr);
       if (allocatesIds && (child.dynamic || isFunctionShapedHole(node))) {
         expr = t.callExpression(registerImportMethod(path, "scope"), [expr]);
       }
@@ -1112,6 +1216,23 @@ function transformChildren(
       }
     }
   });
+}
+
+// `ssrIn(select, () => E)`, or for a thunk hole `() => ssrIn(select, () => B)`:
+// a thunk runs later, inside `ssr()`, so its body takes the owner.
+function selectScoped(
+  path: BabelPath,
+  select: babelTypes.Identifier,
+  expr: babelTypes.Expression
+): babelTypes.Expression {
+  const ssrIn = (body: babelTypes.Expression) =>
+    t.callExpression(registerImportMethod(path, "ssrIn"), [
+      t.cloneNode(select),
+      t.arrowFunctionExpression([], body)
+    ]);
+  return t.isArrowFunctionExpression(expr) && !expr.params.length && !t.isBlockStatement(expr.body)
+    ? t.arrowFunctionExpression([], ssrIn(expr.body as babelTypes.Expression))
+    : ssrIn(expr);
 }
 
 function createElement(
@@ -1316,7 +1437,9 @@ function createElement(
     t.stringLiteral(tagName),
     props[0],
     childNodes.length
-      ? hydratable
+      ? // A spread select's children render under its bound value's owner
+        // (`ssrElement` reads the value first), so they wait behind a thunk.
+        hydratable || tagName === "select"
         ? t.arrowFunctionExpression(
             [],
             childNodes.length === 1 ? childNodes[0] : t.arrayExpression(childNodes)
