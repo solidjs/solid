@@ -24,7 +24,7 @@ afterEach(() => {
   container.innerHTML = "";
   vi.restoreAllMocks();
 });
-const tbodyWarnings = (warn: ReturnType<typeof vi.spyOn>) =>
+const tbodyWarnings = (warn: { mock: { calls: unknown[][] } }) =>
   warn.mock.calls.map(c => String(c[0])).filter(m => m.includes("[TABLE_ROWS_WITHOUT_TBODY]"));
 
 test("#4875 rows rendered straight into a <table> warn once at hydration", () => {
