@@ -1087,6 +1087,21 @@ const BASE: ProxyHandler<any> = {
         if (pv !== pt.v) writeSlot(t, key, pt.v);
         return true;
       }
+      // A row another store's guess lent as it is (a chain to that store's
+      // proxy, not a copy) keeps it when the landing returns its key (Q-D):
+      // the lent row takes the server object as its truth, so a guess of
+      // that store's still out on the row shows until its action ends
+      // (F-11, #4902).
+      const kf = t._fam.key;
+      const k = kf && t.n !== null ? kf(v) : undefined;
+      if (k !== undefined)
+        for (const i of Reflect.ownKeys(t.n!)) {
+          const n = t.n![i as any];
+          const g = n._config & CONFIG_GUESS ? guessed!(n) : undefined;
+          const c = isWrappable(g) ? (t._fam.map.get(g) as any)?.c : null;
+          if (c && kf!(c) === k)
+            return (thinReconcile(c, v, kf!, 0), writeSlot(t, key, chainSlot(t, pv, c)), true);
+        }
     }
     writeSlot(t, key, v);
     return true;
