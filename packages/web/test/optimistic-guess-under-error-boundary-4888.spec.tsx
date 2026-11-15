@@ -13,12 +13,12 @@ import {
   For,
   action,
   createSignal,
-  createErrorBoundary,
   untrack,
   createOptimisticStore,
   flush,
   refresh
 } from "solid-js";
+import { createErrorBoundary } from "solid-js/internal";
 import { render } from "../src/index.js";
 const tick = async () => {
   for (let i = 0; i < 4; i++) {
