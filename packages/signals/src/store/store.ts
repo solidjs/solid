@@ -1179,7 +1179,7 @@ function notifyWrites(t: StoreTarget): void {
       // the carrier, a confirmation silently (A17). The leaf records the
       // value and says nothing (S2).
       if (optHooks !== null && t.o && optHooks.covers(t, key, false)) {
-        node._value = nv;
+        coveredSet(node, nv);
         continue;
       }
       setSignal(node, () => nv);
@@ -1200,7 +1200,7 @@ function notifyWrites(t: StoreTarget): void {
       const node = has[key as any];
       if (node !== undefined) {
         if (optHooks !== null && t.o && optHooks.covers(t, key, true)) {
-          node._value = key in pb && !t.del?.has(key);
+          coveredSet(node, key in pb && !t.del?.has(key));
           continue;
         }
         setSignal(node, key in pb && !t.del?.has(key));
@@ -1246,6 +1246,15 @@ function notifyWrites(t: StoreTarget): void {
     }
     if (changed) notifyContainer(k, pb);
   }
+}
+
+/** A covered leaf records the truth and says nothing (S2). A staging it
+ * was born with or held from an older landing (`bornStaged`) is that older
+ * truth: the hold's commit lands this one, never the older one once the
+ * guess ends (#4904). */
+function coveredSet(node: Signal<any>, v: any): void {
+  node._value = v;
+  if (node._pendingValue !== NOT_PENDING) node._pendingValue = v;
 }
 
 /** Accessor-node wake sentinel: readers re-run and re-invoke the getter. */
@@ -1296,7 +1305,7 @@ function leafSet(node: Signal<any>, v: any): void {
     t.o &&
     optHooks.covers(t, (node as any)._key, t.h?.[(node as any)._key] === node)
   ) {
-    node._value = typeof v === "function" ? v() : v;
+    coveredSet(node, typeof v === "function" ? v() : v);
     return;
   }
   setSignal(node, v);
