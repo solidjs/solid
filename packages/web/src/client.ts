@@ -19,7 +19,9 @@ import {
   resetErrorHalt,
   ROOT_ERROR_HOOK,
   OBSERVE,
-  strictReadTracked
+  strictReadTracked,
+  setSwapHook,
+  isHidden
 } from "solid-js";
 import type { ClientErrorHook, Owner } from "solid-js";
 import {
@@ -2084,6 +2086,10 @@ function initHeadRegistry() {
   headRegistrations = [];
   headOwned = new Map();
   headApplied = new Map();
+  // A boundary swapping between its fallback and its content changes which
+  // registrations are on screen: content behind a fallback is not (F-3),
+  // nor are its tags (#4873).
+  setSwapHook(scheduleHeadApply);
   // A <title> without an ownership marker is user-authored shell markup: the
   // fallback restored when every title registration has disposed. A marked
   // one is server-registry output — but if the server's retitle overwrote a
@@ -2158,7 +2164,7 @@ function flushHeadRegistry() {
     return;
   }
   headScheduled = false;
-  const winners = resolveHead(headRegistrations);
+  const winners = resolveHead(headRegistrations.filter(r => !isHidden(r.node)));
   // Retractions: identities the registry owns that no longer resolve.
   for (const [identity, els] of headOwned) {
     if (winners.has(identity)) continue;
@@ -2362,10 +2368,12 @@ export function useHead(tag: HeadTag | HeadTag[] | (() => HeadTag | HeadTag[])):
  */
 export function useHead(tags) {
   initHeadRegistry();
-  const reg = { seq: -1, tags: null };
+  const reg = { seq: -1, tags: null, node: null };
   const uid = ++headUid;
   effect(
     () => {
+      // The registration's node: behind a fallback, its tags are withdrawn.
+      reg.node = getOwner();
       let list = typeof tags === "function" ? tags() : tags;
       if (!Array.isArray(list)) list = [list];
       const replaceable = [];

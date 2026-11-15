@@ -166,6 +166,17 @@ export function installBoundaryHooks(
   boundarySeamHook = seam;
   heldRunHook = heldRun;
 }
+/** `@solidjs/web`'s head registry: told when a boundary swaps between its
+ * fallback and its content, and asks whether a registration's node is
+ * behind a fallback — content there is not on screen (F-3), nor are its
+ * head tags (#4873). Never set without the registry. */
+export let swapHook: (() => void) | null = null;
+export function setSwapHook(fn: () => void): void {
+  swapHook = fn;
+}
+export function isHidden(node: object): boolean {
+  return !!hiddenHook?.(node as Computed<any>);
+}
 /** Store (store/store.ts): `park` — the flush parked into `t`: the store
  * materializes and holds the container node of every staging that had none
  * (a staging needs the node as its home only when something can read the
