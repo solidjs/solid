@@ -53,6 +53,8 @@ import {
   creatorPass,
   creatorReads,
   ext,
+  isSame,
+  tickBase,
   joinPass,
   markLateLinker,
   prepareComputed,
@@ -101,6 +103,7 @@ import {
   list,
   passLane,
   queuePendingNode,
+  guessing,
   resolveTx,
   sameLane,
   schedule,
@@ -285,7 +288,8 @@ function quietPending(el: Computed<any>): boolean {
  * committed value only (`verdictValue`'s held arm): a first landing never
  * gets here. Truthy when not final. */
 function heldNotFinal(owner: Computed<any>): unknown {
-  if ((owner._statusFlags & STATUS_PENDING) !== 0 && !quietPending(owner)) return true;
+  if ((owner._statusFlags & STATUS_PENDING) !== 0 && (!quietPending(owner) || heldBeneath(owner)))
+    return true;
   return (
     owner._pendingValue !== NOT_PENDING &&
     !latestActive &&
@@ -296,9 +300,31 @@ function heldNotFinal(owner: Computed<any>): unknown {
   );
 }
 
+/** D-22, D-41: an error is an answer — re-asked, it is still the newest one
+ * `latest` shows, not the value it replaced (a staged one a re-ask dropped,
+ * `_aheadError`, or the shown one). Only while the re-ask flies. */
+function aheadError(el: Computed<any>): void {
+  const e = el._statusFlags & STATUS_PENDING && (el._x?._aheadError || el._x?._shownError);
+  if (e) throw e;
+}
+/** A source of `el` holds an answer to a new question (cause iii): a quiet
+ * re-ask elsewhere does not make `el` final (A19 (iii), F-9). */
+function heldBeneath(el: Computed<any>): boolean {
+  for (let d = el._deps; d !== null; d = d._nextDep) {
+    const dep = d._dep;
+    if (
+      dep._config & CONFIG_HELD &&
+      dep._pendingValue !== NOT_PENDING &&
+      !dep._x?._reask &&
+      !isSame(dep, dep._value, dep._pendingValue)
+    )
+      return true;
+  }
+  return false;
+}
 /** `isPending`'s answer for an unheld node whose flight is up (cause ii). */
 function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
-  if (probing && !quietPending(el)) probeFound = true;
+  if (probing && (!quietPending(el) || heldBeneath(el))) probeFound = true;
   if (c && tracking) {
     if (el._config & CONFIG_HELD) verdictRead(c, txOf(el));
     else if (globalQueue._running) {
@@ -706,6 +732,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         if (__TEST__) shadowActual(SLOT_P);
         return heldLatest(el, tracked ? c : null);
       }
+      if (latestActive) aheadError(owner);
       if (__TEST__) shadowActual(SLOT_C);
       return el._value;
     }
@@ -713,7 +740,12 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // committed value, so no verdict: `isPending` reads it as its read does —
     // the owner joins the hold (held with it, or caught by a boundary that
     // has not shown content) and answers for the commit, where it is final.
-    if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING)) {
+    // Re-asked, the staging is still the newest answer it produced: `latest`
+    // shows it (D-22).
+    if (
+      el._pendingValue !== NOT_PENDING &&
+      (!(owner._statusFlags & STATUS_PENDING) || (latestActive && !probing))
+    ) {
       if (probing && owned) joinPass(c!, el);
       if (__TEST__) shadowActual(SLOT_P);
       return staged(el);
@@ -767,6 +799,9 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   if (owner._statusFlags & STATUS_PENDING) {
     if (!uninitialized) {
       pendingVerdict(tracked ? c : null, owner);
+      // D-22, D-41: an error is an answer — re-asked, it is still the newest
+      // one, not the value it replaced.
+      if (latestActive) aheadError(owner);
       if (__TEST__) shadowActual(SLOT_C);
       return el._value;
     }
@@ -1186,6 +1221,67 @@ function r5(r: Computed<any> | null, t: Transaction | null): unknown {
   }
 }
 
+/** D-8: a write netting to the value its tick began with (`setSignal`). */
+const reverted: Signal<any>[] = [];
+/** With no argument, at the flush: a reader such a tick woke whose every
+ * source is unchanged has nothing to re-derive — out of the heap, so an
+ * async one asks nothing again (F-9). A verdict reader re-runs: what it
+ * probes is the pending, not the value. */
+function revert(el?: Signal<any>, v?: unknown): void {
+  if (el) {
+    if (isSame(el, tickBase(el), v)) reverted.push(el);
+    return;
+  }
+  for (const n of reverted.splice(0))
+    if (n._pendingValue !== NOT_PENDING && isSame(n, tickBase(n), n._pendingValue))
+      for (let s = n._subs; s !== null; s = s._nextSub) {
+        const sub = s._sub;
+        if (
+          !(sub._flags & REACTIVE_IN_HEAP) ||
+          sub._flags & REACTIVE_MISSED_WAKE ||
+          sub._config & CONFIG_VERDICT
+        )
+          continue;
+        let same: unknown = true;
+        for (let d = sub._deps; d !== null && same; d = d._nextDep) {
+          const dep = d._dep as Computed<any>;
+          same = (dep as Partial<Computed<any>>)._fn
+            ? !(dep._flags & (REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK))
+            : dep._pendingValue === NOT_PENDING || isSame(dep, tickBase(dep), dep._pendingValue);
+        }
+        if (same) {
+          deleteFromHeap(sub, dirtyQueue);
+          sub._flags &= ~(REACTIVE_DIRTY | REACTIVE_CHECK);
+        }
+      }
+}
+/** A19 exc. 2: a pass whose every source is at its committed value asked
+ * the committed question again (an input moved back, A24) — a re-ask. Not
+ * over a guess or in a lane (their questions are the guess's), nor a node
+ * with no committed value. */
+function pass(el: Computed<any>, tail?: 1): boolean {
+  if (!tail) {
+    if (el._x)
+      el._x._aheadError =
+        (el._config & (CONFIG_STAGED_ERROR | CONFIG_HELD)) === (CONFIG_STAGED_ERROR | CONFIG_HELD)
+          ? el._pendingValue
+          : undefined;
+    return el._deps !== null;
+  }
+  if (guessing || passLane !== null || el._statusFlags & STATUS_UNINITIALIZED) return false;
+  for (let d = el._deps; d !== null; d = d._nextDep) {
+    const dep = d._dep as Computed<any>;
+    if (
+      dep._pendingValue !== NOT_PENDING
+        ? !isSame(dep, dep._value, dep._pendingValue)
+        : (dep as Partial<Computed<any>>)._fn && dep._statusFlags & STATUS_PENDING
+    )
+      return false;
+    if (d === el._depsTail) break;
+  }
+  return true;
+}
+
 installVerdictHooks(
   observeFlight,
   holdWork,
@@ -1194,7 +1290,9 @@ installVerdictHooks(
   attachWaits,
   holdStaging,
   adoptParked,
-  r5
+  r5,
+  revert,
+  pass
 );
 /** A store read inside an untracked `isPending` probe found a live mark on
  * a record with no node to carry it (store/affects.ts): not final. */

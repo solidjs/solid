@@ -18,7 +18,9 @@ import {
   NOT_PENDING,
   CONFIG_HAS_SNAPSHOT,
   REACTIVE_CHECK,
+  REACTIVE_OWNER_READS,
   REACTIVE_DIRTY,
+  REACTIVE_IN_HEAP,
   REACTIVE_DISPOSED,
   REACTIVE_FRAME_READ,
   REACTIVE_LANE_DIRTY,
@@ -52,7 +54,7 @@ import {
   type DiagnosticSubject
 } from "./dev.js";
 import { sweepDormant, trimStaleDeps } from "./graph.js";
-import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
+import { deleteFromHeap, enqueueSub, markNode, runHeap, type Heap } from "./heap.js";
 import { devCheckQuiescent } from "./invariants.js";
 import { rethrowCleanupError } from "./owner.js";
 import type { Computed, Owner, Signal } from "./types.js";
@@ -218,6 +220,13 @@ export let attachHook: ((node: Computed<any>) => boolean) | null = null;
 export let holdStagingHook:
   | ((c: Computed<any>, el?: Signal<any> | Computed<any>) => unknown)
   | null = null;
+/** D-8 (verdict engine): a write netting to the tick's starting value, or
+ * (no argument) the flush's release of the readers it woke (verdict.ts). */
+export let revertHook: ((el?: Signal<any>, v?: unknown) => void) | null = null;
+/** Verdict engine, a pass's head (D-22, D-41: the held error `latest` keeps
+ * showing; returns whether the pass had sources) and, with `tail`, its end
+ * (A19 exc. 2: whether it asked the committed question again). */
+export let passHook: ((el: Computed<any>, tail?: 1) => unknown) | null = null;
 export function installVerdictHooks(
   observeFlight: NonNullable<typeof observeFlightHook>,
   holdWork: NonNullable<typeof holdWorkHook>,
@@ -226,8 +235,12 @@ export function installVerdictHooks(
   attach: NonNullable<typeof attachHook>,
   holdStaging: NonNullable<typeof holdStagingHook>,
   adopt: NonNullable<typeof laneAdoptHook>,
-  r5: NonNullable<typeof r5Hook>
+  r5: NonNullable<typeof r5Hook>,
+  revert: NonNullable<typeof revertHook>,
+  pass: NonNullable<typeof passHook>
 ): void {
+  revertHook = revert;
+  passHook = pass;
   observeFlightHook = observeFlight;
   holdWorkHook = holdWork;
   stageMarkHook = stageMark;
@@ -1032,6 +1045,7 @@ export class GlobalQueue implements IQueue {
       // recomputed; late subscribers (an effect reading a swept memo this
       // flush) revive it, which is the pay-for-use contract.
       sweepDormant();
+      if (revertHook) revertHook();
       runHeap(dirtyQueue, GlobalQueue._update);
       this.settle();
       clock++;
@@ -1496,13 +1510,20 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
     // pass either re-reads them fresh or trims them), and neither does the
     // tail link: it is the read IN FLIGHT — read() links before it pulls, so
     // this very commit is what that read returns.
-    if (sub._flags & REACTIVE_RECOMPUTING_DEPS && s._gen === sub._depGen && s !== sub._depsTail)
+    // A signal's read returned before any write to it — the pass's own
+    // owned write to what it just read is a missed wake too (F-10).
+    if (
+      sub._flags & REACTIVE_RECOMPUTING_DEPS &&
+      s._gen === sub._depGen &&
+      (s !== sub._depsTail || !(node as Computed<any>)._fn)
+    )
       sub._flags |= REACTIVE_MISSED_WAKE;
     if (hasSnapshot && sub._config & CONFIG_IN_SNAPSHOT_SCOPE) {
       sub._flags |= REACTIVE_SNAPSHOT_STALE;
       continue;
     }
     enqueueSub(sub);
+    if (sub._flags & REACTIVE_OWNER_READS) markNode(sub._parent as Computed<any>, REACTIVE_CHECK);
   }
   if (__OBSERVE__ && fanOut >= GRAPH_SIZE_WARN_AT) noteFanOut(node, fanOut);
 }
@@ -1610,6 +1631,17 @@ export function commitPendingNode(n: Signal<any>): void {
   // Computeds only from here (`_statusFlags` is not a signal field). A
   // commit beneath a flight publishes its inputs (A15 reveal corollary,
   // #3305): a reveal of it must observe, not show the pre-flight value.
+  // A staged answer to a question a later pass of this hold replaced, its
+  // own flight up for the new one, is not the frame's: the hold lands on the
+  // answer to its own question (F-2, 2026-11-12) — the node stays in flight
+  // on the committed value, and the stale staging goes.
+  if (
+    (c._statusFlags! & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
+    c._x?._inFlight &&
+    !c._x._reask &&
+    !(n._config & CONFIG_STAGED_ERROR)
+  )
+    n._pendingValue = NOT_PENDING;
   const inFlight = n._pendingValue === NOT_PENDING && (c._statusFlags! & STATUS_PENDING) !== 0;
   const err = n._config & CONFIG_STAGED_ERROR;
   // An answer commits: the error it replaces leaves the display (D-41).

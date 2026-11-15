@@ -47,6 +47,7 @@ import {
   NO_SNAPSHOT,
   NOT_PENDING,
   REACTIVE_CHECK,
+  REACTIVE_OWNER_READS,
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
   REACTIVE_FRAME_READ,
@@ -96,7 +97,8 @@ import {
   insertIntoHeap,
   insertIntoHeapHeight,
   markHeap,
-  markNode
+  markNode,
+  liftOwned
 } from "./heap.js";
 import {
   clearSignals,
@@ -182,7 +184,9 @@ import {
   keepReadersHook,
   laneWriteHook,
   observeFlightHook,
-  wireExternalSourceHook
+  wireExternalSourceHook,
+  revertHook,
+  passHook
 } from "./scheduler.js";
 import type { Transaction } from "./scheduler.js";
 import type {
@@ -469,6 +473,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // re-derivation, lane adoption through deps) went with the optimistic engine.
   // An error a pass staged, which this pass replaces (`valueChanged`).
   const replaced = el._config & CONFIG_STAGED_ERROR;
+  let linked: unknown;
   if (!create) {
     deleteFromHeap(el, dirtyQueue);
     // A pending flight is the transition's own work (#3884), and so is a
@@ -565,6 +570,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     } else if (el._firstChild !== null || el._disposal !== null) parkChildren(el);
     // An error a pass staged (D-41) is replaced by this pass's answer: a
     // value, a flight, or an error of its own (#4109, #4145).
+    // A held one stays the newest answer `latest` shows while this pass's
+    // flight is up (D-22, D-41; verdict.ts `pass`), which also says whether
+    // the pass had sources (a first pass, a revived dormant node, did not:
+    // it asks no question its committed value answers).
+    if (passHook) linked = passHook(el);
     if (el._config & CONFIG_STAGED_ERROR) {
       el._pendingValue = NOT_PENDING;
       el._config ^= CONFIG_STAGED_ERROR;
@@ -600,7 +610,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     (el._flags & REACTIVE_REASK) !== 0 &&
     !(
       (el._statusFlags & STATUS_PENDING ||
-        (guessing && el._pendingValue !== NOT_PENDING && !(el._flags & REACTIVE_MANUAL_WRITE))) &&
+        (el._pendingValue !== NOT_PENDING && !(el._flags & REACTIVE_MANUAL_WRITE))) &&
       el._x !== null &&
       !el._x._reask
     );
@@ -816,7 +826,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // A19 exc. 2: a pass that went pending on a `refresh()` re-asks the
     // question already answered — quiet for the verdict; any other pending
     // pass is a new question. Settled, there is nothing to classify.
-    if (el._x !== null) el._x._reask = reask && (el._statusFlags & STATUS_PENDING) !== 0;
+    // A pass that read only committed values asks the committed question
+    // again (an input moved back, A24, A19 exc. 2): a re-ask too.
+    if (el._x !== null)
+      el._x._reask =
+        (reask || (!!linked && !!passHook!(el, 1))) && (el._statusFlags & STATUS_PENDING) !== 0;
   }
 
   // A node that died during its own pass (#3621) is dead at the end of it,
@@ -2176,6 +2190,11 @@ export function unflushedValue(el: Signal<any> | Computed<any>): unknown {
   if (el._config & CONFIG_HELD) return el._x!._flushedAt === clock ? el._x!._flushed : NOT_PENDING;
   return el._value;
 }
+/** The value a signal had when this tick began writing it: the flushed
+ * staging of a held slot (A28's stash), else the committed value. */
+export function tickBase(el: Signal<any>): unknown {
+  return el._config & CONFIG_HELD && el._x?._flushedAt === clock ? el._x._flushed : el._value;
+}
 /** A28: a held node rewritten outside a flush keeps the staging the last
  * flush left (`_flushed`) until the flush that carries the rewrite — the
  * stash is stamped with the clock, which that flush advances. */
@@ -2212,7 +2231,7 @@ export function resyncUnflushedCompanions(): void {
  * reached its height (or the reader is a fresh-pull waiter), and sit the
  * reader above it. */
 export function pullComputed(owner: Computed<any>, c: Computed<any>): void {
-  if (owner._height >= dirtyQueue._min) {
+  if (owner._height >= dirtyQueue._min || owner._flags & REACTIVE_CHECK) {
     markNode(c);
     markHeap(dirtyQueue);
     updateIfNecessary(owner);
@@ -2226,7 +2245,8 @@ export function pullComputed(owner: Computed<any>, c: Computed<any>): void {
   else if (c._config & CONFIG_FRESH_READ) updateIfNecessary(owner);
   const height = owner._height;
   // parent check is shallow, might need to be recursive
-  if (height >= c._height && owner._parent !== c) c._height = height + 1;
+  if (owner._parent === c) owner._flags |= REACTIVE_OWNER_READS;
+  else if (height >= c._height) liftOwned(c, (c._height = height + 1));
 }
 
 /**
@@ -3088,6 +3108,9 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // _time is a computed-only slot (§12e): writing it on a signal would fork
   // the lean shape. Every read site is computed-typed.
   if ((el as any)._fn !== undefined) el._time = clock;
+  // A tick that nets to the value it began with made no change (D-8): the
+  // readers it woke are let go at the flush (verdict.ts `unrevert`).
+  if (revertHook && wasStaged) revertHook(el, v);
   // Staged-rewrite fast path (§12d): a re-write to a node whose subscribers
   // were already walked — and where nothing has recomputed or linked since
   // (epoch) — re-stages the value and stops. The walk is idempotent (subs
