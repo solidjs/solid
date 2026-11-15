@@ -167,7 +167,7 @@ function leafKeys(leaf: any, kind: SourceKind): (string | symbol)[] {
   if (kind === SOURCE_PROXY || leaf[$PROXY] === leaf) {
     // A store's trap answers directly: the Proxy `ownKeys` invariant checks
     // cost twice the trap.
-    const t = storeKeys !== null ? leaf[$THIN] : undefined;
+    const t = leaf[$THIN];
     return t?.p === leaf ? storeKeys!(t) : Reflect.ownKeys(leaf);
   }
   return Object.keys(leaf);

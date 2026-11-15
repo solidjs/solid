@@ -179,6 +179,8 @@ interface Target {
   _fam: StoreFamily | null;
   /** the family code reads these names */
   dk: null;
+  /** a write took a key away: a node may hold ABSENT (keysOf filters) */
+  gone: boolean;
   s: boolean;
   /** chained: the store a derive returned, read through live (#2941) */
   c: any;
@@ -204,6 +206,9 @@ interface Target {
   /** this target or one below it (through `u`) ever had a node: reconcile
    * descends only here (#2902; sticky, as store.ts's STORE_DESC was) */
   d: boolean;
+  /** the source object the last keyed reconcile merged in, while no write
+   * since touched this target or one below it (cleared up `u`) */
+  sv: any;
 }
 /** A chained target's key with no own value reads the chained store. */
 const DELEGATE = {};
@@ -255,6 +260,7 @@ export function thinWrap(v: any, fam: StoreFamily | null = null, u: Target | nul
       r,
       _fam: fam,
       dk: null,
+      gone: false,
       s: false,
       c: null,
       cv: null,
@@ -268,7 +274,8 @@ export function thinWrap(v: any, fam: StoreFamily | null = null, u: Target | nul
       lg: null,
       ks: null,
       u,
-      d: false
+      d: false,
+      sv: null
     };
     const shell: any = r ? [] : {};
     shell[$S] = t;
@@ -516,10 +523,13 @@ function keysOf(t: Target): (string | symbol)[] {
     return out;
   }
   const keys = ownOf(t.v);
-  if (n === null) return keys;
-  const out = keys.filter(key => n[key] === undefined || peek(n[key], t, 2) !== ABSENT);
-  for (const key of Reflect.ownKeys(n))
-    if (!hasOwn.call(t.v, key) && peek(n[key], t, 2) !== ABSENT) out.push(key);
+  if (n === null || !(t.gone || t.x)) return keys;
+  const out = t.gone
+    ? keys.filter(key => n[key] === undefined || peek(n[key], t, 2) !== ABSENT)
+    : keys;
+  if (t.x)
+    for (const key of Reflect.ownKeys(n))
+      if (!hasOwn.call(t.v, key) && peek(n[key], t, 2) !== ABSENT) out.push(key);
   return out;
 }
 function track(t: Target): void {
@@ -537,6 +547,7 @@ function track(t: Target): void {
 /** One node write: core stages it. A derive's own write is its derive's
  * (held with it, or a lane's work) — `holdWithDerive`, as in store.ts. */
 function put(t: Target, node: Signal<any>, v: any): void {
+  for (let p: Target | null = t; p !== null && p.sv !== null; p = p.u) p.sv = null;
   if (directCommit) {
     node._value = typeof v === "function" ? v(node._value) : v;
     return;
@@ -605,6 +616,7 @@ function put(t: Target, node: Signal<any>, v: any): void {
 function write(t: Target, key: PropertyKey, v: any): void {
   // No write has moved this target off its raw: every node holds the seed.
   if ((!t.w || t.n?.[key] === undefined) && Object.is(seed(t, key), v)) return;
+  if (v === ABSENT) t.gone = true;
   const node = nodeOf(t, key);
   let prev = peek(node, t);
   if (prev === DELEGATE) prev = innerValue(t, key);
@@ -802,7 +814,7 @@ function pairLate(t: Target, node: Signal<any>): void {
       m._x!._reask = x._reask;
     }
   }
-  ct.w = true;
+  ct.w = ct.gone = true;
   // The slot itself is unchanged: no longer held.
   node._pendingValue = NOT_PENDING;
   node._config &= ~CONFIG_HELD;
@@ -1275,7 +1287,7 @@ function unchain(t: Target): void {
   // A seed key the chain lacks reads absent too.
   for (const key of ownOf(t.v)) if (t.n?.[key as any] === undefined) nodeOf(t, key, ABSENT);
   t.c = null;
-  t.w = true; // its nodes hold the chain's values, not the raw's
+  t.w = t.gone = true; // its nodes hold the chain's values, not the raw's
   if (t.cv !== null) put(t, t.cv, (x: number) => x + 1);
 }
 
@@ -1534,7 +1546,13 @@ function merge(
     const pk = keyFn(pt.w || pt.c !== null ? pt.p : pv);
     if (pk !== undefined && pk !== keyFn(nv)) return nv;
   }
-  reconcileTarget(pt, nv, keyFn, 0);
+  // The same source re-sent over a row it was merged into, untouched since:
+  // nothing to diff (the identity skip a written row lost its raw for).
+  if (t._fam === null) {
+    if (pt.sv === nv) return pv;
+    reconcileTarget(pt, nv, keyFn, 0);
+    pt.sv = nv;
+  } else reconcileTarget(pt, nv, keyFn, 0);
   return pv;
 }
 function reconcileTarget(
@@ -1710,13 +1728,16 @@ export function thinSnapshot(
 /** Tracking copy: subscribes to every reachable key set and value, and
  * returns snapshot()'s copy (its shape and identity). */
 export function thinDeep(value: any): any {
-  const walk = (v: any, seen: Set<any>) => {
-    if (isThin(v) && !seen.has(v)) {
-      seen.add(v);
-      for (const k of Reflect.ownKeys(v)) walk(v[k], seen);
-    }
+  const seen = new Set<Target>();
+  // The traps called directly: a Proxy's invariant checks cost as much again.
+  const walk = (v: any) => {
+    const t: Target | undefined = isThin(v) ? v[$THIN] : undefined;
+    if (t === undefined || seen.has(t)) return;
+    seen.add(t);
+    const shell = { [$S]: t };
+    for (const k of ownKeysOf(t)) walk(BASE.get!(shell, k, t.p));
   };
-  walk(value, new Set());
+  walk(value);
   return thinSnapshot(value);
 }
 
