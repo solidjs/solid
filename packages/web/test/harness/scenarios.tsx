@@ -2398,10 +2398,10 @@ function ShowThunkFallbackUnderErrored() {
 }
 
 // ---------------------------------------------------------------------------
-// #3013: SSR resolves <select value> into `selected` on the matching option
-// and strips the invalid attribute at flush. Hydration must claim the select
-// cleanly (the stripped attribute and injected `selected` are invisible to
-// the client template) and the value effect's microtask assignment must
+// #3013, #4891: SSR writes `selected` on the matching option as it renders
+// and never writes the invalid attribute. Hydration must claim the select
+// cleanly (the missing attribute and the written `selected` are invisible
+// to the client template) and the value effect's microtask assignment must
 // agree with the parsed selection; a post-hydration write moves it.
 let setLang!: (v: string) => void;
 function SelectValue() {

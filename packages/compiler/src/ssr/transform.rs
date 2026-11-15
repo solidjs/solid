@@ -65,7 +65,15 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     uses_ssr: bool,
     uses_create_component: bool,
     uses_ssr_hydration_key: bool,
-    uses_ssr_select_values: bool,
+    uses_ssr_select: bool,
+    uses_ssr_in: bool,
+    uses_ssr_option: bool,
+    /// Counter for the `_s$N` select states (`ssrSelect`).
+    select_index: usize,
+    /// The enclosing same-template `<select>`'s state for the next native
+    /// template element (`ssr_template` takes it): `None` outside a select,
+    /// `Some(None)` inside one with no bound value (Babel's `info.select`).
+    select_state: Option<Option<String>>,
     uses_escape: bool,
     uses_ssr_element: bool,
     uses_merge_props: bool,
@@ -262,7 +270,11 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             uses_ssr: false,
             uses_create_component: false,
             uses_ssr_hydration_key: false,
-            uses_ssr_select_values: false,
+            uses_ssr_select: false,
+            uses_ssr_in: false,
+            uses_ssr_option: false,
+            select_index: 0,
+            select_state: None,
             uses_escape: false,
             uses_ssr_element: false,
             uses_merge_props: false,
@@ -539,7 +551,8 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     pub(crate) fn prepend_helpers(&mut self, program: &mut Program<'a>) {
         if !self.uses_ssr
             && !self.uses_ssr_hydration_key
-            && !self.uses_ssr_select_values
+            && !self.uses_ssr_select
+            && !self.uses_ssr_option
             && !self.uses_escape
             && !self.uses_ssr_element
             && !self.uses_merge_props
@@ -573,8 +586,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         if self.uses_ssr_hydration_key {
             statements.push(self.import_named("ssrHydrationKey", "_$ssrHydrationKey"));
         }
-        if self.uses_ssr_select_values {
-            statements.push(self.import_named("ssrSelectValues", "_$ssrSelectValues"));
+        if self.uses_ssr_select {
+            statements.push(self.import_named("ssrSelect", "_$ssrSelect"));
+        }
+        if self.uses_ssr_in {
+            statements.push(self.import_named("ssrIn", "_$ssrIn"));
+        }
+        if self.uses_ssr_option {
+            statements.push(self.import_named("ssrOption", "_$ssrOption"));
         }
         if self.uses_ssr_attribute {
             statements.push(self.import_named("ssrAttribute", "_$ssrAttribute"));
@@ -667,19 +686,6 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         // SSR hoisted props shapes after the templates they reference (Babel
         // unshifts them right after its templates).
         statements.extend(std::mem::take(&mut self.hoisted_props));
-        if self.uses_ssr_select_values {
-            // `_$ssrSelectValues();` — arms the runtime's select-value
-            // resolution pass (only modules that bind a select value, or
-            // spread onto a select, opt the app in). Matches the Babel
-            // plugin's post-template statement position.
-            let callee = self
-                .ast()
-                .expression_identifier(SPAN, self.ast().ident("_$ssrSelectValues"));
-            let call = self
-                .ast()
-                .expression_call(SPAN, callee, None, self.ast().vec(), false);
-            statements.push(self.ast().statement_expression(SPAN, call));
-        }
         statements.extend(program.body.drain(..));
         let mut body = ArenaVec::new_in(&self.allocator);
         body.extend(statements);
@@ -1592,10 +1598,6 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         let tag_name = element_name(&element.opening_element.name)?;
         crate::shared::removed::check_removed_attributes(self.source, element, &tag_name)?;
         self.uses_ssr_element = true;
-        if tag_name == "select" {
-            // A spread on a select can carry `value` — arm conservatively.
-            self.uses_ssr_select_values = true;
-        }
         let do_not_escape = (tag_name == "script" || tag_name == "style")
             && !self.foreign_raw_text_spans.contains(&element.span);
         let (props, tail) = self.spread_props(
@@ -2051,7 +2053,10 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                         ),
                     )
                 };
-                if self.hydratable {
+                // A spread select's children render under its bound value's
+                // owner (`ssrElement` reads the value first), so they wait
+                // behind a thunk.
+                if self.hydratable || tag_name == "select" {
                     self.arrow_return_expression(element.span, value)
                 } else {
                     value
@@ -2096,15 +2101,64 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     ) -> Result<SsrTemplate<'a>> {
         let tag_name = element_name(&element.opening_element.name)?;
         crate::shared::removed::check_removed_attributes(self.source, element, &tag_name)?;
-        // A `<select value=…>` opts this module into the runtime's SSR
-        // select-value resolution pass (see prepend_helpers).
-        if tag_name == "select"
-            && element.opening_element.attributes.iter().any(|a| {
+        // A bound `<select value>` (#3013, #4891): the value is read once,
+        // ahead of the children, into `ssrSelect`'s state on a transparent
+        // owner; the select writes no value attribute (HTML has none) and
+        // each option below asks `ssrOption` whether it is selected. Babel's
+        // `info.select` / `transformElement`.
+        let inherited = self.select_state.take();
+        let mut select = inherited.clone();
+        let mut select_decl: Option<(String, Expression<'a>)> = None;
+        let mut kept_attributes: Option<std::vec::Vec<JSXAttributeItem<'a>>> = None;
+        if tag_name == "select" {
+            select = Some(None);
+            let attributes = &element.opening_element.attributes;
+            if let Some(index) = attributes.iter().position(|a| {
                 matches!(a, JSXAttributeItem::Attribute(attr)
                     if matches!(&attr.name, oxc_ast::ast::JSXAttributeName::Identifier(id) if id.name == "value"))
-            })
-        {
-            self.uses_ssr_select_values = true;
+            }) {
+                let JSXAttributeItem::Attribute(attr) = &attributes[index] else {
+                    unreachable!("matched an attribute")
+                };
+                let value = match &attr.value {
+                    None => Some(self.ast().expression_string_literal(SPAN, "", None)),
+                    Some(JSXAttributeValue::StringLiteral(literal)) => Some(
+                        self.ast()
+                            .expression_string_literal(literal.span, literal.value, None),
+                    ),
+                    Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                        if matches!(container.expression, JSXExpression::EmptyExpression(_)) {
+                            None
+                        } else {
+                            // Babel's `evaluateAndInline` ran on it first.
+                            let mut value =
+                                jsx_expression_to_expression(&container.expression, self.allocator);
+                            self.attr_planner().fold_confident(&mut value);
+                            Some(value)
+                        }
+                    }
+                    _ => None,
+                };
+                kept_attributes = Some(
+                    attributes
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| *i != index)
+                        .map(|(_, a)| a.clone_in(self.allocator))
+                        .collect(),
+                );
+                if let Some(value) = value {
+                    let name = crate::shared::utils::next_unique_local(
+                        "_s",
+                        &mut self.select_index,
+                        &self.bindings,
+                    );
+                    self.uses_ssr_select = true;
+                    let call = self.helper_call(element.span, "_$ssrSelect", vec![value]);
+                    select_decl = Some((name.clone(), call));
+                    select = Some(Some(name));
+                }
+            }
         }
         // Babel: HTML-namespace `<script>`/`<style>` contents render raw
         // (`path.doNotEscape`); under `<svg>`/`<math>` they escape.
@@ -2116,9 +2170,20 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             let hole = self.hoist_expression(&mut template, element.span, key_call, false, false);
             template.push_expr(hole);
         }
-        let outcome = self
-            .attr_planner()
-            .plan_attributes(&element.opening_element.attributes, &tag_name)?;
+        if let Some(decl) = select_decl {
+            template.declarations.push(Some(decl));
+        }
+        let option = if tag_name == "option" && !matches!(inherited, Some(None)) {
+            self.option_hole(element, inherited.as_ref().and_then(|s| s.as_deref()))
+        } else {
+            None
+        };
+        let outcome = self.attr_planner().plan_attributes(
+            kept_attributes
+                .as_deref()
+                .unwrap_or(&element.opening_element.attributes),
+            &tag_name,
+        )?;
         let has_children = !element.children.is_empty() || outcome.children_replacement.is_some();
         let mut attr_children: Option<AttrChildren<'a>> = None;
         // Link claims (solidjs/solid#3878, Babel's `linkEntries`): a candidate
@@ -2147,6 +2212,15 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             let hole = self.ssr_link_claim_hole(element.span, entries, &mut template);
             template.push_expr(hole);
         }
+        if let Some((hole, dynamic)) = option {
+            let hole = if dynamic {
+                let arrow = self.arrow_return_expression(element.span, hole);
+                self.hoist_expression(&mut template, element.span, arrow, true, false)
+            } else {
+                hole
+            };
+            template.push_expr(hole);
+        }
         template.current_mut().push('>');
         if !is_void_element(&tag_name) {
             self.append_children(
@@ -2156,6 +2230,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 attr_children,
                 &mut template,
                 child_do_not_escape,
+                select.as_ref(),
             )?;
             template.current_mut().push_str(&format!("</{tag_name}>"));
         }
@@ -2754,6 +2829,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     /// nested native elements merge their templates, and everything else
     /// becomes a hoisted `_v$N` hole, boxed by `<!--$-->`/`<!--/-->` markers
     /// when hydratable with multiple significant children.
+    #[allow(clippy::too_many_arguments)]
     fn append_children(
         &mut self,
         tag_name: &str,
@@ -2762,7 +2838,11 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         attr_children: Option<AttrChildren<'a>>,
         template: &mut SsrTemplate<'a>,
         do_not_escape: bool,
+        select: Option<&Option<String>>,
     ) -> Result<()> {
+        // A bound select's holes render under its owner, so an option a
+        // component or a later async pass produces finds the select's state.
+        let select_name = select.and_then(|s| s.clone());
         let children: &[JSXChild<'a>] = if let Some(replacement) = children_replacement {
             std::slice::from_ref(replacement)
         } else {
@@ -2800,6 +2880,8 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     } else {
                         self.escape_expression_recursive(value, false, false)
                     };
+                    let value =
+                        self.select_scoped(child_element.span, select_name.as_deref(), value);
                     self.append_child_hole(template, child_element.span, value, markers, false);
                 }
                 JSXChild::Element(child_element) => {
@@ -2812,6 +2894,8 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                         // Spread elements render through `ssrElement`; the
                         // hole hoists but never escapes or marker-boxes.
                         let value = self.lower_spread_element(child_element, false)?;
+                        let value =
+                            self.select_scoped(child_element.span, select_name.as_deref(), value);
                         let hole = self.hoist_expression(
                             template,
                             child_element.span,
@@ -2821,6 +2905,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                         );
                         template.push_expr(hole);
                     } else {
+                        self.select_state = select.cloned();
                         let child_template = self.ssr_template(child_element, false)?;
                         template.append_template(child_template);
                     }
@@ -2863,6 +2948,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     } else {
                         self.escape_expression_recursive(value, false, false)
                     };
+                    let value = self.select_scoped(container.span, select_name.as_deref(), value);
                     let value = if allocates && (dynamic || function_hole) {
                         self.scope_expression(container.span, value)
                     } else {
@@ -2884,6 +2970,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     } else {
                         self.escape_expression_recursive(value, false, false)
                     };
+                    let value = self.select_scoped(spread.span, select_name.as_deref(), value);
                     let value = if allocates && dynamic {
                         self.scope_expression(spread.span, value)
                     } else {
@@ -2895,7 +2982,13 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         }
 
         if let Some(children) = pseudo_child {
-            self.append_pseudo_child(children, template, markers, do_not_escape)?;
+            self.append_pseudo_child(
+                children,
+                template,
+                markers,
+                do_not_escape,
+                select_name.as_deref(),
+            )?;
         }
         Ok(())
     }
@@ -2909,6 +3002,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         template: &mut SsrTemplate<'a>,
         markers: bool,
         element_do_not_escape: bool,
+        select: Option<&str>,
     ) -> Result<()> {
         let AttrChildren {
             span,
@@ -2961,6 +3055,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         } else {
             self.escape_expression_recursive(value, false, false)
         };
+        let value = self.select_scoped(span, select, value);
         let value = if allocates && (dynamic || function_hole) {
             self.scope_expression(span, value)
         } else {
@@ -3097,6 +3192,177 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         } else {
             call
         }
+    }
+
+    /// `ssrIn(select, () => E)`, or for a thunk hole `() => ssrIn(select,
+    /// () => B)`: a thunk runs later, inside `ssr()`, so its body takes the
+    /// owner. Babel's `selectScoped`.
+    fn select_scoped(
+        &mut self,
+        span: Span,
+        select: Option<&str>,
+        value: Expression<'a>,
+    ) -> Expression<'a> {
+        let Some(select) = select else {
+            return value;
+        };
+        self.uses_ssr_in = true;
+        // A zero-arg arrow whose body is one expression (or one `return`).
+        let thunk_body = matches!(&value, Expression::ArrowFunctionExpression(arrow)
+            if arrow.params.items.is_empty()
+                && arrow.params.rest.is_none()
+                && (arrow.is_expression()
+                    || arrow.get_function_body().is_some_and(|body| matches!(
+                        body.statements.as_slice(),
+                        [Statement::ReturnStatement(ret)] if ret.argument.is_some()))));
+        let wrap = |this: &Self, body: Expression<'a>| {
+            let state = this
+                .ast()
+                .expression_identifier(span, this.ast().ident(select));
+            let body = this.arrow_return_expression(span, body);
+            this.helper_call(span, "_$ssrIn", vec![state, body])
+        };
+        if thunk_body {
+            let body = self.unwrap_expression_arrow(value);
+            let call = wrap(self, body);
+            self.arrow_return_expression(span, call)
+        } else {
+            wrap(self, value)
+        }
+    }
+
+    /// A compiled `<option>`'s select-value hole (Babel's `optionHole`):
+    /// `ssrOption(value, select, own)` writes ` selected` when the option
+    /// matches its select's bound value. `select` is the same-template
+    /// select's state; without one the runtime reads the option's owner. The
+    /// value is the `value` attribute, else the text content (whitespace
+    /// collapsed); an option whose text is markup has no hole. `own` marks an
+    /// option carrying `selected` itself. Returns the call and whether it
+    /// reads anything dynamic (then it becomes a grouped thunk).
+    fn option_hole(
+        &mut self,
+        element: &JSXElement<'a>,
+        select: Option<&str>,
+    ) -> Option<(Expression<'a>, bool)> {
+        let span = element.span;
+        let mut value: Option<Expression<'a>> = None;
+        let mut own: Option<Expression<'a>> = None;
+        let mut dynamic = false;
+        let mut has_value = false;
+        let one = |this: &Self| {
+            this.ast().expression_numeric_literal(
+                span,
+                1.0,
+                None,
+                oxc_ast::ast::NumberBase::Decimal,
+            )
+        };
+        for attr in &element.opening_element.attributes {
+            let JSXAttributeItem::Attribute(attr) = attr else {
+                continue;
+            };
+            let oxc_ast::ast::JSXAttributeName::Identifier(name) = &attr.name else {
+                continue;
+            };
+            let name = name.name.as_str();
+            if name != "value" && name != "selected" {
+                continue;
+            }
+            if let Some(JSXAttributeValue::ExpressionContainer(container)) = &attr.value
+                && matches!(container.expression, JSXExpression::EmptyExpression(_))
+            {
+                continue;
+            }
+            if name == "selected" {
+                own = match &attr.value {
+                    Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                        match &container.expression {
+                            JSXExpression::BooleanLiteral(literal) => {
+                                literal.value.then(|| one(self))
+                            }
+                            expression => {
+                                dynamic = true;
+                                Some(jsx_expression_to_expression(expression, self.allocator))
+                            }
+                        }
+                    }
+                    _ => Some(one(self)),
+                };
+                continue;
+            }
+            has_value = true;
+            let text = match &attr.value {
+                None => Some(String::new()),
+                Some(JSXAttributeValue::StringLiteral(literal)) => Some(literal.value.to_string()),
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    self.static_jsx_expression_value(&container.expression)
+                }
+                _ => None,
+            };
+            value = Some(match text {
+                Some(text) => {
+                    self.ast()
+                        .expression_string_literal(span, self.ast().str(&text), None)
+                }
+                None => {
+                    let Some(JSXAttributeValue::ExpressionContainer(container)) = &attr.value
+                    else {
+                        return None;
+                    };
+                    dynamic = true;
+                    jsx_expression_to_expression(&container.expression, self.allocator)
+                }
+            });
+        }
+        if !has_value {
+            let mut text = String::new();
+            let children = &element.children;
+            for child in children {
+                match child {
+                    JSXChild::Text(t) => text.push_str(&decode_html_entities(&t.value)),
+                    JSXChild::ExpressionContainer(container) => {
+                        if matches!(container.expression, JSXExpression::EmptyExpression(_)) {
+                            continue;
+                        }
+                        if let Some(lit) = self.static_jsx_expression_value(&container.expression) {
+                            text.push_str(&lit);
+                        } else if children.len() == 1 {
+                            value = Some(jsx_expression_to_expression(
+                                &container.expression,
+                                self.allocator,
+                            ));
+                            dynamic = true;
+                        } else {
+                            return None;
+                        }
+                    }
+                    _ => return None,
+                }
+            }
+            if value.is_none() {
+                let collapsed = text
+                    .split_whitespace()
+                    .collect::<std::vec::Vec<_>>()
+                    .join(" ");
+                value = Some(self.ast().expression_string_literal(
+                    span,
+                    self.ast().str(&collapsed),
+                    None,
+                ));
+            }
+        }
+        self.uses_ssr_option = true;
+        let mut args = vec![value.expect("set above")];
+        if select.is_some() || own.is_some() {
+            args.push(
+                self.ast()
+                    .expression_identifier(span, self.ast().ident(select.unwrap_or("undefined"))),
+            );
+        }
+        if let Some(own) = own {
+            args.push(own);
+        }
+        Some((self.helper_call(span, "_$ssrOption", args), dynamic))
     }
 
     fn ssr_hydration_key_call(&mut self, span: Span) -> Expression<'a> {

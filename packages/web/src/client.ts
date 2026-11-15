@@ -1568,38 +1568,47 @@ export function installHostTagging() {
   hostRt = tagHost;
 }
 /**
- * Dev CHECK, hydration (#4875): an insert whose parent is a `<table>`
- * claims server-rendered rows the HTML parser moved into a `<tbody>` it
- * implied (`<tr>` is not a child of `<table>` in HTML): no hydration key
- * on the `<tbody>`, keys on its rows. The insert owns the `<table>`'s
- * children, so it cannot update rows that sit one level down — removed rows
- * stay and new ones land after the `<tbody>`. A client-only render appends
- * the rows to the `<table>` itself and never meets this. Warns once per
- * table. Lives in the client entry: the server build never hydrates.
+ * Dev CHECK, hydration: an insert claims a server-rendered element that is
+ * not its parent's child. The server wrote the element inside `parent`, as
+ * the JSX nests it, but the nesting is invalid HTML and the browser's parser
+ * rebuilt the tree: a `<div>` closes an open `<p>`, an `<a>` closes an open
+ * `<a>`, a `<tr>` directly in a `<table>` gets an implied `<tbody>`. The
+ * compiler rejects these inside one template; across a component boundary
+ * only hydration sees them. The claimed node stays where the parser put it,
+ * so the page differs from a client render, and an insert that owns
+ * `parent`'s children cannot update a node that sits elsewhere (#4875).
+ * Warns once per parent. Lives in the client entry: the server never
+ * hydrates.
  */
-function checkImpliedTbody(table: Element): void {
-  if ((table as any).$$tbody) return;
-  for (let c = table.firstElementChild; c; c = c.nextElementSibling)
-    if (
-      c.localName === "tbody" &&
-      !c.hasAttribute("_hk") &&
-      c.firstElementChild?.hasAttribute("_hk")
-    ) {
-      (table as any).$$tbody = 1;
-      devCheck({
-        code: "TABLE_ROWS_WITHOUT_TBODY",
-        kind: "render",
-        severity: "warn",
-        message:
-          `[TABLE_ROWS_WITHOUT_TBODY] A <table> renders its rows directly (no <tbody>), and the ` +
-          `HTML parser moved the server-rendered rows into a <tbody> it added: the rows are no ` +
-          `longer the table's children, so after hydration Solid cannot update them (a removed ` +
-          `row stays, a new one lands after the <tbody>). Wrap the rows in <tbody> — ` +
-          `\`<table><tbody><For each={rows()}>{row => <tr>…</tr>}</For></tbody></table>\`.`,
-        data: { id: table.id || undefined }
-      });
-      return;
-    }
+function checkParserMoved(parent: Element, node: Element): void {
+  const at = node.parentNode as Element | null;
+  if (!at || at === parent || (parent as any).$$nest) return;
+  (parent as any).$$nest = 1;
+  // A wrapper the parser added carries no hydration key (the server never
+  // wrote it): the implied <tbody>.
+  const wrapped = at.parentNode === parent && !at.hasAttribute("_hk");
+  const p = `<${parent.localName}>`,
+    n = `<${node.localName}>`;
+  devCheck({
+    code: "INVALID_HTML_NESTING",
+    kind: "render",
+    severity: "warn",
+    message:
+      `[INVALID_HTML_NESTING] The server rendered ${n} inside ${p}, which HTML does not ` +
+      `allow there, and the browser's parser ` +
+      (wrapped
+        ? `wrapped it in a <${at.localName}> it added`
+        : `moved it: it now sits in <${at.localName}>`) +
+      `. Hydration keeps the parser's tree, so the page differs from a client render and ` +
+      `Solid cannot update ${n} through ${p} (a removed node stays, a new one lands ` +
+      `elsewhere). The nesting usually spans a component boundary, which the compiler ` +
+      `cannot check. ` +
+      (wrapped
+        ? `Write the <${at.localName}> yourself: \`${p}<${at.localName}>…</${at.localName}></${parent.localName}>\`.`
+        : `Change the outer element (a <div> for a <p> that holds blocks), or move ${n} out ` +
+          `of ${p}.`),
+    data: { parent: parent.localName, child: node.localName, found: at.localName }
+  });
 }
 
 export function installHydrationRuntime() {
@@ -1608,8 +1617,6 @@ export function installHydrationRuntime() {
     // hydration, dropping server text-hole separators.
     claimInitial(parent, multi, initial) {
       if (isHydrating(parent)) {
-        // Dev: rows the parser moved into an implied <tbody> (#4875).
-        if ("_SOLID_DEV_" && parent?.localName === "table") checkImpliedTbody(parent);
         if (!multi && initial === undefined && parent) initial = claimChildNodes(parent);
         else if (Array.isArray(initial)) stripTextSeparators(initial);
       }
@@ -2765,7 +2772,13 @@ export function getNextElement(template) {
           `hydration id namespaces are misaligned — when hydrating a subtree of a larger ` +
           `server render, wrap the document shell in <NoHydration> and re-enter with ` +
           `<Hydration> around the hydrated subtree (or pass hydrate() a renderId matching ` +
-          `the server's <Hydration id>).`
+          `the server's <Hydration id>).` +
+          // The parser drops a <form> start tag inside an open <form>: the
+          // element never exists, so its key finds nothing (#4875).
+          (template._html && template._html.startsWith("<form")
+            ? ` If this <form> renders inside another <form> (through a component), the ` +
+              `browser's HTML parser dropped it: forms cannot nest. Move it out of the outer form.`
+            : "")
       );
     }
     return template(true);
@@ -3213,6 +3226,9 @@ function insertExpression(parent, value, current, marker) {
       for (const n of arr ? value : [value]) {
         if (n && n.nodeType) {
           if (!isHydrating(n)) return current;
+          // Dev: a claimed element the parser moved out of `parent`.
+          if ("_SOLID_DEV_" && n.nodeType === 1 && parent.nodeType === 1)
+            checkParserMoved(parent, n);
         } else if (arr && (typeof n === "string" || typeof n === "number")) {
           // A raw primitive in an ARRAY during a claim pass is a text hole
           // whose claim failed (normalize adopts live text nodes while

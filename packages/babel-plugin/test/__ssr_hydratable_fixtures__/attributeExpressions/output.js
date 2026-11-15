@@ -1,5 +1,6 @@
 import { ssrStyleProperties as _$ssrStyleProperties } from "r-server";
-import { ssrSelectValues as _$ssrSelectValues } from "r-server";
+import { ssrOption as _$ssrOption } from "r-server";
+import { ssrSelect as _$ssrSelect } from "r-server";
 import { scope as _$scope } from "r-server";
 import { ssrClassName as _$ssrClassName } from "r-server";
 import { ssrStyle as _$ssrStyle } from "r-server";
@@ -41,7 +42,7 @@ var _tmpl$ = ['<a href="/" class="', '"', ">Welcome</a>"],
   ],
   _tmpl$21 = ["<button", "", "></button>"],
   _tmpl$22 = ["<input", ' value="10">'],
-  _tmpl$23 = ["<select", "", "><option", ">Red</option><option", ">Blue</option></select>"],
+  _tmpl$23 = ["<select", "><option", "", ">Red</option><option", "", ">Blue</option></select>"],
   _tmpl$24 = ["<img", " src>"],
   _tmpl$25 = ["<div", "><img src></div>"],
   _tmpl$26 = ["<img", ' src loading="lazy">'],
@@ -95,7 +96,6 @@ var _sk$ = k => k === "foo" || k === "disabled" || k === "title" || k === "style
   _sk$9 = k => k === "disabled" || k === "type" || k === "tabindex" || k === "style",
   _sk$0 = k => k === "class",
   _sk$1 = k => k === "title";
-_$ssrSelectValues();
 import * as styles from "./styles.module.css";
 import { binding } from "somewhere";
 function refFn() {}
@@ -394,75 +394,77 @@ var _v$62 = _$ssrHydrationKey(),
   _v$63 = () => _$ssrStyleProperty("color:", _$escape(a(), true));
 const template40 = _$ssr(_tmpl$16, _v$62, _v$63);
 var _v$64 = _$ssrHydrationKey(),
-  _v$65 = () => _$ssrAttribute("value", _$escape(state.color, true)),
-  _v$66 = () => _$ssrAttribute("value", _$escape(Color.Red, true)),
+  _s$ = _$ssrSelect(state.color),
+  _v$66 = () => _$ssrOption(Color.Red, _s$),
+  _v$68 = () => _$ssrOption(Color.Blue, _s$),
+  _v$65 = () => _$ssrAttribute("value", _$escape(Color.Red, true)),
   _v$67 = () => _$ssrAttribute("value", _$escape(Color.Blue, true));
-const template41 = _$ssr(_tmpl$23, _v$64, _v$65, _v$66, _v$67);
-var _v$68 = _$ssrHydrationKey();
-const template42 = _$ssr(_tmpl$24, _v$68);
+const template41 = _$ssr(_tmpl$23, _v$64, _v$65, _v$66, _v$67, _v$68);
 var _v$69 = _$ssrHydrationKey();
-const template43 = _$ssr(_tmpl$25, _v$69);
+const template42 = _$ssr(_tmpl$24, _v$69);
 var _v$70 = _$ssrHydrationKey();
-const template44 = _$ssr(_tmpl$26, _v$70);
+const template43 = _$ssr(_tmpl$25, _v$70);
 var _v$71 = _$ssrHydrationKey();
-const template45 = _$ssr(_tmpl$27, _v$71);
+const template44 = _$ssr(_tmpl$26, _v$71);
 var _v$72 = _$ssrHydrationKey();
-const template46 = _$ssr(_tmpl$28, _v$72);
+const template45 = _$ssr(_tmpl$27, _v$72);
 var _v$73 = _$ssrHydrationKey();
-const template47 = _$ssr(_tmpl$29, _v$73);
+const template46 = _$ssr(_tmpl$28, _v$73);
 var _v$74 = _$ssrHydrationKey();
-const template48 = _$ssr(_tmpl$30, _v$74);
+const template47 = _$ssr(_tmpl$29, _v$74);
 var _v$75 = _$ssrHydrationKey();
-const template49 = _$ssr(_tmpl$31, _v$75);
+const template48 = _$ssr(_tmpl$30, _v$75);
 var _v$76 = _$ssrHydrationKey();
-const template50 = _$ssr(_tmpl$32, _v$76);
-var _v$77 = _$ssrHydrationKey(),
-  _ref$9 = binding;
-const template51 = _$ssr(_tmpl$9, _v$77);
+const template49 = _$ssr(_tmpl$31, _v$76);
+var _v$77 = _$ssrHydrationKey();
+const template50 = _$ssr(_tmpl$32, _v$77);
 var _v$78 = _$ssrHydrationKey(),
-  _ref$0 = binding.prop;
-const template52 = _$ssr(_tmpl$9, _v$78);
+  _ref$9 = binding;
+const template51 = _$ssr(_tmpl$9, _v$78);
 var _v$79 = _$ssrHydrationKey(),
-  _ref$1 = refFn;
-const template53 = _$ssr(_tmpl$9, _v$79);
+  _ref$0 = binding.prop;
+const template52 = _$ssr(_tmpl$9, _v$79);
 var _v$80 = _$ssrHydrationKey(),
-  _ref$10 = refConst;
-const template54 = _$ssr(_tmpl$9, _v$80);
+  _ref$1 = refFn;
+const template53 = _$ssr(_tmpl$9, _v$80);
 var _v$81 = _$ssrHydrationKey(),
+  _ref$10 = refConst;
+const template54 = _$ssr(_tmpl$9, _v$81);
+var _v$82 = _$ssrHydrationKey(),
   _ref$11 = refUnknown;
-const template55 = _$ssr(_tmpl$9, _v$81);
-var _v$82 = _$ssrHydrationKey();
-const template56 = _$ssr(_tmpl$33, _v$82);
+const template55 = _$ssr(_tmpl$9, _v$82);
 var _v$83 = _$ssrHydrationKey();
-const template57 = _$ssr(_tmpl$34, _v$83);
+const template56 = _$ssr(_tmpl$33, _v$83);
 var _v$84 = _$ssrHydrationKey();
-const template58 = _$ssr(_tmpl$9, _v$84);
+const template57 = _$ssr(_tmpl$34, _v$84);
 var _v$85 = _$ssrHydrationKey();
-const template59 = _$ssr(_tmpl$35, _v$85);
+const template58 = _$ssr(_tmpl$9, _v$85);
 var _v$86 = _$ssrHydrationKey();
+const template59 = _$ssr(_tmpl$35, _v$86);
+var _v$87 = _$ssrHydrationKey();
 const template60 = _$ssr(
   _tmpl$36,
-  _v$86,
+  _v$87,
   _$ssrAttribute("i", _$escape(undefined, true)),
   _$ssrAttribute("j", _$escape(null, true)),
   _$ssrAttribute("k", void 0)
 );
-var _v$87 = _$ssrHydrationKey();
-const template61 = _$ssr(_tmpl$37, _v$87);
 var _v$88 = _$ssrHydrationKey();
-const template62 = _$ssr(_tmpl$38, _v$88);
+const template61 = _$ssr(_tmpl$37, _v$88);
 var _v$89 = _$ssrHydrationKey();
-const template63 = _$ssr(_tmpl$16, _v$89, _$ssrStyleProperty("background:", "red"));
+const template62 = _$ssr(_tmpl$38, _v$89);
 var _v$90 = _$ssrHydrationKey();
+const template63 = _$ssr(_tmpl$16, _v$90, _$ssrStyleProperty("background:", "red"));
+var _v$91 = _$ssrHydrationKey();
 const template64 = _$ssr(
   _tmpl$16,
-  _v$90,
+  _v$91,
   _$ssrStyleProperties("background:", "red", "color:", "green", "margin:", 3, "padding:", 0.4)
 );
-var _v$91 = _$ssrHydrationKey();
+var _v$92 = _$ssrHydrationKey();
 const template65 = _$ssr(
   _tmpl$16,
-  _v$91,
+  _v$92,
   _$ssrStyleProperties(
     "background:",
     "red",
@@ -472,8 +474,8 @@ const template65 = _$ssr(
     _$escape(undefined, true)
   )
 );
-var _v$92 = _$ssrHydrationKey(),
-  _v$93 = () =>
+var _v$93 = _$ssrHydrationKey(),
+  _v$94 = () =>
     _$ssrStyleProperties(
       "background:",
       "red",
@@ -482,11 +484,11 @@ var _v$92 = _$ssrHydrationKey(),
       "border:",
       _$escape(signal(), true)
     );
-const template66 = _$ssr(_tmpl$16, _v$92, _v$93);
-var _v$94 = _$ssrHydrationKey();
+const template66 = _$ssr(_tmpl$16, _v$93, _v$94);
+var _v$95 = _$ssrHydrationKey();
 const template67 = _$ssr(
   _tmpl$16,
-  _v$94,
+  _v$95,
   _$ssrStyleProperties(
     "background:",
     "red",
@@ -496,8 +498,8 @@ const template67 = _$ssr(
     _$escape(somevalue, true)
   )
 );
-var _v$95 = _$ssrHydrationKey(),
-  _v$96 = () =>
+var _v$96 = _$ssrHydrationKey(),
+  _v$97 = () =>
     _$ssrStyleProperties(
       "background:",
       "red",
@@ -506,33 +508,33 @@ var _v$95 = _$ssrHydrationKey(),
       "border:",
       _$escape(some.access, true)
     );
-const template68 = _$ssr(_tmpl$16, _v$95, _v$96);
-var _v$97 = _$ssrHydrationKey();
+const template68 = _$ssr(_tmpl$16, _v$96, _v$97);
+var _v$98 = _$ssrHydrationKey();
 const template69 = _$ssr(
   _tmpl$16,
-  _v$97,
+  _v$98,
   _$ssrStyleProperties("background:", "red", "color:", "green", "border:", _$escape(null, true))
 );
-var _v$98 = _$ssrHydrationKey();
-const template70 = _$ssr(_tmpl$39, _v$98, _$ssrAttribute("playsinline", _$escape(value, true)));
 var _v$99 = _$ssrHydrationKey();
-const template71 = _$ssr(_tmpl$40, _v$99);
+const template70 = _$ssr(_tmpl$39, _v$99, _$ssrAttribute("playsinline", _$escape(value, true)));
 var _v$100 = _$ssrHydrationKey();
-const template72 = _$ssr(_tmpl$41, _v$100);
+const template71 = _$ssr(_tmpl$40, _v$100);
 var _v$101 = _$ssrHydrationKey();
-const template73 = _$ssr(_tmpl$42, _v$101);
+const template72 = _$ssr(_tmpl$41, _v$101);
 var _v$102 = _$ssrHydrationKey();
-const template74 = _$ssr(_tmpl$43, _v$102);
+const template73 = _$ssr(_tmpl$42, _v$102);
 var _v$103 = _$ssrHydrationKey();
-const template75 = _$ssr(_tmpl$41, _v$103);
+const template74 = _$ssr(_tmpl$43, _v$103);
 var _v$104 = _$ssrHydrationKey();
-const template76 = _$ssr(_tmpl$44, _v$104);
+const template75 = _$ssr(_tmpl$41, _v$104);
+var _v$105 = _$ssrHydrationKey();
+const template76 = _$ssr(_tmpl$44, _v$105);
 
 // STATIC TESTS
-var _v$105 = _$ssrHydrationKey();
+var _v$106 = _$ssrHydrationKey();
 const template77 = _$ssr(
   _tmpl$16,
-  _v$105,
+  _v$106,
   _$ssrStyleProperties(
     "width:",
     _$escape(props.width, true),
@@ -540,21 +542,21 @@ const template77 = _$ssr(
     _$escape(props.height, true)
   )
 );
-var _v$106 = _$ssrHydrationKey(),
-  _v$107 = () => _$ssrAttribute("something", _$escape(color(), true));
+var _v$107 = _$ssrHydrationKey(),
+  _v$108 = () => _$ssrAttribute("something", _$escape(color(), true));
 const template78 = _$ssr(
   _tmpl$45,
-  _v$106,
+  _v$107,
   _$ssrStyleProperties(
     "width:",
     _$escape(props.width, true),
     "height:",
     _$escape(props.height, true)
   ),
-  _v$107
+  _v$108
 );
-var _v$108 = _$ssrHydrationKey(),
-  _v$109 = () =>
+var _v$109 = _$ssrHydrationKey(),
+  _v$110 = () =>
     _$ssrStyleProperties(
       "width:",
       _$escape(props.width, true),
@@ -563,8 +565,8 @@ var _v$108 = _$ssrHydrationKey(),
     );
 const template79 = _$ssr(
   _tmpl$45,
-  _v$108,
   _v$109,
+  _v$110,
   _$ssrAttribute("something", _$escape(color(), true))
 );
 
@@ -617,55 +619,55 @@ const styleProp = {
     height: props.height
   }
 };
-var _v$110 = _$ssrHydrationKey();
+var _v$111 = _$ssrHydrationKey();
 const template85 = _$ssr(
   _tmpl$14,
-  _v$110,
-  (_v$111 => (_v$111 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$111))))(styleProp.style)
+  _v$111,
+  (_v$112 => (_v$112 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$112))))(styleProp.style)
 );
-var _v$112 = _$ssrHydrationKey(),
-  _v$114 = () =>
-    (_v$113 => (_v$113 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$113))))(
+var _v$113 = _$ssrHydrationKey(),
+  _v$115 = () =>
+    (_v$114 => (_v$114 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$114))))(
       styleProp.style
     );
-const template86 = _$ssr(_tmpl$14, _v$112, _v$114);
+const template86 = _$ssr(_tmpl$14, _v$113, _v$115);
 const style = {
   background: "red",
   border: "solid black " + count() + "px"
 };
-var _v$115 = _$ssrHydrationKey(),
-  _v$116 = () => _$ssrAttribute("aria-label", _$escape(count(), true)),
-  _v$119 = _$scope(() => _$escape(count()));
+var _v$116 = _$ssrHydrationKey(),
+  _v$117 = () => _$ssrAttribute("aria-label", _$escape(count(), true)),
+  _v$120 = _$scope(() => _$escape(count()));
 const template87 = _$ssr(
   _tmpl$46,
-  _v$115,
   _v$116,
-  (_v$117 => (_v$117 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$117))))(style),
-  (_v$118 => (_v$118 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$118))))(style),
-  _v$119
+  _v$117,
+  (_v$118 => (_v$118 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$118))))(style),
+  (_v$119 => (_v$119 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$119))))(style),
+  _v$120
 );
-var _v$120 = _$ssrHydrationKey(),
-  _v$121 = () => _$ssrAttribute("aria-label", _$escape(count(), true)),
-  _v$124 = _$scope(() => _$escape(count()));
+var _v$121 = _$ssrHydrationKey(),
+  _v$122 = () => _$ssrAttribute("aria-label", _$escape(count(), true)),
+  _v$125 = _$scope(() => _$escape(count()));
 const template88 = _$ssr(
   _tmpl$46,
-  _v$120,
   _v$121,
-  (_v$122 => (_v$122 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$122))))(style),
-  (_v$123 => (_v$123 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$123))))(style),
-  _v$124
+  _v$122,
+  (_v$123 => (_v$123 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$123))))(style),
+  (_v$124 => (_v$124 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$124))))(style),
+  _v$125
 );
-var _v$125 = _$ssrHydrationKey();
-const template89 = _$ssr(_tmpl$9, _v$125);
-var _v$126 = _$ssrHydrationKey(),
-  _v$127 = () => _$ssrAttribute("data-test", _$escape(state.flag || undefined, true));
-const template90 = _$ssr(_tmpl$14, _v$126, _v$127);
-var _v$128 = _$ssrHydrationKey(),
-  _v$129 = () => _$ssrAttribute("muted", _$escape(dynamicAttribute(), true));
-const template91 = _$ssr(_tmpl$47, _v$128, _v$129);
+var _v$126 = _$ssrHydrationKey();
+const template89 = _$ssr(_tmpl$9, _v$126);
+var _v$127 = _$ssrHydrationKey(),
+  _v$128 = () => _$ssrAttribute("data-test", _$escape(state.flag || undefined, true));
+const template90 = _$ssr(_tmpl$14, _v$127, _v$128);
+var _v$129 = _$ssrHydrationKey(),
+  _v$130 = () => _$ssrAttribute("muted", _$escape(dynamicAttribute(), true));
+const template91 = _$ssr(_tmpl$47, _v$129, _v$130);
 function MyVideo() {
-  var _v$130 = _$ssrHydrationKey();
-  return _$ssr(_tmpl$48, _v$130);
+  var _v$131 = _$ssrHydrationKey();
+  return _$ssr(_tmpl$48, _v$131);
 }
 
 // #2959: conditional attribute merged into a spread stays a bare expression
@@ -685,21 +687,21 @@ const template97 = _$ssrElement(
 // call-shaped value must not get the _$scope id reservation (the client
 // applies these as plain prop effects that never allocate hydration ids), or
 // every hydratable sibling after it shifts by one id.
-var _v$131 = _$ssrHydrationKey(),
-  _v$132 = () => createIcon(props.radius),
-  _v$133 = () => _$escape(getLabel(props.id) || " "),
-  _v$134 = () => _$ssrAttribute("checked", _$escape(checked(), true));
-const template98 = _$ssr(_tmpl$49, _v$131, _v$132, _v$133, _v$134);
+var _v$132 = _$ssrHydrationKey(),
+  _v$133 = () => createIcon(props.radius),
+  _v$134 = () => _$escape(getLabel(props.id) || " "),
+  _v$135 = () => _$ssrAttribute("checked", _$escape(checked(), true));
+const template98 = _$ssr(_tmpl$49, _v$132, _v$133, _v$134, _v$135);
 
 // solidjs/solid#3691: a textarea's dynamic value/defaultValue folds into its
 // text content on the server, but the client writes it as a plain `value`
 // property effect that never allocates a hydration id — the fold must not take
 // the _$scope reservation either, or the component after it hydrates one id off.
-var _v$135 = _$ssrHydrationKey(),
-  _v$136 = () => _$escape(text()),
-  _v$137 = () => _$escape(initial()),
-  _v$138 = _$escape(Counter({}));
-const template99 = _$ssr(_tmpl$50, _v$135, _v$136, _v$137, _v$138);
+var _v$136 = _$ssrHydrationKey(),
+  _v$137 = () => _$escape(text()),
+  _v$138 = () => _$escape(initial()),
+  _v$139 = _$escape(Counter({}));
+const template99 = _$ssr(_tmpl$50, _v$136, _v$137, _v$138, _v$139);
 
 // Static attributes after the last spread bake into ssrElement's attribute
 // string with their keys skipped on the spread; statics before a spread, and
@@ -773,8 +775,8 @@ const template116 = _$ssrElement(
   _sk$6,
   ' class="row" data-kind="item"'
 );
-var _v$139 = _$ssrHydrationKey(),
-  _v$140 = () =>
+var _v$140 = _$ssrHydrationKey(),
+  _v$141 = () =>
     _$ssrStyleProperties(
       "color:",
       _$escape(color(), true),
@@ -783,29 +785,29 @@ var _v$139 = _$ssrHydrationKey(),
       "margin-right:",
       "40px"
     );
-const template117 = _$ssr(_tmpl$16, _v$139, _v$140);
-var _v$141 = _$ssrHydrationKey();
+const template117 = _$ssr(_tmpl$16, _v$140, _v$141);
+var _v$142 = _$ssrHydrationKey();
 const nullishAttributes = _$ssr(
   _tmpl$51,
-  _v$141,
-  (_v$142 => (_v$142 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$142))))(null),
-  (_v$143 => (_v$143 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$143))))(undefined),
+  _v$142,
+  (_v$143 => (_v$143 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$143))))(null),
+  (_v$144 => (_v$144 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$144))))(undefined),
   _$ssrAttribute("title", _$escape(null, true))
 );
-var _v$144 = _$ssrHydrationKey(),
+var _v$145 = _$ssrHydrationKey(),
   _g$4 = _$ssrGroup(
     () => [
-      (_v$145 => (_v$145 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$145))))(props.style),
-      (_v$147 => (_v$147 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$147))))(
+      (_v$146 => (_v$146 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$146))))(props.style),
+      (_v$148 => (_v$148 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$148))))(
         props.class
       ),
       _$ssrAttribute("title", _$escape(props.title, true))
     ],
     3
   );
-const nullableAttributes = _$ssr(_tmpl$51, _v$144, _g$4, _g$4, _g$4);
-var _v$150 = _$ssrHydrationKey();
-const emptyAttributes = _$ssr(_tmpl$52, _v$150);
+const nullableAttributes = _$ssr(_tmpl$51, _v$145, _g$4, _g$4, _g$4);
+var _v$151 = _$ssrHydrationKey();
+const emptyAttributes = _$ssr(_tmpl$52, _v$151);
 
 // solidjs/solid#4081: a ref expression that calls something is evaluated
 // beside a spread too, as the template path evaluates it (`_ref$ = expr`), so

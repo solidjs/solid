@@ -700,8 +700,11 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     // waits on it, and its own frame holds (A15, #3334), not the lane's
     // parent. The landing lands the frame: its own pass (the flush joined
     // its transaction) reads the answer it waited on — the lane's staging,
-    // revealed at this seam.
-    const never = pending && !el._x!._shown;
+    // revealed at this seam. Not a member pending only on `refresh()`
+    // re-asks: a re-ask asks no new question and holds nothing new (D-34
+    // ¶3), so another lane's leaf reads its screen and shows that lane's
+    // guess beside it (F-11, #4889).
+    const never = pending && !el._x!._shown && !reasks(el as Computed<any>);
     // D-28: a leaf a verdict read moved into the lane still throws on such
     // a flight — the pass leaves the lane, and its frame holds as if the
     // read had come first (S-39, #4275). Nor does a verdict lane's seat carry
