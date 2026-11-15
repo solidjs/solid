@@ -83,7 +83,8 @@ import {
   unhold,
   type Transaction,
   installBoundaryHooks,
-  laneStageHook
+  laneStageHook,
+  swapHook
 } from "./core/scheduler.js";
 import { attrHooks } from "./core/attribution-hooks.js";
 import type { Computed, Owner, Signal } from "./core/types.js";
@@ -914,6 +915,7 @@ function createBoundary<T>(
       // it never displayed — the engine knows the swap it was staged with).
       if (__OBSERVE__ && b._fallback && b._type & STATUS_PENDING && attrHooks !== null)
         attrHooks.boundaryFallback(b, b._tree, false);
+      if (b._fallback && swapHook) swapHook();
       b._fallback = false;
       // The fallback dies when the content that replaces it is on screen —
       // with this flush's commits when the pass is the frame's, at the
@@ -976,6 +978,9 @@ function fallback<T>(b: Boundary): T {
   // when the screen shows it (a commit, a landing, a lane's reveal).
   if (__OBSERVE__ && !b._fallback && b._type & STATUS_PENDING && attrHooks !== null)
     attrHooks.boundaryFallback(b, b._tree, true, out);
+  // The content goes behind the fallback: off screen (F-3), and so are its
+  // head tags (`swapHook`, #4873).
+  if (!b._fallback && swapHook) swapHook();
   b._fallback = true;
   // Built in its own scope, like `Show`'s function child, once per show
   // (D-39: the fallback is the display until a new answer replaces the
