@@ -31,6 +31,7 @@ import {
   snapshot,
   type Store
 } from "../../src/index.js";
+import { $THIN } from "../../src/store/types.js";
 
 type SimplePropTypes = {
   a?: string | null;
@@ -887,7 +888,7 @@ describe("view descriptors", () => {
       get(_, key, receiver) {
         if (key === $PROXY) return receiver;
         if (key === $TARGET) return target;
-        if (key === $RECORD) return undefined;
+        if (key === $RECORD || key === $THIN) return undefined;
         log.push(`get ${String(key)}`);
         return data[key as string];
       },

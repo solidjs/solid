@@ -1,6 +1,6 @@
 import { CONFIG_KEY_BAG, SUPPORTS_PROXY } from "../core/constants.js";
 import { createMemo } from "../signals.js";
-import { $PROXY, $RECORD, $TARGET, $THIN, ownEnumerableKeys } from "./types.js";
+import { $PROXY, $RECORD, $TARGET, $THIN, ownEnumerableKeys, storeKeys } from "./types.js";
 
 function trueFn() {
   return true;
@@ -165,7 +165,10 @@ export function omitView(o: any): OmitView | undefined {
 function leafKeys(leaf: any, kind: SourceKind): (string | symbol)[] {
   if (kind === SOURCE_PLAIN) return Object.keys(leaf);
   if (kind === SOURCE_PROXY || leaf[$PROXY] === leaf) {
-    return Reflect.ownKeys(leaf);
+    // A store's trap answers directly: the Proxy `ownKeys` invariant checks
+    // cost twice the trap.
+    const t = storeKeys !== null ? leaf[$THIN] : undefined;
+    return t?.p === leaf ? storeKeys!(t) : Reflect.ownKeys(leaf);
   }
   return Object.keys(leaf);
 }

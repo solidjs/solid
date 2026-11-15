@@ -95,7 +95,7 @@ import {
   writeOverride
 } from "./types.js";
 
-import { $THIN } from "./types.js";
+import { $THIN, installStoreKeys } from "./types.js";
 export { $THIN };
 /** The proxy shell's back-reference to its target (one shared handler). */
 const $S = Symbol();
@@ -199,6 +199,11 @@ interface Target {
   lg: any;
   /** per-action key nodes of a keyed optimistic list (#4897) */
   ks: Map<number, Signal<number>> | null;
+  /** the first parent this target was reached through (reconcile's gate) */
+  u: Target | null;
+  /** this target or one below it (through `u`) ever had a node: reconcile
+   * descends only here (#2902; sticky, as store.ts's STORE_DESC was) */
+  d: boolean;
 }
 /** A chained target's key with no own value reads the chained store. */
 const DELEGATE = {};
@@ -236,7 +241,7 @@ const thinProxies = new WeakSet<object>();
  * answer a symbol read with a node). */
 export const isThin = (v: any): boolean =>
   v !== null && typeof v === "object" && v[$THIN] !== undefined;
-export function thinWrap(v: any, fam: StoreFamily | null = null): any {
+export function thinWrap(v: any, fam: StoreFamily | null = null, u: Target | null = null): any {
   const map: WeakMap<object, any> = fam?.map ?? targets;
   let t: Target | undefined = map.get(v);
   if (t === undefined) {
@@ -261,7 +266,9 @@ export function thinWrap(v: any, fam: StoreFamily | null = null): any {
       o: null,
       over: false,
       lg: null,
-      ks: null
+      ks: null,
+      u,
+      d: false
     };
     const shell: any = r ? [] : {};
     shell[$S] = t;
@@ -283,7 +290,7 @@ function child(t: Target, v: any): any {
     return ct !== undefined && ct.c !== null ? ct.p : v;
   }
   if (!isWrappable(v) || isRawValue(v)) return v;
-  const p = wrap(v, t._fam);
+  const p = wrap(v, t._fam, t);
   if (__DEV__) {
     const ct: Target = p[$THIN];
     if (ct !== t && !devRoot!.has(ct)) devRoot!.set(ct, devRoot!.get(t) ?? t);
@@ -450,6 +457,7 @@ function wrapTools(): void {
   });
 }
 function slot<V>(t: Target, v: V, eq: (a: V, b: V) => boolean, key: PropertyKey): Signal<V> {
+  for (let p: Target | null = t; p !== null && !p.d; p = p.u) p.d = true;
   const s = slotSignal(v, eq, t, key, false);
   if (t._fam !== null) s._config |= CONFIG_NO_SNAPSHOT;
   // Attribution names a value node by its store path segment and places it
@@ -860,6 +868,18 @@ const NONE = Object.create(null);
 const protoNode = (t: Target): Signal<any> =>
   (t.o ??= slot(t, protoOf(t.v), Object.is, "[[Prototype]]"));
 const protoNow = (t: Target): any => (t.o ? peek(t.o, t) : protoOf(t.v));
+/** The record's keys as the `ownKeys` trap answers them; a merge or omit
+ * view calls it directly (types.ts `storeKeys`): the Proxy's invariant
+ * checks cost twice the trap. */
+function ownKeysOf(t: Target): (string | symbol)[] {
+  if (t.c !== null) return CHAIN.ownKeys!({ [$S]: t } as any) as any;
+  if (verdict !== null && affectsHooks !== null && getObserver() === null)
+    affectsHooks._witness(t as any, undefined);
+  if (t._fam !== null) pullFamily(t);
+  track(t);
+  return keysOf(t);
+}
+installStoreKeys(ownKeysOf);
 const BASE: ProxyHandler<any> = {
   get(_, key, receiver) {
     const t: Target = _[$S];
@@ -999,15 +1019,7 @@ const BASE: ProxyHandler<any> = {
     const v = valueOf(t, key, 2);
     return v !== ABSENT || (!hasOwn.call(t.v, key) && key in t.v);
   },
-  ownKeys(_) {
-    const t: Target = _[$S];
-    if (t.c !== null) return CHAIN.ownKeys!(_);
-    if (verdict !== null && affectsHooks !== null && getObserver() === null)
-      affectsHooks._witness(t as any, undefined);
-    if (t._fam !== null) pullFamily(t);
-    track(t);
-    return keysOf(t);
-  },
+  ownKeys: _ => ownKeysOf(_[$S]),
   getOwnPropertyDescriptor(_, key) {
     const t: Target = _[$S];
     if (t.c !== null) return CHAIN.getOwnPropertyDescriptor!(_, key);
@@ -1513,6 +1525,11 @@ function merge(
   // A raw already wrapped, or re-sent at another slot, is its own row:
   // identity travels with the raw (#4001).
   if (pt === undefined || map.has(nv) || resent(t, next, pv)) return nv;
+  // A keyed diff of a plain store skips a row nothing below ever read
+  // through a node (a proxy alone, read untracked): the slot takes the new
+  // raw whole and a capture may detach (#2902, the pruning contract, as
+  // store/reconcile.ts `descend`). Positional and derived diffs adopt.
+  if (!pt.d && keyFn !== null && t._fam === null) return nv;
   if (keyFn !== null) {
     const pk = keyFn(pt.w || pt.c !== null ? pt.p : pv);
     if (pk !== undefined && pk !== keyFn(nv)) return nv;

@@ -113,6 +113,15 @@ export let rawValuesUsed = false;
 /** SPIKE: the thin engine's target brand (here so other engines can ignore it). */
 export const $THIN = Symbol(__DEV__ ? "THIN_TARGET" : 0);
 
+/** A store record's keys as its `ownKeys` trap answers them (store/thin.ts),
+ * for utils.ts's merge and omit views to call without the Proxy's invariant
+ * checks. Installed by the store engine, so a view over plain objects
+ * carries none of it. */
+export let storeKeys: ((t: any) => (string | symbol)[]) | null = null;
+export function installStoreKeys(fn: (t: any) => (string | symbol)[]): void {
+  storeKeys = fn;
+}
+
 export function isRawValue(value: any): boolean {
   return rawValuesUsed && rawValues.has(value);
 }
