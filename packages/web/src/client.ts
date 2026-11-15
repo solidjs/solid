@@ -199,6 +199,7 @@ import {
   STYLESHEET_FETCH_META
 } from "./head.js";
 import {
+  checkImpliedTbody,
   checkStatefulWrite,
   devCheck,
   lowercaseEventAttribute,
@@ -1573,6 +1574,8 @@ export function installHydrationRuntime() {
     // hydration, dropping server text-hole separators.
     claimInitial(parent, multi, initial) {
       if (isHydrating(parent)) {
+        // Dev: rows the parser moved into an implied <tbody> (#4875).
+        if ("_SOLID_DEV_" && parent?.localName === "table") checkImpliedTbody(parent);
         if (!multi && initial === undefined && parent) initial = claimChildNodes(parent);
         else if (Array.isArray(initial)) stripTextSeparators(initial);
       }
