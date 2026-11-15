@@ -181,6 +181,10 @@ export function setSwapHook(_fn: () => void): void {}
 export function isHidden(_node: object): boolean {
   return false;
 }
+/** @internal Compiler output (#4872): the server holds nothing. */
+export function heldRead(): number {
+  return 0;
+}
 /** @internal Dependency edges: client-only (the server names through `beginEdgesRender`). */
 export function setSignalIdentities(_on: boolean): void {}
 /** @internal Dependency edges: client-only. */

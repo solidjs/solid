@@ -2285,6 +2285,18 @@ function servesStaged(c: Computed<any>, el: Signal<any> | Computed<any>, owner: 
   );
 }
 
+/**
+ * @internal Compiler output (`@solidjs/web`): truthy while the running pass
+ * is a stale reader of an open hold (A15, REACTIVE_FRAME_READ): it read the
+ * screen past a held write, and the hold's landing re-runs it. A stateful DOM
+ * prop binding in a grouped effect skips an unchanged write then: a sibling's
+ * re-run would put the held write's committed value back over the field
+ * (#4872), and the landing writes the bound value.
+ */
+export function heldRead(): number {
+  return (context as Computed<any>)._flags & REACTIVE_FRAME_READ;
+}
+
 export function read<T>(el: Signal<T> | Computed<T>): T {
   // Shadow (S0): every read is run through `shadowRead`, which re-enters
   // here once (the bypass) and compares the slot the table predicts with
