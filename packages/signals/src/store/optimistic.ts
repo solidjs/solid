@@ -241,7 +241,7 @@ function guessCarrier(t: StoreTarget, keys?: Set<PropertyKey>): any {
     if (!live && pendingGuessOf(g) === NOT_PENDING && !(g._config & CONFIG_HELD && keys)) continue;
     if (pendingGuessOf(g) !== NOT_PENDING || (live && keys === undefined))
       return entangle(t, g, keys);
-    if (g.wk !== null) for (const key of keys) if (g.wk.has(key) || g.del?.has(key)) return g;
+    if (g.wk !== null) for (const key of keys!) if (g.wk.has(key) || g.del?.has(key)) return g;
   }
   const g: any = slotSignal(committed(t), patchEquals, t, $PATCH, false);
   if (__OBSERVE__) nameCarrier(g, t);
