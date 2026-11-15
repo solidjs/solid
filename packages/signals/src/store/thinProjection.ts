@@ -39,6 +39,7 @@ import {
   insertSubs,
   observeFlightHook,
   passLane,
+  laneServedHook,
   setPassLane,
   question,
   schedule,
@@ -347,7 +348,19 @@ export function runProjectionComputed<T extends object>(
           }
           // A landing (not the sync pass's own commit): the readers held
           // pending on the derive settle.
-          if (!first || !(owner._statusFlags & STATUS_UNINITIALIZED)) settleFamily(fam);
+          // Not a lane's pass served the committed value of a flight still
+          // up: the derive keeps its pending (core `recompute`), and so do
+          // the readers waiting on it — a boundary keeps its fallback (F-4,
+          // #4862).
+          if (
+            (!first || !(owner._statusFlags & STATUS_UNINITIALIZED)) &&
+            !(
+              laneServedHook &&
+              owner._statusFlags & STATUS_PENDING &&
+              laneServedHook(owner, null, true)
+            )
+          )
+            settleFamily(fam);
           // A commit is the derive's change for the readers that observed its
           // flight (linked by `pullFamily`; a settled pull does not link), as
           // a memo's landing is for its readers: one that caught the NotReady

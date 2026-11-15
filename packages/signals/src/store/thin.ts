@@ -295,7 +295,12 @@ export const unwrapThin = (v: any): any => (isThin(v) ? v[$THIN].v : v);
  * else reads through core (tracked or not: a pass joins a hold either way). */
 /** The `affects()` walk reads the writer's view (the tick's guesses too). */
 let writerView = false;
-function peek(node: Signal<any>, t: Target, mode = 0): any {
+/** #4812/#4724 (store/optimistic.ts `placed`): a row a keyed list's index
+ * guess put in place, with the index node and the row it replaced. The
+ * index read is navigation; what the setter reads of the row says whether
+ * the write is computed from the guess. */
+const placed = new WeakMap<object, [Signal<any>, any]>();
+function peek(node: Signal<any>, t: Target, mode = 0, key?: PropertyKey): any {
   if (writerView && guessed !== null && t._fam?.opt) return guessed(node);
   // An optimistic family's user draft composes on what the user sees.
   if (guessed !== null && t._fam?.opt && inDraft(t)) {
@@ -304,13 +309,23 @@ function peek(node: Signal<any>, t: Target, mode = 0): any {
       // read does it outside a computation.
       // A presence read (mode 2) notes only a guess that changed presence (#4812).
       const v = guessed(node);
-      if (
-        mode &&
-        node._config & CONFIG_GUESS &&
-        context === null &&
-        (mode === 1 || (v === ABSENT) !== (under!(node) === ABSENT))
-      )
-        read(node);
+      if (mode && context === null) {
+        const p = mode === 1 && key !== undefined ? placed.get(t.v) : undefined;
+        if (p !== undefined) {
+          const o = isWrappable(p[1]) ? p[1][key!] : undefined;
+          if (isWrappable(v)) v !== o && placed.set(v, [p[0], o]);
+          else if (!Object.is(v, o)) read(p[0]);
+        }
+        if (
+          node._config & CONFIG_GUESS &&
+          (mode === 1 || (v === ABSENT) !== (under!(node) === ABSENT))
+        ) {
+          const u = under!(node);
+          if (mode === 1 && t.r && t._fam!.key && key !== "length" && isWrappable(v))
+            v !== u && placed.set(v, [node, u]);
+          else read(node);
+        }
+      }
       return v;
     }
     // The derive writes the truth: it composes on the truth beneath a guess.
@@ -924,7 +939,7 @@ const BASE: ProxyHandler<any> = {
       (node._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD
     )
       (link(node, context as any), staleReader(context as any, txOf(node)), (v = node._value));
-    else v = tracked ? read(node) : peek(node, t, 1);
+    else v = tracked ? read(node) : peek(node, t, 1, key);
     if (serving !== null && serving === context && node._config & CONFIG_GUESS) v = guessed!(node);
     if (v === null || typeof v !== "object")
       // A removed own key reads what the prototype says (#4674 ruling).
