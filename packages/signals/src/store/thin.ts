@@ -551,6 +551,7 @@ function put(t: Target, node: Signal<any>, v: any): void {
   // actions writing different keys never entangle); the derive's writes are
   // the truth beneath.
   if (guess !== null && userWrite && t._fam?.opt) {
+    if (t.r) preListGuess?.(t, setterSeq);
     guess(node, v);
     ((t._fam as any).g ??= new Set()).add(node);
     if (t.r) listGuess?.(t);
@@ -655,8 +656,12 @@ let standing: unknown = null;
 /** A user's guess on a list (thinOptimistic.ts marks one written over a new
  * question's flight, #4525). */
 let listGuess: ((t: Target) => void) | null = null;
-export function installThinListGuess(fn: typeof listGuess): void {
+let preListGuess: ((t: Target, seq: number) => void) | null = null;
+/** Each user setter's number: a list's view before the setter's first write. */
+let setterSeq = 0;
+export function installThinListGuess(fn: typeof listGuess, pre?: typeof preListGuess): void {
   listGuess = fn;
+  preListGuess = pre ?? null;
 }
 export function installThinStands(fn: typeof stands): void {
   stands = fn;
@@ -1352,6 +1357,7 @@ export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true
   if (__DEV__ && guard) devGuardOwnedWrite();
   const prevUser = userWrite;
   userWrite = guard;
+  if (guard) setterSeq++;
   const t0: Target = (proxy as any)[$THIN];
   scopes.push(scopeOf(t0));
   writing++;
@@ -1373,6 +1379,7 @@ export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true
     userWrite = prevUser;
     if (__OBSERVE__ && writing === 0 && obsWrites !== null) flushWrites();
   }
+  if (landed !== null && writing === 0) landed();
   const fw: any = heldHit;
   if (fw !== null && writing === 0) {
     heldHit = null;
@@ -1384,6 +1391,9 @@ export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true
   }
 }
 let heldHit: Computed<any> | null = null;
+/** The optimistic engine's work after a whole landing (thinOptimistic.ts). */
+let landed: (() => void) | null = null;
+export const installThinLanded = (fn: () => void): void => void (landed = fn);
 
 export function createThinStore<T extends object>(
   value: T,
