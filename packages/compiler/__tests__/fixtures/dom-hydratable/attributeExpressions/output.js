@@ -14,6 +14,7 @@ import { effect as _$effect } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { claimElement as _$claimElement } from "r-dom";
 import { setProperty as _$setProperty } from "r-dom";
+import { heldRead as _$heldRead } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
 import { delegateEvents as _$delegateEvents } from "r-dom";
 import { runHydrationEvents as _$runHydrationEvents } from "r-dom";
@@ -232,13 +233,14 @@ _$effect(() => {
 		a: max(),
 		o: s2(),
 		i: min(),
-		n: max()
+		n: max(),
+		s: _$heldRead()
 	};
-}, ({ e, t, a, o, i, n }, _p$) => {
-	_$setProperty(_el$26, "value", e);
+}, ({ e, t, a, o, i, n, s }, _p$) => {
+	(e !== _p$?.e || !s) && _$setProperty(_el$26, "value", e);
 	t !== _p$?.t && _$setAttribute(_el$26, "min", t);
 	a !== _p$?.a && _$setAttribute(_el$26, "max", a);
-	_$setProperty(_el$27, "checked", o);
+	(o !== _p$?.o || !s) && _$setProperty(_el$27, "checked", o);
 	i !== _p$?.i && _$setAttribute(_el$27, "min", i);
 	n !== _p$?.n && _$setAttribute(_el$27, "max", n);
 });
@@ -382,12 +384,13 @@ _$effect(() => {
 	return {
 		e: state.color,
 		t: Color.Red,
-		a: Color.Blue
+		a: Color.Blue,
+		o: _$heldRead()
 	};
-}, ({ e, t, a }, _p$) => {
-	_$setProperty(_el$61, "value", e);
-	_$setProperty(_el$62, "value", t);
-	_$setProperty(_el$63, "value", a);
+}, ({ e, t, a, o }, _p$) => {
+	(e !== _p$?.e || !o) && _$setProperty(_el$61, "value", e);
+	(t !== _p$?.t || !o) && _$setProperty(_el$62, "value", t);
+	(a !== _p$?.a || !o) && _$setProperty(_el$63, "value", a);
 });
 const template41 = _el$61;
 const template42 = _$getNextElement(_tmpl$24);

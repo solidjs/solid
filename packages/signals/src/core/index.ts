@@ -11,6 +11,7 @@ export {
   computed,
   signal,
   read,
+  heldRead,
   setSignal,
   setWriteHook,
   setMemo,
@@ -60,7 +61,7 @@ export {
   type QueueCallback
 } from "./scheduler.js";
 export type { InteractionRef, NavigationRef } from "./attribution-hooks.js";
-export { ROOT_ERROR_HOOK, clock } from "./scheduler.js";
+export { ROOT_ERROR_HOOK, clock, setSwapHook, isHidden } from "./scheduler.js";
 export {
   configureClientErrors,
   type ClientErrorContext,

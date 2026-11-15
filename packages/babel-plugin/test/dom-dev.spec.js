@@ -40,7 +40,7 @@ describe("setStatefulProperty is dev-only", () => {
   test("production DOM output inlines the writes", () => {
     const output = compile({ dev: false });
     expect(output).not.toContain("setStatefulProperty");
-    expect(output).toContain('_el$.value = t ?? "";');
+    expect(output).toContain('(t !== _p$?.t || !a) && (_el$.value = t ?? "");');
     expect(output).toContain("_el$2.checked = _v$;");
     expect(output).toContain("_el$3.muted = _v$;");
     expect(output).toContain("_el$4.selected = _v$;");

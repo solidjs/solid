@@ -83,7 +83,8 @@ import {
   unhold,
   type Transaction,
   installBoundaryHooks,
-  laneStageHook
+  laneStageHook,
+  swapHook
 } from "./core/scheduler.js";
 import { attrHooks } from "./core/attribution-hooks.js";
 import type { Computed, Owner, Signal } from "./core/types.js";
@@ -181,6 +182,19 @@ const behindError = (b: Boundary | null): boolean =>
  * boundary is fresh again once it catches (`caught`). */
 const isCollecting = (b: Boundary): boolean =>
   b._type === STATUS_ERROR || !b._initialized || b._armed || behindError(b._parent);
+
+/** The statuses that keep reader `r` of `b`: `b`'s own and pending — and,
+ * for a loading boundary behind an error fallback, the error of a reader
+ * directly under it (an error boundary between them shows that error
+ * itself; a held signal it waits on has no context): there is nothing to
+ * reveal, the error shows above. Revealing re-derived the content, whose
+ * re-read retried the error's source: pending again, caught again, without
+ * end (#4870). The error's recovery answers the reader, which reveals it
+ * with the recovered content. */
+const keeps = (b: Boundary, r: Computed<any>): number =>
+  b._type |
+  STATUS_PENDING |
+  (behindError(b._parent) && r._context?.[BOUNDARY] === b ? STATUS_ERROR : 0);
 
 /** A reader `b` waits on: recorded for its `on`, and `b` visited at the seam. */
 function record(b: Boundary, node: Computed<any>, source = node): void {
@@ -283,7 +297,7 @@ function catchStatus(
     if (collecting.size)
       for (let b: Boundary | null | undefined = boundaryOf(node); b; b = b._parent)
         if (
-          !((b._readers.get(node)?._statusFlags as number) & (b._type | STATUS_PENDING)) &&
+          !((b._readers.get(node)?._statusFlags as number) & keeps(b, node)) &&
           b._readers.delete(node) &&
           !prune(b, 0)
         ) {
@@ -429,6 +443,7 @@ export function prune(b: Boundary, pass?: boolean | 0): number {
   const mask = b._type | STATUS_PENDING;
   for (const [r, s] of b._readers) {
     if (!((r._flags | s._flags) & REACTIVE_DISPOSED)) {
+      const k = keeps(b, r);
       // An error staged on its source (D-41, `stageError`) is not settled:
       // it publishes with the commit. A reader that threw it now (a lane
       // pass, a reader of a node born staged) reached the boundary first
@@ -438,7 +453,7 @@ export function prune(b: Boundary, pass?: boolean | 0): number {
       // settled before it ran, a fresh boundary revealed into a hold its
       // pass then went pending in, which waited on that flight (#4568).
       if (
-        ((r._statusFlags & mask || (s._statusFlags & mask && reads(r, s))) &&
+        ((r._statusFlags & k || (s._statusFlags & k && reads(r, s))) &&
           !(mask & STATUS_ERROR && caughtBelow(b, r, s))) ||
         (mask & STATUS_ERROR && s._config & CONFIG_STAGED_ERROR) ||
         (r._config & CONFIG_VERDICT && r._flags & REACTIVE_IN_HEAP)
@@ -914,6 +929,7 @@ function createBoundary<T>(
       // it never displayed — the engine knows the swap it was staged with).
       if (__OBSERVE__ && b._fallback && b._type & STATUS_PENDING && attrHooks !== null)
         attrHooks.boundaryFallback(b, b._tree, false);
+      if (b._fallback && swapHook) swapHook();
       b._fallback = false;
       // The fallback dies when the content that replaces it is on screen —
       // with this flush's commits when the pass is the frame's, at the
@@ -976,6 +992,9 @@ function fallback<T>(b: Boundary): T {
   // when the screen shows it (a commit, a landing, a lane's reveal).
   if (__OBSERVE__ && !b._fallback && b._type & STATUS_PENDING && attrHooks !== null)
     attrHooks.boundaryFallback(b, b._tree, true, out);
+  // The content goes behind the fallback: off screen (F-3), and so are its
+  // head tags (`swapHook`, #4873).
+  if (!b._fallback && swapHook) swapHook();
   b._fallback = true;
   // Built in its own scope, like `Show`'s function child, once per show
   // (D-39: the fallback is the display until a new answer replaces the

@@ -19,7 +19,10 @@ import {
   resetErrorHalt,
   ROOT_ERROR_HOOK,
   OBSERVE,
-  strictReadTracked
+  strictReadTracked,
+  setSwapHook,
+  isHidden,
+  heldRead
 } from "solid-js";
 import type { ClientErrorHook, Owner } from "solid-js";
 import {
@@ -265,6 +268,15 @@ export function HydrationScript(_props?: { nonce?: CSPNonce; eventNames?: string
 }
 
 export { effect, memo, untrack, getOwner, createComponent };
+/**
+ * Compiled grouped effects read it after their values: a stateful DOM prop
+ * (`value`, `checked`, …) whose value did not change is not written again
+ * while the effect is a stale reader of an open hold (#4872). The hold's
+ * landing re-runs the effect and writes the bound value.
+ *
+ * @internal Compiler output only.
+ */
+export { heldRead };
 /**
  * Compiler-emitted prop-spread helper. The JSX transform emits
  * `mergeProps(...)` when compiling prop spreads on components — not a
@@ -1269,14 +1281,28 @@ export function spread(node, props, skipChildren, skip, name, loc) {
     claimHandlers !== null && (node.localName === "a" || node.localName === "form")
       ? getOwner()
       : undefined;
+  // #4872: whether the run read past a held write (`heldRead`, after the
+  // reads). A stateful prop skips an unchanged write then, as in a compiled
+  // grouped effect; the hold's landing re-runs the spread.
+  let held = 0;
   const apply = newProps => {
     const r = newProps.ref;
     if (r !== prevProps.ref && (typeof r === "function" || Array.isArray(r))) ref(() => r, node);
+    spreadHeld = held;
     assign(node, newProps, true, prevProps, true);
+    spreadHeld = 0;
     if (owner !== undefined) claimElement(node, owner);
   };
+  const read = fn => () => {
+    const p = fn();
+    held = heldRead();
+    return p;
+  };
   if (Array.isArray(props)) {
-    effect(() => collectSources({}, props, undefined, skip), apply);
+    effect(
+      read(() => collectSources({}, props, undefined, skip)),
+      apply
+    );
     if ("_SOLID_DEV_") unscopedByDesign = node;
     if (!skipChildren && !(skip !== undefined && skip("children")))
       insert(node, () => {
@@ -1288,7 +1314,7 @@ export function spread(node, props, skipChildren, skip, name, loc) {
     if ("_SOLID_DEV_") unscopedByDesign = null;
     return prevProps;
   }
-  effect(() => {
+  const collect = () => {
     const source = resolveSource(props);
     const newProps = {};
     // A merge() proxy is read through its SOURCES, not through the proxy: a
@@ -1315,7 +1341,8 @@ export function spread(node, props, skipChildren, skip, name, loc) {
       else collectProps(newProps, source, $PROXY in source ? SOURCE_PROXY : SOURCE_PLAIN, skip);
     }
     return newProps;
-  }, apply);
+  };
+  effect(read(collect), apply);
   if ("_SOLID_DEV_") unscopedByDesign = node;
   if (!skipChildren && !(skip !== undefined && skip("children"))) {
     if (typeof props !== "function" && props != null && hasStaticKeys(props)) {
@@ -1540,12 +1567,49 @@ let hostRt = null;
 export function installHostTagging() {
   hostRt = tagHost;
 }
+/**
+ * Dev CHECK, hydration (#4875): an insert whose parent is a `<table>`
+ * claims server-rendered rows the HTML parser moved into a `<tbody>` it
+ * implied (`<tr>` is not a child of `<table>` in HTML): no hydration key
+ * on the `<tbody>`, keys on its rows. The insert owns the `<table>`'s
+ * children, so it cannot update rows that sit one level down — removed rows
+ * stay and new ones land after the `<tbody>`. A client-only render appends
+ * the rows to the `<table>` itself and never meets this. Warns once per
+ * table. Lives in the client entry: the server build never hydrates.
+ */
+function checkImpliedTbody(table: Element): void {
+  if ((table as any).$$tbody) return;
+  for (let c = table.firstElementChild; c; c = c.nextElementSibling)
+    if (
+      c.localName === "tbody" &&
+      !c.hasAttribute("_hk") &&
+      c.firstElementChild?.hasAttribute("_hk")
+    ) {
+      (table as any).$$tbody = 1;
+      devCheck({
+        code: "TABLE_ROWS_WITHOUT_TBODY",
+        kind: "render",
+        severity: "warn",
+        message:
+          `[TABLE_ROWS_WITHOUT_TBODY] A <table> renders its rows directly (no <tbody>), and the ` +
+          `HTML parser moved the server-rendered rows into a <tbody> it added: the rows are no ` +
+          `longer the table's children, so after hydration Solid cannot update them (a removed ` +
+          `row stays, a new one lands after the <tbody>). Wrap the rows in <tbody> — ` +
+          `\`<table><tbody><For each={rows()}>{row => <tr>…</tr>}</For></tbody></table>\`.`,
+        data: { id: table.id || undefined }
+      });
+      return;
+    }
+}
+
 export function installHydrationRuntime() {
   hydrationRt = {
     // insert(): claim the parent's childNodes as the initial current on
     // hydration, dropping server text-hole separators.
     claimInitial(parent, multi, initial) {
       if (isHydrating(parent)) {
+        // Dev: rows the parser moved into an implied <tbody> (#4875).
+        if ("_SOLID_DEV_" && parent?.localName === "table") checkImpliedTbody(parent);
         if (!multi && initial === undefined && parent) initial = claimChildNodes(parent);
         else if (Array.isArray(initial)) stripTextSeparators(initial);
       }
@@ -2084,6 +2148,10 @@ function initHeadRegistry() {
   headRegistrations = [];
   headOwned = new Map();
   headApplied = new Map();
+  // A boundary swapping between its fallback and its content changes which
+  // registrations are on screen: content behind a fallback is not (F-3),
+  // nor are its tags (#4873).
+  setSwapHook(scheduleHeadApply);
   // A <title> without an ownership marker is user-authored shell markup: the
   // fallback restored when every title registration has disposed. A marked
   // one is server-registry output — but if the server's retitle overwrote a
@@ -2158,7 +2226,7 @@ function flushHeadRegistry() {
     return;
   }
   headScheduled = false;
-  const winners = resolveHead(headRegistrations);
+  const winners = resolveHead(headRegistrations.filter(r => !isHidden(r.node)));
   // Retractions: identities the registry owns that no longer resolve.
   for (const [identity, els] of headOwned) {
     if (winners.has(identity)) continue;
@@ -2362,10 +2430,12 @@ export function useHead(tag: HeadTag | HeadTag[] | (() => HeadTag | HeadTag[])):
  */
 export function useHead(tags) {
   initHeadRegistry();
-  const reg = { seq: -1, tags: null };
+  const reg = { seq: -1, tags: null, node: null };
   const uid = ++headUid;
   effect(
     () => {
+      // The registration's node: behind a fallback, its tags are withdrawn.
+      reg.node = getOwner();
       let list = typeof tags === "function" ? tags() : tags;
       if (!Array.isArray(list)) list = [list];
       const replaceable = [];
@@ -2974,12 +3044,14 @@ function flattenClassList(list, result) {
   }
 }
 
+/** The running spread read past a held write (#4872, `spread`). */
+let spreadHeld = 0;
 function assignProp(node, prop, value, prev, skipRef, nodeName) {
   if (prop === "style") return (style(node, value, prev), value);
   if (prop === "class") return (className(node, value, prev), value);
   // dom with state may differs from reactive state
   // dom value derives from reactive state
-  if (value === prev && DOMWithState[nodeName]?.[prop] !== 1) return prev;
+  if (value === prev && (spreadHeld || DOMWithState[nodeName]?.[prop] !== 1)) return prev;
   if (prop === "ref") {
     if (!skipRef && value) ref(() => value, node);
     return value;

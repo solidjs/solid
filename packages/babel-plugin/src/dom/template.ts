@@ -320,6 +320,7 @@ function wrapDynamics(
   const values: t.ObjectProperty[] = [];
   const statements: t.ExpressionStatement[] = [];
   const properties: t.Identifier[] = [];
+  let heldId: t.Identifier | undefined;
 
   dynamics.forEach((binding, index) => {
     const { elem, key, tagName, styleProperty, classProperty, checkableInput } = binding;
@@ -335,7 +336,32 @@ function wrapDynamics(
     properties.push(propIdent);
     values.push(t.objectProperty(propIdent, wrapReadShallow(path, key, value)));
 
-    if (key === "class" || key === "style" || isStatefulDOMProperty(tagName, key)) {
+    if (isStatefulDOMProperty(tagName, key)) {
+      // #4872: a stateful prop is written on every run (#2016, #4186) but
+      // one: an unchanged value while the effect is a stale reader of an
+      // open hold (`heldRead`, read after every value). A sibling's re-run
+      // would put the held write's committed value back over the field; the
+      // hold's landing re-runs the effect and writes the bound value.
+      heldId ||= t.identifier(getNumberedId(dynamics.length));
+      statements.push(
+        t.expressionStatement(
+          t.logicalExpression(
+            "&&",
+            t.logicalExpression(
+              "||",
+              t.binaryExpression("!==", propIdent, optionalPropMember),
+              t.unaryExpression("!", heldId)
+            ),
+            setAttr(path, elem, key, propIdent, {
+              tagName,
+              dynamic: true,
+              prevId: optionalPropMember,
+              checkableInput
+            })
+          )
+        )
+      );
+    } else if (key === "class" || key === "style") {
       statements.push(
         t.expressionStatement(
           setAttr(path, elem, key, propIdent, {
@@ -370,6 +396,19 @@ function wrapDynamics(
       );
     }
   });
+
+  if (heldId) {
+    properties.push(heldId);
+    values.push(
+      t.objectProperty(
+        heldId,
+        t.callExpression(
+          registerImportMethod(path, "heldRead", getRendererConfig(path, "dom").moduleName),
+          []
+        )
+      )
+    );
+  }
 
   return t.expressionStatement(
     t.callExpression(effectWrapperId, [

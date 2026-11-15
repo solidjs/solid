@@ -102,7 +102,8 @@ import {
   globalQueue,
   hiddenHook,
   installLaneHooks,
-  r5Hook
+  r5Hook,
+  reasks
 } from "./scheduler.js";
 import { SLOT_C, SLOT_DV, SLOT_LV, SLOT_P, SLOT_T, shadowActual } from "./seat.js";
 import type { Computed, Owner, Signal } from "./types.js";
@@ -584,8 +585,16 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
         }
       }
       if (l._shown) {
+        // A derivation born in the lane (its staging, voided above, was its
+        // only value) whose frame stays: nothing in the truth may notify it
+        // (a row the truth keeps, its fields equal) — it re-derives on the
+        // truth now (D-34, F-1; #4861).
+        const born = !effect && (n as Computed<any>)._statusFlags & STATUS_UNINITIALIZED;
         commitPendingNode(n);
-        if (!effect) n._config |= CONFIG_INPUTS_PUBLISHED;
+        if (!effect) {
+          n._config |= CONFIG_INPUTS_PUBLISHED;
+          if (born) enqueueSub(n as Computed<any>);
+        }
         // A render effect born in the lane's frame (it never ran) whose
         // first run the held lane parked, dropped below: the frame stays, so
         // the row it draws must too — it runs on the committed world (F-1,
@@ -755,9 +764,15 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
       if (c._config & CONFIG_VERDICT && !isVerdict(l)) entered.push(c);
     }
   }
+  // A render effect of the lane reading a member that waits on `refresh()`
+  // re-asks only reads what it shows: a re-ask holds nothing new (D-34 ¶3,
+  // `blockedBy` lets such a member's lane reveal), so a row the lane builds
+  // binds beside the reader that shows it (F-1, #4864).
   enterLane(l, c);
   if (__TEST__ && !pending) shadowActual(SLOT_LV);
-  return pending ? NOT_PENDING : latestOf(el);
+  return pending && !(guessed && (c as any)._type === EFFECT_RENDER && reasks(el as Computed<any>))
+    ? NOT_PENDING
+    : latestOf(el);
 }
 
 /** A guess in `l` whose own truth is in flight (its refetch — authoritative:
@@ -1201,9 +1216,11 @@ const laneSeams = (t: Transaction | null): void => {
  * it through `c` too: the source's own landing walk stops at `c`, which no
  * longer has it, and a render effect left marked would hold its transaction
  * on a flight that has landed (D-11, F-2, #4576; a nested action's refresh). */
-/** The last lane pass served a flight's committed value, and that flight. */
+/** The last lane pass served a flight's committed value, that flight, and
+ * the pass (`_depGen`): a later pass of the same node did not read it. */
 let served: Computed<any> | null = null,
-  servedFlight: Computed<any> | null = null;
+  servedFlight: Computed<any> | null = null,
+  servedGen = 0;
 const laneServed = (
   c: Computed<any>,
   el: Signal<any> | Computed<any> | null,
@@ -1213,8 +1230,12 @@ const laneServed = (
   // value of a flight (core.ts `stagedRead`): it derives from the write that
   // re-asked the flight, so it waits on it — never the new value beside the
   // old answer (F-1, F-2; S-57).
+  // Asked with `flight` (core.ts `recompute`): whether it was so served.
   if (el === null) {
-    if (served === c && servedFlight!._statusFlags & STATUS_PENDING) throw servedFlight!._x!._error;
+    if (served === c && servedGen === c._depGen && servedFlight!._statusFlags & STATUS_PENDING) {
+      if (flight) return true;
+      throw servedFlight!._x!._error;
+    }
     return;
   }
   // Lane work reading a flight that is not the lane's own (core.ts `read`,
@@ -1228,6 +1249,7 @@ const laneServed = (
     const u = (el as Computed<any>)._x?._transaction || flushTransaction;
     if (u) staleReader(c, resolveTx(u));
     served = c;
+    servedGen = c._depGen;
     servedFlight = el as Computed<any>;
     return true;
   }

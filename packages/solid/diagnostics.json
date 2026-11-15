@@ -585,6 +585,15 @@
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/sync-node-received-async"
   },
   {
+    "code": "TABLE_ROWS_WITHOUT_TBODY",
+    "kind": ["render"],
+    "severity": ["warn"],
+    "category": "render",
+    "trigger": "A hydrating `<table>`'s rows sit in a `<tbody>` the HTML parser added, so the insert cannot update them; write the `<tbody>` (dev; client)",
+    "repair": "Hydration found a `<table>` whose rows the server rendered directly under it (`<table><For each={rows}>{r => <tr>…</tr>}</For></table>`).",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/table-rows-without-tbody"
+  },
+  {
     "code": "UNCOMMITTED_INPUT_OVERWRITTEN",
     "kind": ["render"],
     "severity": ["warn"],

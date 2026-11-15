@@ -175,6 +175,16 @@ export type { ServerErrorSite, ServerErrorHook } from "./signals.js";
 export { trackFillReads, beginEdgesRender } from "./edges.js";
 /** @internal Client-only: the server has no writes to observe. */
 export function setWriteHook(_hook: ((node?: object) => void) | null): void {}
+/** @internal Client head registry seam (#4873): nothing swaps on the server. */
+export function setSwapHook(_fn: () => void): void {}
+/** @internal */
+export function isHidden(_node: object): boolean {
+  return false;
+}
+/** @internal Compiler output (#4872): the server holds nothing. */
+export function heldRead(): number {
+  return 0;
+}
 /** @internal Dependency edges: client-only (the server names through `beginEdgesRender`). */
 export function setSignalIdentities(_on: boolean): void {}
 /** @internal Dependency edges: client-only. */

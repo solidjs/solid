@@ -593,10 +593,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // re-ask does not launder (a poll during a quiet confirm stays quiet).
   // Nor a guess's new question whose answer is still held (#4336: an
   // action's refresh after an outside input change has not committed it).
+  // A held user write is not an answer (REACTIVE_MANUAL_WRITE): the refresh
+  // over it asks the same question (D-34 ¶3), so its readers stay the
+  // re-ask's and a later lane's guess reaches them (#4887, #4888).
   const reask =
     (el._flags & REACTIVE_REASK) !== 0 &&
     !(
-      (el._statusFlags & STATUS_PENDING || (guessing && el._pendingValue !== NOT_PENDING)) &&
+      (el._statusFlags & STATUS_PENDING ||
+        (guessing && el._pendingValue !== NOT_PENDING && !(el._flags & REACTIVE_MANUAL_WRITE))) &&
       el._x !== null &&
       !el._x._reask
     );
@@ -686,7 +690,16 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // its body gates on is either _statusFlags or lives in the cold
     // extension — no extension, no status to clear. (_x from an unrelated
     // installer just makes clearStatus a cheap re-verified no-op.)
-    if (el._statusFlags !== 0 || el._x !== null) clearStatus(el, create);
+    // Lane work this pass served the committed value of a flight still in
+    // the air keeps the pending it had: the lane breaks out of the flight
+    // (A31), the node's world does not — a boundary waiting on it keeps its
+    // fallback (F-4, #4862; lanes.ts `laneServed`). (Behind the hook: a
+    // build without the lane engine folds the arm away.)
+    if (
+      (el._statusFlags !== 0 || el._x !== null) &&
+      !(laneServedHook && el._statusFlags & STATUS_PENDING && laneServedHook(el, null, true))
+    )
+      clearStatus(el, create);
   } catch (e) {
     const notReady = e instanceof NotReadyError;
     // An error answers, and so does a loading window's unready read (D-25,
@@ -968,6 +981,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // re-stages, as below.
         if (isEffect && el._pendingValue === NOT_PENDING) el._value = value;
         else el._pendingValue = value;
+        // A derivation born in the lane: no committed value until the lane
+        // lands (its correction re-derives it on the truth, lanes.ts
+        // `dissolveLane`). Not an effect: its value slot is private and its
+        // first run is the lane's (#4831 seats a dropped one); marked
+        // uninitialized it read as born held, and the flush re-ran it
+        // without end (#4871).
+        if (create && !isEffect) el._statusFlags |= STATUS_UNINITIALIZED;
       } else if (
         create
           ? !(
@@ -2269,6 +2289,18 @@ function servesStaged(c: Computed<any>, el: Signal<any> | Computed<any>, owner: 
   );
 }
 
+/**
+ * @internal Compiler output (`@solidjs/web`): truthy while the running pass
+ * is a stale reader of an open hold (A15, REACTIVE_FRAME_READ): it read the
+ * screen past a held write, and the hold's landing re-runs it. A stateful DOM
+ * prop binding in a grouped effect skips an unchanged write then: a sibling's
+ * re-run would put the held write's committed value back over the field
+ * (#4872), and the landing writes the bound value.
+ */
+export function heldRead(): number {
+  return (context as Computed<any>)._flags & REACTIVE_FRAME_READ;
+}
+
 export function read<T>(el: Signal<T> | Computed<T>): T {
   // Shadow (S0): every read is run through `shadowRead`, which re-enters
   // here once (the bypass) and compares the slot the table predicts with
@@ -2796,8 +2828,9 @@ function shadowRead<T>(el: Signal<T> | Computed<T>): T {
 export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): void {
   if (!((el as Computed<any> | undefined)?._statusFlags! & STATUS_UNINITIALIZED)) {
     // Lane work this pass served the committed value of a flight now reads
-    // a staging of the flush (lanes.ts `laneServed`: it throws).
-    if (passLane !== null && c._flags & REACTIVE_FRAME_READ) laneServedHook!(c, null);
+    // a staging of the flush (lanes.ts `laneServed`: it throws) — with or
+    // without a transaction to be the flight's stale reader in yet (#4859).
+    if (passLane !== null) laneServedHook!(c, null);
     c._flags |= REACTIVE_STAGED_READ;
     if (__TEST__) shadowExternalRaise(c, RAISE_FL);
     // A verdict reader's too when it is an effect, before the frame has a

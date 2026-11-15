@@ -6,6 +6,7 @@ import { effect as _$effect } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { setProperty as _$setProperty } from "r-dom";
 import { setStatefulProperty as _$setStatefulProperty } from "r-dom";
+import { heldRead as _$heldRead } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<input>`);
 var _tmpl$2 = /* @__PURE__ */ _$template(`<input type=checkbox>`);
@@ -17,11 +18,12 @@ _$addEvent(_el$, "change", commit);
 _$effect(() => {
 	return {
 		e: _$readShallow(cls()),
-		t: props.name
+		t: props.name,
+		a: _$heldRead()
 	};
-}, ({ e, t }, _p$) => {
+}, ({ e, t, a }, _p$) => {
 	_$className(_el$, e, _p$?.e);
-	_$setStatefulProperty(_el$, "value", t ?? "");
+	(t !== _p$?.t || !a) && _$setStatefulProperty(_el$, "value", t ?? "");
 }, {
 	name: "input.class, input.value",
 	loc: "statefulProperties.jsx:5:24"
@@ -43,10 +45,11 @@ var _el$3 = _tmpl$2();
 _$effect(() => {
 	return {
 		e: on(),
-		t: title()
+		t: title(),
+		a: _$heldRead()
 	};
-}, ({ e, t }, _p$) => {
-	_$setStatefulProperty(_el$3, "checked", e);
+}, ({ e, t, a }, _p$) => {
+	(e !== _p$?.e || !a) && _$setStatefulProperty(_el$3, "checked", e);
 	t !== _p$?.t && _$setAttribute(_el$3, "title", t);
 }, {
 	name: "input.checked, input.title",
@@ -83,12 +86,13 @@ _$effect(() => {
 	return {
 		e: picked(),
 		t: first(),
-		a: isFirst()
+		a: isFirst(),
+		o: _$heldRead()
 	};
-}, ({ e, t, a }, _p$) => {
-	_$setProperty(_el$7, "value", e);
-	_$setStatefulProperty(_el$8, "value", t);
-	_$setStatefulProperty(_el$8, "selected", a);
+}, ({ e, t, a, o }, _p$) => {
+	(e !== _p$?.e || !o) && _$setProperty(_el$7, "value", e);
+	(t !== _p$?.t || !o) && _$setStatefulProperty(_el$8, "value", t);
+	(a !== _p$?.a || !o) && _$setStatefulProperty(_el$8, "selected", a);
 }, {
 	name: "select.value, option.value, option.selected",
 	loc: "statefulProperties.jsx:18:11"

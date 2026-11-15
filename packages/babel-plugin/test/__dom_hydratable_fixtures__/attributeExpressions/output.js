@@ -4,6 +4,7 @@ import { getNextMarker as _$getNextMarker } from "r-dom";
 import { scope as _$scope } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-dom";
+import { heldRead as _$heldRead } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
 import { style as _$style } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
@@ -267,13 +268,14 @@ _$effect(
     a: max(),
     o: s2(),
     i: min(),
-    n: max()
+    n: max(),
+    s: _$heldRead()
   }),
-  ({ e, t, a, o, i, n }, _p$) => {
-    _$setProperty(_el$24, "value", e);
+  ({ e, t, a, o, i, n, s }, _p$) => {
+    (e !== _p$?.e || !s) && _$setProperty(_el$24, "value", e);
     t !== _p$?.t && _$setAttribute(_el$24, "min", t);
     a !== _p$?.a && _$setAttribute(_el$24, "max", a);
-    _$setProperty(_el$25, "checked", o);
+    (o !== _p$?.o || !s) && _$setProperty(_el$25, "checked", o);
     i !== _p$?.i && _$setAttribute(_el$25, "min", i);
     n !== _p$?.n && _$setAttribute(_el$25, "max", n);
   }
@@ -470,12 +472,13 @@ _$effect(
   () => ({
     e: state.color,
     t: Color.Red,
-    a: Color.Blue
+    a: Color.Blue,
+    o: _$heldRead()
   }),
-  ({ e, t, a }, _p$) => {
-    _$setProperty(_el$57, "value", e);
-    _$setProperty(_el$58, "value", t);
-    _$setProperty(_el$59, "value", a);
+  ({ e, t, a, o }, _p$) => {
+    (e !== _p$?.e || !o) && _$setProperty(_el$57, "value", e);
+    (t !== _p$?.t || !o) && _$setProperty(_el$58, "value", t);
+    (a !== _p$?.a || !o) && _$setProperty(_el$59, "value", a);
   }
 );
 const template41 = _el$57;
