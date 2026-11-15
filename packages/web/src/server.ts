@@ -1830,8 +1830,6 @@ export function renderToString(code, options = {}) {
     ssr: ssr,
     errorPolicy: options.onError,
     _errorScope: errorScope,
-    // Shared bag so context clones see the same arm (#4891).
-    _selectValues: { active: armSelectValuesOnce },
     registerHeadTags(tags) {
       // Sync render: everything is pre-shell, resources join the shell head.
       registerHeadTags(headRegistry, sharedConfig.context, tracking, null, nonce, tags);
@@ -1873,7 +1871,9 @@ export function renderToString(code, options = {}) {
       tracking.emittedAssets.add(value);
     }
   };
-  armSelectValuesOnce = false;
+  // Per-render arm (#4891): module-scope `_$ssrSelectValues()` must not
+  // leave the scan on for later select-free pages.
+  selectValuesActive = false;
   applyAssetTracking(sharedConfig.context, tracking, manifest, noScripts);
   registerEntryAssets(manifest);
   // The trace this render belongs to (see `getTraceContext`): the request's
@@ -1910,7 +1910,7 @@ export function renderToString(code, options = {}) {
     );
     const document = withShellEnd(
       assembleDocument(
-        resolveSSRSelectValues(html, context),
+        resolveSSRSelectValues(html),
         tracking.emittedAssets,
         tracking.preloadLinks,
         tracking.inlineStyles,
@@ -1961,8 +1961,7 @@ export function renderToString(code, options = {}) {
     // every root — and every memo under it — until the next macrotask, so
     // nothing was freed across a synchronous loop of renders.
     context.trace = undefined;
-    // Context lingers as the module global; drop the select-value arm (#4891).
-    if (context._selectValues) context._selectValues.active = false;
+    selectValuesActive = false;
     if (dispose) dispose();
   }
 }
@@ -2195,7 +2194,7 @@ export function renderToStream(code, options = {}) {
     // The render's record ends here, with how: the client left, or the
     // render failed (the render error's finding says why).
     if (render) settleRender(render, rootOwner, disconnect ? "abandoned" : "error");
-    if (context._selectValues) context._selectValues.active = false;
+    selectValuesActive = false;
     // The live sink wrapper (post-shell) is handed to the failure
     // completion below; pre-shell there is none yet.
     const sink = writable;
@@ -2502,7 +2501,7 @@ export function renderToStream(code, options = {}) {
     // The stream is whole: the render record settles (its shell was stamped
     // by `doShell` above), before the graph it describes is released.
     if (render) settleRender(render, rootOwner, "complete");
-    if (context._selectValues) context._selectValues.active = false;
+    selectValuesActive = false;
     if (firstFlushed) dispose();
   };
   // FrameSink seam (design in frame-sink.js): semantic emission routes through
@@ -2959,8 +2958,6 @@ export function renderToStream(code, options = {}) {
   sharedConfig.context = context = {
     async: true,
     nonce: options.nonce,
-    // Shared bag so context clones see the same arm (#4891).
-    _selectValues: { active: armSelectValuesOnce },
     // Which face this render is: a document (the default emission) or a
     // frame stream (`options.sink`). Read by the server runtime's dev check
     // on undeclared unbounded sources, which only a document render pays for.
@@ -3235,10 +3232,7 @@ export function renderToStream(code, options = {}) {
               // server's answer for the failure, #4287).
               sink.fragment(
                 key,
-                resolveSSRSelectValues(
-                  value !== undefined ? value : error ? "" : " ",
-                  context
-                ),
+                resolveSSRSelectValues(value !== undefined ? value : error ? "" : " "),
                 {
                   styles,
                   revealGroup,
@@ -3267,7 +3261,8 @@ export function renderToStream(code, options = {}) {
       sink.reveal(keys, { fallback: true });
     }
   };
-  armSelectValuesOnce = false;
+  // Per-render arm (#4891): see renderToString.
+  selectValuesActive = false;
   applyAssetTracking(context, tracking, manifest, noScripts);
   // Internal containment seam, not part of the context contract (see
   // failRender above): the boundary resume loop lives in the reactive
@@ -3470,7 +3465,7 @@ export function renderToStream(code, options = {}) {
     // AND arrives separately through `sink.asset`. Consume them inside this
     // call (the document sink splices the head synchronously) — a sink that
     // stores the meta and re-reads it later sees late entries twice.
-    sink.shell(resolveSSRSelectValues(html, context), {
+    sink.shell(resolveSSRSelectValues(html), {
       preloads: tracking.emittedAssets,
       preloadLinks: tracking.preloadLinks,
       inlineStyles: tracking.inlineStyles,
@@ -4947,16 +4942,9 @@ export function ssr(t) {
   // Group fast-path (`hole.$g` set by compiler `_$ssrGroup`): one call
   // returns an array of values for >=N hole positions. The check is at
   // the END of the typeof chain so non-function holes don't pay for it.
-  //
-  // A `<select…>` template in this render arms the select-value pass so
-  // module-scope `_$ssrSelectValues()` cannot stick the scan on forever (#4891).
-  if (
-    sharedConfig.context &&
-    ((typeof t === "string" && t.startsWith("<select")) ||
-      (Array.isArray(t) && typeof t[0] === "string" && t[0].startsWith("<select")))
-  ) {
-    armSelectValues(sharedConfig.context);
-  }
+  // Re-arm after the per-render reset (#4891); module-scope markers run once.
+  const head = Array.isArray(t) ? t[0] : t;
+  if (typeof head === "string" && head.startsWith("<select")) selectValuesActive = true;
   const len = arguments.length;
   if (len === 1) return { t: t, $: SSR_NODE };
   let s = t[0];
@@ -5294,7 +5282,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   // The client claims the element (getNextElement) before applying the spread,
   // so the server must allocate in the same order or the element's own id
   // shifts by one and it is left unclaimed on hydration.
-  if (tag === "select") armSelectValues(sharedConfig.context);
+  if (tag === "select") selectValuesActive = true;
   const hk = needsId ? ssrHydrationKey() : "";
   if (typeof props === "function") props = props();
   // `props` is now one props object or an ARRAY of prop sources (either may
@@ -5743,48 +5731,28 @@ function tagIs(html, i, name) {
 }
 
 // Compiler-armed gate (stage-4 SSR): compiled output containing a
-// `<select value=…>` (or a spread on a select) emits `_$ssrSelectValues()`.
-// The arm lives on a mutable bag on the render context (`_selectValues`) so
-// per-component context clones share it, and one select-bearing module
-// cannot force every later request to scan (#4891). Apps that never bind a
-// select value never SCAN — profiling showed the gate's own indexOf costing
-// >50% of a select-free page's render, because the first pass over the
-// freshly-assembled rope pays its flattening. Raw HTML injected around the
-// compiler (innerHTML escape hatches) intentionally gets browser semantics —
-// the select-value forms contract is a JSX-level promise.
-//
-// Module-scope calls (native compiler / top-level JSX) run with no context:
-// they schedule a one-shot arm for the next render only.
-let armSelectValuesOnce = false;
+// `<select value=…>` (or a spread on a select) emits `_$ssrSelectValues()`
+// once per module. Each render resets the flag (#4891) and re-arms only when
+// this render actually emits a select (`ssr` / `ssrElement` / a mid-render
+// `ssrSelectValues` call). Apps that never bind a select value never SCAN —
+// profiling showed the gate's own indexOf costing >50% of a select-free
+// page's render, because the first pass over the freshly-assembled rope
+// pays its flattening. Raw HTML injected around the compiler (innerHTML
+// escape hatches) intentionally gets browser semantics — the select-value
+// forms contract is a JSX-level promise.
+let selectValuesActive = false;
 export function ssrSelectValues() {
-  const ctx = sharedConfig.context;
-  if (ctx && ctx._selectValues) ctx._selectValues.active = true;
-  else armSelectValuesOnce = true;
+  selectValuesActive = true;
 }
 
-type SelectValuesContext = { _selectValues?: { active: boolean } } | null | undefined;
-
-function selectValuesActive(ctx: SelectValuesContext = sharedConfig.context) {
-  return !!(ctx && ctx._selectValues && ctx._selectValues.active);
-}
-
-function armSelectValues(ctx: SelectValuesContext) {
-  if (ctx && ctx._selectValues) ctx._selectValues.active = true;
-}
-
-export function resolveSSRSelectValues(
-  html,
-  ctx: SelectValuesContext = sharedConfig.context
-) {
+export function resolveSSRSelectValues(html) {
   // Region-jumping walk: attribute values escape `<` (ESCAPE_ATTR), so
   // every "<select" hit below is a genuine tag position — jump candidate to
   // candidate and walk tags ONLY inside value-carrying select regions;
   // everything between regions is copied verbatim. (The old form walked
   // EVERY tag in the document once any <select> existed — O(document) per
   // render and per streamed fragment.)
-  // Prefer the caller's render `ctx` (not the module global) so a late
-  // fragment under concurrent SSR still sees its own arm (#4891).
-  if (!selectValuesActive(ctx)) return html;
+  if (!selectValuesActive) return html;
   let cand = html.indexOf("<select");
   if (cand < 0) return html;
   let out = "";

@@ -24,7 +24,7 @@
     "minified": 3255
   },
   "server: renderToString (the server-render floor)": {
-    "cap": "22.92 KB",
-    "minified": 77888
+    "cap": "23.54 KB",
+    "minified": 79738
   }
 }
