@@ -16,7 +16,6 @@ import {
   flush,
   snapshot
 } from "../../src/index.js";
-import { $OWNER, isOwned, storeLookup } from "../../src/store/target.js";
 
 describe("ownership stamp (#3360)", () => {
   it("is invisible through every proxy trap", () => {
@@ -32,9 +31,6 @@ describe("ownership stamp (#3360)", () => {
     for (const o of [s, s.nested]) {
       expect(Object.getOwnPropertySymbols(o)).toEqual([]);
       expect(Reflect.ownKeys(o)).toEqual(o === s ? ["a", "nested"] : ["x"]);
-      expect($OWNER in o).toBe(false);
-      expect(Object.getOwnPropertyDescriptor(o, $OWNER)).toBeUndefined();
-      expect((o as any)[$OWNER]).toBeUndefined();
       expect(Reflect.ownKeys({ ...o })).toEqual(Reflect.ownKeys(o));
     }
     // A user symbol still enumerates — only the stamp is filtered.
@@ -61,8 +57,6 @@ describe("ownership stamp (#3360)", () => {
     expect(Object.getOwnPropertySymbols(snap.nested)).toEqual([]);
     expect(Object.getOwnPropertySymbols(snap.list)).toEqual([]);
     expect(Object.getOwnPropertySymbols(snap.list[0])).toEqual([]);
-    expect(isOwned(snap)).toBe(false);
-    expect(isOwned(snap.nested)).toBe(false);
   });
 
   it("the first commit onto an unowned backing does not report a membership change", () => {

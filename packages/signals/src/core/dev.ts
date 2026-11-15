@@ -568,8 +568,6 @@ let writeDevStoreSlot: DevStoreSlotWriter | undefined;
 export function registerDevStoreSlotWriter(fn: DevStoreSlotWriter): void {
   writeDevStoreSlot = fn;
 }
-/** @internal SPIKE (thin store): the writer registered so far, to chain. */
-export const devStoreSlotWriter = (): DevStoreSlotWriter | undefined => writeDevStoreSlot;
 
 /**
  * Devtools write entry for a reactive node. Prefer the app's own setters in

@@ -53,19 +53,13 @@ import {
   checkPostAwaitRead,
   DEV,
   emitDiagnostic,
-  devStoreSlotWriter,
   registerDevStoreSlotWriter,
   registerGraph,
   reportDiagnostic,
   warnStrictReadUntracked
 } from "../core/dev.js";
-import {
-  attrHooks,
-  registerStoreTools,
-  storeTools,
-  type StoreTools
-} from "../core/attribution-hooks.js";
-import { link, setSlotUnobserved, slotUnobservedHook } from "../core/graph.js";
+import { attrHooks, registerStoreTools } from "../core/attribution-hooks.js";
+import { link, setSlotUnobserved } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
 import { insertIntoHeap } from "../core/heap.js";
 import {
@@ -104,10 +98,7 @@ import { $THIN } from "./types.js";
 export { $THIN };
 /** The proxy shell's back-reference to its target (one shared handler). */
 const $S = Symbol();
-// Slot release is not built in the spike: a thin node stays. Another
-// engine's slot nodes (an old store's `px` target) go to its hook.
-const prevSlotHook = slotUnobservedHook;
-setSlotUnobserved((node: any) => ("px" in node._host ? prevSlotHook?.(node) : release(node)));
+setSlotUnobserved(release as any);
 /** A node whose last reader let go leaves its target when the raw already
  * says what it says (#3351): nothing is lost, the next read re-creates it
  * from the seed. A target with no node leaves its family's live index. A
@@ -154,7 +145,7 @@ export function releaseSettled(live: (n: any) => boolean): void {
   }
 }
 // A staged write to a node nobody reads: the release waits for its commit.
-GlobalQueue._slotCommitted = (n: any) => ("px" in n._host ? undefined : release(n));
+GlobalQueue._slotCommitted = release as any;
 const ABSENT: any = Symbol(__DEV__ ? "ABSENT" : 0);
 
 interface Target {
@@ -424,29 +415,23 @@ export function thinObserveStore(proxy: any, options?: { name?: string; loc?: st
   if (__DEV__ && !writerChained) chainDevWriter();
 }
 let toolsWrapped = false;
-/** The attribution engine's store tools answer thin targets too (the deep
- * store registers them; a thin target has no `px`). */
+/** The attribution engine's store tools, registered at the first write it
+ * attributes. */
 function wrapTools(): void {
   toolsWrapped = true;
-  const deep: StoreTools | null = storeTools;
-  const thin = (x: any): boolean => x !== null && typeof x === "object" && !("px" in x);
-  const pick = <K extends keyof StoreTools>(k: K, f: StoreTools[K]): StoreTools[K] =>
-    ((...a: any[]) =>
-      thin(a[0]) || deep === null ? (f as any)(...a) : (deep[k] as any)(...a)) as any;
   registerStoreTools({
-    pathOf: pick("pathOf", (t: any) => {
+    pathOf: (t: any) => {
       let path = "";
       for (let p; (p = obsParent.get(t)) !== undefined; t = p[0]) path = "." + String(p[1]) + path;
       return "store" + path;
-    }),
-    isShallow: pick("isShallow", (t: any) => t.s),
-    deleted: pick("deleted", () => null),
-    rootOwner: pick("rootOwner", (t: any) => storeOwners!.get(rootOf(t) as any)),
-    ownerKey: deep?.ownerKey ?? Symbol(),
-    unwrapValue: (v: any) => (isThin(v) ? v[$THIN].v : deep ? deep.unwrapValue(v) : v),
-    targetsEqual: (a: any, b: any) =>
-      isThin(a) || isThin(b) ? unwrapThin(a) === unwrapThin(b) : !!deep?.targetsEqual(a, b),
-    isRawValue: (v: any) => (deep ? deep.isRawValue(v) : isRawValue(v)),
+    },
+    isShallow: (t: any) => t.s,
+    deleted: () => null,
+    rootOwner: (t: any) => storeOwners!.get(rootOf(t) as any),
+    ownerKey: Symbol(),
+    unwrapValue: (v: any) => (isThin(v) ? v[$THIN].v : v),
+    targetsEqual: (a: any, b: any) => (isThin(a) || isThin(b)) && unwrapThin(a) === unwrapThin(b),
+    isRawValue,
     isWrappable: (v: any) => isWrappable(v)
   });
 }
@@ -466,53 +451,17 @@ function slot<V>(t: Target, v: V, eq: (a: V, b: V) => boolean, key: PropertyKey)
   if (affectsHooks !== null) affectsHooks._born(t as any, s, key);
   return s;
 }
-/** The thin half of `affects(store[, key])` (store/affects.ts `storeMarks`):
- * keyed, the slot's node and the record's identity; keyless, a carrier node
- * and every live node reachable, the raws reachable as the scope. */
-export function thinMarks(
-  t: Target,
-  key: PropertyKey | undefined,
-  carrierKey: PropertyKey,
-  scopeOf: (n: any, k: PropertyKey | undefined) => { _scope: Set<object> }
-): any[] {
-  const node = nodeOf(t, key === undefined ? carrierKey : key);
-  const entry = scopeOf(node, key);
-  if (key !== undefined) return (entry._scope.add(t.v), [node]);
-  const found: Signal<any>[] = [node];
-  const visited = new Set<object>();
-  const walk = (v: any, fam: StoreFamily | null): void => {
-    const ct: Target | undefined = isThin(v)
-      ? v[$THIN]
-      : isWrappable(v)
-        ? ((fam?.map as any) ?? targets).get(v)
-        : undefined;
-    const raw = ct !== undefined ? ct.v : v;
-    if (!isWrappable(raw) || visited.has(raw)) return;
-    visited.add(raw);
-    entry._scope.add(raw);
-    if (ct !== undefined) {
-      if (ct.n !== null)
-        for (const k of Reflect.ownKeys(ct.n)) if (k !== carrierKey) found.push(ct.n[k as any]);
-      if (ct.h !== null) for (const k of Reflect.ownKeys(ct.h)) found.push(ct.h[k as any]);
-      if (ct.k !== null) found.push(ct.k);
-      for (const k of keysOf(ct)) {
-        const cv = valueOf(ct, k);
-        if (!(cv instanceof Box)) walk(cv, ct._fam ?? fam);
-      }
-    } else
-      for (const k of Reflect.ownKeys(raw)) {
-        const d = Object.getOwnPropertyDescriptor(raw, k)!;
-        if (d.get === undefined) walk(d.value, fam);
-      }
-  };
-  writerView = true;
-  try {
-    walk(t.p, t._fam);
-  } finally {
-    writerView = false;
-  }
-  return found;
-}
+/** The engine's half of `affects(store)`: store/affects.ts walks with it,
+ * so a program with stores that declares no mark carries no walk. A Box
+ * value is not wrappable, so `target` drops it. */
+GlobalQueue._storeEngine = {
+  node: nodeOf,
+  target: (v: any, fam: StoreFamily | null): Target | undefined =>
+    isThin(v) ? v[$THIN] : isWrappable(v) ? ((fam?.map as any) ?? targets).get(v) : undefined,
+  keys: keysOf,
+  value: valueOf,
+  view: (on: boolean) => void (writerView = on)
+};
 /** The logical value of `key` in the reader's frame (ABSENT when not own). */
 function valueOf(t: Target, key: PropertyKey, mode = 0): any {
   const node = t.n?.[key];
@@ -1725,18 +1674,15 @@ export function thinDeep(value: any): any {
   return thinSnapshot(value);
 }
 
-// Devtools `DEV.setSignal` on a thin slot node goes through the setter;
-// any other node goes to the writer registered before (the deep store's).
-// Chained at the first thin store, after every module registered.
+// Devtools `DEV.setSignal` on a store slot node goes through the setter.
 let writerChained = false;
 function chainDevWriter(): void {
   writerChained = true;
-  const prev = devStoreSlotWriter();
   registerDevStoreSlotWriter((node, value) => {
     const host = (node as any)._host;
     const key = (node as any)._key;
-    if (host && !("px" in host) && host.p && key !== $TRACK && host.n?.[key] === node)
+    if (host && host.p && key !== $TRACK && host.n?.[key] === node)
       return thinSetter(host.p, (d: any) => void (d[key] = value));
-    prev ? prev(node, value) : setSignal(node, value as any);
+    setSignal(node, value as any);
   });
 }

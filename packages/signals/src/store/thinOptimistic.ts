@@ -75,7 +75,7 @@ const echo = (a: unknown, b: unknown): boolean => {
     return false; // a cycle is not plain data
   }
 };
-GlobalQueue._echoes ??= echo;
+GlobalQueue._echoes = echo;
 installThinGuesses(optimisticWrite as any, guessedValueOf, underOf, echo);
 
 /** The family's guesses still in a lane. */
@@ -115,10 +115,9 @@ installThinAsk(fam => {
 // store/optimistic.ts `_slotTake`: the derive re-asking in another
 // action's lane takes the target's guesses of the action that guessed this
 // node — that lane's new question, which they do not answer (F-6, #4336).
-const prevTake = GlobalQueue._slotTake;
 GlobalQueue._slotTake = (n: any, back?: boolean) => {
   const t = n._host;
-  if (t === undefined || "px" in t) return prevTake ? prevTake(n, back) : false;
+  if (t === undefined) return false;
   if (back) return n;
   const d = t._fam?.node?._x?._transaction;
   const g = txOf(n);
@@ -135,10 +134,9 @@ GlobalQueue._slotTake = (n: any, back?: boolean) => {
 // the rows the guess only carried over from the old one; rows the guess
 // added stay, rows it removed stay removed. The truth stages beneath (true)
 // and the guess's lane takes the composition, key by key.
-const prevRebase = GlobalQueue._laneRebase;
 GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
   const t = el._host;
-  if (t === undefined || "px" in t) return prevRebase?.(el, truth, older);
+  if (t === undefined) return undefined;
   // The truth of an action whose own guess is on this list, entangled with
   // a later one's (D-33): the hold's own staging, beneath the guesses until
   // the hold commits (store/optimistic.ts, #4874).

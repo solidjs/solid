@@ -50,7 +50,6 @@ import {
 } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
-import { optHooks } from "./hooks.js";
 /** The optimistic engine's re-ask judgement (thinOptimistic.ts installs it). */
 let thinAsk: ((fam: any) => ((n: any) => any) | void) | null = null;
 export function installThinAsk(fn: typeof thinAsk): void {

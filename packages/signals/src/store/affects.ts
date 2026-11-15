@@ -17,18 +17,16 @@
  *
  * Imported by `affects()`, which installs it on its first store target
  * (#3891, after #3912): a program with stores that never declares a mark
- * carries none of it. It never imports store.ts — the engine's top level —
- * so a program declaring marks without stores carries this module alone:
- * the store's nodes and its wrappability test come through `GlobalQueue`
- * (`_storeNode`, `_storeWrappable`), and node birth and the untracked traps
- * reach back through `affectsHooks` (hooks.ts).
+ * carries none of it. It never imports the engine (thin.ts), so a program
+ * declaring marks without stores carries this module alone: the store's
+ * nodes and records come through `GlobalQueue._storeEngine`, and node birth and the
+ * untracked traps reach back through `affectsHooks` (hooks.ts).
  */
 import { GlobalQueue, releaseMarksHook } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
-import { installAffectsHooks, optHooks, type AffectsHooks } from "./hooks.js";
-import { $OWNER, lookupTarget, type StoreFamily, type StoreTarget } from "./target.js";
-import { $TARGET, $THIN } from "./types.js";
-import { thinMarks } from "./thin.js"; // SPIKE
+import { installAffectsHooks, type AffectsHooks } from "./hooks.js";
+import type { StoreTarget } from "./target.js";
+import { $THIN } from "./types.js";
 
 type Marked = Signal<any> | Computed<any>;
 
@@ -56,76 +54,51 @@ function scopeOf(carrier: Marked, key: PropertyKey | undefined): Scope {
 /** The nodes an `affects(store[, key])` declaration marks (affects.ts
  * registers each). */
 export function storeMarks(t: StoreTarget, key: PropertyKey | undefined): Marked[] {
-  if (!("px" in t)) return thinMarks(t as any, key, $AFFECTS, scopeOf); // SPIKE
-  const node = GlobalQueue._storeNode!(t, key === undefined ? $AFFECTS : key);
+  const e = GlobalQueue._storeEngine!;
+  const node = e.node(t, key === undefined ? $AFFECTS : key);
   const entry = scopeOf(node, key);
-  if (key === undefined) {
-    const found: Marked[] = [node];
-    walk(t.px, entry, found, t._fam, new Set());
-    return found;
+  if (key !== undefined) return (entry._scope.add(t.v), [node]);
+  const found: Marked[] = [node];
+  const visited = new Set<object>();
+  // Untracked by construction: raws and nodes, never traps; the writer's
+  // view (a draft's or an optimistic family's guesses) is what is walked.
+  const walk = (v: any, fam: any): void => {
+    const ct = e.target(v, fam);
+    const raw = ct !== undefined ? ct.v : v;
+    if (raw === null || typeof raw !== "object" || visited.has(raw)) return;
+    visited.add(raw);
+    entry._scope.add(raw);
+    if (ct !== undefined) {
+      // Another mark's carrier is its own channel: counting it here would
+      // extend that scope's lifetime to this declaration's.
+      if (ct.n !== null)
+        for (const k of Reflect.ownKeys(ct.n)) if (k !== $AFFECTS) found.push(ct.n[k as any]);
+      if (ct.h !== null) for (const k of Reflect.ownKeys(ct.h)) found.push(ct.h[k as any]);
+      if (ct.k !== null) found.push(ct.k);
+      for (const k of e.keys(ct)) walk(e.value(ct, k), ct._fam ?? fam);
+    } else
+      for (const k of Reflect.ownKeys(raw)) {
+        const d = Object.getOwnPropertyDescriptor(raw, k)!;
+        if (d.get === undefined) walk(d.value, fam);
+      }
+  };
+  e.view(true);
+  try {
+    walk((t as any).p, t._fam);
+  } finally {
+    e.view(false);
   }
-  entry._scope.add(t.v);
-  if (t.pb !== null) entry._scope.add(t.pb);
-  return [node];
+  return found;
 }
 
-/** The identities reachable from `value` into the scope (the draft's and
- * the committed backing both, when a draft is open; an optimistic family's
- * view), every live node under each record into `found`. Untracked by
- * construction: raws, never traps. */
-function walk(
-  value: any,
-  entry: Scope,
-  found: Marked[],
-  fam: StoreFamily | null,
-  visited: Set<object>
-): void {
-  if (!GlobalQueue._storeWrappable!(value)) return;
-  const t: StoreTarget | undefined = value[$TARGET] ?? lookupTarget(value, fam);
-  let raw: Record<PropertyKey, any> = t !== undefined ? (t.pb ?? t.v) : value;
-  if (visited.has(raw)) return;
-  visited.add(raw);
-  entry._scope.add(raw);
-  if (t !== undefined) {
-    if (t.pb !== null) entry._scope.add(t.v);
-    // The writer's view: the tick's own unflushed guesses are in motion too.
-    if (optHooks !== null && t.o) raw = optHooks.view(t, raw, true);
-    const nodes = t.n;
-    if (nodes !== null)
-      for (const k of Reflect.ownKeys(nodes))
-        // Another mark's carrier is its own channel: counting it here would
-        // extend that scope's lifetime to this declaration's.
-        if (k !== $AFFECTS) found.push(nodes[k as any]);
-    const has = t.h;
-    if (has !== null) for (const k of Reflect.ownKeys(has)) found.push(has[k as any]);
-    if (t.k !== null) found.push(t.k);
-    if (t.dk !== null) found.push(t.dk);
-    fam = t._fam ?? fam;
-  }
-  for (const k of Reflect.ownKeys(raw))
-    if (k !== $OWNER) {
-      const d = Object.getOwnPropertyDescriptor(raw, k)!;
-      if (d.get === undefined) walk(d.value, entry, found, fam, visited);
-    }
-}
-
-/** A live scope covering `t`'s identity (keyed: for `key`). Chained
- * backings (§7b): a view's backing is another store's proxy — marks cover
- * the BASE raw, so every identity along the chain is checked. */
+/** A live scope covering `t`'s identity (keyed: for `key`). */
 function covering(t: StoreTarget, key: PropertyKey | undefined, skip?: Marked): Marked | null {
   for (const [carrier, entry] of scopes) {
     if (carrier === skip || (entry._key !== undefined && entry._key !== key)) continue;
-    for (let r: any = t.v; ; ) {
-      if (entry._scope.has(r)) return carrier;
-      const inner: StoreTarget | undefined = r?.[$TARGET];
-      if (inner === undefined) break;
-      const backing = inner.pb ?? inner.v;
-      if (backing === r) break;
-      r = backing;
-    }
-    // SPIKE: a chained thin target is covered through the store it reads.
+    if (entry._scope.has(t.v)) return carrier;
+    // A chained target is covered through the store it reads.
     const c = (t as any).c;
-    if (!("px" in t) && c && entry._scope.has(c[$THIN].v)) return carrier;
+    if (c && entry._scope.has(c[$THIN].v)) return carrier;
   }
   return null;
 }

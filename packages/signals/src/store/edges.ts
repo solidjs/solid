@@ -11,8 +11,7 @@
  */
 import { CONFIG_SLOT_NODE } from "../core/constants.js";
 import { signalName } from "../core/identities.js";
-import type { StoreTarget } from "./target.js";
-import { $TARGET, $THIN } from "./types.js";
+import { $THIN } from "./types.js";
 import { thinParents } from "./thinParents.js";
 
 /**
@@ -25,24 +24,12 @@ import { thinParents } from "./thinParents.js";
  */
 export function storeName(x: object | undefined): string | undefined {
   if (x === undefined) return undefined;
-  let t: StoreTarget | undefined =
-    (x as any)._config & CONFIG_SLOT_NODE ? (x as any)._host : (x as any)[$TARGET];
-  // SPIKE (thin store): a thin target walks the noted parents instead.
-  const thin =
-    t === undefined ? (x as any)[$THIN] : t !== undefined && !("px" in t) ? t : undefined;
-  if (thin !== undefined) {
-    let c: any = thin;
-    for (let p; (p = thinParents.get(c)) !== undefined; c = p[0])
-      if (c._fam !== null || c.c !== null || signalName(c) !== undefined) return undefined;
-    return c._fam !== null || c.c !== null ? undefined : signalName(c) || undefined;
-  }
+  // A target keeps no parent link of its own: walk the noted parents, up to
+  // the root; a target on the way named as a root of its own is one object
+  // in two stores.
+  let t: any = (x as any)._config & CONFIG_SLOT_NODE ? (x as any)._host : (x as any)[$THIN];
   if (t === undefined) return undefined;
-  // Up to the root; a target on the way named as a root of its own is one
-  // object in two stores.
-  while (t.u !== null) {
-    if (t._fam !== null || t.ch || signalName(t) !== undefined) return undefined;
-    t = t.u;
-  }
-  if (t._fam !== null || t.ch) return undefined;
-  return signalName(t) || undefined;
+  for (let p; (p = thinParents.get(t)) !== undefined; t = p[0])
+    if (t._fam !== null || t.c !== null || signalName(t) !== undefined) return undefined;
+  return t._fam !== null || t.c !== null ? undefined : signalName(t) || undefined;
 }

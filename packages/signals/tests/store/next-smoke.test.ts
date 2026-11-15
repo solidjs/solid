@@ -7,7 +7,6 @@
  */
 import { describe, expect, it } from "vitest";
 import { createEffect, createRoot, createStore, flush } from "../../src/index.js";
-import { isOwned, storeLookup } from "../../src/store/target.js";
 
 describe("store-next increment 1", () => {
   it("wraps, tracks per-property, and batches like signals", () => {
