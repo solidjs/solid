@@ -199,7 +199,6 @@ import {
   STYLESHEET_FETCH_META
 } from "./head.js";
 import {
-  checkImpliedTbody,
   checkStatefulWrite,
   devCheck,
   lowercaseEventAttribute,
@@ -1568,6 +1567,41 @@ let hostRt = null;
 export function installHostTagging() {
   hostRt = tagHost;
 }
+/**
+ * Dev CHECK, hydration (#4875): an insert whose parent is a `<table>`
+ * claims server-rendered rows the HTML parser moved into a `<tbody>` it
+ * implied (`<tr>` is not a child of `<table>` in HTML): no hydration key
+ * on the `<tbody>`, keys on its rows. The insert owns the `<table>`'s
+ * children, so it cannot update rows that sit one level down — removed rows
+ * stay and new ones land after the `<tbody>`. A client-only render appends
+ * the rows to the `<table>` itself and never meets this. Warns once per
+ * table. Lives in the client entry: the server build never hydrates.
+ */
+function checkImpliedTbody(table: Element): void {
+  if ((table as any).$$tbody) return;
+  for (let c = table.firstElementChild; c; c = c.nextElementSibling)
+    if (
+      c.localName === "tbody" &&
+      !c.hasAttribute("_hk") &&
+      c.firstElementChild?.hasAttribute("_hk")
+    ) {
+      (table as any).$$tbody = 1;
+      devCheck({
+        code: "TABLE_ROWS_WITHOUT_TBODY",
+        kind: "render",
+        severity: "warn",
+        message:
+          `[TABLE_ROWS_WITHOUT_TBODY] A <table> renders its rows directly (no <tbody>), and the ` +
+          `HTML parser moved the server-rendered rows into a <tbody> it added: the rows are no ` +
+          `longer the table's children, so after hydration Solid cannot update them (a removed ` +
+          `row stays, a new one lands after the <tbody>). Wrap the rows in <tbody> — ` +
+          `\`<table><tbody><For each={rows()}>{row => <tr>…</tr>}</For></tbody></table>\`.`,
+        data: { id: table.id || undefined }
+      });
+      return;
+    }
+}
+
 export function installHydrationRuntime() {
   hydrationRt = {
     // insert(): claim the parent's childNodes as the initial current on
