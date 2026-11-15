@@ -996,6 +996,13 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   if (failed) {
     throw serverFunctionFailure(response, result);
   }
+  // A non-read call is a mutation (#4883): one the server folded nothing into
+  // and that carries no metadata still tells the consumers it happened, so
+  // an integration applies its default — a router revalidates every query
+  // (`revalidate` omitted) after a direct call or a core `action`, as after
+  // a form action. Its `data` is `undefined`; the value is the caller's.
+  if (!isReadCall(options) && getFlightDataSourceIds().length > 0)
+    await deliverFlightData(response, undefined);
   // Streaming result: wrap so stopping consumption stops the CALL. Without
   // this, `return()` (a `break` in for-await) only detaches the local
   // iterator — the fetch keeps downloading and the server keeps producing.
