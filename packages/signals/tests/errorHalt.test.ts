@@ -131,6 +131,69 @@ describe("uncaught effect errors halt the reactive system (A5)", () => {
     expect(seenC).toEqual([3]);
   });
 
+  it("resetErrorHalt revives microtask scheduling after a render effect throw (#4882)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const [a, setA] = createSignal(0);
+    const seen: number[] = [];
+
+    createRoot(() => {
+      createRenderEffect(
+        () => {
+          if (a() === 1) throw new Error("boom");
+          return a();
+        },
+        v => {
+          seen.push(v);
+        }
+      );
+    });
+    flush();
+
+    expect(() => {
+      setA(1);
+      flush();
+    }).toThrow("boom");
+    // Let the flush setA(1) queued run (a no-op while halted), as on the HMR path.
+    await Promise.resolve();
+
+    resetErrorHalt();
+    setA(2);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(seen).toEqual([0, 2]);
+  });
+
+  it("resetErrorHalt drains a write made while halted (#4882)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const [a, setA] = createSignal(0);
+    const seen: number[] = [];
+
+    createRoot(() => {
+      createRenderEffect(
+        () => {
+          if (a() === 1) throw new Error("boom");
+          return a();
+        },
+        v => {
+          seen.push(v);
+        }
+      );
+    });
+    flush();
+
+    expect(() => {
+      setA(1);
+      flush();
+    }).toThrow("boom");
+    await Promise.resolve();
+    setA(2);
+
+    resetErrorHalt();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(seen).toEqual([0, 2]);
+  });
+
   it("does not halt when an error boundary handles the error", () => {
     const [a, setA] = createSignal(0);
     const [c, setC] = createSignal(0);
