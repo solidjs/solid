@@ -75,6 +75,7 @@ import {
   joinFuture,
   laneStageHook,
   list,
+  queuePendingNode,
   observeFlightHook,
   passLane,
   resolveTx,
@@ -948,8 +949,24 @@ const BASE: ProxyHandler<any> = {
       if (h[key] === undefined) {
         // Presence without the value (an accessor is not run for `in`).
         const node = t.n?.[key];
-        const here = node !== undefined ? peek(node, t, 2) !== ABSENT : hasOwn.call(t.v, key);
-        h[key] = slot(t, here, isEqual, key);
+        // A staged value: presence mirrors it, committed and staged in the
+        // same flush or hold, so a pass reads one frame for both (#4887).
+        const staged =
+          node !== undefined &&
+          !(node._config & CONFIG_OVERRIDE) &&
+          node._pendingValue !== NOT_PENDING;
+        const here = staged
+          ? node._value !== ABSENT
+          : node !== undefined
+            ? peek(node, t, 2) !== ABSENT
+            : hasOwn.call(t.v, key);
+        const p = (h[key] = slot(t, here, isEqual, key));
+        if (staged && (node._pendingValue !== ABSENT) !== here) {
+          p._pendingValue = !here;
+          const tx = node._x?._transaction;
+          if (tx) (list(p, tx), (p._config |= node._config & CONFIG_HELD));
+          else queuePendingNode(p);
+        }
         t.q = (t.q || 0) + 1;
         if (t._fam !== null) t._fam.live.add(t as any);
       }
