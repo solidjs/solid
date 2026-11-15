@@ -691,6 +691,19 @@ GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
   // with a later one's (same slot, D-33): the hold's own staging, beneath
   // the guess until the hold commits — none of it shows before (#4874).
   if (older && el.qs?.has(question)) return true;
+  // The truth answers another carrier's guess (`by`, its rows): the rows
+  // this guess carried over from that guess are judged by it — its own
+  // landing — so a placeholder it added never shows beside the row its
+  // answer wrote (#4897). Entangled with this guess's hold (an action that
+  // read that guess, D-33, #4788), that truth is the hold's own staging, as
+  // a same-carrier one above: none of it shows before the hold commits.
+  let by: any[] | undefined;
+  if (older)
+    for (const o of kgOf(t)! as any[])
+      if (o !== el && o.qs?.has(question)) {
+        if (sameAction(txOf(o), txOf(el))) return true;
+        by = o.g;
+      }
   // An older question's truth, or the #4525 re-base: the guess's edit over it.
   if (!Array.isArray(truth) || !Array.isArray(guess)) return true;
   const keyFn = t._fam?.key;
@@ -726,7 +739,7 @@ GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
         reconcileState(tr, gt.px, keyFn, true);
       rows.push(tr);
       used.add(k);
-    } else if (!removed.has(k)) rows.push(g);
+    } else if (!removed.has(k) && !by?.includes(g)) rows.push(g);
   }
   for (let i = 0; i < truth.length; i++) {
     const r = truth[i];
@@ -916,9 +929,15 @@ installOptHooks({
   // enumeration reads the newest carrier, tracked.
   read: (t, key) => {
     const g = guessFor(t, key);
-    if (g === null) return NOT_PENDING;
-    const frame = readNode(g) as Record<PropertyKey, any>;
     const obs = getObserver();
+    if (g === null) {
+      // A key an arrangement guess only borrowed, its lender gone, reads the
+      // truth (#4784), but that guess still orders the rows read beside it:
+      // its end must reach this reader, as when it served the key (#4897).
+      if (obs !== null) kgOf(t)?.forEach(c => (c as any).borrowed?.has(key) && link(c, obs as any));
+      return NOT_PENDING;
+    }
+    const frame = readNode(g) as Record<PropertyKey, any>;
     const node = obs !== null ? getNode(t, key) : t.n?.[key as any];
     if (obs !== null) link(node!, obs as Computed<any>);
     const v = carrierValue(frame, key);

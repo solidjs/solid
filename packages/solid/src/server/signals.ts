@@ -540,6 +540,23 @@ export function setContext<T>(
 // Without this, the parent still points at the pooled node, and once the
 // pool recycles it into a *different* tree, disposing the old parent walks
 // into the new tree and tears down live owners (#2863).
+/**
+ * Returns a disposed owner to the pool. The next `createOwner` overwrites
+ * every field, so only references that would keep the finished render alive
+ * are dropped here: `_context` holds the render's provided values (and, under
+ * a boundary, its error handler and HTML), and a pooled owner can sit idle
+ * for as long as the process runs while concurrent renders fill the pool
+ * (#4890). `_parent` / `_nextSibling` are cleared by `unlinkOwner`,
+ * `_firstChild` / `_disposal` by the dispose walk.
+ */
+function recycleOwner(node: SSROwner): void {
+  if (ownerPool.length < OWNER_POOL_MAX) {
+    node.id = undefined;
+    node._context = defaultSSRContext;
+    ownerPool.push(node);
+  }
+}
+
 function unlinkOwner(node: SSROwner): void {
   const parent = node._parent;
   if (!parent) return;
@@ -579,10 +596,7 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
     if (self) {
       node._disposed = true;
       unlinkOwner(node);
-      if (ownerPool.length < OWNER_POOL_MAX) {
-        node.id = undefined;
-        ownerPool.push(node);
-      }
+      recycleOwner(node);
     } else {
       // Id slots can be consumed without creating child owners
       // (createUniqueId, ssrScope reservations, client-computed slots), so a
@@ -632,12 +646,8 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
   }
   if (self) unlinkOwner(node);
   // Recycle the disposed owner. Skip the root case (`self=false`) and the
-  // already-pooled case so we don't double-add. The next `createOwner` will
-  // overwrite all fields, so we only need to drop heavy references here.
-  if (self && ownerPool.length < OWNER_POOL_MAX) {
-    node.id = undefined;
-    ownerPool.push(node);
-  }
+  // already-pooled case so we don't double-add.
+  if (self) recycleOwner(node);
   if (error) throw error[0];
 }
 
