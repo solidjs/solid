@@ -303,9 +303,13 @@ function patchEquals(this: any, a: any, b: any): boolean {
   const bt: StoreTarget | undefined = b[$TARGET];
   if (bt !== undefined) b = writerBacking(bt, true);
   const fam: StoreFamily = this._host._fam;
-  // A structural guess: the arrangement (rows by identity or key, an
-  // object's keys), as the container judged it.
-  if (this.g !== undefined && !arrangementEqual(a, b, fam)) return false;
+  // A structural guess (a list's, the only kind that records `g`): the
+  // arrangement, rows by identity or key, as the container judged it.
+  if (
+    this.g !== undefined &&
+    (a.length !== b.length || a.some((r: any, i: number) => !rowSame(r, b[i], fam)))
+  )
+    return false;
   // Each key the guess changed, by content: the same object, or the
   // server's echo of a guessed one — a new object with the same contents
   // (#3898). A row the adoption paired by key with a guessed one is not
@@ -485,25 +489,8 @@ export function notifyOptimisticWrites(
 
 type KeyFn = (item: any) => any;
 
-/** Two arrangements (a guess's rows or keys against a truth's) by row
- * identity — by key when the family has one. */
-function arrangementEqual(
-  a: Record<PropertyKey, any>,
-  b: Record<PropertyKey, any>,
-  fam: StoreFamily
-): boolean {
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-  if (Array.isArray(a)) {
-    if (a.length !== (b as any[]).length) return false;
-    for (let i = 0; i < a.length; i++) if (!rowSame(a[i], (b as any[])[i], fam)) return false;
-    return true;
-  }
-  const ak = Reflect.ownKeys(a).filter(k => k !== $OWNER);
-  const bk = Reflect.ownKeys(b).filter(k => k !== $OWNER);
-  if (ak.length !== bk.length) return false;
-  for (const k of ak) if (!(k in b)) return false;
-  return true;
-}
+/** Two rows of a keyed list's arrangement, by identity — by key when the
+ * family has one. */
 function rowSame(a: any, b: any, fam: StoreFamily): boolean {
   if (isEqual(a, b) || targetsEqual(a, b)) return true;
   const keyFn = fam.key;
@@ -834,54 +821,56 @@ function foldedRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): u
  * guesses. With no guess out, rows nothing guessed are left as the draft
  * wrote them. */
 function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
-  const keyFn = t._fam!.key;
-  for (let c of t._fam!._overlaid ?? []) {
-    // The guessed row, or its ancestor directly under `t` (none: skip).
-    while (c.u !== t) if ((c = c.u!) === null) break;
-    if (c === null) continue;
-    const k = keyFn?.(c.v);
-    const nv = Array.isArray(pb)
-      ? k !== undefined && pb.find(r => isWrappable(r) && sameKey(keyFn!(r), k))
-      : pb[c.pk!];
-    // A new object only: not `c`'s own, nor one another row serves
-    // (pairing it would alias the two).
-    if (isWrappable(nv) && !lookupTarget(nv, t._fam)) reconcileState(nv, c.px, keyFn, true);
-  }
-  // While guesses are out, every row of a keyed list keeps its target under
-  // the derive's new object with its key, not only a guessed one (#4738): a
-  // row whose guess settled can be guessed again, and the setter writes the
-  // committed row's target — a landing must not show a new one in its place.
-  if (keyFn && Array.isArray(pb) && t._fam!._overlaid?.size) {
-    let byKey: Map<unknown, any> | null = null;
-    for (const ov of committed(t) as any[]) {
-      const rt = isWrappable(ov) ? lookupTarget(ov, t._fam) : undefined;
-      if (rt === undefined) continue;
-      if (byKey === null) {
-        byKey = new Map();
-        for (const r of pb) if (isWrappable(r)) byKey.set(keyFn(r), r);
-      }
-      const k = keyFn(ov);
-      const nv = k === undefined ? undefined : byKey.get(k);
-      if (nv !== undefined && !lookupTarget(nv, t._fam)) reconcileState(nv, rt.px, keyFn, true);
+  const fam = t._fam!;
+  const keyFn = fam.key;
+  const list = Array.isArray(pb);
+  // One rule (Q-D, plan sec. 31.7): a row with a target keeps it under the
+  // landing's new object at its slot — in a keyed list, the one with its
+  // key (an unkeyed list pairs nothing). The target adopts the object; a
+  // row another store lent keeps its proxy in the slot.
+  let at: Map<unknown, number> | undefined;
+  const pair = (k: unknown, px: any, lent?: boolean) => {
+    if (list && at === undefined) {
+      at = new Map();
+      (pb as any[]).forEach((r, i) => {
+        const rk = isWrappable(r) && keyFn ? keyFn(r) : undefined;
+        if (rk !== undefined && !at!.has(rk)) at!.set(rk, i);
+      });
     }
+    const i: any = list ? at!.get(k) : k;
+    const nv = i === undefined ? undefined : pb[i];
+    // A new object only: not the row's own, nor one another row serves
+    // (pairing it would alias the two).
+    if (isWrappable(nv) && !lookupTarget(nv, fam)) {
+      reconcileState(nv, px, keyFn, true);
+      if (lent) pb[i] = px;
+    }
+  };
+  // A guessed row, or its ancestor directly under `t`.
+  for (let c of fam._overlaid ?? []) {
+    while (c.u !== t) if ((c = c.u!) === null) break;
+    if (c !== null) pair(list ? keyFn?.(c.v) : c.pk, c.px);
   }
+  if (!keyFn || !list) return;
+  // While guesses are out, every committed row, not only a guessed one
+  // (#4738): a row whose guess settled can be guessed again, and the setter
+  // writes the committed row's target.
+  if (fam._overlaid?.size)
+    for (const ov of committed(t) as any[]) {
+      const rt = isWrappable(ov) ? lookupTarget(ov, fam) : undefined;
+      if (rt !== undefined) pair(keyFn(ov), rt.px);
+    }
   // A row another store's guess added as it is (that store's proxy, not a
-  // copy) keeps its proxy when the landing returns its key (Q-D, as a row
-  // the guess added above): the lent row's target adopts the server object,
-  // so a guess of that store's still out on the row shows on through its
-  // own carrier until its action ends (F-11, #4902).
-  if (keyFn && Array.isArray(pb))
-    kgOf(t)?.forEach(c => {
-      const f = guessedValueOf(c);
-      if (Array.isArray(f))
-        for (const r of f) {
-          const ft = r?.[$TARGET];
-          if (ft?.px !== r || ft._fam === t._fam) continue;
-          const i = pb.findIndex(x => isWrappable(x) && sameKey(keyFn(x), keyFn(r)));
-          if (i >= 0 && !lookupTarget(pb[i], t._fam))
-            (reconcileState(pb[i], r, keyFn, true), (pb[i] = r));
-        }
-    });
+  // copy): a guess of that store's still out on the row shows on through
+  // its own carrier until its action ends (F-11, #4902).
+  kgOf(t)?.forEach(c => {
+    const f = guessedValueOf(c);
+    if (Array.isArray(f))
+      for (const r of f) {
+        const ft = r?.[$TARGET];
+        if (ft?.px === r && ft._fam !== fam) pair(keyFn(r), r, true);
+      }
+  });
 }
 
 /** #4788 (D-33): an action read `key` of `t` (`v`, else the writer's view
