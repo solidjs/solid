@@ -175,14 +175,30 @@ function groupAttributeClosures(path: BabelPath, results: SSRTransformResult): v
   );
 }
 
-// One marker statement per program: `_$ssrSelectValues();` after imports.
-const selectValuesMarked = new WeakSet<babelTypes.Program>();
+// Arm the SSR select-value pass when a select-bearing function runs (#4891).
+// Prefer the enclosing function so a shared `<Select>` only turns the scan
+// on for renders that actually call it. Fall back to one program-level call
+// for rare top-level JSX; the runtime treats that as a one-shot arm.
+const selectValuesMarked = new WeakSet<object>();
 function registerSelectValues(path: BabelPath): void {
-  const program = path.findParent(p => t.isProgram(p.node))!;
-  if (selectValuesMarked.has(program.node as babelTypes.Program)) return;
-  selectValuesMarked.add(program.node as babelTypes.Program);
   const marker = registerImportMethod(path, "ssrSelectValues", undefined);
-  (program as any).unshiftContainer("body", t.expressionStatement(t.callExpression(marker, [])));
+  const call = t.callExpression(marker, []);
+  const fn = path.getFunctionParent();
+  if (fn) {
+    if (selectValuesMarked.has(fn.node)) return;
+    selectValuesMarked.add(fn.node);
+    const body = fn.get("body");
+    if (body.isBlockStatement()) {
+      body.unshiftContainer("body", t.expressionStatement(call));
+    } else {
+      body.replaceWith(t.sequenceExpression([call, body.node as babelTypes.Expression]));
+    }
+    return;
+  }
+  const program = path.findParent(p => t.isProgram(p.node))!;
+  if (selectValuesMarked.has(program.node)) return;
+  selectValuesMarked.add(program.node);
+  (program as any).unshiftContainer("body", t.expressionStatement(call));
 }
 
 export function transformElement(
