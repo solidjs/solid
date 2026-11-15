@@ -87,6 +87,7 @@ import { signalHook } from "../core/identities.js";
 import { affectsHooks } from "./hooks.js";
 import {
   $PROXY,
+  $RECORD,
   $TARGET,
   $TRACK,
   isRawValue,
@@ -99,6 +100,8 @@ import { $THIN, installStoreKeys } from "./types.js";
 export { $THIN };
 /** The proxy shell's back-reference to its target (one shared handler). */
 const $S = Symbol();
+/** The key of a plain target's deep() node (`dv`). */
+const $DEEP = Symbol();
 setSlotUnobserved(release as any);
 let staged: Set<any> | null = null;
 // The commit seam (core `storeCommitHook`, once per flush): the nodes a
@@ -134,6 +137,9 @@ function release(node: any, settled?: boolean): void {
   if (key === $TRACK) {
     if (t.k !== node) return;
     t.k = null;
+  } else if (key === $DEEP) {
+    if (t.dv !== node) return;
+    t.dv = null;
   } else if (t.n?.[key] === node) {
     if (!Object.is(node._value, seed(t, key))) return;
     delete t.n![key];
@@ -181,6 +187,13 @@ interface Target {
   dk: null;
   /** a write took a key away: a node may hold ABSENT (keysOf filters) */
   gone: boolean;
+  /** the raw's own properties are all plain data (enumerable, writable, no
+   * accessor): snapshot copies by assignment (undefined: not asked yet) */
+  pl: boolean | undefined;
+  /** an array raw's non-index own keys (symbols, named), asked once */
+  mk: PropertyKey[] | null;
+  /** a plain store's deep() node: bumped by every write to this target */
+  dv: Signal<number> | null;
   s: boolean;
   /** chained: the store a derive returned, read through live (#2941) */
   c: any;
@@ -261,6 +274,9 @@ export function thinWrap(v: any, fam: StoreFamily | null = null, u: Target | nul
       _fam: fam,
       dk: null,
       gone: false,
+      pl: undefined,
+      mk: null,
+      dv: null,
       s: false,
       c: null,
       cv: null,
@@ -500,6 +516,8 @@ function valueOf(t: Target, key: PropertyKey, mode = 0): any {
 function keysOf(t: Target): (string | symbol)[] {
   const n = t.n;
   if (t.r) {
+    // Unwritten, no node off the raw: the raw's keys are the keys.
+    if (!t.w && !t.x && t.c === null) return ownOf(t.v);
     const len = valueOf(t, "length");
     const keys: string[] = [];
     for (let i = 0; i < len; i++) if (valueOf(t, i) !== ABSENT) keys.push("" + i);
@@ -507,8 +525,8 @@ function keysOf(t: Target): (string | symbol)[] {
     // Non-index metadata (symbols, named keys) of the array.
     const meta = (k: PropertyKey) =>
       k !== "length" && (typeof k === "symbol" || "" + (+k >>> 0) !== k);
-    for (const k of Reflect.ownKeys(t.v))
-      if (meta(k) && valueOf(t, k) !== ABSENT) keys.push(k as any);
+    for (const k of (t.mk ??= Reflect.ownKeys(t.v).filter(meta)))
+      if (valueOf(t, k) !== ABSENT) keys.push(k as any);
     if (n !== null)
       for (const k of Reflect.ownKeys(n))
         if (meta(k) && !hasOwn.call(t.v, k) && peek(n[k as any], t, 2) !== ABSENT)
@@ -571,6 +589,7 @@ function put(t: Target, node: Signal<any>, v: any): void {
     )
       heldHit = t._fam.node;
     setSignal(node, v);
+    if (t.dv !== null && node !== t.dv) setSignal(t.dv, (x: number) => x + 1);
     // The derive's write is a derivation; a user setter's a proposal.
     if (t._fam !== null)
       userWrite
@@ -615,9 +634,10 @@ function put(t: Target, node: Signal<any>, v: any): void {
 }
 function write(t: Target, key: PropertyKey, v: any): void {
   // No write has moved this target off its raw: every node holds the seed.
-  if ((!t.w || t.n?.[key] === undefined) && Object.is(seed(t, key), v)) return;
+  const n0 = t.n?.[key];
+  if ((!t.w || n0 === undefined) && Object.is(seed(t, key), v)) return;
   if (v === ABSENT) t.gone = true;
-  const node = nodeOf(t, key);
+  const node = n0 ?? nodeOf(t, key);
   let prev = peek(node, t);
   if (prev === DELEGATE) prev = innerValue(t, key);
   // A guess of an object the truth beneath echoes is that object (#3672):
@@ -638,7 +658,8 @@ function write(t: Target, key: PropertyKey, v: any): void {
       prev === ABSENT ? undefined : prev
     );
   if (__OBSERVE__ && attrHooks !== null && userWrite) noteWrite(t, key, prev, v);
-  put(t, node, () => v);
+  // A function value is set as itself, not run as an updater.
+  put(t, node, typeof v === "function" ? () => v : v);
   t.w = true;
   const h = t.h?.[key];
   if (h !== undefined) put(t, h, v !== ABSENT);
@@ -901,7 +922,8 @@ const BASE: ProxyHandler<any> = {
       affectsHooks._witness(t as any, typeof key === "symbol" ? undefined : key);
     if (key === $THIN) return t;
     if (key === $PROXY) return receiver;
-    if (key === $TARGET) return undefined; // the deep engine's brand: no node
+    // Brands a store is not: no node (a merge/omit asks for its record).
+    if (key === $TARGET || key === $RECORD) return undefined;
     if (key === $REFRESH) return t._fam?.node ?? undefined;
     if (t._fam !== null) pullFamily(t);
     if (key === $TRACK) return (track(t), undefined);
@@ -1705,6 +1727,25 @@ export function thinSnapshot(
   seen.set(raw, raw);
   let copy: any = null;
   const keys = keysOf(t);
+  // A raw of plain data copies by assignment: no descriptor per key.
+  if ((t.pl ??= plainData(raw, t.r))) {
+    const w = t.w;
+    if (w) copy = copyOf(t, raw, keys, seen, 0); // unwritten: every node holds the raw
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (t.r && k === "length") continue;
+      const v = w ? valueOf(t, k) : raw[k];
+      if (v instanceof Box) {
+        if (copy === null) copy = copyOf(t, raw, keys, seen, i);
+        setProp(copy, raw, k, v);
+        continue;
+      }
+      const c = v !== null && typeof v === "object" ? thinSnapshot(v, seen, fam) : v;
+      if (copy === null && c !== v) copy = copyOf(t, raw, keys, seen, i);
+      if (copy !== null) copy[k] = c;
+    }
+    return copy ?? raw;
+  }
   const start = () => {
     if (copy === null) {
       copy = t.r ? [] : Object.create(protoNow(t));
@@ -1724,6 +1765,27 @@ export function thinSnapshot(
   }
   return copy ?? raw;
 }
+/** Every own property of `o` is plain data (an array's `length` aside). */
+function plainData(o: any, r: boolean): boolean {
+  for (const k of ownOf(o)) {
+    if (r && k === "length") continue;
+    const d = Object.getOwnPropertyDescriptor(o, k)!;
+    if (d.get || d.set || !d.enumerable || !d.writable) return false;
+  }
+  return true;
+}
+/** A snapshot's copy of a plain-data target, its first `n` keys taken
+ * from the raw (the ones the walk passed unchanged). */
+function copyOf(t: Target, raw: any, keys: PropertyKey[], seen: Map<object, any>, n: number): any {
+  const copy: any = t.r ? [] : Object.create(protoNow(t));
+  seen.set(raw, copy);
+  if (t.r) copy.length = valueOf(t, "length");
+  for (let i = 0; i < n; i++) {
+    const k = keys[i];
+    if (!(t.r && k === "length")) copy[k] = raw[k];
+  }
+  return copy;
+}
 
 /** Tracking copy: subscribes to every reachable key set and value, and
  * returns snapshot()'s copy (its shape and identity). */
@@ -1734,8 +1796,19 @@ export function thinDeep(value: any): any {
     const t: Target | undefined = isThin(v) ? v[$THIN] : undefined;
     if (t === undefined || seen.has(t)) return;
     seen.add(t);
+    const keys = ownKeysOf(t);
+    // A plain store's target is one node for its values (bumped by every
+    // write to it) beside its key set: values are read, not tracked.
+    if (t._fam === null && t.c === null && !inDraft(t) && getObserver() !== null) {
+      read((t.dv ??= slot(t, 0, isEqual, $DEEP)) as any);
+      for (const k of keys) {
+        const c = valueOf(t, k);
+        if (c !== null && typeof c === "object" && !(c instanceof Box)) walk(child(t, c));
+      }
+      return;
+    }
     const shell = { [$S]: t };
-    for (const k of ownKeysOf(t)) walk(BASE.get!(shell, k, t.p));
+    for (const k of keys) walk(BASE.get!(shell, k, t.p));
   };
   walk(value);
   return thinSnapshot(value);
