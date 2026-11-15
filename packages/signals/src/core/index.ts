@@ -11,6 +11,7 @@ export {
   computed,
   signal,
   read,
+  heldRead,
   setSignal,
   setWriteHook,
   setMemo,

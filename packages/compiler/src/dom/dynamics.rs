@@ -184,6 +184,8 @@ impl<'a> AstDomTransform<'a, '_> {
         let mut value_props = self.ast().vec();
         let mut statements = self.ast().vec();
         let mut param_names = std::vec::Vec::new();
+        let held_name = get_numbered_id(dynamics.len());
+        let mut uses_held = false;
 
         for (index, slot) in dynamics.into_iter().enumerate() {
             let prop_name = get_numbered_id(index);
@@ -212,7 +214,7 @@ impl<'a> AstDomTransform<'a, '_> {
                     slot_span,
                     elem,
                     &slot.key,
-                    prop_ident,
+                    prop_ident.clone_in(self.allocator),
                     SetAttrOptions {
                         dynamic: true,
                         prev_id: Some(prev_member),
@@ -222,6 +224,34 @@ impl<'a> AstDomTransform<'a, '_> {
                         checkable_input: slot.checkable_input,
                     },
                 );
+                let set_attr = if stateful {
+                    // #4872: `(<v> !== _p$?.<v> || !<h>) && <write>` — a
+                    // stateful prop skips an unchanged write while the effect
+                    // is a stale reader of an open hold (`heldRead`, read
+                    // after every value). Mirrors Babel's `wrapDynamics`.
+                    uses_held = true;
+                    let changed = self.ast().expression_binary(
+                        slot_span,
+                        prop_ident,
+                        BinaryOperator::StrictInequality,
+                        self.optional_prev_member(slot_span, &prop_name),
+                    );
+                    let not_held = self.ast().expression_unary(
+                        slot_span,
+                        UnaryOperator::LogicalNot,
+                        self.identifier_expression(slot_span, &held_name),
+                    );
+                    let guard = self.ast().expression_logical(
+                        slot_span,
+                        changed,
+                        LogicalOperator::Or,
+                        not_held,
+                    );
+                    self.ast()
+                        .expression_logical(slot_span, guard, LogicalOperator::And, set_attr)
+                } else {
+                    set_attr
+                };
                 statements.push(self.ast().statement_expression(slot_span, set_attr));
             } else {
                 let changed = if slot.key == "textContent" {
@@ -281,6 +311,12 @@ impl<'a> AstDomTransform<'a, '_> {
                 ));
             }
             param_names.push(prop_name);
+        }
+        if uses_held {
+            self.template_state.uses_held_read = true;
+            let read = self.call_identifier(span, "_$heldRead", std::vec::Vec::new());
+            value_props.push(self.object_property(span, &held_name, read));
+            param_names.push(held_name);
         }
         statements.extend(claim_statements);
 

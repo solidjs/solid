@@ -14,6 +14,7 @@ import { effect as _$effect } from "r-custom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { claimElement as _$claimElement } from "r-dom";
 import { setProperty as _$setProperty } from "r-custom";
+import { heldRead as _$heldRead } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
 import { delegateEvents as _$delegateEvents } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<div><h1><a href=/>Welcome`);
@@ -216,13 +217,14 @@ _$effect(() => {
 		a: max(),
 		o: s2(),
 		i: min(),
-		n: max()
+		n: max(),
+		s: _$heldRead()
 	};
-}, ({ e, t, a, o, i, n }, _p$) => {
-	_el$26.value = e ?? "";
+}, ({ e, t, a, o, i, n, s }, _p$) => {
+	(e !== _p$?.e || !s) && (_el$26.value = e ?? "");
 	t !== _p$?.t && _$setAttribute(_el$26, "min", t);
 	a !== _p$?.a && _$setAttribute(_el$26, "max", a);
-	_el$27.checked = o;
+	(o !== _p$?.o || !s) && (_el$27.checked = o);
 	i !== _p$?.i && _$setAttribute(_el$27, "min", i);
 	n !== _p$?.n && _$setAttribute(_el$27, "max", n);
 });
@@ -355,12 +357,13 @@ _$effect(() => {
 	return {
 		e: state.color,
 		t: Color.Red,
-		a: Color.Blue
+		a: Color.Blue,
+		o: _$heldRead()
 	};
-}, ({ e, t, a }, _p$) => {
-	_$setProperty(_el$55, "value", e);
-	_el$56.value = t;
-	_el$57.value = a;
+}, ({ e, t, a, o }, _p$) => {
+	(e !== _p$?.e || !o) && _$setProperty(_el$55, "value", e);
+	(t !== _p$?.t || !o) && (_el$56.value = t);
+	(a !== _p$?.a || !o) && (_el$57.value = a);
 });
 const template41 = _el$55;
 const template42 = _tmpl$24();

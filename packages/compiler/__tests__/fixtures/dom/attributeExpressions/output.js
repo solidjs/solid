@@ -13,6 +13,7 @@ import { effect as _$effect } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { claimElement as _$claimElement } from "r-dom";
 import { setProperty as _$setProperty } from "r-dom";
+import { heldRead as _$heldRead } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
 import { delegateEvents as _$delegateEvents } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<div><h1><a href=/>Welcome`);
@@ -230,13 +231,14 @@ _$effect(() => {
 		a: max(),
 		o: s2(),
 		i: min(),
-		n: max()
+		n: max(),
+		s: _$heldRead()
 	};
-}, ({ e, t, a, o, i, n }, _p$) => {
-	_el$26.value = e ?? "";
+}, ({ e, t, a, o, i, n, s }, _p$) => {
+	(e !== _p$?.e || !s) && (_el$26.value = e ?? "");
 	t !== _p$?.t && _$setAttribute(_el$26, "min", t);
 	a !== _p$?.a && _$setAttribute(_el$26, "max", a);
-	_el$27.checked = o;
+	(o !== _p$?.o || !s) && (_el$27.checked = o);
 	i !== _p$?.i && _$setAttribute(_el$27, "min", i);
 	n !== _p$?.n && _$setAttribute(_el$27, "max", n);
 });
@@ -369,12 +371,13 @@ _$effect(() => {
 	return {
 		e: state.color,
 		t: Color.Red,
-		a: Color.Blue
+		a: Color.Blue,
+		o: _$heldRead()
 	};
-}, ({ e, t, a }, _p$) => {
-	_$setProperty(_el$55, "value", e);
-	_el$56.value = t;
-	_el$57.value = a;
+}, ({ e, t, a, o }, _p$) => {
+	(e !== _p$?.e || !o) && _$setProperty(_el$55, "value", e);
+	(t !== _p$?.t || !o) && (_el$56.value = t);
+	(a !== _p$?.a || !o) && (_el$57.value = a);
 });
 const template41 = _el$55;
 const template42 = _tmpl$24();
@@ -629,13 +632,14 @@ _$effect(() => {
 		e: dynamicProperty(),
 		t: dynamicProperty(),
 		a: dynamicAttribute(),
-		o: dynamicProperty()
+		o: dynamicProperty(),
+		i: _$heldRead()
 	};
-}, ({ e, t, a, o }, _p$) => {
-	_el$116.muted = e;
-	_el$117.muted = t;
+}, ({ e, t, a, o, i }, _p$) => {
+	(e !== _p$?.e || !i) && (_el$116.muted = e);
+	(t !== _p$?.t || !i) && (_el$117.muted = t);
 	a !== _p$?.a && (_el$118.defaultMuted = a);
-	_el$118.muted = o;
+	(o !== _p$?.o || !i) && (_el$118.muted = o);
 });
 const template93 = _el$113;
 function MyVideo() {
@@ -711,11 +715,12 @@ var _el$130 = _tmpl$58();
 _$effect(() => {
 	return {
 		e: kind(),
-		t: value()
+		t: value(),
+		a: _$heldRead()
 	};
-}, ({ e, t }, _p$) => {
+}, ({ e, t, a }, _p$) => {
 	e !== _p$?.e && _$setAttribute(_el$130, "type", e);
-	_$setProperty(_el$130, "value", t);
+	(t !== _p$?.t || !a) && _$setProperty(_el$130, "value", t);
 });
 const template104 = _el$130;
 var _el$131 = _tmpl$59();
@@ -725,10 +730,11 @@ var _el$132 = _tmpl$9();
 _$effect(() => {
 	return {
 		e: value(),
-		t: other()
+		t: other(),
+		a: _$heldRead()
 	};
-}, ({ e, t }, _p$) => {
-	_$setProperty(_el$132, "value", e);
+}, ({ e, t, a }, _p$) => {
+	(e !== _p$?.e || !a) && _$setProperty(_el$132, "value", e);
 	t !== _p$?.t && _$setProperty(_el$132, "defaultValue", t);
 });
 const template106 = _el$132;
@@ -736,10 +742,11 @@ var _el$133 = _tmpl$60();
 _$effect(() => {
 	return {
 		e: value(),
-		t: other()
+		t: other(),
+		a: _$heldRead()
 	};
-}, ({ e, t }, _p$) => {
-	_el$133.value = e ?? "";
+}, ({ e, t, a }, _p$) => {
+	(e !== _p$?.e || !a) && (_el$133.value = e ?? "");
 	t !== _p$?.t && (_el$133.defaultValue = t ?? "");
 });
 const template107 = _el$133;

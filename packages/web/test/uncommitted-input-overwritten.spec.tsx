@@ -72,9 +72,8 @@ describe("UNCOMMITTED_INPUT_OVERWRITTEN (dev)", () => {
     expect(warnings(warn)).toEqual([
       expect.stringContaining(
         `${CODE} <input type="text" name="first">.value was changed by the user, but the change ` +
-          "is not the value bound to `value`, and Solid is writing the bound value back over " +
-          "it: the user's input is lost. Either the change was never committed to the signal, " +
-          "or it was and the write is held"
+          "was never committed to the signal bound to `value`, and Solid is writing the bound " +
+          "value back over it: the user's input is lost."
       )
     ]);
     const message = warnings(warn)[0];

@@ -21,7 +21,8 @@ import {
   OBSERVE,
   strictReadTracked,
   setSwapHook,
-  isHidden
+  isHidden,
+  heldRead
 } from "solid-js";
 import type { ClientErrorHook, Owner } from "solid-js";
 import {
@@ -267,6 +268,15 @@ export function HydrationScript(_props?: { nonce?: CSPNonce; eventNames?: string
 }
 
 export { effect, memo, untrack, getOwner, createComponent };
+/**
+ * Compiled grouped effects read it after their values: a stateful DOM prop
+ * (`value`, `checked`, …) whose value did not change is not written again
+ * while the effect is a stale reader of an open hold (#4872). The hold's
+ * landing re-runs the effect and writes the bound value.
+ *
+ * @internal Compiler output only.
+ */
+export { heldRead };
 /**
  * Compiler-emitted prop-spread helper. The JSX transform emits
  * `mergeProps(...)` when compiling prop spreads on components — not a
@@ -1271,14 +1281,28 @@ export function spread(node, props, skipChildren, skip, name, loc) {
     claimHandlers !== null && (node.localName === "a" || node.localName === "form")
       ? getOwner()
       : undefined;
+  // #4872: whether the run read past a held write (`heldRead`, after the
+  // reads). A stateful prop skips an unchanged write then, as in a compiled
+  // grouped effect; the hold's landing re-runs the spread.
+  let held = 0;
   const apply = newProps => {
     const r = newProps.ref;
     if (r !== prevProps.ref && (typeof r === "function" || Array.isArray(r))) ref(() => r, node);
+    spreadHeld = held;
     assign(node, newProps, true, prevProps, true);
+    spreadHeld = 0;
     if (owner !== undefined) claimElement(node, owner);
   };
+  const read = fn => () => {
+    const p = fn();
+    held = heldRead();
+    return p;
+  };
   if (Array.isArray(props)) {
-    effect(() => collectSources({}, props, undefined, skip), apply);
+    effect(
+      read(() => collectSources({}, props, undefined, skip)),
+      apply
+    );
     if ("_SOLID_DEV_") unscopedByDesign = node;
     if (!skipChildren && !(skip !== undefined && skip("children")))
       insert(node, () => {
@@ -1290,7 +1314,7 @@ export function spread(node, props, skipChildren, skip, name, loc) {
     if ("_SOLID_DEV_") unscopedByDesign = null;
     return prevProps;
   }
-  effect(() => {
+  const collect = () => {
     const source = resolveSource(props);
     const newProps = {};
     // A merge() proxy is read through its SOURCES, not through the proxy: a
@@ -1317,7 +1341,8 @@ export function spread(node, props, skipChildren, skip, name, loc) {
       else collectProps(newProps, source, $PROXY in source ? SOURCE_PROXY : SOURCE_PLAIN, skip);
     }
     return newProps;
-  }, apply);
+  };
+  effect(read(collect), apply);
   if ("_SOLID_DEV_") unscopedByDesign = node;
   if (!skipChildren && !(skip !== undefined && skip("children"))) {
     if (typeof props !== "function" && props != null && hasStaticKeys(props)) {
@@ -2982,12 +3007,14 @@ function flattenClassList(list, result) {
   }
 }
 
+/** The running spread read past a held write (#4872, `spread`). */
+let spreadHeld = 0;
 function assignProp(node, prop, value, prev, skipRef, nodeName) {
   if (prop === "style") return (style(node, value, prev), value);
   if (prop === "class") return (className(node, value, prev), value);
   // dom with state may differs from reactive state
   // dom value derives from reactive state
-  if (value === prev && DOMWithState[nodeName]?.[prop] !== 1) return prev;
+  if (value === prev && (spreadHeld || DOMWithState[nodeName]?.[prop] !== 1)) return prev;
   if (prop === "ref") {
     if (!skipRef && value) ref(() => value, node);
     return value;
