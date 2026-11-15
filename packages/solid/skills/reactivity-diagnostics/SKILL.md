@@ -1109,17 +1109,21 @@ setDraft(e.currentTarget.value)}`, commit the draft separately), use
 by writing the accepted value back in the handler (`e.currentTarget.value =
 next`) instead of re-asserting an equal value through the signal.
 
-### TABLE_ROWS_WITHOUT_TBODY
+### INVALID_HTML_NESTING
 
-Hydration found a `<table>` whose rows the server rendered directly under it
-(`<table><For each={rows}>{r => <tr>…</tr>}</For></table>`). The HTML parser
-does not allow `<tr>` as a child of `<table>`, so it moved the rows into a
-`<tbody>` it created; the rows are no longer where the template expects them
-and the list cannot update them after hydration. Warned once per table, in dev
-only. Fix: write the `<tbody>` yourself — `<table><tbody><For …>{r =>
-
-<tr>…</tr>}</For></tbody></table>` (or `<thead>`/`<tfoot>` for header and
-footer rows).
+Hydration claimed a server-rendered element that is not where the template put
+it: the nesting is invalid HTML, so the browser's parser rebuilt the tree. A
+`<div>` closes an open `<p>`, an `<a>` closes an open `<a>`, a `<tr>` directly
+in a `<table>` gets a `<tbody>` the parser adds. The compiler rejects this
+inside one template, so it nearly always spans a component boundary
+(`<P>{props.children}</P>` given a `<div>`, a `<For>` of row components inside
+`<table>`). The page differs from a client render and the insert cannot update
+the moved node. Warned once per parent, in dev only; the message names the
+parent, the child and where the parser put it. Fix: change the outer element (a
+`<div>` for a `<p>` that holds blocks, a `<span>` for an `<a>` that holds a
+link), move the inner element out, or write the wrapper the parser expects —
+`<table><tbody><For …>{r => <Row />}</For></tbody></table>`. A `<form>` inside
+a `<form>` is dropped by the parser instead; the hydration key miss names it.
 
 ## Verifying a fix
 
