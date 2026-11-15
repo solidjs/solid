@@ -7,6 +7,7 @@
  * There is no pending backing, no fold, no commit hook.
  */
 import { checkForeignRead } from "../core/copies.js";
+import { forEachDependent } from "../core/async.js";
 import {
   $REFRESH,
   CONFIG_CHILDREN_FORBIDDEN,
@@ -78,6 +79,7 @@ import {
   queuePendingNode,
   observeFlightHook,
   passLane,
+  question,
   resolveTx,
   schedule,
   txOf,
@@ -190,6 +192,8 @@ interface Target {
   /** optimistic list guess state (thinOptimistic.ts) */
   over: boolean;
   lg: any;
+  /** per-action key nodes of a keyed optimistic list (#4897) */
+  ks: Map<number, Signal<number>> | null;
 }
 /** A chained target's key with no own value reads the chained store. */
 const DELEGATE = {};
@@ -251,7 +255,8 @@ export function thinWrap(v: any, fam: StoreFamily | null = null): any {
       q: 0,
       o: null,
       over: false,
-      lg: null
+      lg: null,
+      ks: null
     };
     const shell: any = r ? [] : {};
     shell[$S] = t;
@@ -553,6 +558,9 @@ function track(t: Target): void {
       if (t._fam !== null) t._fam.live.add(t as any);
     }
     read(t.k);
+    if (t.ks)
+      for (const [q, o] of t.ks)
+        o._config & (CONFIG_GUESS | CONFIG_OVERRIDE) || q === question ? read(o) : t.ks.delete(q);
   }
 }
 /** One node write: core stages it. A derive's own write is its derive's
@@ -602,7 +610,14 @@ function put(t: Target, node: Signal<any>, v: any): void {
     )
       for (const k of Reflect.ownKeys(t.n)) {
         const g = t.n[k as any];
-        if (g !== node && g._config & CONFIG_GUESS && g._x?._transaction) {
+        // Not an older question's truth (core `stale`): the guess re-bases
+        // over it, as deep's carrier does (#4897).
+        if (
+          g !== node &&
+          g._config & CONFIG_GUESS &&
+          g._x?._transaction &&
+          !(question !== 0 && question < g._x._q)
+        ) {
           const l = txOf(g);
           if (l._shown) {
             joinFuture(resolveTx(l._parent ?? l));
@@ -645,8 +660,30 @@ function write(t: Target, key: PropertyKey, v: any): void {
   const h = t.h?.[key];
   if (h !== undefined) put(t, h, v !== ABSENT);
   // Structure: membership for records; position is content for arrays.
-  if (t.k !== null && (t.r ? key !== "length" : prev === ABSENT || v === ABSENT))
-    put(t, t.k, (x: number) => x + 1);
+  if (t.k !== null && (t.r ? key !== "length" : prev === ABSENT || v === ABSENT)) {
+    // An index guess on a keyed optimistic list is that slot's (point of
+    // write): the list's key node another action's guess carries is not a
+    // slot the two share (D-33, #4897). This action's bump goes to a key
+    // node of its own, which the list's readers read beside it.
+    let k = t.k;
+    if (
+      t.r &&
+      userWrite &&
+      guess !== null &&
+      t._fam?.key &&
+      k._config & CONFIG_GUESS &&
+      k._x!._q !== question
+    ) {
+      const ks = (t.ks ??= new Map());
+      let o = ks.get(question);
+      if (o === undefined) {
+        ks.set(question, (o = slot(t, 0, isEqual, $TRACK)));
+        forEachDependent(k as any, sub => link(o!, sub));
+      }
+      k = o;
+    }
+    put(t, k, (x: number) => x + 1);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -819,8 +856,11 @@ function writeSlot(t: Target, key: PropertyKey, v: any): void {
     } else if (typeof key === "string" && "" + (+key >>> 0) === key) {
       if (+key >= len) write(t, "length", +key + 1);
       // D-33: the list is the slot while a guess moved its length — an
-      // index write over it writes the list, so the two guesses entangle.
-      else if (userWrite && carries(t.n?.length)) put(t, t.n!.length, len);
+      // index write into a slot only that guess made writes the list, so
+      // the two guesses entangle. One within the truth's rows borrows the
+      // length (#4784, #4897).
+      else if (userWrite && carries(t.n?.length) && +key >= (under ? under(t.n!.length) : 0))
+        put(t, t.n!.length, len);
     }
   }
   write(t, key, v);
