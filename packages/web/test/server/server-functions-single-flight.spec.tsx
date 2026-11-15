@@ -557,16 +557,22 @@ describe("single-flight client bridge (built client bundle)", () => {
     }
   });
 
-  it("a plain value with consumers registered and nothing folded delivers nothing", async () => {
-    // No metadata, no fold: there is nothing for a consumer to apply, and
-    // the value resolves exactly as it would without any registration.
+  it("a plain mutation with nothing folded still reaches every consumer (#4883)", async () => {
+    // No metadata, no fold: the call is still a mutation, so each consumer
+    // is told (`data` undefined) and applies its default — a router
+    // revalidates everything. The value resolves as it would unregistered.
     registerServerFunction("sf-bridge-meta-plain-0", async () => "plain");
     const restore = connectTransport();
     const consumer = vi.fn();
+    const named = vi.fn();
     const unsubscribe = subscribeFlightDataClient(consumer);
+    const unsubscribeNamed = subscribeFlightDataClient("sq", named);
     try {
       expect(await createServerReference("sf-bridge-meta-plain-0")()).toBe("plain");
-      expect(consumer).not.toHaveBeenCalled();
+      expect(consumer).toHaveBeenCalledTimes(1);
+      expect(consumer.mock.calls[0][0]).toBeUndefined();
+      expect(named).toHaveBeenCalledTimes(1);
+      unsubscribeNamed();
     } finally {
       unsubscribe();
       restore();
