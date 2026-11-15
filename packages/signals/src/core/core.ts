@@ -977,9 +977,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // re-stages, as below.
         if (isEffect && el._pendingValue === NOT_PENDING) el._value = value;
         else el._pendingValue = value;
-        // Born in the lane: no committed value until the lane lands (its
-        // correction re-derives it on the truth, lanes.ts `dissolveLane`).
-        if (create) el._statusFlags |= STATUS_UNINITIALIZED;
+        // A derivation born in the lane: no committed value until the lane
+        // lands (its correction re-derives it on the truth, lanes.ts
+        // `dissolveLane`). Not an effect: its value slot is private and its
+        // first run is the lane's (#4831 seats a dropped one); marked
+        // uninitialized it read as born held, and the flush re-ran it
+        // without end (#4871).
+        if (create && !isEffect) el._statusFlags |= STATUS_UNINITIALIZED;
       } else if (
         create
           ? !(
