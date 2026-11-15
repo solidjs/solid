@@ -6,6 +6,7 @@
  * key's whole state: committed value, staging, holds and lanes are core's.
  * There is no pending backing, no fold, no commit hook.
  */
+import { checkForeignRead } from "../core/copies.js";
 import {
   $REFRESH,
   CONFIG_CHILDREN_FORBIDDEN,
@@ -78,7 +79,8 @@ import {
   passLane,
   resolveTx,
   schedule,
-  txOf
+  txOf,
+  staleReader
 } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import { storeOwners, type StoreFamily } from "./target.js";
@@ -644,10 +646,11 @@ export function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
 /** store.ts `pullFamily`: bring the derive up to date before serving. */
 /** The optimistic engine's judgement (thinOptimistic.ts): the family's
  * guesses stand in for its flight (A17). */
-let stands: (t: Target) => boolean | 2 = () => false;
+let stands: (t: Target) => boolean | 2 | 3 = () => false;
 /** A pass in a frame's hold served a list guess's values like lane work
  * (#4561): its reads of guessed leaves this pass are the guess. */
 let serving: unknown = null;
+let standing: unknown = null;
 /** A user's guess on a list (thinOptimistic.ts marks one written over a new
  * question's flight, #4525). */
 let listGuess: ((t: Target) => void) | null = null;
@@ -665,7 +668,7 @@ function pullFamily(t: Target): void {
     // is served the leaves and does not suspend on the derive.
     if (verdict === null && fw._statusFlags & STATUS_PENDING) {
       const st = stands(t);
-      if (st) return void (st === 2 && (serving = context));
+      if (st) return void (st === 2 ? (serving = context) : st === 3 && (standing = context));
     }
     const c: any = context;
     if (
@@ -836,6 +839,7 @@ const protoNow = (t: Target): any => (t.o ? peek(t.o, t) : protoOf(t.v));
 const BASE: ProxyHandler<any> = {
   get(_, key, receiver) {
     const t: Target = _[$S];
+    if (__DEV__ && getObserver() === null) checkForeignRead();
     if (t.c !== null) return CHAIN.get!(_, key, receiver);
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(t as any, typeof key === "symbol" ? undefined : key);
@@ -903,7 +907,18 @@ const BASE: ProxyHandler<any> = {
     }
     if ((node._config & (CONFIG_HELD | CONFIG_GUESS)) === CONFIG_HELD && t._fam !== null)
       pairLate(t, node);
-    let v = tracked ? read(node) : peek(node, t, 1);
+    let v: any;
+    // A pass a refresh's re-ask holds while guesses stand in (D-34 ¶3, A17)
+    // sees the screen plus the guesses: a leaf another write holds is its
+    // committed value, read as a stale reader of that hold (A15, #4887).
+    if (
+      standing !== null &&
+      standing === context &&
+      tracked &&
+      (node._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD
+    )
+      (link(node, context as any), staleReader(context as any, txOf(node)), (v = node._value));
+    else v = tracked ? read(node) : peek(node, t, 1);
     if (serving !== null && serving === context && node._config & CONFIG_GUESS) v = guessed!(node);
     if (v === null || typeof v !== "object")
       // A removed own key reads what the prototype says (#4674 ruling).

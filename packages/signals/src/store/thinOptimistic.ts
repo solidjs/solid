@@ -333,7 +333,22 @@ installThinStands(t => {
       else return (link(d, c), staleReader(c, txOf(d)), (heldC = c), (heldAt = clock), 2);
     }
   }
-  return true;
+  // #4786 (store/optimistic.ts): guesses standing in (A17) for a
+  // `refresh()` another action holds (D-34 ¶3) leave a derivation reading
+  // them a stale reader of that refetch (A15): linked, re-derived at the
+  // landing (F-11). A render effect reads its memo's frame.
+  else if (
+    c?._depsTail !== undefined &&
+    c._type !== EFFECT_RENDER &&
+    d._x?._reask &&
+    d._x._transaction &&
+    !live(f).some(n => {
+      const l = txOf(n);
+      return resolveTx(l._parent ?? l) === txOf(d);
+    })
+  )
+    (link(d, c), staleReader(c, txOf(d)));
+  return reasked(d) ? 3 : true;
 });
 
 export function createThinOptimisticStore<T extends object = {}>(
