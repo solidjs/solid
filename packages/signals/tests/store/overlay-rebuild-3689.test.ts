@@ -7,7 +7,7 @@ import {
   createStore,
   flush
 } from "../../src/index.js";
-import { $TARGET } from "../../src/store/store.js";
+import { $TARGET } from "../../src/store/types.js";
 
 /** The committed backing (between flushes: no draft is open). */
 const unwrap = (proxy: object): Record<PropertyKey, any> => (proxy as any)[$TARGET].v;

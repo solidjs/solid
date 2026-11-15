@@ -8,7 +8,7 @@ import {
   deep,
   flush
 } from "../../src/index.js";
-import { $TARGET } from "../../src/store/store.js";
+import { $TARGET } from "../../src/store/types.js";
 
 type Row = { id: string; qty: number; meta?: { tag: string } };
 

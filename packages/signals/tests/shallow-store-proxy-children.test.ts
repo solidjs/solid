@@ -13,7 +13,7 @@ import { targetOf } from "./_thin/target.js";
  * isolation matches the shallow:false chain.
  */
 import { createRoot, createStore, flush } from "../src/index.js";
-import { $TARGET } from "../src/store/store.js";
+import { $TARGET } from "../src/store/types.js";
 
 function chain(shallow: boolean) {
   const base = [

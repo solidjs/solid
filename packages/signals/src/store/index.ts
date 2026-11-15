@@ -16,7 +16,6 @@ export type {
   StoreSetter
 } from "./types.js";
 export { $PROXY, $RECORD, $TARGET, $TRACK, isWrappable, markRaw } from "./types.js";
-export { storeIsShallow, storeHasFamily, storeHasOptimisticFamily } from "./store.js";
 export { storePath } from "./storePath.js";
 export type {
   StorePathRange,
@@ -26,18 +25,11 @@ export type {
   ArrayFilterFn
 } from "./storePath.js";
 
-import { createOptimisticStore as createOptimisticStoreOld } from "./optimistic.js";
-import { createProjection as createProjectionOld, createStoreDerived } from "./projection.js";
-import { reconcileState } from "./reconcile.js";
-import { $TARGET } from "./types.js";
+import { $THIN } from "./types.js";
 import { isThin, createThinStore, thinDeep, thinReconcile, thinSnapshot } from "./thin.js";
 import { createThinProjection, createThinStoreDerived } from "./thinProjection.js";
 import { createThinOptimisticStore } from "./thinOptimistic.js";
-import {
-  createStore as createPlainStore,
-  deep as deepStore,
-  snapshot as snapshotStore
-} from "./store.js";
+import type { Refreshable } from "../core/index.js";
 import type {
   NoArray,
   NoFn,
@@ -49,10 +41,62 @@ import type {
   StoreSetter
 } from "./types.js";
 
-export const createOptimisticStore: typeof createOptimisticStoreOld = ((a: any, b: any, c: any) =>
-  createThinOptimisticStore(a, b, c)) as any;
-export const createProjection: typeof createProjectionOld = ((fn: any, seed: any, options: any) =>
-  createThinProjection(fn, seed, options)) as any;
+/** True when `proxy` is a SHALLOW store (children served verbatim, slots
+ * replaced by reference — #2932). */
+export function storeIsShallow(proxy: any): boolean {
+  return isThin(proxy) && proxy[$THIN].s === true;
+}
+/** True when `proxy` belongs to a projection family (S3). */
+export function storeHasFamily(proxy: any): boolean {
+  return isThin(proxy) && proxy[$THIN]._fam != null;
+}
+/** True when `proxy` belongs to an OPTIMISTIC family (S4). */
+export function storeHasOptimisticFamily(proxy: any): boolean {
+  return isThin(proxy) && !!proxy[$THIN]._fam?.opt;
+}
+
+/**
+ * An optimistic store: a store whose setter writes are guesses over the
+ * truth (its seed, or its derive's answers) until the action that wrote
+ * them settles (F-11).
+ */
+export function createOptimisticStore<T extends object = {}>(
+  initialValue: NoFn<T> | Store<NoFn<T>>,
+  options?: StoreOptions
+): [get: Store<T>, set: StoreSetter<T>];
+export function createOptimisticStore<T extends object = {}>(
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ProjectionOptions, "seedLoadingValue">
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createOptimisticStore<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options?: ProjectionOptions
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createOptimisticStore(a: any, b?: any, c?: any): any {
+  return createThinOptimisticStore(a, b, c);
+}
+
+/**
+ * A derived store: `fn` runs in a computed and writes its draft; readers of
+ * the store's keys re-run only when the keys they read change (the
+ * firewall). `fn` may be async or an async iterator; the seed is a draft,
+ * never an observable value, until the first landing (A25).
+ */
+export function createProjection<T extends object = {}>(
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ProjectionOptions, "seedLoadingValue">
+): Refreshable<Store<T>>;
+export function createProjection<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options?: ProjectionOptions
+): Refreshable<Store<T>>;
+export function createProjection(fn: any, seed?: any, options?: any): any {
+  return createThinProjection(fn, seed, options);
+}
 /** The store's internal record behind a proxy (`store[$TARGET]`). Kept
  * under `next`'s public name; its shape is the L2 target's (plan plan sec. 31–32:
  * the symbol-keyed legacy record is gone with the representation). */
@@ -134,19 +178,17 @@ export function reconcile<T extends U, U>(
       );
       return undefined as any;
     }
-    return reconcileState(value, state, key) as any;
+    return value;
   };
 }
 
 /** Non-tracking snapshot of a store's current value (source identity for
  * unmodified subtrees). */
 export function snapshot<T>(value: T): T {
-  if (isThin(value)) return thinSnapshot(value);
-  return snapshotStore(value);
+  return isThin(value) ? thinSnapshot(value) : value;
 }
 
 /** Tracking snapshot: subscribes to every reachable record. */
 export function deep<T>(value: T): T {
-  if (isThin(value)) return thinDeep(value);
-  return deepStore(value);
+  return isThin(value) ? thinDeep(value) : value;
 }

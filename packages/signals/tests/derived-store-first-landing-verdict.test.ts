@@ -1,7 +1,7 @@
 import { targetOf } from "./_thin/target.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { NOT_PENDING } from "../src/core/constants.js";
-import { $TARGET } from "../src/store/store.js";
+import { $TARGET } from "../src/store/types.js";
 import {
   DEV,
   createErrorBoundary,

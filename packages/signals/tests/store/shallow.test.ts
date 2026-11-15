@@ -11,7 +11,7 @@ import {
 } from "../../src/index.js";
 // internal for now — shallow stores mark automatically; direct marking is
 // package-internal until the standalone use cases are designed
-import { markRaw } from "../../src/store/store.js";
+import { markRaw } from "../../src/store/types.js";
 
 describe("markRaw", () => {
   test("raw values never wrap — served as-is through deep stores", () => {

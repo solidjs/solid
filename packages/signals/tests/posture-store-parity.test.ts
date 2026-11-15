@@ -74,7 +74,7 @@ import {
   reconcile,
   untrack
 } from "../src/index.js";
-import { $TARGET } from "../src/store/store.js";
+import { $TARGET } from "../src/store/types.js";
 
 const never = () => new Promise<never>(() => {});
 

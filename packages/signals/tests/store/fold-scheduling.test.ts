@@ -27,7 +27,7 @@ import {
   flush,
   snapshot
 } from "../../src/index.js";
-import { $TARGET } from "../../src/store/store.js";
+import { $TARGET } from "../../src/store/types.js";
 
 /** Parks an action on its own optimistic store; returns the settle handle. */
 function parkForeignAction() {
