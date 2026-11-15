@@ -448,10 +448,10 @@ export async function deliverFlightData(response, data) {
     );
   // A response the server folded nothing into (no header) is envelope-level
   // like metadata: the mutation happened, and every consumer is told (#4883).
-  const folded = response.headers.get(SINGLE_FLIGHT_HEADER);
-  const all = !folded || hasFlightMetadata(response);
+  const folded = response.headers.get(SINGLE_FLIGHT_HEADER)?.split(",");
+  const metadata = !folded || hasFlightMetadata(response);
   for (const source of getFlightDataSourceIds()) {
-    if (!all && !folded.split(",").includes(source)) continue;
+    if (!metadata && !folded.includes(source)) continue;
     const consumer = getFlightDataConsumer(source);
     if (consumer) await consumer(data ? data[source] : undefined, { response });
   }
