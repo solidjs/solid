@@ -2320,7 +2320,9 @@ export function heldRead(): number {
   return (context as Computed<any>)._flags & REACTIVE_FRAME_READ;
 }
 
-export function read<T>(el: Signal<T> | Computed<T>): T {
+export function read<T>(el: Signal<T> | Computed<T>): T;
+// (Implementation typed `any` so `el` needs no cast alias: an alias the minifier keeps.)
+export function read<T>(el: any): T {
   // Shadow (S0): every read is run through `shadowRead`, which re-enters
   // here once (the bypass) and compares the slot the table predicts with
   // the one the deciders below chose.
@@ -2329,12 +2331,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
-  const computed = el as Partial<Computed<unknown>>;
   // CARVE 1: `owner` was `el._firewall || el` — a store leaf's status,
   // height and error were read off its projection computed. (Typed loosely
   // as the `||` expression was: a signal's `_statusFlags`/`_height` read as
   // undefined and mask to 0 on every site below.)
-  const owner = el as Computed<any>;
 
   // The verdict windows (`latest`, `isPending`; verdict.ts): one cold path,
   // off this one, present only while a window is open. It wakes a lazy or
@@ -2353,10 +2353,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     return verdict(el, c as Computed<any> | null) as T;
   }
 
-  if (typeof computed._fn === "function") prepareComputed(el as Computed<unknown>, false);
+  if (typeof el._fn === "function") prepareComputed(el as Computed<unknown>, false);
 
   if (
-    !computed._fn &&
+    !el._fn &&
     el._x?._snapshotValue === undefined &&
     !snapshotCaptureActive &&
     (!unflushedStaged || el._pendingValue === NOT_PENDING) && // A28, see readNodeFast
@@ -2414,13 +2414,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
   if (
     __DEV__ &&
-    owner._statusFlags & STATUS_PENDING &&
-    ((strictReadActive() && strictRead) || (strictPending && owner._parent === context))
+    el._statusFlags & STATUS_PENDING &&
+    ((strictReadActive() && strictRead) || (strictPending && el._parent === context))
   )
     throwPendingUntrackedRead(((strictReadActive() && strictRead) || strictPending) as string, {
       ownerId: c?.id,
       ownerName: (c as any)?._name,
-      nodeName: (owner as any)?._name
+      nodeName: (el as any)?._name
     });
 
   // Rule 3: this read serves the committed value to a render effect outside a
@@ -2430,8 +2430,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     if (laneStageHook) fresh = tracking && readsFresh(c as Computed<any>, el);
     if (tracking) {
       link(el, c as Computed<any>);
-      if ((owner as Computed<unknown>)._fn) {
-        pullComputed(owner, c as Computed<any>);
+      if ((el as Computed<unknown>)._fn) {
+        pullComputed(el, c as Computed<any>);
         // F-6 (#4050): a memo over a verdict reader's value derives from a
         // display-ahead read — a verdict reader from this pass's end, as if
         // it probed inline: it reads held values as the screen and shows the
@@ -2468,8 +2468,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         ) {
           if (
             (c as any)._type === EFFECT_RENDER &&
-            owner._config & CONFIG_VERDICT &&
-            !(owner._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED))
+            el._config & CONFIG_VERDICT &&
+            !(el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED))
           )
             (c as Computed<any>)._flags |= REACTIVE_AHEAD;
           // #4776 (D-25): a sync verdict memo is display while only the
@@ -2480,24 +2480,24 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
           // its own body stays the screen's (F-6, #4544's inline rows,
           // #4341). A pass that asks is display like any other (S-51).
           if (
-            (owner._config & (CONFIG_VERDICT | CONFIG_FRAME | CONFIG_ASYNC | CONFIG_OWN_PROBE)) ===
+            (el._config & (CONFIG_VERDICT | CONFIG_FRAME | CONFIG_ASYNC | CONFIG_OWN_PROBE)) ===
             CONFIG_VERDICT
           ) {
             const t = resolveTx(
                 c._config & CONFIG_HELD ? txOf(c as Computed<any>) : flushTransaction!
               ),
-              x = ext(owner);
+              x = ext(el);
             if (x._readIn !== t) {
               x._readIn = t;
-              recompute(owner);
+              recompute(el);
             }
           }
         }
         if (observeFlightHook && !(c as any)._type)
           (c as Computed<any>)._flags |=
-            owner._config &
+            el._config &
             CONFIG_VERDICT &
-            (owner._statusFlags & STATUS_PENDING &&
+            (el._statusFlags & STATUS_PENDING &&
             (c._config & CONFIG_STAGED || (c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
               ? c._config
               : -1);
@@ -2513,7 +2513,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         snapshotCaptureActive &&
           ((c as Computed<any>)._config & CONFIG_IN_SNAPSHOT_SCOPE) !== 0 &&
           el._x?._snapshotValue !== undefined &&
-          !(owner._statusFlags & STATUS_ERROR)
+          !(el._statusFlags & STATUS_ERROR)
       );
     // L2, as in the fast block above (tracked or not). A node born into the
     // future (uninitialized) has no committed value: every reader derives
@@ -2524,7 +2524,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       !(el._config & CONFIG_OVERRIDE) &&
       !(c._config & CONFIG_CHILDREN_FORBIDDEN)
     ) {
-      if (owner._statusFlags & STATUS_UNINITIALIZED) joinPass(c as Computed<any>, el);
+      if (el._statusFlags & STATUS_UNINITIALIZED) joinPass(c as Computed<any>, el);
       else committed = frameRead(c as Computed<any>, el);
     }
   } else if (__TEST__) shadowExpect(null, el, tracking, 0, spectating, false);
@@ -2543,7 +2543,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     warnStrictReadUntracked(strictRead, {
       ownerId: c?.id,
       ownerName: (c as any)?._name,
-      nodeName: (owner as any)?._name
+      nodeName: (el as any)?._name
     });
 
   // A reader in a snapshot scope (a hydration claim) is served the value the
@@ -2552,7 +2552,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // scope's release. An errored node throws below as for any reader.
   if (snapshotCaptureActive && c && (c as Computed<any>)._config & CONFIG_IN_SNAPSHOT_SCOPE) {
     const sv = el._x?._snapshotValue;
-    if (sv !== undefined && !(owner._statusFlags & STATUS_ERROR)) {
+    if (sv !== undefined && !(el._statusFlags & STATUS_ERROR)) {
       const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
       const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
       if (current !== snapshot) (c as Computed<any>)._flags |= REACTIVE_SNAPSHOT_STALE;
@@ -2579,10 +2579,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // the verdict engine imports the lane engine: without it the test folds.)
   if (
     laneStageHook &&
-    owner._statusFlags & STATUS_PENDING &&
+    el._statusFlags & STATUS_PENDING &&
     !committed &&
     !(el._config & CONFIG_OVERRIDE) &&
-    !(owner._statusFlags & STATUS_UNINITIALIZED)
+    !(el._statusFlags & STATUS_UNINITIALIZED)
   ) {
     // A verdict reader first, in a lane or not: a memo's plain read of a
     // flight observes it whether or not a window read routed the pass first
@@ -2596,7 +2596,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       c._config & CONFIG_VERDICT &&
       !(c._config & CONFIG_MOUNT_AHEAD && (c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
     )
-      committed = observeFlightHook!(c as Computed<any>, owner);
+      committed = observeFlightHook!(c as Computed<any>, el);
     else if (
       passLane !== null &&
       (!((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED) ||
@@ -2604,9 +2604,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     )
       // Lane work: served the committed value, unless it read a staging of
       // the flush this pass (lanes.ts `laneServed`, F-2; S-57).
-      committed = laneServedHook!(c as Computed<any>, owner, true) as boolean;
+      committed = laneServedHook!(c as Computed<any>, el, true) as boolean;
   }
-  if (owner._statusFlags & STATUS_PENDING && !committed) {
+  if (el._statusFlags & STATUS_PENDING && !committed) {
     // A reader landing on a pending node throws; an untracked read of an
     // UNINITIALIZED node has no committed value to serve and throws too. A
     // children-forbidden reader (createTrackedEffect / onSettled) sees the
@@ -2626,17 +2626,17 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
               message,
               ownerId: c.id,
               ownerName: (c as any)._name,
-              nodeName: (owner as any)?._name
+              nodeName: (el as any)?._name
             },
             c
           )
         );
       }
-      if (!(c._config & CONFIG_CHILDREN_FORBIDDEN) || owner._statusFlags & STATUS_UNINITIALIZED) {
+      if (!(c._config & CONFIG_CHILDREN_FORBIDDEN) || el._statusFlags & STATUS_UNINITIALIZED) {
         // D-22 (amended 2026-10-30), F-9: an answered-then-reasked first
         // answer (`servesStaged`), the verdict engine's — out of line, so
         // `read` gains a call only where a pending read would throw.
-        if (observeFlightHook && servesStaged(c as Computed<any>, el, owner)) {
+        if (observeFlightHook && servesStaged(c as Computed<any>, el, el)) {
           if (__TEST__) shadowActual(SLOT_P);
           return el._pendingValue as T;
         }
@@ -2644,17 +2644,17 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         // the node settles — unless nobody is reading (`spectating`, #3528)
         // or the reader is the node itself.
         if (!tracking && !spectating && el !== c) link(el, c as Computed<any>);
-        if (__DEV__) noteThrownRead(el, owner._x?._error);
-        throw owner._x?._error;
+        if (__DEV__) noteThrownRead(el, el._x?._error);
+        throw el._x?._error;
       }
-    } else if (owner._statusFlags & STATUS_UNINITIALIZED) {
+    } else if (el._statusFlags & STATUS_UNINITIALIZED) {
       // (No reader pass: nothing to record against.)
-      throw owner._x?._error;
+      throw el._x?._error;
     }
   }
   // An errored derive throws for every late reader instead of silently
   // serving node values (memo parity, #2897 ruling).
-  if ((owner as Computed<any>)._fn && (owner as Computed<any>)._statusFlags & STATUS_ERROR) {
+  if ((el as Computed<any>)._fn && (el as Computed<any>)._statusFlags & STATUS_ERROR) {
     // Only a genuine reactive re-read may retry an errored async source:
     // - tracking: owned/tracked scope only (never events / `untrack` / effect side-effect phase)
     // - owner._time < clock: only on a later cycle than the one the error was found
@@ -2664,10 +2664,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     //   the zombie: a livelock (#4405's one-hop shape, S-58)
     if (
       tracking &&
-      (owner as Computed<any>)._time < clock &&
-      !((owner as Computed<any>)._flags & REACTIVE_ZOMBIE)
+      (el as Computed<any>)._time < clock &&
+      !((el as Computed<any>)._flags & REACTIVE_ZOMBIE)
     ) {
-      recompute(owner as Computed<unknown>);
+      recompute(el as Computed<unknown>);
       if (__TEST__) shadowActual(SLOT_E);
       return read(el);
     }
@@ -2678,8 +2678,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // reader born this flush published it, and its readers' stale error
     // committed after the new one (#4404).
     if (!committed && el._config & CONFIG_STAGED_ERROR) serve(el, c as Computed<any> | null);
-    if (__DEV__) noteThrownRead(el, (owner as Computed<any>)._x?._error);
-    throw (owner as Computed<any>)._x?._error;
+    if (__DEV__) noteThrownRead(el, (el as Computed<any>)._x?._error);
+    throw (el as Computed<any>)._x?._error;
   }
 
   // D-41: an untracked read reads the screen, and so does a frame reader
@@ -2689,9 +2689,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   const value = serve(el, committed ? null : (c as Computed<any> | null)) as T;
   if (
     !c &&
-    typeof computed._fn === "function" &&
+    typeof el._fn === "function" &&
     el._config & CONFIG_AUTO_DISPOSE &&
-    !(owner._statusFlags & STATUS_PENDING) &&
+    !(el._statusFlags & STATUS_PENDING) &&
     !el._subs
   ) {
     // Deferred, not inline (#3078): an inline unobserved() here made untracked

@@ -1772,14 +1772,13 @@ export function insert(parent, accessor, marker, initial, options) {
   )
     options = { ...options, name: spreadName + ".children", loc: spreadLoc };
   const multi = marker !== undefined;
-  const host = options && options.host;
   if (multi && !initial) initial = [];
   if (hydrationRt !== null) initial = hydrationRt.claimInitial(parent, multi, initial);
   if (typeof accessor !== "function") {
     accessor = normalize(accessor, initial, multi, true);
     if (typeof accessor !== "function") {
       insertExpression(parent, accessor, initial, marker);
-      hostRt !== null && host && hostRt(accessor, host);
+      hostRt !== null && options && options.host && hostRt(accessor, options.host);
       return;
     }
   }
@@ -1824,7 +1823,7 @@ export function insert(parent, accessor, marker, initial, options) {
         ),
         inner => {
           current = insertExpression(parent, inner, current, marker);
-          hostRt !== null && host && hostRt(current, host);
+          hostRt !== null && options && options.host && hostRt(current, options.host);
         },
         "_SOLID_DEV_" ? { ...innerOptions, _wide: true } : innerOptions
       );
@@ -1834,7 +1833,7 @@ export function insert(parent, accessor, marker, initial, options) {
     value => {
       if (value === INNER_OWNED) return;
       current = insertExpression(parent, value, current, marker);
-      hostRt !== null && host && hostRt(current, host);
+      hostRt !== null && options && options.host && hostRt(current, options.host);
     },
     // Only the OUTER effect takes the scope — the inner unwrapping effect
     // stays transparent so content ids keep a fixed depth per hole.
