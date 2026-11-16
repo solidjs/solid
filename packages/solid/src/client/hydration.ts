@@ -466,6 +466,9 @@ let _doneValue = false;
 // (no hydrate() import), the hydrated* functions and their dependencies
 // (MockPromise, subFetch) are eliminated by the bundler.
 
+let _createMemo: Function | undefined;
+let _createErrorBoundary: Function | undefined;
+let _createEffect: Function | undefined;
 let _createLoadingBoundary: Function | undefined;
 // The store/optimistic families get GENERIC adapters instead of one slot per
 // primitive: the adapter is parameterized by the core implementation, and
@@ -1554,9 +1557,9 @@ function lazyHydrationLookup<T>(
 
 export function enableHydration() {
   createRoot = hydratedCreateRoot as any;
-  createMemo = hydratedCreateMemo as any;
+  _createMemo = hydratedCreateMemo;
   createSignal = hydratedCreateSignal as any;
-  createErrorBoundary = hydratedCreateErrorBoundary as any;
+  _createErrorBoundary = hydratedCreateErrorBoundary;
   // Generic adapters only: nothing installed here references the store
   // engine (coreStore/coreOptimisticStore/coreProjection/coreOptimistic) —
   // the wrappers pass those in, so a hydrating app that never imports a
@@ -1564,7 +1567,7 @@ export function enableHydration() {
   _hydrateSignalLike = hydrateSignalLike;
   _hydrateStoreLike = hydrateStoreLike;
   createRenderEffect = hydratedCreateRenderEffect as any;
-  createEffect = hydratedCreateEffect as any;
+  _createEffect = hydratedCreateEffect;
   _createLoadingBoundary = hydratedCreateLoadingBoundary;
   _lazyHydrationLookup = lazyHydrationLookup;
   sharedConfig.getNextContextId = hydrationGetNextContextId;
@@ -1739,7 +1742,7 @@ export function enableServerComponentHydration() {
  *
  * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-memo
  */
-export let createMemo: {
+export const createMemo: {
   // Commit #0 (loadingValue) removes the uninitialized window: the accessor
   // never reads undefined — even for `ssrSource: "client"`, where the loading
   // value serves until the post-hydration compute lands — and `prev` is
@@ -1754,7 +1757,9 @@ export let createMemo: {
     compute: ComputeFunction<undefined | NoInfer<T>, T>,
     options?: HydrationMemoOptions<T>
   ): SourceAccessor<T>;
-} = coreMemo as any;
+} = ((...args: any[]) => {
+  return (_createMemo || coreMemo)(...args);
+}) as any;
 
 /**
  * Creates a simple reactive state with a getter and setter.
@@ -1827,7 +1832,8 @@ export let createSignal: {
  *
  * @internal
  */
-export let createErrorBoundary = coreErrorBoundary as <T, U>(
+export const createErrorBoundary = ((...args: any[]) =>
+  (_createErrorBoundary || coreErrorBoundary)(...args)) as <T, U>(
   fn: () => T,
   fallback: (error: Accessor<unknown>, reset: () => void) => U
 ) => Accessor<T | U>;
@@ -2257,7 +2263,8 @@ export let createRenderEffect: typeof coreRenderEffect = coreRenderEffect;
  *
  * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-effect
  */
-export let createEffect: typeof coreEffect = coreEffect;
+export const createEffect: typeof coreEffect = ((...args: any[]) =>
+  (_createEffect || coreEffect)(...args)) as typeof coreEffect;
 
 // === Loading component ===
 function createBoundaryTrigger(): () => void {
