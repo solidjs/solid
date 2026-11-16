@@ -1459,13 +1459,17 @@ export const stagedReaders: Computed<any>[] = [];
 
 /** A15's stale reader: `c` was served the committed value of a node `t`
  * holds (a render effect, a verdict reader, lane work) and is re-derived
- * after `t`'s landing (`_reruns`). Once per pass. */
+ * after `t`'s landing (`_reruns`). Called per read of a held node, so `t`'s
+ * list holds one entry per such read, not one per pass: `reruns` re-runs the
+ * reader at its first entry and skips the rest by the cleared flag. (A dedupe
+ * here costs ~17-30 B minified in every client bundle, which the 10 KB
+ * compiled floor cannot take; the repeats are inert and short-lived — the
+ * list empties at the landing.) */
 export function staleReader(c: Computed<any>, t: Transaction): void {
   // On each hold the pass reads committed from: one pass can read two (a memo
   // the flush's hold stages, a row another action's hold keeps), and each
-  // landing re-runs it. Listed once per hold it was not on, the reader missed
-  // the second's landing (#4932). A repeat entry is inert: `reruns` re-runs
-  // the reader at its first and clears the flag the rest wait on.
+  // landing re-runs it. Guarded by the flag alone, the reader was listed on
+  // the first hold only and missed the second's landing (#4932).
   t._reruns.push(c);
   c._flags |= REACTIVE_FRAME_READ;
 }
