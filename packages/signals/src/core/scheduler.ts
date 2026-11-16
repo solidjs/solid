@@ -663,9 +663,8 @@ function onScreen(r: Computed<any>, t: Transaction): boolean {
  * (done, and the commit disposes it; not done, and it stays parked). The
  * staging transaction is the one holding the pass that parked the frame:
  * the nearest non-zombie ancestor. */
-function removalStagedBy(r: Computed<any>, t: Transaction): boolean {
-  let o: Owner | null = r;
-  while ((o as any)?._flags & REACTIVE_ZOMBIE) o = o!._parent;
+function removalStagedBy(o: any, t: Transaction): boolean {
+  while (o?._flags & REACTIVE_ZOMBIE) o = o._parent;
   return ((o?._config as number) & CONFIG_HELD &&
     (o as any)._x?._transaction != null &&
     txOf(o as any) === resolveTx(t)) as boolean;

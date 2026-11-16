@@ -696,8 +696,7 @@ export function getDelegatedRoot(node) {
 // shadow root's host.
 const parentOf = node => node._$host || node.parentNode || node.host;
 
-function findOwner(target, state) {
-  let node = target;
+function findOwner(node, state) {
   let distance = 0;
   while (node) {
     if (state.owners.has(node)) return { owner: node, distance };
@@ -1762,7 +1761,7 @@ export function insert<T>(
   }
 ): JSX.Element;
 
-export function insert(parent, accessor, marker, initial, options) {
+export function insert(parent, accessor, marker, current, options) {
   // Inside a labelled `spread` (see there): the children insert is
   // `<tag>.children`, taken before `effect` would label it `<tag>.spread`.
   if (
@@ -1772,22 +1771,21 @@ export function insert(parent, accessor, marker, initial, options) {
   )
     options = { ...options, name: spreadName + ".children", loc: spreadLoc };
   const multi = marker !== undefined;
-  if (multi && !initial) initial = [];
-  if (hydrationRt !== null) initial = hydrationRt.claimInitial(parent, multi, initial);
+  if (multi && !current) current = [];
+  if (hydrationRt !== null) current = hydrationRt.claimInitial(parent, multi, current);
   if (typeof accessor !== "function") {
-    accessor = normalize(accessor, initial, multi, true);
+    accessor = normalize(accessor, current, multi, true);
     if (typeof accessor !== "function") {
-      insertExpression(parent, accessor, initial, marker);
+      insertExpression(parent, accessor, current, marker);
       hostRt !== null && options && options.host && hostRt(accessor, options.host);
       return;
     }
   }
-  if (multi && initial.length === 0) {
+  if (multi && current.length === 0) {
     const placeholder = document.createTextNode("");
     parent.insertBefore(placeholder, marker);
-    initial = [placeholder];
+    current = [placeholder];
   }
-  let current = initial;
   // Whether a compute of this insert has produced a value before. Not read
   // off `prev`: a single-child hole's normalized value is `undefined` when it
   // rendered nothing, which looked like a first run, so content arriving

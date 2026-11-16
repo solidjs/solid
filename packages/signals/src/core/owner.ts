@@ -237,8 +237,7 @@ function runDisposal(node: Owner, zombie?: boolean): void {
   if (__DEV__) exitDisposal();
 }
 
-function childId(owner: Owner, consume: boolean): string {
-  let counter: Owner = owner;
+function childId(counter: Owner, consume: boolean): string {
   while (counter._config & CONFIG_TRANSPARENT && counter._parent) counter = counter._parent;
   if (counter.id != null)
     return formatId(counter.id, consume ? counter._childCount++ : counter._childCount);

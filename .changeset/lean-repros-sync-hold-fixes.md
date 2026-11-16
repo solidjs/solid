@@ -1,6 +1,7 @@
 ---
 "@solidjs/signals": patch
 "solid-js": patch
+"@solidjs/web": patch
 ---
 
 Fix the reactivity bugs in Milo's `lean.test.ts` repros (21 of 25; the other four stay pinned as open questions or as rulings not built yet):
