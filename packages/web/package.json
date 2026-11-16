@@ -375,6 +375,7 @@
     "test-types": "tsc --project tsconfig.test.json && tsc --project tsconfig.test.augment.json && tsc --project tsconfig.test.libcheck.json"
   },
   "dependencies": {
+    "csstype": "^3.1.0",
     "seroval": "^1.8.0",
     "seroval-plugins": "^1.8.0"
   },

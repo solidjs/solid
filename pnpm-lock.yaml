@@ -660,6 +660,9 @@ importers:
 
   packages/web:
     dependencies:
+      csstype:
+        specifier: ^3.1.0
+        version: 3.2.3
       seroval:
         specifier: ^1.8.0
         version: 1.8.1
