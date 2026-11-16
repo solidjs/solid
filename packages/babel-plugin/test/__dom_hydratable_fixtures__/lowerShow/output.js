@@ -16,11 +16,18 @@ var _tmpl$ = /*#__PURE__*/ _$template(`<h1>Welcome`),
   _tmpl$6 = /*#__PURE__*/ _$template(`<label>none`),
   _tmpl$7 = /*#__PURE__*/ _$template(`<label>`),
   _tmpl$8 = /*#__PURE__*/ _$template(`<div>`);
-import { Show, createSignal, createMemo } from "solid-js";
+import { Show, createSignal, createMemo, createStore } from "solid-js";
 import { Show as Visible } from "@solidjs/web";
 const [user, setUser] = createSignal();
 const total = createMemo(() => 1);
 let mutable = createSignal(0)[0];
+const [state] = createStore({
+  user: {
+    profile: {
+      name: ""
+    }
+  }
+});
 
 // Lowered: JSX children, with and without a fallback.
 const Root = () =>
@@ -73,27 +80,27 @@ const Callback = () =>
         })()
       : void 0
   );
-const CallbackMember = props =>
+const CallbackMember = () =>
   _$memo(() =>
-    _$memo(() => !!props.user?.profile)()
+    _$memo(() => !!state.user?.profile)()
       ? _$createComponent(Card, {
-          profile: () => props.user?.profile,
+          profile: () => state.user?.profile,
           get name() {
-            return (props.user?.profile).name;
+            return (state.user?.profile).name;
           }
         })
       : _$getNextElement(_tmpl$6)
   );
-const Nested = props =>
+const Nested = () =>
   _$memo(() =>
-    _$memo(() => !!props.a)()
+    _$memo(() => !!user())()
       ? _$memo(() =>
-          _$memo(() => !!props.b)()
+          _$memo(() => !!state.user)()
             ? (() => {
                 var _el$0 = _$getNextElement(_tmpl$7);
                 _$insert(
                   _el$0,
-                  _$scope(() => props.b.c)
+                  _$scope(() => state.user.profile.name)
                 );
                 return _el$0;
               })()
@@ -170,18 +177,49 @@ const Mutable = () =>
         return _el$11;
       })()
   });
+// Kept: a prop's getter can make its JSX again on each read (#4936).
+const PropChild = props =>
+  _$createComponent(Show, {
+    get when() {
+      return props.children;
+    },
+    children: child =>
+      (() => {
+        var _el$12 = _$getNextElement(_tmpl$7);
+        _$insert(
+          _el$12,
+          _$scope(() => child())
+        );
+        return _el$12;
+      })()
+  });
+const PropMember = props =>
+  _$createComponent(Show, {
+    get when() {
+      return props.user?.profile;
+    },
+    children: p =>
+      (() => {
+        var _el$13 = _$getNextElement(_tmpl$5);
+        _$insert(
+          _el$13,
+          _$scope(() => p().name)
+        );
+        return _el$13;
+      })()
+  });
 const Block = () =>
   _$createComponent(Show, {
     get when() {
       return user();
     },
     children: u => {
-      var _el$12 = _$getNextElement(_tmpl$5);
+      var _el$14 = _$getNextElement(_tmpl$5);
       _$insert(
-        _el$12,
+        _el$14,
         _$scope(() => u().name)
       );
-      return _el$12;
+      return _el$14;
     }
   });
 const Shadowed = () =>
@@ -191,12 +229,12 @@ const Shadowed = () =>
     },
     children: u =>
       (() => {
-        var _el$13 = _$getNextElement(_tmpl$5);
+        var _el$15 = _$getNextElement(_tmpl$5);
         _$insert(
-          _el$13,
+          _el$15,
           _$scope(() => [1].map(user => u().name + user))
         );
-        return _el$13;
+        return _el$15;
       })()
   });
 // Kept: a child that could be a function, a non-sole component child, an
@@ -237,9 +275,9 @@ const Attribute = () =>
   });
 const InExpression = props =>
   (() => {
-    var _el$15 = _$getNextElement(_tmpl$8);
+    var _el$17 = _$getNextElement(_tmpl$8);
     _$insert(
-      _el$15,
+      _el$17,
       _$scope(
         (() => {
           var _c$2 = _$memo(() => !!props.ok);
@@ -255,7 +293,7 @@ const InExpression = props =>
         })()
       )
     );
-    return _el$15;
+    return _el$17;
   })();
 // Kept: not Solid's `<Show>`.
 const Local = () => {
