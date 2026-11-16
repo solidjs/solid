@@ -37,6 +37,7 @@ import { enqueueSub } from "../core/heap.js";
 import { getOwner, isDisposed } from "../core/owner.js";
 import {
   insertSubs,
+  laneServedHook,
   observeFlightHook,
   passLane,
   setPassLane,
@@ -325,8 +326,20 @@ export function runProjectionComputed<T extends object>(
             wrapCommit ? wrapCommit(write, v as T) : write();
           }
           // A landing (not the sync pass's own commit): the readers held
-          // pending on the derive settle.
-          if (!first || !(owner._statusFlags & STATUS_UNINITIALIZED)) settleFamily(fam);
+          // pending on the derive settle — unless core keeps the derive
+          // pending: lane work this pass served the committed value of a
+          // flight still in the air (core.ts `recompute`, #4862). The lane
+          // breaks out of the flight, the family's readers do not (F-4,
+          // #4927); they settle at the flight's landing.
+          if (
+            (!first || !(owner._statusFlags & STATUS_UNINITIALIZED)) &&
+            !(
+              laneServedHook &&
+              owner._statusFlags & STATUS_PENDING &&
+              laneServedHook(owner, null, true)
+            )
+          )
+            settleFamily(fam);
           // A commit is the derive's change for the readers that observed its
           // flight (linked by `pullFamily`; a settled pull does not link), as
           // a memo's landing is for its readers: one that caught the NotReady
