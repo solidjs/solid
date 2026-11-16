@@ -530,10 +530,10 @@ export function template(html: string, flag?: 1 | 2): () => Element;
 
 export function template(html, flag) {
   let node;
-  const fn =
-    flag === 1
-      ? bypassGuard => document.importNode(node || (node = create(html, bypassGuard, flag)), true)
-      : bypassGuard => (node || (node = create(html, bypassGuard, flag))).cloneNode(true);
+  const fn = bypassGuard => (
+    node || (node = create(html, bypassGuard, flag)),
+    flag === 1 ? document.importNode(node, true) : node.cloneNode(true)
+  );
 
   if ("_SOLID_DEV_") fn._html = flag === 2 ? html.replace(/^<[^>]+>/, "") : html;
   return fn;
@@ -3263,8 +3263,7 @@ function insertExpression(parent, value, current, marker) {
     )
       return value;
   }
-  const t = typeof value,
-    multi = marker !== undefined;
+  const t = typeof value;
 
   if (t === "string" || t === "number") {
     const tc = typeof current;
@@ -3283,7 +3282,7 @@ function insertExpression(parent, value, current, marker) {
     cleanChildren(parent, current, marker);
   } else if (value.nodeType) {
     if (Array.isArray(current)) {
-      cleanChildren(parent, current, multi ? marker : null, value);
+      cleanChildren(parent, current, marker ?? null, value);
     } else if (current != null && current.nodeType) {
       // `current` is a node we previously inserted but it may have been
       // moved out by user code (e.g. ref-driven migration, JSX wrapping)

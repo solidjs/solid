@@ -655,7 +655,7 @@ function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boole
  * everything under it, so a reader there is not on screen and holds
  * nothing — boundaries.ts). */
 function onScreen(r: Computed<any>, t: Transaction): boolean {
-  return !(r._flags & REACTIVE_ZOMBIE && removalStagedBy(r, t)) && !hiddenHook?.(r);
+  return !hiddenHook?.(r) && !(r._flags & REACTIVE_ZOMBIE && removalStagedBy(r, t));
 }
 /** A15 (#3463): a reader whose removal is staged — a zombie, parked by a
  * pass awaiting its commit — is still on screen and live for every hold,
