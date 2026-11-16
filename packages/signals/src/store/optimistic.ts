@@ -837,6 +837,12 @@ function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>, viewed?: boolean
         if (rk !== undefined && !at!.has(rk)) at!.set(rk, i);
       });
     }
+    // A returned landing leaves a row another store lent alone (its target
+    // here is chained over that store's proxy, §7b): the diff against the
+    // view keeps it by key, and reconciling the answer into it ties the
+    // lender's row to this landing, so two stores that lent each other rows
+    // waited on each other's flight forever (#4928).
+    if (viewed && px[$TARGET].ch) return;
     const i: any = list ? at!.get(k) : k;
     const nv = i === undefined ? undefined : pb[i];
     // A new object only: not the row's own, nor one another row serves
