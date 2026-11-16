@@ -30,6 +30,11 @@
     "hackernews-example",
     "hackernews-spa-example",
     "notes-example",
-    "effect-example"
+    "effect-example",
+    "board-example",
+    "canvas-example",
+    "server-dbmon-example",
+    "todos-server-example",
+    "test-integration"
   ]
 }

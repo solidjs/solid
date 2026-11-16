@@ -1,5 +1,4 @@
 ---
-"test-integration": major
 "@solidjs/universal": major
 "@solidjs/element": major
 "@solidjs/html": major
