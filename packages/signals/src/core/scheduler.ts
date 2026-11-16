@@ -1617,6 +1617,14 @@ export function applyStaged(n: Signal<any>): unknown {
   );
 }
 
+function superseded(n: Computed<unknown>): boolean {
+  return (
+    !(n._statusFlags & STATUS_UNINITIALIZED) &&
+    !!n._x?._inFlight &&
+    !n._x._reask &&
+    ((n._pendingValue = NOT_PENDING), true)
+  );
+}
 export function commitPendingNode(n: Signal<any> & Partial<Computed<unknown>>): void {
   // L2: the commit is where a pass, held or not, stops being uncommitted —
   // unless it has no answer yet. A pass still in flight (pending, nothing
@@ -1635,13 +1643,10 @@ export function commitPendingNode(n: Signal<any> & Partial<Computed<unknown>>): 
   // own flight up for the new one, is not the frame's: the hold lands on the
   // answer to its own question (F-2, 2026-11-12) — the node stays in flight
   // on the committed value, and the stale staging goes.
-  if (
-    (n._statusFlags! & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
-    n._x?._inFlight &&
-    !n._x._reask
-  )
-    n._pendingValue = NOT_PENDING;
-  const inFlight = n._pendingValue === NOT_PENDING && (n._statusFlags! & STATUS_PENDING) !== 0;
+  // (A cold helper: inline, the arm cost the commit loop its inlining.)
+  const inFlight =
+    (n._statusFlags! & STATUS_PENDING) !== 0 &&
+    (n._pendingValue === NOT_PENDING || superseded(n as Computed<unknown>));
   const err = n._config & CONFIG_STAGED_ERROR;
   // An answer commits: the error it replaces leaves the display (D-41).
   if (!inFlight && n._x) n._x._shownError = null;
