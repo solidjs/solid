@@ -44,6 +44,7 @@ import {
   hasServerTiming,
   mergeServerTiming,
   traceMetaMarkup,
+  withholdForSharedCache,
   type TraceContext
 } from "./trace.js";
 import { observeRender, timesServerWork } from "./server-observe.js";
@@ -1902,6 +1903,7 @@ export function renderToString(code, options = {}) {
     serializeFragmentAssets("", tracking.boundaryModules, sharedConfig.context, renderId);
     closed = true;
     serializer.close();
+    withholdForSharedCache(context.trace, requestEvent);
     const head = renderShellHead(
       headRegistry,
       nonce,
@@ -3440,6 +3442,7 @@ export function renderToStream(code, options = {}) {
     flushStubBatch();
     // Shell head flush: commits every registration not owned by a
     // still-pending fragment (those flush with their fragment later).
+    withholdForSharedCache(context.trace, requestEvent);
     const head = renderShellHead(
       headRegistry,
       nonce,

@@ -21,7 +21,7 @@ import {
 } from "../../src/response.js";
 import { COMPOSED_BODY_FRAMING, isHttpNavigationTarget } from "../../src/constants.js";
 import { RequestContext, commitEventResponse, getRequestEvent } from "../../src/server.js";
-import { traceForEvent } from "../../src/trace.js";
+import { sharedCacheMayStore, traceForEvent } from "../../src/trace.js";
 import { reportServerError } from "solid-js/internal";
 import { requestErrorHook } from "../../src/request-error-hook.js";
 import { observeInvocation } from "../../src/server-observe.js";
@@ -4797,8 +4797,10 @@ export async function handleServerFunctionRequest(request, options = {}) {
   const commitResponse = raw => {
     if (
       (method === "GET" || method === "HEAD") &&
-      (sharedCacheMayStore(departingHeader(raw, event, "Cache-Control")) ||
-        cdnMayStore(departingHeader(raw, event, "CDN-Cache-Control")))
+      sharedCacheMayStore(
+        departingHeader(raw, event, "Cache-Control"),
+        departingHeader(raw, event, "CDN-Cache-Control")
+      )
     ) {
       withholdTrace(event);
     }
@@ -5261,68 +5263,6 @@ function departingHeader(response, event, name) {
   if (own !== null) return own;
   const stub = event.response;
   return stub && stub.headers && !stub.committed ? stub.headers.get(name) : null;
-}
-
-// A CDN that honours `CDN-Cache-Control` (RFC 9213) reads it in place of
-// `Cache-Control`, and a CDN is a shared cache: a present field it may store
-// under — anything but `no-store` or an unqualified `private` — lets it keep
-// the response whatever `Cache-Control` tells browsers.
-function cdnMayStore(cdnCacheControl) {
-  return cdnCacheControl !== null && !forbidsStoring(cdnCacheControl);
-}
-
-// Whether a shared cache may store a response under `cacheControl` — the
-// author asked for one with `public` or `s-maxage` (#3985). Directives are
-// matched whole and case-insensitively (RFC 9111 §5.2), never as substrings,
-// and a quoted argument may carry commas. What forbids a shared cache wins
-// over what asks for one: `no-store` (no cache may keep it), and an
-// unqualified `private` (§5.2.2.7: a shared cache MUST NOT store it, whatever
-// `s-maxage` says — the response stays one viewer's, so its trace stays
-// too). A qualified `private="…"` keeps only the named fields out of a shared
-// cache, so the rest of the response — `Server-Timing` included — may still
-// be stored.
-function sharedCacheMayStore(cacheControl) {
-  let shared = false;
-  return (
-    !!cacheControl &&
-    !eachDirective(cacheControl, name => {
-      if (name === "public" || name === "s-maxage") shared = true;
-    }) &&
-    shared
-  );
-}
-
-// `no-store` or an unqualified `private`.
-function forbidsStoring(value) {
-  return eachDirective(value, () => {});
-}
-
-// Walks `value`'s directives (names matched whole and lower-cased, quoted
-// arguments may carry commas), handing each name to `visit`; true as soon
-// as one forbids storing — `no-store` or an unqualified `private`.
-function eachDirective(value, visit) {
-  let start = 0;
-  let quoted = false;
-  for (let i = 0; i <= value.length; i++) {
-    const c = value[i];
-    if (quoted) {
-      if (c === "\\") i++;
-      else if (c === '"') quoted = false;
-      continue;
-    }
-    if (c === '"') {
-      quoted = true;
-      continue;
-    }
-    if (c !== "," && i < value.length) continue;
-    const directive = value.slice(start, i);
-    start = i + 1;
-    const eq = directive.indexOf("=");
-    const name = (eq === -1 ? directive : directive.slice(0, eq)).trim().toLowerCase();
-    if (name === "no-store" || (name === "private" && eq === -1)) return true;
-    visit(name);
-  }
-  return false;
 }
 
 // The request's trace stays off this response's head: the record's `emit`
