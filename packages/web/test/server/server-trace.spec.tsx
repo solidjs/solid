@@ -714,6 +714,60 @@ describe("Server-Timing on a shared-cacheable read (#3985)", () => {
   });
 });
 
+describe("a document a shared cache may store (#4938)", () => {
+  // The #3985 rule for documents: the one response a CDN keeps is replayed
+  // to every viewer, so it carries no request's trace, in the head or the
+  // body; `getTraceContext()` still answers the render.
+  const Cached = (props: { policy: Record<string, string> }) => {
+    for (const name in props.policy) httpHeader(name, props.policy[name]);
+    return <Doc />;
+  };
+  const shared: Record<string, string>[] = [
+    { "Cache-Control": "public, max-age=0, s-maxage=600" },
+    { "Cache-Control": "max-age=0, s-maxage=300" },
+    { "Cache-Control": "private", "CDN-Cache-Control": "max-age=60" }
+  ];
+  const kept: Record<string, string>[] = [
+    {},
+    { "Cache-Control": "private, s-maxage=60" },
+    { "Cache-Control": "public, no-store" },
+    { "Cache-Control": "max-age=60" },
+    { "CDN-Cache-Control": "no-store" }
+  ];
+
+  test("string render: no <meta> and no Server-Timing trace entry", () => {
+    for (const policy of shared) {
+      const evt = event({ traceparent: INCOMING });
+      const html = inScope(evt, () => renderToString(() => <Cached policy={policy} />));
+      const response = createSSRResponse(html, evt);
+      expect(html).not.toContain("traceparent");
+      expect(serverTiming(response.headers).has("traceparent")).toBe(false);
+      expect(inScope(evt, () => getTraceContext())!.traceId).toBe(TRACE_ID);
+    }
+    for (const policy of kept) {
+      const evt = event({ traceparent: INCOMING });
+      const html = inScope(evt, () => renderToString(() => <Cached policy={policy} />));
+      const response = createSSRResponse(html, evt);
+      expect(html).toContain('<meta name="traceparent" content="00-');
+      expect(serverTiming(response.headers).has("traceparent")).toBe(true);
+    }
+  });
+
+  test("stream render: the shell's head decides, for the body and the head alike", async () => {
+    for (const [policy, emit] of [
+      ...shared.map(p => [p, false] as const),
+      ...kept.map(p => [p, true] as const)
+    ]) {
+      const evt = event({ traceparent: INCOMING });
+      const stream = inScope(evt, () => renderToStream(() => <Cached policy={policy} />));
+      const response = await createSSRResponse(stream, evt);
+      const body = await response.text();
+      expect(body.includes('<meta name="traceparent"')).toBe(emit);
+      expect(serverTiming(response.headers).has("traceparent")).toBe(emit);
+    }
+  });
+});
+
 describe("<meta> tags in the shell", () => {
   test("a document gets them inside <head>, after the shell's static charset — string and stream", async () => {
     const evt = event({ traceparent: INCOMING });
