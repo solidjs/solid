@@ -18,7 +18,7 @@
     "types": "turbo run types",
     "publish": "pnpm run build && pnpm run types && pnpm run release:only",
     "bump": "changeset add",
-    "release:only": "changeset publish",
+    "release:only": "node scripts/publish-solid-js.mjs && changeset publish",
     "format": "prettier --write --cache \"**/*.[tj]s?(x)\""
   },
   "devDependencies": {
