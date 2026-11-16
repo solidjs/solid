@@ -1669,6 +1669,15 @@ function reconcileTarget(
               const k = keyOf(map, keyFn!, g);
               if (k !== undefined && !byKey.has(k)) byKey.set(k, g);
             }
+          // A returned answer pairs a row the list no longer holds with the
+          // guessed target of its key, as a draft's write does (#4907, the
+          // set trap's keyed pairing): the row keeps its guess.
+          if (guessed !== null && t._fam?.opt && famGuessing(t._fam))
+            for (const c of t._fam.live as unknown as Set<Target>)
+              if (c !== t && hasGuess(c)) {
+                const k = keyOf(map, keyFn!, c.v);
+                if (k !== undefined && !byKey.has(k)) byKey.set(k, c.v);
+              }
         }
         pv = byKey.get(nk);
       }
