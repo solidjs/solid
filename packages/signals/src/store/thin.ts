@@ -1638,6 +1638,9 @@ function reconcileTarget(
     for (let i = 0; i < next.length; i++) {
       const nv = next[i];
       let pv = i < len ? curOf(t, i) : undefined;
+      // The same raw at the same slot, its row unmoved by a write: the
+      // write would be a no-op and there is nothing below to diff.
+      if (pv === nv && (typeof nv !== "object" || nv === null || !map.get(nv)?.w)) continue;
       // The source last merged into the row at this slot, re-sent and
       // nothing written since: no pairing or diff (`merge`'s identity skip,
       // and the slot keeps its row, so the write is a no-op).
@@ -1703,7 +1706,8 @@ function reconcileTarget(
           key,
           new Box({ value: nv, writable: true, enumerable: false, configurable: true })
         );
-    } else
+    } else if (pv === nv && (typeof nv !== "object" || nv === null || !map.get(nv)?.w)) continue;
+    else
       write(
         t,
         key,
