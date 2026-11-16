@@ -84,6 +84,10 @@ export const REACTIVE_AHEAD = 1 << 20;
  * missed gave it (D-22, #4474), so the queued pass runs, then `recompute`'s
  * tail releases the node. Survives the head wipe; the tail consumes it. */
 export const REACTIVE_RELEASE_AFTER = 1 << 22;
+/** A computed its own owner reads (a memo reading the memo it created): the
+ * owner sits below it (heights put owners first), so a wake of it wakes the
+ * owner too — the owner's pass re-creates it and is what its readers see. */
+export const REACTIVE_OWNER_READS = 1 << 23;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.
 export const CONFIG_OWNED_WRITE = 1 << 0;

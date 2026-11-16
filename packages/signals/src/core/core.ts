@@ -47,6 +47,7 @@ import {
   NO_SNAPSHOT,
   NOT_PENDING,
   REACTIVE_CHECK,
+  REACTIVE_OWNER_READS,
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
   REACTIVE_FRAME_READ,
@@ -96,7 +97,8 @@ import {
   insertIntoHeap,
   insertIntoHeapHeight,
   markHeap,
-  markNode
+  markNode,
+  liftOwned
 } from "./heap.js";
 import {
   clearSignals,
@@ -182,7 +184,10 @@ import {
   keepReadersHook,
   laneWriteHook,
   observeFlightHook,
-  wireExternalSourceHook
+  wireExternalSourceHook,
+  passHook,
+  revertHook,
+  heldRewrites
 } from "./scheduler.js";
 import type { Transaction } from "./scheduler.js";
 import type {
@@ -469,6 +474,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // re-derivation, lane adoption through deps) went with the optimistic engine.
   // An error a pass staged, which this pass replaces (`valueChanged`).
   const replaced = el._config & CONFIG_STAGED_ERROR;
+  let linked: unknown;
   if (!create) {
     deleteFromHeap(el, dirtyQueue);
     // A pending flight is the transition's own work (#3884), and so is a
@@ -565,6 +571,16 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     } else if (el._firstChild !== null || el._disposal !== null) parkChildren(el);
     // An error a pass staged (D-41) is replaced by this pass's answer: a
     // value, a flight, or an error of its own (#4109, #4145).
+    // A held one stays the newest answer `latest` shows while this pass's
+    // flight is up (D-22, D-41; verdict.ts `pass`). `linked`: whether the
+    // pass had sources (a first pass, a revived dormant node, did not: it
+    // asks no question its committed value answers).
+    if (passHook) {
+      linked = el._deps !== null;
+      // Only a node with a held error to keep, or one kept, pays the call.
+      if (el._x !== null && (el._config & CONFIG_STAGED_ERROR || el._x._aheadError !== undefined))
+        passHook(el);
+    }
     if (el._config & CONFIG_STAGED_ERROR) {
       el._pendingValue = NOT_PENDING;
       el._config ^= CONFIG_STAGED_ERROR;
@@ -596,11 +612,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // A held user write is not an answer (REACTIVE_MANUAL_WRITE): the refresh
   // over it asks the same question (D-34 ¶3), so its readers stay the
   // re-ask's and a later lane's guess reaches them (#4887, #4888).
-  const reask =
+  let reask =
     (el._flags & REACTIVE_REASK) !== 0 &&
     !(
       (el._statusFlags & STATUS_PENDING ||
-        (guessing && el._pendingValue !== NOT_PENDING && !(el._flags & REACTIVE_MANUAL_WRITE))) &&
+        (el._pendingValue !== NOT_PENDING && !(el._flags & REACTIVE_MANUAL_WRITE))) &&
       el._x !== null &&
       !el._x._reask
     );
@@ -816,6 +832,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // A19 exc. 2: a pass that went pending on a `refresh()` re-asks the
     // question already answered — quiet for the verdict; any other pending
     // pass is a new question. Settled, there is nothing to classify.
+    // A pass that read only committed values asks the committed question
+    // again (an input moved back, A24, A19 exc. 2): a re-ask too.
+    // (Asked only of a pending pass: a settled one has nothing to classify,
+    // and the dep walk is too dear to run on every pass.)
+    if (linked && !reask && el._statusFlags & STATUS_PENDING) reask = !!passHook!(el, 1);
     if (el._x !== null) el._x._reask = reask && (el._statusFlags & STATUS_PENDING) !== 0;
   }
 
@@ -2176,12 +2197,20 @@ export function unflushedValue(el: Signal<any> | Computed<any>): unknown {
   if (el._config & CONFIG_HELD) return el._x!._flushedAt === clock ? el._x!._flushed : NOT_PENDING;
   return el._value;
 }
+/** The value a signal had when this tick began writing it: the flushed
+ * staging of a held slot (A28's stash), else the committed value. */
+export function tickBase(el: Signal<any>): unknown {
+  return el._config & CONFIG_HELD && el._x?._flushedAt === clock ? el._x._flushed : el._value;
+}
 /** A28: a held node rewritten outside a flush keeps the staging the last
  * flush left (`_flushed`) until the flush that carries the rewrite — the
  * stash is stamped with the clock, which that flush advances. */
 export function stashFlushed(el: Signal<any> | Computed<any>): void {
   const x = el._x!;
   if (x._flushedAt !== clock) {
+    // D-8: the flush checks whether the rewrite nets (verdict.ts `revert`).
+    // Once per node per flush: the stamp below dedupes it.
+    if (revertHook) heldRewrites.push(el);
     x._flushed = el._pendingValue;
     x._flushedAt = clock;
     unflushedStaged = true;
@@ -2212,7 +2241,7 @@ export function resyncUnflushedCompanions(): void {
  * reached its height (or the reader is a fresh-pull waiter), and sit the
  * reader above it. */
 export function pullComputed(owner: Computed<any>, c: Computed<any>): void {
-  if (owner._height >= dirtyQueue._min) {
+  if (owner._height >= dirtyQueue._min || owner._flags & REACTIVE_CHECK) {
     markNode(c);
     markHeap(dirtyQueue);
     updateIfNecessary(owner);
@@ -2226,7 +2255,8 @@ export function pullComputed(owner: Computed<any>, c: Computed<any>): void {
   else if (c._config & CONFIG_FRESH_READ) updateIfNecessary(owner);
   const height = owner._height;
   // parent check is shallow, might need to be recursive
-  if (height >= c._height && owner._parent !== c) c._height = height + 1;
+  if (owner._parent === c) owner._flags |= REACTIVE_OWNER_READS;
+  else if (height >= c._height) liftOwned(c, (c._height = height + 1));
 }
 
 /**
@@ -2301,7 +2331,9 @@ export function heldRead(): number {
   return (context as Computed<any>)._flags & REACTIVE_FRAME_READ;
 }
 
-export function read<T>(el: Signal<T> | Computed<T>): T {
+export function read<T>(el: Signal<T> | Computed<T>): T;
+// (Implementation typed `any` so `el` needs no cast alias: an alias the minifier keeps.)
+export function read<T>(el: any): T {
   // Shadow (S0): every read is run through `shadowRead`, which re-enters
   // here once (the bypass) and compares the slot the table predicts with
   // the one the deciders below chose.
@@ -2310,12 +2342,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
-  const computed = el as Partial<Computed<unknown>>;
   // CARVE 1: `owner` was `el._firewall || el` — a store leaf's status,
   // height and error were read off its projection computed. (Typed loosely
   // as the `||` expression was: a signal's `_statusFlags`/`_height` read as
   // undefined and mask to 0 on every site below.)
-  const owner = el as Computed<any>;
 
   // The verdict windows (`latest`, `isPending`; verdict.ts): one cold path,
   // off this one, present only while a window is open. It wakes a lazy or
@@ -2334,10 +2364,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     return verdict(el, c as Computed<any> | null) as T;
   }
 
-  if (typeof computed._fn === "function") prepareComputed(el as Computed<unknown>, false);
+  if (typeof el._fn === "function") prepareComputed(el as Computed<unknown>, false);
 
   if (
-    !computed._fn &&
+    !el._fn &&
     el._x?._snapshotValue === undefined &&
     !snapshotCaptureActive &&
     (!unflushedStaged || el._pendingValue === NOT_PENDING) && // A28, see readNodeFast
@@ -2395,13 +2425,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
   if (
     __DEV__ &&
-    owner._statusFlags & STATUS_PENDING &&
-    ((strictReadActive() && strictRead) || (strictPending && owner._parent === context))
+    el._statusFlags & STATUS_PENDING &&
+    ((strictReadActive() && strictRead) || (strictPending && el._parent === context))
   )
     throwPendingUntrackedRead(((strictReadActive() && strictRead) || strictPending) as string, {
       ownerId: c?.id,
       ownerName: (c as any)?._name,
-      nodeName: (owner as any)?._name
+      nodeName: (el as any)?._name
     });
 
   // Rule 3: this read serves the committed value to a render effect outside a
@@ -2411,8 +2441,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     if (laneStageHook) fresh = tracking && readsFresh(c as Computed<any>, el);
     if (tracking) {
       link(el, c as Computed<any>);
-      if ((owner as Computed<unknown>)._fn) {
-        pullComputed(owner, c as Computed<any>);
+      if ((el as Computed<unknown>)._fn) {
+        pullComputed(el, c as Computed<any>);
         // F-6 (#4050): a memo over a verdict reader's value derives from a
         // display-ahead read — a verdict reader from this pass's end, as if
         // it probed inline: it reads held values as the screen and shows the
@@ -2449,8 +2479,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         ) {
           if (
             (c as any)._type === EFFECT_RENDER &&
-            owner._config & CONFIG_VERDICT &&
-            !(owner._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED))
+            el._config & CONFIG_VERDICT &&
+            !(el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED))
           )
             (c as Computed<any>)._flags |= REACTIVE_AHEAD;
           // #4776 (D-25): a sync verdict memo is display while only the
@@ -2461,24 +2491,24 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
           // its own body stays the screen's (F-6, #4544's inline rows,
           // #4341). A pass that asks is display like any other (S-51).
           if (
-            (owner._config & (CONFIG_VERDICT | CONFIG_FRAME | CONFIG_ASYNC | CONFIG_OWN_PROBE)) ===
+            (el._config & (CONFIG_VERDICT | CONFIG_FRAME | CONFIG_ASYNC | CONFIG_OWN_PROBE)) ===
             CONFIG_VERDICT
           ) {
             const t = resolveTx(
                 c._config & CONFIG_HELD ? txOf(c as Computed<any>) : flushTransaction!
               ),
-              x = ext(owner);
+              x = ext(el);
             if (x._readIn !== t) {
               x._readIn = t;
-              recompute(owner);
+              recompute(el);
             }
           }
         }
         if (observeFlightHook && !(c as any)._type)
           (c as Computed<any>)._flags |=
-            owner._config &
+            el._config &
             CONFIG_VERDICT &
-            (owner._statusFlags & STATUS_PENDING &&
+            (el._statusFlags & STATUS_PENDING &&
             (c._config & CONFIG_STAGED || (c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
               ? c._config
               : -1);
@@ -2494,7 +2524,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         snapshotCaptureActive &&
           ((c as Computed<any>)._config & CONFIG_IN_SNAPSHOT_SCOPE) !== 0 &&
           el._x?._snapshotValue !== undefined &&
-          !(owner._statusFlags & STATUS_ERROR)
+          !(el._statusFlags & STATUS_ERROR)
       );
     // L2, as in the fast block above (tracked or not). A node born into the
     // future (uninitialized) has no committed value: every reader derives
@@ -2505,7 +2535,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       !(el._config & CONFIG_OVERRIDE) &&
       !(c._config & CONFIG_CHILDREN_FORBIDDEN)
     ) {
-      if (owner._statusFlags & STATUS_UNINITIALIZED) joinPass(c as Computed<any>, el);
+      if (el._statusFlags & STATUS_UNINITIALIZED) joinPass(c as Computed<any>, el);
       else committed = frameRead(c as Computed<any>, el);
     }
   } else if (__TEST__) shadowExpect(null, el, tracking, 0, spectating, false);
@@ -2524,7 +2554,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     warnStrictReadUntracked(strictRead, {
       ownerId: c?.id,
       ownerName: (c as any)?._name,
-      nodeName: (owner as any)?._name
+      nodeName: (el as any)?._name
     });
 
   // A reader in a snapshot scope (a hydration claim) is served the value the
@@ -2533,7 +2563,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // scope's release. An errored node throws below as for any reader.
   if (snapshotCaptureActive && c && (c as Computed<any>)._config & CONFIG_IN_SNAPSHOT_SCOPE) {
     const sv = el._x?._snapshotValue;
-    if (sv !== undefined && !(owner._statusFlags & STATUS_ERROR)) {
+    if (sv !== undefined && !(el._statusFlags & STATUS_ERROR)) {
       const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
       const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
       if (current !== snapshot) (c as Computed<any>)._flags |= REACTIVE_SNAPSHOT_STALE;
@@ -2560,10 +2590,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // the verdict engine imports the lane engine: without it the test folds.)
   if (
     laneStageHook &&
-    owner._statusFlags & STATUS_PENDING &&
+    el._statusFlags & STATUS_PENDING &&
     !committed &&
     !(el._config & CONFIG_OVERRIDE) &&
-    !(owner._statusFlags & STATUS_UNINITIALIZED)
+    !(el._statusFlags & STATUS_UNINITIALIZED)
   ) {
     // A verdict reader first, in a lane or not: a memo's plain read of a
     // flight observes it whether or not a window read routed the pass first
@@ -2577,7 +2607,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       c._config & CONFIG_VERDICT &&
       !(c._config & CONFIG_MOUNT_AHEAD && (c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
     )
-      committed = observeFlightHook!(c as Computed<any>, owner);
+      committed = observeFlightHook!(c as Computed<any>, el);
     else if (
       passLane !== null &&
       (!((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED) ||
@@ -2585,9 +2615,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     )
       // Lane work: served the committed value, unless it read a staging of
       // the flush this pass (lanes.ts `laneServed`, F-2; S-57).
-      committed = laneServedHook!(c as Computed<any>, owner, true) as boolean;
+      committed = laneServedHook!(c as Computed<any>, el, true) as boolean;
   }
-  if (owner._statusFlags & STATUS_PENDING && !committed) {
+  if (el._statusFlags & STATUS_PENDING && !committed) {
     // A reader landing on a pending node throws; an untracked read of an
     // UNINITIALIZED node has no committed value to serve and throws too. A
     // children-forbidden reader (createTrackedEffect / onSettled) sees the
@@ -2607,17 +2637,17 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
               message,
               ownerId: c.id,
               ownerName: (c as any)._name,
-              nodeName: (owner as any)?._name
+              nodeName: (el as any)?._name
             },
             c
           )
         );
       }
-      if (!(c._config & CONFIG_CHILDREN_FORBIDDEN) || owner._statusFlags & STATUS_UNINITIALIZED) {
+      if (!(c._config & CONFIG_CHILDREN_FORBIDDEN) || el._statusFlags & STATUS_UNINITIALIZED) {
         // D-22 (amended 2026-10-30), F-9: an answered-then-reasked first
         // answer (`servesStaged`), the verdict engine's — out of line, so
         // `read` gains a call only where a pending read would throw.
-        if (observeFlightHook && servesStaged(c as Computed<any>, el, owner)) {
+        if (observeFlightHook && servesStaged(c as Computed<any>, el, el)) {
           if (__TEST__) shadowActual(SLOT_P);
           return el._pendingValue as T;
         }
@@ -2625,17 +2655,17 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         // the node settles — unless nobody is reading (`spectating`, #3528)
         // or the reader is the node itself.
         if (!tracking && !spectating && el !== c) link(el, c as Computed<any>);
-        if (__DEV__) noteThrownRead(el, owner._x?._error);
-        throw owner._x?._error;
+        if (__DEV__) noteThrownRead(el, el._x?._error);
+        throw el._x?._error;
       }
-    } else if (owner._statusFlags & STATUS_UNINITIALIZED) {
+    } else if (el._statusFlags & STATUS_UNINITIALIZED) {
       // (No reader pass: nothing to record against.)
-      throw owner._x?._error;
+      throw el._x?._error;
     }
   }
   // An errored derive throws for every late reader instead of silently
   // serving node values (memo parity, #2897 ruling).
-  if ((owner as Computed<any>)._fn && (owner as Computed<any>)._statusFlags & STATUS_ERROR) {
+  if ((el as Computed<any>)._fn && (el as Computed<any>)._statusFlags & STATUS_ERROR) {
     // Only a genuine reactive re-read may retry an errored async source:
     // - tracking: owned/tracked scope only (never events / `untrack` / effect side-effect phase)
     // - owner._time < clock: only on a later cycle than the one the error was found
@@ -2645,10 +2675,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     //   the zombie: a livelock (#4405's one-hop shape, S-58)
     if (
       tracking &&
-      (owner as Computed<any>)._time < clock &&
-      !((owner as Computed<any>)._flags & REACTIVE_ZOMBIE)
+      (el as Computed<any>)._time < clock &&
+      !((el as Computed<any>)._flags & REACTIVE_ZOMBIE)
     ) {
-      recompute(owner as Computed<unknown>);
+      recompute(el as Computed<unknown>);
       if (__TEST__) shadowActual(SLOT_E);
       return read(el);
     }
@@ -2659,8 +2689,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // reader born this flush published it, and its readers' stale error
     // committed after the new one (#4404).
     if (!committed && el._config & CONFIG_STAGED_ERROR) serve(el, c as Computed<any> | null);
-    if (__DEV__) noteThrownRead(el, (owner as Computed<any>)._x?._error);
-    throw (owner as Computed<any>)._x?._error;
+    if (__DEV__) noteThrownRead(el, (el as Computed<any>)._x?._error);
+    throw (el as Computed<any>)._x?._error;
   }
 
   // D-41: an untracked read reads the screen, and so does a frame reader
@@ -2670,9 +2700,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   const value = serve(el, committed ? null : (c as Computed<any> | null)) as T;
   if (
     !c &&
-    typeof computed._fn === "function" &&
+    typeof el._fn === "function" &&
     el._config & CONFIG_AUTO_DISPOSE &&
-    !(owner._statusFlags & STATUS_PENDING) &&
+    !(el._statusFlags & STATUS_PENDING) &&
     !el._subs
   ) {
     // Deferred, not inline (#3078): an inline unobserved() here made untracked
@@ -2830,7 +2860,7 @@ export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): 
     // Lane work this pass served the committed value of a flight now reads
     // a staging of the flush (lanes.ts `laneServed`: it throws) — with or
     // without a transaction to be the flight's stale reader in yet (#4859).
-    if (passLane !== null) laneServedHook!(c, null);
+    if (laneServedHook && passLane !== null) laneServedHook(c, null);
     c._flags |= REACTIVE_STAGED_READ;
     if (__TEST__) shadowExternalRaise(c, RAISE_FL);
     // A verdict reader's too when it is an effect, before the frame has a

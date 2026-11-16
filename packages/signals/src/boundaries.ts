@@ -869,6 +869,10 @@ function createBoundary<T>(
           // holds the frame like any reader (recorded for its `on`).
           record(b, tree);
         }
+        // An error boundary on its fallback is the display of everything
+        // under it (F-3, F-12): a retry pending there keeps the fallback and
+        // holds nothing outside it — the recovery re-derives this pass.
+        if (status === STATUS_PENDING && b._fallback && type === STATUS_ERROR) return fallback(b);
         // A pending passes an error boundary by (A6); an error, a loading
         // one; a loading boundary showing content forwards its pending.
         throw tree._x!._error;
