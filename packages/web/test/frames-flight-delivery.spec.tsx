@@ -32,6 +32,13 @@ import {
 } from "../server-functions/src/shared.js";
 import { createServerReference } from "../server-functions/src/client.js";
 import { REVALIDATE_HEADER } from "../src/response.js";
+import { action } from "solid-js";
+
+// A mutation is a call an action makes (#4913): only one asks for the fold.
+const inAction = <T,>(call: () => Promise<T>): Promise<T> =>
+  action(function* () {
+    return (yield call()) as T;
+  })();
 
 // A flight reference as the server's transform serializes it: a function
 // branded with its id and call address (see `ServerComponentPlugin`).
@@ -264,7 +271,7 @@ describe("single-flight delivery over the frames transport (#3638)", () => {
       );
     }) as typeof fetch;
 
-    const result = await createServerReference("mutate-plain")();
+    const result = await inAction(() => createServerReference("mutate-plain")());
 
     expect(result).toBe("ok");
     // the request leg advertised both registrations
@@ -279,7 +286,7 @@ describe("single-flight delivery over the frames transport (#3638)", () => {
         { value: "ok", data: { true: { "view[]": "fresh data" } } },
         { [SINGLE_FLIGHT_HEADER]: "true", [REVALIDATE_HEADER]: "*" }
       )) as typeof fetch;
-    await createServerReference("mutate-plain-2")();
+    await inAction(() => createServerReference("mutate-plain-2")());
     expect(named).toHaveBeenLastCalledWith(undefined, expect.anything());
     expect(order).toEqual(["true", "sq", "true", "sq"]);
   });

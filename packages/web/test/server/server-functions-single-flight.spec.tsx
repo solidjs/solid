@@ -42,6 +42,26 @@ import { redirect, reload, respond } from "@solidjs/web";
 // registered RequestContext symbol — park a real one there.
 const RequestContext = Symbol.for("solid.RequestContext");
 
+// A mutation is a call an action makes (#4913): the transport reads
+// `actionDepth` when the call starts. The client bundle runs here against
+// solid's server build, which runs no actions, so this stands in for the
+// client's action stack.
+const actionStack = vi.hoisted(() => ({ depth: 0 }));
+vi.mock("solid-js/internal", async importOriginal => ({
+  ...(await importOriginal<typeof import("solid-js/internal")>()),
+  get actionDepth() {
+    return actionStack.depth;
+  }
+}));
+function inAction<T>(call: () => Promise<T>): Promise<T> {
+  actionStack.depth++;
+  try {
+    return call();
+  } finally {
+    actionStack.depth--;
+  }
+}
+
 beforeAll(() => {
   (globalThis as any)[RequestContext] = new AsyncLocalStorage();
 });
@@ -288,7 +308,7 @@ describe("single-flight client bridge (built client bundle)", () => {
     // header itself while a consumer is registered
     const unsubscribe = subscribeFlightDataClient(consumer);
     try {
-      const result = await createServerReference("sf-bridge-client-0")();
+      const result = await inAction(() => createServerReference("sf-bridge-client-0")());
       expect(result).toBe("mutated");
       expect(delivered).toHaveLength(1);
       expect(delivered[0].data).toEqual({ "/notes": ["fresh"] });
@@ -316,10 +336,12 @@ describe("single-flight client bridge (built client bundle)", () => {
       delivered = data;
     });
     try {
-      const call = createServerReference("sf-bridge-client-pending")().then(value => {
-        order.push("resolved");
-        return value;
-      });
+      const call = inAction(() => createServerReference("sf-bridge-client-pending")()).then(
+        value => {
+          order.push("resolved");
+          return value;
+        }
+      );
       // the head and the envelope's first chunk are out; the slice is not
       await new Promise(resolve => setTimeout(resolve, 20));
       expect(order).toEqual([]);
@@ -354,7 +376,7 @@ describe("single-flight client bridge (built client bundle)", () => {
       querySeen.push(data);
     });
     try {
-      const result = await createServerReference("sf-bridge-multi-client-0")();
+      const result = await inAction(() => createServerReference("sf-bridge-multi-client-0")());
       expect(result).toBe("mutated");
       // the request leg advertised both consumers' sources
       expect(requestLeg).toBe("true,sq");
@@ -379,7 +401,7 @@ describe("single-flight client bridge (built client bundle)", () => {
       querySeen.push(data);
     });
     try {
-      const result = await createServerReference("sf-bridge-named-client-0")();
+      const result = await inAction(() => createServerReference("sf-bridge-named-client-0")());
       expect(result).toBe("mutated");
       expect(querySeen).toEqual([{ fromQuery: true }]);
       // no unnamed consumer on the page: the router hook never ran
@@ -407,7 +429,7 @@ describe("single-flight client bridge (built client bundle)", () => {
     });
     const unsubscribeQuery = subscribeFlightDataClient("sq", queryConsumer);
     try {
-      const result = await createServerReference("sf-bridge-degrade-0")();
+      const result = await inAction(() => createServerReference("sf-bridge-degrade-0")());
       expect(result).toBe("mutated");
       expect(routerSeen).toEqual([{ fromRouter: true }]);
       expect(queryConsumer).not.toHaveBeenCalled();
@@ -474,7 +496,7 @@ describe("single-flight client bridge (built client bundle)", () => {
       seen.push({ data, response: context.response });
     });
     try {
-      const result = await createServerReference("sf-bridge-meta-redirect-0")();
+      const result = await inAction(() => createServerReference("sf-bridge-meta-redirect-0")());
       // a body-less helper response encodes `null` as its value: the
       // navigation is the consumer's, the caller gets nothing
       expect(result).toBeNull();
@@ -507,7 +529,7 @@ describe("single-flight client bridge (built client bundle)", () => {
       querySeen.push({ data, keys: context.response.headers.get(REVALIDATE_HEADER) });
     });
     try {
-      const result = await createServerReference("sf-bridge-meta-reload-0")();
+      const result = await inAction(() => createServerReference("sf-bridge-meta-reload-0")());
       expect(result).toBeNull();
       expect(routerSeen).toEqual([{ data: { fromRouter: true }, keys: "todos,stats" }]);
       expect(querySeen).toEqual([{ data: undefined, keys: "todos,stats" }]);
@@ -526,7 +548,7 @@ describe("single-flight client bridge (built client bundle)", () => {
     const consumer = vi.fn();
     const unsubscribe = subscribeFlightDataClient(consumer);
     try {
-      const result = await createServerReference("sf-bridge-meta-respond-0")();
+      const result = await inAction(() => createServerReference("sf-bridge-meta-respond-0")());
       expect(result).toEqual({ id: 7 });
       expect(consumer).toHaveBeenCalledTimes(1);
       expect(consumer.mock.calls[0][0]).toBeUndefined();
@@ -546,7 +568,9 @@ describe("single-flight client bridge (built client bundle)", () => {
     const consumer = vi.fn();
     const unsubscribe = subscribeFlightDataClient(consumer);
     try {
-      await expect(createServerReference("sf-bridge-meta-thrown-0")()).resolves.toBeNull();
+      await expect(
+        inAction(() => createServerReference("sf-bridge-meta-thrown-0")())
+      ).resolves.toBeNull();
       expect(consumer).toHaveBeenCalledTimes(1);
       expect(
         decodeRedirectHeaderValue(consumer.mock.calls[0][1].response.headers.get(REDIRECT_HEADER))
@@ -568,7 +592,7 @@ describe("single-flight client bridge (built client bundle)", () => {
     const unsubscribe = subscribeFlightDataClient(consumer);
     const unsubscribeNamed = subscribeFlightDataClient("sq", named);
     try {
-      expect(await createServerReference("sf-bridge-meta-plain-0")()).toBe("plain");
+      expect(await inAction(() => createServerReference("sf-bridge-meta-plain-0")())).toBe("plain");
       expect(consumer).toHaveBeenCalledTimes(1);
       expect(consumer.mock.calls[0][0]).toBeUndefined();
       expect(named).toHaveBeenCalledTimes(1);

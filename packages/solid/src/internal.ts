@@ -45,6 +45,13 @@ import type {
 } from "solid-js";
 import type { HydrationContext } from "./server/shared.js";
 
+/**
+ * Server function transport (`@solidjs/web`, #4913): the action bodies on
+ * the stack, read live. A call made while it is nonzero is the action's
+ * mutation and asks for the default revalidation. Server: always `0`.
+ */
+export { actionDepth } from "@solidjs/signals";
+
 export {
   mergeSources,
   mergeView,
