@@ -104,9 +104,10 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   // A returned landing pairs its new objects with the row targets first, as
   // the derive's draft does (store.ts `notifyWrites`): a guessed row the view
   // no longer has (an answer that dropped it) keeps its target when the
-  // answer brings its key back (Q-D, F-11, #4907).
+  // answer brings its key back (Q-D, F-11, #4907). A row another store lent
+  // is in the view already, and keeps its slot this store's (#4918).
   const prevView =
-    optHooks !== null && t.o ? (optHooks.pair(t, incoming), optHooks.view(t, old)) : old;
+    optHooks !== null && t.o ? (optHooks.pair(t, incoming, true), optHooks.view(t, old)) : old;
   const nextArr = Array.isArray(incoming);
   const shallow = t.s === true;
   adoptPB(t, incoming, false);
