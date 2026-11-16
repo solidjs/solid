@@ -21,6 +21,26 @@ Three sections were drafted. **Q** stays while a ruled screen is still written o
 
 **Answer format that is enough:** `Q-7 A` — or the line you prefer.
 
+### Q-8. A reverted guess that re-asks the committed question: quiet or new? (from Milo's K1, 2026-11-15)
+
+An action guesses `x = 1` over committed `0`, and the guess reverts. The async memo over `x` re-runs on `0`.
+
+|                       | **A — built 2026-11-15 outside a guess** (F-9, A19 exc. 2)   | **B — the `#3427` pin, kept for the guess case**  |
+| --------------------- | ------------------------------------------------------------ | ------------------------------------------------- |
+| the re-run's question | the committed one again: a quiet re-ask, `isPending` `false` | a new question: `isPending` `true` until it lands |
+
+**Where the record leans.** F-9 reads as A everywhere: a pass that read only committed values asks the committed question. The build applies A to mainline writes that net back (D-8, K1/K1b) but keeps B under a guess, a lane or an unlinked (revived) node, because `#3427` pins B there.
+
+**Answer format that is enough:** `Q-8 A` or `Q-8 B`.
+
+### Q-9. A write during a first load: held alike through a memo? (from Milo's K2, 2026-11-15)
+
+`s` and `A = fetch(s)` are shown, with `A` either read directly or through `M = createMemo(() => A())`. While `A`'s first load is still out, `s := 1`. Today the screen shows `s = 0` (held) on the direct read, and `s = 1` through the memo.
+
+**Where the record leans.** F-1 says the shape of the graph never changes a screen, so the two must agree. F-2's wording says the write is held behind the first load, so the direct read (`s = 0`) is right and the memo path is the bug. K2 stays an `it.fails` pin until this is confirmed.
+
+**Answer format that is enough:** `Q-9 held` (both show `s = 0`) or a line.
+
 ---
 
 ## U. Ruled, not built — confirm the ruling stands, and whether it is for 2.0

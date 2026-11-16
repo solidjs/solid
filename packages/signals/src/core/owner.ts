@@ -126,11 +126,11 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
         schedule();
     }
   }
-  let child = zombie ? node._x!._pendingFirstChild : node._firstChild;
+  // Typed as a computed so the loop needs no cast alias (the minifier keeps one).
+  let child = (zombie ? node._x!._pendingFirstChild : node._firstChild) as Computed<unknown> | null;
   if (zombie) node._x!._pendingFirstChild = null;
   else node._firstChild = null;
   while (child) {
-    const n = child as Computed<unknown>;
     // Owner teardown is death regardless of the child's own lifecycle
     // (#3024): strip AUTO_DISPOSE so a post-disposal read freezes at the
     // last committed value instead of reawakening in a torn-down tree.
@@ -138,7 +138,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // disposeChildren call early-returns on REACTIVE_DISPOSED) die too.
     // Only unobserved()'s own node keeps its dormancy — it is never in
     // this loop; its children are rebuilt fresh on reawaken.
-    n._config &= ~CONFIG_AUTO_DISPOSE;
+    child._config &= ~CONFIG_AUTO_DISPOSE;
     // Heap removal must not be gated on `_deps`: a dependency-free
     // computation queued by refresh() has a null dep list but still sits in
     // the dirty heap, and left there the post-disposal flush recomputes it —
@@ -146,8 +146,8 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // comes back to life (post-unmount runs, leaked cleanups, #2983).
     // deleteFromHeap self-guards on the in-heap flags (and tolerates plain
     // Owners, whose _flags is undefined), so no gate here.
-    deleteFromHeap(n, dirtyQueue);
-    clearDeps(n);
+    deleteFromHeap(child, dirtyQueue);
+    clearDeps(child);
     // The chain is detached above so a node a cleanup links mid-drain lands
     // on the fresh head and survives. Pointing each drained child's prev at
     // itself routes its later splice onto the detached chain, never the head,
@@ -158,7 +158,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // itself out of the detached chain, and a cleanup may then have linked
     // it at the fresh head, which rewrote the `_nextSibling` a pre-read
     // would still be holding.
-    child = child._nextSibling;
+    child = child._nextSibling as Computed<unknown> | null;
   }
   if (!zombie) node._childCount = 0;
   // O(1) splice out of parent's chain on individual dispose. Skipped during
@@ -237,8 +237,7 @@ function runDisposal(node: Owner, zombie?: boolean): void {
   if (__DEV__) exitDisposal();
 }
 
-function childId(owner: Owner, consume: boolean): string {
-  let counter: Owner = owner;
+function childId(counter: Owner, consume: boolean): string {
   while (counter._config & CONFIG_TRANSPARENT && counter._parent) counter = counter._parent;
   if (counter.id != null)
     return formatId(counter.id, consume ? counter._childCount++ : counter._childCount);

@@ -1,6 +1,7 @@
 {
   "prod": {
     "_acted": "nt",
+    "_aheadError": "Ft",
     "_armLane": "B",
     "_armed": "h",
     "_asked": "dn",
@@ -148,6 +149,7 @@
   },
   "observe": {
     "_acted": "nt",
+    "_aheadError": "ir",
     "_armLane": "B",
     "_armed": "h",
     "_asked": "dn",

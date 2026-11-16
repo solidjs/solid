@@ -18,7 +18,9 @@ import {
   NOT_PENDING,
   CONFIG_HAS_SNAPSHOT,
   REACTIVE_CHECK,
+  REACTIVE_OWNER_READS,
   REACTIVE_DIRTY,
+  REACTIVE_IN_HEAP,
   REACTIVE_DISPOSED,
   REACTIVE_FRAME_READ,
   REACTIVE_LANE_DIRTY,
@@ -52,7 +54,7 @@ import {
   type DiagnosticSubject
 } from "./dev.js";
 import { sweepDormant, trimStaleDeps } from "./graph.js";
-import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
+import { deleteFromHeap, enqueueSub, markNode, runHeap, type Heap } from "./heap.js";
 import { devCheckQuiescent } from "./invariants.js";
 import { rethrowCleanupError } from "./owner.js";
 import type { Computed, Owner, Signal } from "./types.js";
@@ -218,6 +220,13 @@ export let attachHook: ((node: Computed<any>) => boolean) | null = null;
 export let holdStagingHook:
   | ((c: Computed<any>, el?: Signal<any> | Computed<any>) => unknown)
   | null = null;
+/** D-8 (verdict engine), at the flush: the readers a tick netting to its
+ * starting value woke are let go (verdict.ts `revert`). */
+export let revertHook: (() => void) | null = null;
+/** Verdict engine, a pass's head (D-22, D-41: the held error `latest` keeps
+ * showing) and, with `tail`, its end
+ * (A19 exc. 2: whether it asked the committed question again). */
+export let passHook: ((el: Computed<any>, tail?: 1) => unknown) | null = null;
 export function installVerdictHooks(
   observeFlight: NonNullable<typeof observeFlightHook>,
   holdWork: NonNullable<typeof holdWorkHook>,
@@ -226,8 +235,12 @@ export function installVerdictHooks(
   attach: NonNullable<typeof attachHook>,
   holdStaging: NonNullable<typeof holdStagingHook>,
   adopt: NonNullable<typeof laneAdoptHook>,
-  r5: NonNullable<typeof r5Hook>
+  r5: NonNullable<typeof r5Hook>,
+  revert: NonNullable<typeof revertHook>,
+  pass: NonNullable<typeof passHook>
 ): void {
+  revertHook = revert;
+  passHook = pass;
   observeFlightHook = observeFlight;
   holdWorkHook = holdWork;
   stageMarkHook = stageMark;
@@ -642,7 +655,7 @@ function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boole
  * everything under it, so a reader there is not on screen and holds
  * nothing — boundaries.ts). */
 function onScreen(r: Computed<any>, t: Transaction): boolean {
-  return !(r._flags & REACTIVE_ZOMBIE && removalStagedBy(r, t)) && !hiddenHook?.(r);
+  return !hiddenHook?.(r) && !(r._flags & REACTIVE_ZOMBIE && removalStagedBy(r, t));
 }
 /** A15 (#3463): a reader whose removal is staged — a zombie, parked by a
  * pass awaiting its commit — is still on screen and live for every hold,
@@ -650,9 +663,8 @@ function onScreen(r: Computed<any>, t: Transaction): boolean {
  * (done, and the commit disposes it; not done, and it stays parked). The
  * staging transaction is the one holding the pass that parked the frame:
  * the nearest non-zombie ancestor. */
-function removalStagedBy(r: Computed<any>, t: Transaction): boolean {
-  let o: Owner | null = r;
-  while ((o as any)?._flags & REACTIVE_ZOMBIE) o = o!._parent;
+function removalStagedBy(o: any, t: Transaction): boolean {
+  while (o?._flags & REACTIVE_ZOMBIE) o = o._parent;
   return ((o?._config as number) & CONFIG_HELD &&
     (o as any)._x?._transaction != null &&
     txOf(o as any) === resolveTx(t)) as boolean;
@@ -1033,6 +1045,7 @@ export class GlobalQueue implements IQueue {
       // recomputed; late subscribers (an effect reading a swept memo this
       // flush) revive it, which is the pay-for-use contract.
       sweepDormant();
+      if (revertHook) revertHook();
       runHeap(dirtyQueue, GlobalQueue._update);
       this.settle();
       clock++;
@@ -1434,6 +1447,8 @@ function append<T>(a: T[], b: T[]): void {
 
 /** Nodes staged this flush (`_pendingValue` set), committed at its end. */
 export const pendingNodes: Signal<any>[] = [];
+/** Held slots rewritten since the last flush, with the verdict engine (D-8: `revertHook`). */
+export const heldRewrites: Signal<any>[] = [];
 
 /** Passes that read a staging of this flush as the screen — lane work
  * (core.ts `stagedRead`), a verdict reader before the frame's verdict
@@ -1497,13 +1512,20 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
     // pass either re-reads them fresh or trims them), and neither does the
     // tail link: it is the read IN FLIGHT — read() links before it pulls, so
     // this very commit is what that read returns.
-    if (sub._flags & REACTIVE_RECOMPUTING_DEPS && s._gen === sub._depGen && s !== sub._depsTail)
+    // A signal's read returned before any write to it — the pass's own
+    // owned write to what it just read is a missed wake too (F-10).
+    if (
+      sub._flags & REACTIVE_RECOMPUTING_DEPS &&
+      s._gen === sub._depGen &&
+      (s !== sub._depsTail || !(node as Computed<any>)._fn)
+    )
       sub._flags |= REACTIVE_MISSED_WAKE;
     if (hasSnapshot && sub._config & CONFIG_IN_SNAPSHOT_SCOPE) {
       sub._flags |= REACTIVE_SNAPSHOT_STALE;
       continue;
     }
     enqueueSub(sub);
+    if (sub._flags & REACTIVE_OWNER_READS) markNode(sub._parent as Computed<any>, REACTIVE_CHECK);
   }
   if (__OBSERVE__ && fanOut >= GRAPH_SIZE_WARN_AT) noteFanOut(node, fanOut);
 }
@@ -1593,14 +1615,21 @@ export function applyStaged(n: Signal<any>): unknown {
   );
 }
 
-export function commitPendingNode(n: Signal<any>): void {
-  const c = n as Partial<Computed<unknown>>;
+function superseded(n: Computed<unknown>): boolean {
+  return (
+    !(n._statusFlags & STATUS_UNINITIALIZED) &&
+    !!n._x?._inFlight &&
+    !n._x._reask &&
+    ((n._pendingValue = NOT_PENDING), true)
+  );
+}
+export function commitPendingNode(n: Signal<any> & Partial<Computed<unknown>>): void {
   // L2: the commit is where a pass, held or not, stops being uncommitted —
   // unless it has no answer yet. A pass still in flight (pending, nothing
   // staged) stays uncommitted: a re-pass disposes its children on the spot,
   // and the frame it parked stays the frame until a pass of this node
   // commits a value.
-  if (!c._fn) {
+  if (!n._fn) {
     n._config &= ~(CONFIG_STAGED | CONFIG_HELD);
     applyStaged(n);
     return;
@@ -1608,10 +1637,17 @@ export function commitPendingNode(n: Signal<any>): void {
   // Computeds only from here (`_statusFlags` is not a signal field). A
   // commit beneath a flight publishes its inputs (A15 reveal corollary,
   // #3305): a reveal of it must observe, not show the pre-flight value.
-  const inFlight = n._pendingValue === NOT_PENDING && (c._statusFlags! & STATUS_PENDING) !== 0;
+  // A staged answer to a question a later pass of this hold replaced, its
+  // own flight up for the new one, is not the frame's: the hold lands on the
+  // answer to its own question (F-2, 2026-11-12) — the node stays in flight
+  // on the committed value, and the stale staging goes.
+  // (A cold helper: inline, the arm cost the commit loop its inlining.)
+  const inFlight =
+    (n._statusFlags! & STATUS_PENDING) !== 0 &&
+    (n._pendingValue === NOT_PENDING || superseded(n as Computed<unknown>));
   const err = n._config & CONFIG_STAGED_ERROR;
   // An answer commits: the error it replaces leaves the display (D-41).
-  if (!inFlight && c._x) c._x._shownError = null;
+  if (!inFlight && n._x) n._x._shownError = null;
   n._config = inFlight
     ? (n._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_INPUTS_PUBLISHED
     : n._config &
@@ -1630,15 +1666,15 @@ export function commitPendingNode(n: Signal<any>): void {
     const e = n._pendingValue;
     n._pendingValue = NOT_PENDING;
     n._time = clock + 1;
-    notifyStatus(c as Computed<unknown>, STATUS_ERROR, e);
+    notifyStatus(n as Computed<unknown>, STATUS_ERROR, e);
   } else if (applyStaged(n)) {
     // A node born staged (recompute) initializes at this commit.
-    c._statusFlags! &= ~STATUS_UNINITIALIZED;
+    n._statusFlags! &= ~STATUS_UNINITIALIZED;
     // A quiet re-ask's classification survives its landing and dies with
     // the landed value's commit (A19 exc. 2, #3178): verdict-quiet through
     // the reveal. (The sweep of a node still in flight is not a landing.)
     // The A28 stash goes with it.
-    if (c._x != null) ((c._x._reask = false), (c._x._flushed = NOT_PENDING));
+    if (n._x != null) ((n._x._reask = false), (n._x._flushed = NOT_PENDING));
     // An effect with a staged value was born held (L2): its first run is
     // this commit's, not its creation's (A29) — queue it now.
     if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) queueEffectRun(n);
@@ -1646,24 +1682,24 @@ export function commitPendingNode(n: Signal<any>): void {
   // The committed value is the first observable answer for a loading-window
   // node — the window closes here, not at compute time (#2990). Unconditional
   // store to an always-present computed slot.
-  c._loading = false;
-  c._flags! &= ~REACTIVE_MANUAL_WRITE;
+  n._loading = false;
+  n._flags! &= ~REACTIVE_MANUAL_WRITE;
   // The dependencies of the pass that produced the value are the frame's now:
   // the previous frame's tail goes (A30, #3410; `recompute` left it for a
   // staged pass). Only after a clean pass: `_error` is cleared by a clean
   // pass or by the node's own landing (whose pass was clean), so a set
   // `_error` means the last pass threw, kept its full list, and `_depsTail`
   // marks where it stopped.
-  if (c._x?._error == null) trimStaleDeps(c as Computed<unknown>);
-  if (!(c._statusFlags! & STATUS_PENDING)) c._statusFlags! &= ~STATUS_UNINITIALIZED;
+  if (n._x?._error == null) trimStaleDeps(n as Computed<unknown>);
+  if (!(n._statusFlags! & STATUS_PENDING)) n._statusFlags! &= ~STATUS_UNINITIALIZED;
   // L2: the children this commit publishes are the frame's now — the frame
   // they replace, parked by the pass (`recompute`), goes.
   if (
     !inFlight &&
-    c._x != null &&
-    (c._x._pendingFirstChild !== null || c._x._pendingDisposal !== null)
+    n._x != null &&
+    (n._x._pendingFirstChild !== null || n._x._pendingDisposal !== null)
   )
-    GlobalQueue._dispose(c as Computed<unknown>, false, true);
+    GlobalQueue._dispose(n as Computed<unknown>, false, true);
 }
 
 function commitPendingNodes() {
