@@ -437,7 +437,7 @@ export function notifyOptimisticWrites(
           (g.borrowed ??= new Set()).add(key);
     }
   if (structural && isArr) {
-    const rows = (pb as any[]).map(unwrapValue);
+    const rows = (pb as any[]).map(arrangementRow, t._fam!);
     // The keys of the view the setter saw that are not the guess's own
     // rows, which a re-base over another truth takes from that truth
     // (`_laneRebase`): the rows the setter removed, which it never brings
@@ -488,6 +488,14 @@ export function notifyOptimisticWrites(
 }
 
 type KeyFn = (item: any) => any;
+
+// A borrowed row must keep following its source through a re-base. Unwrapping
+// a foreign proxy here would retain its old backing after that source adopts
+// a new answer (#4931). Local rows still use the family's raw identity.
+// (`this`: the family, as `rows.map(arrangementRow, fam)`.)
+function arrangementRow(this: StoreFamily, row: any): any {
+  return row?.[$TARGET]?._fam !== this ? row : unwrapValue(row);
+}
 
 /** Two rows of a keyed list's arrangement, by identity — by key when the
  * family has one. */
@@ -711,7 +719,7 @@ GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
   // answer now; its work reads that question's hold as the hold's own
   // flush does (core.ts `frameRead`, F-1, #4536).
   if (el.g === null) txOf(el).over = t._fam!.node!._x!._transaction!;
-  const guessed: any[] = (el.g ??= guess.map(unwrapValue));
+  const guessed: any[] = (el.g ??= guess.map(arrangementRow, t._fam!));
   for (let i = 0; i < guessed.length; i++) {
     const g = guessed[i];
     const k = isWrappable(g) ? keyFn(g) : undefined;
