@@ -79,7 +79,27 @@ function walk(
   visited: Set<object>
 ): void {
   if (!GlobalQueue._storeWrappable!(value)) return;
-  const t: StoreTarget | undefined = value[$TARGET] ?? lookupTarget(value, fam);
+  let t: StoreTarget | undefined = value[$TARGET];
+  // Another store's proxy the record holds (§7b): the mark covers this
+  // store's view of it — the chained target, keyed by that proxy — and never
+  // that store's own records: a derived store's work cannot change its
+  // input's data (#4914). Its children are walked as that store's proxies,
+  // the identities this store's chained children are keyed by.
+  if (t !== undefined && fam !== null && t._fam !== fam && t.px === value) {
+    if (visited.has(value)) return;
+    visited.add(value);
+    entry._scope.add(value);
+    const ct = lookupTarget(value, fam);
+    if (ct !== undefined) nodesOf(ct, found);
+    const raw = t.pb ?? t.v;
+    for (const k of Reflect.ownKeys(raw)) {
+      const v = Object.getOwnPropertyDescriptor(raw, k)!.value;
+      const ot = GlobalQueue._storeWrappable!(v) ? lookupTarget(v, t._fam) : undefined;
+      if (ot !== undefined) walk(ot.px, entry, found, fam, visited);
+    }
+    return;
+  }
+  t ??= lookupTarget(value, fam);
   let raw: Record<PropertyKey, any> = t !== undefined ? (t.pb ?? t.v) : value;
   if (visited.has(raw)) return;
   visited.add(raw);
@@ -88,16 +108,7 @@ function walk(
     if (t.pb !== null) entry._scope.add(t.v);
     // The writer's view: the tick's own unflushed guesses are in motion too.
     if (optHooks !== null && t.o) raw = optHooks.view(t, raw, true);
-    const nodes = t.n;
-    if (nodes !== null)
-      for (const k of Reflect.ownKeys(nodes))
-        // Another mark's carrier is its own channel: counting it here would
-        // extend that scope's lifetime to this declaration's.
-        if (k !== $AFFECTS) found.push(nodes[k as any]);
-    const has = t.h;
-    if (has !== null) for (const k of Reflect.ownKeys(has)) found.push(has[k as any]);
-    if (t.k !== null) found.push(t.k);
-    if (t.dk !== null) found.push(t.dk);
+    nodesOf(t, found);
     fam = t._fam ?? fam;
   }
   for (const k of Reflect.ownKeys(raw))
@@ -105,6 +116,20 @@ function walk(
       const d = Object.getOwnPropertyDescriptor(raw, k)!;
       if (d.get === undefined) walk(d.value, entry, found, fam, visited);
     }
+}
+
+/** Every live node of `t` into `found`. */
+function nodesOf(t: StoreTarget, found: Marked[]): void {
+  const nodes = t.n;
+  if (nodes !== null)
+    for (const k of Reflect.ownKeys(nodes))
+      // Another mark's carrier is its own channel: counting it here would
+      // extend that scope's lifetime to this declaration's.
+      if (k !== $AFFECTS) found.push(nodes[k as any]);
+  const has = t.h;
+  if (has !== null) for (const k of Reflect.ownKeys(has)) found.push(has[k as any]);
+  if (t.k !== null) found.push(t.k);
+  if (t.dk !== null) found.push(t.dk);
 }
 
 /** A live scope covering `t`'s identity (keyed: for `key`). Chained
