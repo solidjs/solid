@@ -101,7 +101,12 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   // Q-D: a landing on an optimistic family is reconciled against the VIEW
   // — key matching from the arrangement the guesses made (R28), so a row
   // the guess added keeps its proxy when the server returns it.
-  const prevView = optHooks !== null && t.o ? optHooks.view(t, old) : old;
+  // A returned landing pairs its new objects with the row targets first, as
+  // the derive's draft does (store.ts `notifyWrites`): a guessed row the view
+  // no longer has (an answer that dropped it) keeps its target when the
+  // answer brings its key back (Q-D, F-11, #4907).
+  const prevView =
+    optHooks !== null && t.o ? (optHooks.pair(t, incoming), optHooks.view(t, old)) : old;
   const nextArr = Array.isArray(incoming);
   const shallow = t.s === true;
   adoptPB(t, incoming, false);
