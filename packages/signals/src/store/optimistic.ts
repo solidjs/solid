@@ -325,6 +325,14 @@ function patchEquals(this: any, a: any, b: any): boolean {
   return true;
 }
 
+/** A structural guess's row as written (`g`, `this` the family): a row
+ * another store lent stays that store's proxy, so a re-base over a new truth
+ * keeps the lent row following its own store's answers (§7b, #4931); its raw
+ * would be frozen at the lender's value when the guess was written. */
+function asWritten(this: StoreFamily | undefined, r: any): any {
+  return r?.[$TARGET]?._fam !== this ? r : unwrapValue(r);
+}
+
 // A keyed arrangement guess carries another guess's row verbatim when the
 // setter returned the view's row unchanged: the frame holds the view's row
 // object (the `echoes` normalization), and the row target — not the frame
@@ -437,7 +445,7 @@ export function notifyOptimisticWrites(
           (g.borrowed ??= new Set()).add(key);
     }
   if (structural && isArr) {
-    const rows = (pb as any[]).map(unwrapValue);
+    const rows = (pb as any[]).map(asWritten, t._fam);
     // The keys of the view the setter saw that are not the guess's own
     // rows, which a re-base over another truth takes from that truth
     // (`_laneRebase`): the rows the setter removed, which it never brings
@@ -711,17 +719,18 @@ GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
   // answer now; its work reads that question's hold as the hold's own
   // flush does (core.ts `frameRead`, F-1, #4536).
   if (el.g === null) txOf(el).over = t._fam!.node!._x!._transaction!;
-  const guessed: any[] = (el.g ??= guess.map(unwrapValue));
+  const guessed: any[] = (el.g ??= guess.map(asWritten, t._fam));
   for (let i = 0; i < guessed.length; i++) {
     const g = guessed[i];
-    const k = isWrappable(g) ? keyFn(g) : undefined;
+    const u = unwrapValue(g);
+    const k = isWrappable(u) ? keyFn(u) : undefined;
     const tr = k !== undefined ? byKey.get(k) : undefined;
     if (tr !== undefined) {
       // The truth's row under the guessed one's key: the guessed row's
       // target adopts it (the same proxy from here; its leaves tell its
       // readers what changed), as the derive's draft pairs new rows under
       // guessed ones (`pairRows`).
-      const gt = isWrappable(g) ? lookupTarget(unwrapValue(g), t._fam!) : undefined;
+      const gt = isWrappable(u) ? lookupTarget(u, t._fam!) : undefined;
       if (gt !== undefined && lookupTarget(tr, t._fam!) === undefined)
         reconcileState(tr, gt.px, keyFn, true);
       rows.push(tr);
