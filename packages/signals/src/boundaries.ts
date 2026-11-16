@@ -183,6 +183,11 @@ const behindError = (b: Boundary | null): boolean =>
 const isCollecting = (b: Boundary): boolean =>
   b._type === STATUS_ERROR || !b._initialized || b._armed || behindError(b._parent);
 
+/** The nearest loading boundary at or above `b` catches what is pending
+ * (#4926). */
+const freshAbove = (b: Boundary | null): boolean =>
+  !!b && (b._type & STATUS_PENDING ? isCollecting(b) : freshAbove(b._parent));
+
 /** The statuses that keep reader `r` of `b`: `b`'s own and pending — and,
  * for a loading boundary behind an error fallback, the error of a reader
  * directly under it (an error boundary between them shows that error
@@ -870,9 +875,13 @@ function createBoundary<T>(
           record(b, tree);
         }
         // An error boundary on its fallback is the display of everything
-        // under it (F-3, F-12): a retry pending there keeps the fallback and
-        // holds nothing outside it — the recovery re-derives this pass.
-        if (status === STATUS_PENDING && b._fallback && type === STATUS_ERROR) return fallback(b);
+        // under it (F-3, F-12): a retry pending there (an error returned
+        // above, so this status is a pending) keeps the fallback and
+        // holds nothing outside it — the recovery re-derives this pass. Not
+        // when the loading boundary above has not shown content (fresh, or
+        // behind an error fallback, #4627): this fallback was never on
+        // screen, and that boundary catches the pending (F-4, #4926).
+        if (type === STATUS_ERROR && b._fallback && !freshAbove(b)) return fallback(b);
         // A pending passes an error boundary by (A6); an error, a loading
         // one; a loading boundary showing content forwards its pending.
         throw tree._x!._error;
