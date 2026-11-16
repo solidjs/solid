@@ -633,13 +633,14 @@ function put(t: Target, node: Signal<any>, v: any): void {
       joinFuture(txOf(node));
   }
 }
-function write(t: Target, key: PropertyKey, v: any): void {
+// `cur`: the caller's draft read of the key (`curOf`), on a plain store.
+function write(t: Target, key: PropertyKey, v: any, cur: any = write): void {
   // No write has moved this target off its raw: every node holds the seed.
   const n0 = t.n?.[key];
   if ((!t.w || n0 === undefined) && Object.is(seed(t, key), v)) return;
   if (v === ABSENT) t.gone = true;
   const node = n0 ?? nodeOf(t, key);
-  let prev = peek(node, t);
+  let prev = cur !== write ? cur : peek(node, t);
   if (prev === DELEGATE) prev = innerValue(t, key);
   // A guess of an object the truth beneath echoes is that object (#3672):
   // its end compares against the truth's live value, not a copy's identity.
@@ -933,7 +934,7 @@ const BASE: ProxyHandler<any> = {
     if (t._fam !== null) pullFamily(t);
     if (sym && key === $TRACK) return (track(t), undefined);
     let node = t.n?.[key];
-    const tracked = !inDraft(t) && getObserver() !== null;
+    const tracked = tracking && context !== null && !inDraft(t);
     if (
       __DEV__ &&
       asyncTailFlights !== 0 &&
@@ -1702,7 +1703,13 @@ function reconcileTarget(
           key,
           new Box({ value: nv, writable: true, enumerable: false, configurable: true })
         );
-    } else write(t, key, merge(t, next, map, keyFn, pv === ABSENT ? undefined : pv, nv));
+    } else
+      write(
+        t,
+        key,
+        merge(t, next, map, keyFn, pv === ABSENT ? undefined : pv, nv),
+        t._fam === null ? pv : write
+      );
   }
   const np = protoOf(next);
   if (t.c === null && np !== protoNow(t)) (put(t, protoNode(t), () => np), (t.w = true));
