@@ -1616,14 +1616,13 @@ export function applyStaged(n: Signal<any>): unknown {
   );
 }
 
-export function commitPendingNode(n: Signal<any>): void {
-  const c = n as Partial<Computed<unknown>>;
+export function commitPendingNode(n: Signal<any> & Partial<Computed<unknown>>): void {
   // L2: the commit is where a pass, held or not, stops being uncommitted —
   // unless it has no answer yet. A pass still in flight (pending, nothing
   // staged) stays uncommitted: a re-pass disposes its children on the spot,
   // and the frame it parked stays the frame until a pass of this node
   // commits a value.
-  if (!c._fn) {
+  if (!n._fn) {
     n._config &= ~(CONFIG_STAGED | CONFIG_HELD);
     applyStaged(n);
     return;
@@ -1636,15 +1635,15 @@ export function commitPendingNode(n: Signal<any>): void {
   // answer to its own question (F-2, 2026-11-12) — the node stays in flight
   // on the committed value, and the stale staging goes.
   if (
-    (c._statusFlags! & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
-    c._x?._inFlight &&
-    !c._x._reask
+    (n._statusFlags! & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
+    n._x?._inFlight &&
+    !n._x._reask
   )
     n._pendingValue = NOT_PENDING;
-  const inFlight = n._pendingValue === NOT_PENDING && (c._statusFlags! & STATUS_PENDING) !== 0;
+  const inFlight = n._pendingValue === NOT_PENDING && (n._statusFlags! & STATUS_PENDING) !== 0;
   const err = n._config & CONFIG_STAGED_ERROR;
   // An answer commits: the error it replaces leaves the display (D-41).
-  if (!inFlight && c._x) c._x._shownError = null;
+  if (!inFlight && n._x) n._x._shownError = null;
   n._config = inFlight
     ? (n._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_INPUTS_PUBLISHED
     : n._config &
@@ -1663,15 +1662,15 @@ export function commitPendingNode(n: Signal<any>): void {
     const e = n._pendingValue;
     n._pendingValue = NOT_PENDING;
     n._time = clock + 1;
-    notifyStatus(c as Computed<unknown>, STATUS_ERROR, e);
+    notifyStatus(n as Computed<unknown>, STATUS_ERROR, e);
   } else if (applyStaged(n)) {
     // A node born staged (recompute) initializes at this commit.
-    c._statusFlags! &= ~STATUS_UNINITIALIZED;
+    n._statusFlags! &= ~STATUS_UNINITIALIZED;
     // A quiet re-ask's classification survives its landing and dies with
     // the landed value's commit (A19 exc. 2, #3178): verdict-quiet through
     // the reveal. (The sweep of a node still in flight is not a landing.)
     // The A28 stash goes with it.
-    if (c._x != null) ((c._x._reask = false), (c._x._flushed = NOT_PENDING));
+    if (n._x != null) ((n._x._reask = false), (n._x._flushed = NOT_PENDING));
     // An effect with a staged value was born held (L2): its first run is
     // this commit's, not its creation's (A29) — queue it now.
     if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) queueEffectRun(n);
@@ -1679,24 +1678,24 @@ export function commitPendingNode(n: Signal<any>): void {
   // The committed value is the first observable answer for a loading-window
   // node — the window closes here, not at compute time (#2990). Unconditional
   // store to an always-present computed slot.
-  c._loading = false;
-  c._flags! &= ~REACTIVE_MANUAL_WRITE;
+  n._loading = false;
+  n._flags! &= ~REACTIVE_MANUAL_WRITE;
   // The dependencies of the pass that produced the value are the frame's now:
   // the previous frame's tail goes (A30, #3410; `recompute` left it for a
   // staged pass). Only after a clean pass: `_error` is cleared by a clean
   // pass or by the node's own landing (whose pass was clean), so a set
   // `_error` means the last pass threw, kept its full list, and `_depsTail`
   // marks where it stopped.
-  if (c._x?._error == null) trimStaleDeps(c as Computed<unknown>);
-  if (!(c._statusFlags! & STATUS_PENDING)) c._statusFlags! &= ~STATUS_UNINITIALIZED;
+  if (n._x?._error == null) trimStaleDeps(n as Computed<unknown>);
+  if (!(n._statusFlags! & STATUS_PENDING)) n._statusFlags! &= ~STATUS_UNINITIALIZED;
   // L2: the children this commit publishes are the frame's now — the frame
   // they replace, parked by the pass (`recompute`), goes.
   if (
     !inFlight &&
-    c._x != null &&
-    (c._x._pendingFirstChild !== null || c._x._pendingDisposal !== null)
+    n._x != null &&
+    (n._x._pendingFirstChild !== null || n._x._pendingDisposal !== null)
   )
-    GlobalQueue._dispose(c as Computed<unknown>, false, true);
+    GlobalQueue._dispose(n as Computed<unknown>, false, true);
 }
 
 function commitPendingNodes() {
