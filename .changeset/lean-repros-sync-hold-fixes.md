@@ -1,5 +1,6 @@
 ---
 "@solidjs/signals": patch
+"solid-js": patch
 ---
 
 Fix the reactivity bugs in Milo's `lean.test.ts` repros (21 of 25; the other four stay pinned as open questions or as rulings not built yet):
@@ -9,3 +10,5 @@ Fix the reactivity bugs in Milo's `lean.test.ts` repros (21 of 25; the other fou
 - `latest()` keeps showing a held error, or a held first answer, while the next question is in flight (D-22, D-41; T2, K3).
 - A write lands while an `<Errored>` shows its fallback over a pending read (F-3, F-12; E1).
 - A hold's commit lands each async node on the answer to its own question, and a user effect waits for the end of the hold: a run owed for a superseded pass is dropped (F-1, F-2; T1).
+
+Size offsets: `solid-js` exports `createRoot`, `createSignal`, `createMemo`, `createEffect`, `createRenderEffect` and `createErrorBoundary` as live bindings that `enableHydration()` reassigns, instead of wrappers that spread their arguments into the hydrated or core function. A client-only app calls the core function directly.

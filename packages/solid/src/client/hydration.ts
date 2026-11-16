@@ -466,12 +466,6 @@ let _doneValue = false;
 // (no hydrate() import), the hydrated* functions and their dependencies
 // (MockPromise, subFetch) are eliminated by the bundler.
 
-let _createRoot: Function | undefined;
-let _createMemo: Function | undefined;
-let _createSignal: Function | undefined;
-let _createErrorBoundary: Function | undefined;
-let _createRenderEffect: Function | undefined;
-let _createEffect: Function | undefined;
 let _createLoadingBoundary: Function | undefined;
 // The store/optimistic families get GENERIC adapters instead of one slot per
 // primitive: the adapter is parameterized by the core implementation, and
@@ -1559,18 +1553,18 @@ function lazyHydrationLookup<T>(
 }
 
 export function enableHydration() {
-  _createRoot = hydratedCreateRoot;
-  _createMemo = hydratedCreateMemo;
-  _createSignal = hydratedCreateSignal;
-  _createErrorBoundary = hydratedCreateErrorBoundary;
+  createRoot = hydratedCreateRoot as any;
+  createMemo = hydratedCreateMemo as any;
+  createSignal = hydratedCreateSignal as any;
+  createErrorBoundary = hydratedCreateErrorBoundary as any;
   // Generic adapters only: nothing installed here references the store
   // engine (coreStore/coreOptimisticStore/coreProjection/coreOptimistic) —
   // the wrappers pass those in, so a hydrating app that never imports a
   // store primitive shakes the engine entirely.
   _hydrateSignalLike = hydrateSignalLike;
   _hydrateStoreLike = hydrateStoreLike;
-  _createRenderEffect = hydratedCreateRenderEffect;
-  _createEffect = hydratedCreateEffect;
+  createRenderEffect = hydratedCreateRenderEffect as any;
+  createEffect = hydratedCreateEffect as any;
   _createLoadingBoundary = hydratedCreateLoadingBoundary;
   _lazyHydrationLookup = lazyHydrationLookup;
   sharedConfig.getNextContextId = hydrationGetNextContextId;
@@ -1745,7 +1739,7 @@ export function enableServerComponentHydration() {
  *
  * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-memo
  */
-export const createMemo: {
+export let createMemo: {
   // Commit #0 (loadingValue) removes the uninitialized window: the accessor
   // never reads undefined — even for `ssrSource: "client"`, where the loading
   // value serves until the post-hydration compute lands — and `prev` is
@@ -1760,9 +1754,7 @@ export const createMemo: {
     compute: ComputeFunction<undefined | NoInfer<T>, T>,
     options?: HydrationMemoOptions<T>
   ): SourceAccessor<T>;
-} = ((...args: any[]) => {
-  return (_createMemo || coreMemo)(...args);
-}) as any;
+} = coreMemo as any;
 
 /**
  * Creates a simple reactive state with a getter and setter.
@@ -1804,7 +1796,7 @@ export const createMemo: {
  *
  * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-signal
  */
-export const createSignal: {
+export let createSignal: {
   <T>(): Signal<T | undefined>;
   <T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
   // Commit #0 (loadingValue): never undefined, `prev` is always T — see
@@ -1817,9 +1809,7 @@ export const createSignal: {
     fn: ComputeFunction<undefined | NoInfer<T>, T>,
     options?: HydrationSignalOptions<T>
   ): Signal<T>;
-} = ((...args: any[]) => {
-  return (_createSignal || coreSignal)(...args);
-}) as any;
+} = coreSignal as any;
 
 /**
  * Internal primitive that backs the `<Errored>` flow control.
@@ -1837,8 +1827,7 @@ export const createSignal: {
  *
  * @internal
  */
-export const createErrorBoundary = ((...args: any[]) =>
-  (_createErrorBoundary || coreErrorBoundary)(...args)) as <T, U>(
+export let createErrorBoundary = coreErrorBoundary as <T, U>(
   fn: () => T,
   fallback: (error: Accessor<unknown>, reset: () => void) => U
 ) => Accessor<T | U>;
@@ -2169,8 +2158,7 @@ export const createOptimisticStore: {
  *
  * @description https://v2.solidjs.com/reference/solid-js/advanced/owner-introspection/create-root
  */
-export const createRoot: typeof coreRoot = ((...args: any[]) =>
-  (_createRoot || coreRoot)(...args)) as typeof coreRoot;
+export let createRoot: typeof coreRoot = coreRoot;
 
 /**
  * Creates a reactive computation that runs during the render phase as
@@ -2209,8 +2197,7 @@ export const createRoot: typeof coreRoot = ((...args: any[]) =>
  *
  * @description https://v2.solidjs.com/reference/solid-js/advanced/specialized-reactivity/create-render-effect
  */
-export const createRenderEffect: typeof coreRenderEffect = ((...args: any[]) =>
-  (_createRenderEffect || coreRenderEffect)(...args)) as typeof coreRenderEffect;
+export let createRenderEffect: typeof coreRenderEffect = coreRenderEffect;
 
 /**
  * Creates a reactive effect with **separate compute and effect phases**.
@@ -2270,8 +2257,7 @@ export const createRenderEffect: typeof coreRenderEffect = ((...args: any[]) =>
  *
  * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-effect
  */
-export const createEffect: typeof coreEffect = ((...args: any[]) =>
-  (_createEffect || coreEffect)(...args)) as typeof coreEffect;
+export let createEffect: typeof coreEffect = coreEffect;
 
 // === Loading component ===
 function createBoundaryTrigger(): () => void {
