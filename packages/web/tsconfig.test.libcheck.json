@@ -1,0 +1,9 @@
+{
+  // The published declarations as a consumer with `skipLibCheck: false`
+  // reads them: test/published-types.libcheck.ts imports every entry, and the
+  // program checks each declaration file it reaches (a name imported from
+  // `solid-js` that its declarations strip, rc.22's `heldRead`).
+  "extends": "../../tsconfig.test.json",
+  "compilerOptions": { "skipLibCheck": false, "types": [] },
+  "include": ["./test/published-types.libcheck.ts"]
+}

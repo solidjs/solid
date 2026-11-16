@@ -21,12 +21,12 @@ import {
   OBSERVE,
   strictReadTracked,
   setSwapHook,
-  isHidden,
-  heldRead
+  isHidden
 } from "solid-js";
 import type { ClientErrorHook, Owner } from "solid-js";
 import {
   sharedConfig,
+  heldRead,
   enableServerComponentHydration,
   viewOf,
   OmitView,

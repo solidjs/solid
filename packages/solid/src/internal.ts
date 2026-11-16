@@ -127,6 +127,13 @@ export type { ServerErrorSite, ServerErrorHook } from "solid-js";
 export const creationStamp: () => number = core.creationStamp;
 
 /**
+ * Compiler output (`@solidjs/web`'s grouped effects, #4872): truthy while the
+ * running pass is a stale reader of an open hold, so an unchanged stateful DOM
+ * prop is not written again. Server: `0`.
+ */
+export const heldRead: () => number = core.heldRead;
+
+/**
  * Client: set (or clear, `null`) a callback run before every signal or store
  * write lands — the server-components client's deferred hydration mounts
  * what it left unmounted. Server: no-op.
