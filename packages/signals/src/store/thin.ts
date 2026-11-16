@@ -1574,6 +1574,10 @@ function merge(
     return nv;
   }
   if (typeof nv !== "object" || nv === null) return nv;
+  // The source last merged into this row, re-sent and nothing written
+  // since: the row stays (the identity skip below, before its checks).
+  const pt0 = t._fam === null ? map.get(pv) : undefined;
+  if (pt0 !== undefined && pt0.sv === nv && !map.has(nv) && !resent(t, next, pv)) return pv;
   // A store inside a derive's value: the slot chains to it (#2864).
   if (t._fam !== null && isThin(nv) && nv[$THIN]._fam !== t._fam) return chainSlot(t, pv, nv);
   nv = unwrapThin(nv);
@@ -1646,9 +1650,11 @@ function reconcileTarget(
     let byKey: Map<any, any> | null = null;
     // The old rows' keys from the first mismatch on (`keyOf` once per row).
     let oldKeys: any[] | null = null;
+    let oldVals: any[] | null = null;
     for (let i = 0; i < next.length; i++) {
       const nv = next[i];
-      let pv = i < len ? curOf(t, i) : undefined;
+      const cur = i >= len ? ABSENT : oldVals !== null ? oldVals[i] : curOf(t, i);
+      let pv = i < len ? cur : undefined;
       // The same raw at the same slot, its row unmoved by a write: the
       // write would be a no-op and there is nothing below to diff.
       if (pv === nv && (typeof nv !== "object" || nv === null || !map.get(nv)?.w)) continue;
@@ -1673,8 +1679,9 @@ function reconcileTarget(
           // slot), so only the rows from `i` on can answer a later key.
           byKey = new Map();
           oldKeys = [];
+          oldVals = [];
           for (let j = i; j < len; j++) {
-            const p = j === i ? pv : curOf(t, j);
+            const p = (oldVals[j] = j === i ? cur : curOf(t, j));
             const k = keyOf(map, keyFn!, p);
             oldKeys[j] = k;
             if (k !== undefined && !byKey.has(k)) byKey.set(k, p);
@@ -1702,7 +1709,7 @@ function reconcileTarget(
         }
         pv = byKey.get(nk);
       }
-      write(t, i, merge(t, next, map, keyFn, pv, nv));
+      write(t, i, merge(t, next, map, keyFn, pv, nv), t._fam === null ? cur : write);
     }
     ((sentFor = sf), (sentSet = ss));
     for (let i = next.length; i < len; i++) write(t, i, ABSENT);
