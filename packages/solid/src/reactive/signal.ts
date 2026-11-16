@@ -385,7 +385,7 @@ export function createEffect<Next, Init>(
  *   options?: { name?: string }
  * ): (fn: () => void) => void;
  * ```
- * @param invalidated a function that is called when tracked function is invalidated.
+ * @param onInvalidate a function that is called when tracked function is invalidated.
  * @param options allows to set a name in dev mode for debugging purposes
  *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-reaction
@@ -785,11 +785,11 @@ export interface DeferredOptions<T> {
  * Creates a reactive computation that only runs and notifies the reactive context when the browser is idle
  * ```typescript
  * export function createDeferred<T>(
- *   fn: (v: T) => T,
+ *   source: () => T,
  *   options?: { timeoutMs?: number, name?: string, equals?: false | ((prev: T, next: T) => boolean) }
- * ): () => T);
+ * ): () => T;
  * ```
- * @param fn a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
+ * @param source the accessor whose value is deferred until the browser is idle
  * @param options allows to set the timeout in milliseconds, use a custom comparison function and set a name in dev mode for debugging purposes
  *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-deferred
