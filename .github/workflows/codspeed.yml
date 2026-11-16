@@ -21,7 +21,7 @@ concurrency:
 jobs:
   benchmarks:
     name: Run benchmarks (${{ matrix.lane }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # CodSpeed merges these results only when the jobs share one workflow.
     strategy:
       fail-fast: false
