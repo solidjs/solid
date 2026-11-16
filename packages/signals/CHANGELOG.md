@@ -1,5 +1,36 @@
 # @solidjs/signals
 
+## 2.0.0-rc.23
+
+### Patch Changes
+
+- 213c0af: fix(signals): `affects()` on a derived store no longer marks the input stores whose proxies it holds (#4914)
+- f2aba67: Keep rows borrowed from another optimistic store connected to their source when the destination rebases a pending arrangement.
+- cdf4542: fix(web): only a server function call made inside an action gets the default revalidation (#4913)
+
+  A non-GET call made while an action body runs (a core `action`, or a router `formAction`) is a mutation: it asks for single-flight collection, and its response reaches the flight consumers even with nothing folded, so a router revalidates every query. A call made anywhere else, such as a query's fetcher, no longer does, which stops the refetch loop that started in rc.22. Explicit `X-Revalidate` keys and redirects still reach the consumers wherever the call was made.
+
+- 55f2f88: fix(signals): an error boundary whose fallback was never on screen lets a pending retry through to the fresh loading boundary above it, instead of keeping a stale error (#4926)
+- 6c7f186: A reactive spread that evaluates to a falsy value (`{...(cond() && { k: 1 })}`) contributes no props, as `{}` does, on components and elements, on the client and the server (#4937). Since rc.9 it threw `Cannot use 'in' operator … in false` and halted reactivity: function sources were only checked for nullish values.
+- d9df504: An optimistic store's guess no longer answers a new question for a reader in another action's lane (#4929, F-6). After an archive action cleared the selection, selecting another card while a toggle's guess on the checklist store was still out remounted `<Loading on={selected()}>` with the store's "nothing selected" value (`0/0 done`) instead of its fallback: the region's readers read the archive's guessed cards store, so they ran in the archive's lane, and a lane reader was served the toggle's guess world. Such a reader now waits for the new question's answer, as a mainline reader of a target with no guess does.
+- eb31c86: Fix the reactivity bugs in Milo's `lean.test.ts` repros (21 of 25; the other four stay pinned as open questions or as rulings not built yet):
+  - Sync glitches: a stale CHECK no longer stops the next flush's marking (S0). A memo that reads its own child sees the updated value (S1). A queued child moves with its owner and no longer runs before the owner that disposes it (S3). Height adjustment no longer requeues an owner that reads its child (S2). A pass's owned write to a signal it just read is a missed wake (S4, F-10).
+  - A tick that nets back to its starting value (D-8) no longer asks async readers a new question. A pass that read only committed values asks the committed question again, which is a quiet re-ask (F-9, K1/K1b). `refresh()` no longer launders a held new question (K4).
+  - `latest()` keeps showing a held error, or a held first answer, while the next question is in flight (D-22, D-41; T2, K3).
+  - A write lands while an `<Errored>` shows its fallback over a pending read (F-3, F-12; E1).
+  - A hold's commit lands each async node on the answer to its own question, and a user effect waits for the end of the hold: a run owed for a superseded pass is dropped (F-1, F-2; T1).
+
+  Size offsets: `solid-js` exports `createRoot`, `createSignal` and `createRenderEffect` as live bindings that `enableHydration()` reassigns, instead of wrappers that spread their arguments into the hydrated or core function. A client-only app calls the core function directly.
+
+- 02ed8fb: A row moved into a keyed optimistic store before that store's first answer, then renamed there, shows the store's last answer once everything lands again (#4918, a regression from the #4907 fix). A returned answer was paired with a row lent by another store, which made that store's row stand in the slot, so later answers of this store went past it. A returned answer is reconciled against the rows on screen, which already include the lent row, so it now skips that pairing. A derive that writes its draft keeps it.
+- 2d7869d: fix(signals): a returned landing no longer reconciles its answer into a row another store lent, which made two keyed optimistic stores wait on each other and overflowed the stack in `reasks()` (#4928)
+- 16353ab: A keyed optimistic store whose derive returns its answer keeps a row's guess when the row leaves the answer and comes back while the guess's action is still out (#4907). A returned answer is reconciled by key against the rows on screen, and once an answer had dropped the row there was nothing to pair it with, so the row came back as a new row showing the server's value. A returned landing now pairs its new objects with the row targets first, the same way a derive that writes its draft already did.
+- f57cc89: `<Loading on={key}>` keeps its fallback when an action's optimistic guess re-derives content from a flight the key re-asked (#4927). Lane work served the flight's committed value keeps the node's pending (#4862). Two gaps let the fallback lift early and show the old key's content under the new heading:
+  - A derived store's pass settled its property readers on its own, even though core kept the derive pending. The family now settles only when core does.
+  - The served record was one global. A nested computation that ran inside the outer pass (a memo created or pulled mid-body) overwrote it, so the outer pass cleared its pending. The record is now kept per node.
+
+- 6f4f693: A declined guess reverts everywhere it is read while other actions are still out (#4932). A memo-fed heading over an optimistic store row kept showing a declined rename while the list beside it reverted: in one pass the heading read two holds (the re-asked list's and the rename's), and a reader was recorded only on the first hold it read, so the rename's landing never re-ran it. A reader is now re-run by every hold it read committed from.
+
 ## 2.0.0-rc.22
 
 ### Patch Changes
