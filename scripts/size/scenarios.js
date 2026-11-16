@@ -3181,7 +3181,8 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ ccfc7ea, size job 125848841075: #4653, #4655, #4657, #4659): 13.65 KB -> 13.73 KB, recorded minified 37,377 -> 37,563 B (+186 B), measured at 13,714 B brotli. The growth of #4653, #4655 and #4659 was accepted by the maintainer; #4657 and #4654 are size-neutral on the gated rows. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-10, over next @ b3731b0, size job 129684675089: #4734, #4735): 13.73 KB -> 13.77 KB, recorded minified 37,563 -> 37,611 B (+48 B), measured at 13,754 B brotli. #4734 (+29 B minified wherever mapArray is bundled) and #4735 (+46 B minified wherever the web runtime is bundled) were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // 2026-11-16 (#4908, Milo's lean.test.ts repros: sync glitches S0-S4, netted ticks, held user effects, T1/E1/K1; over next @ 221b5f9, measured locally with the native compiler, which matched CI's size check to the byte on this branch): 13.77 KB -> 13.81 KB, recorded minified unchanged at 37,611 B (measured 37,440 B), measured at 13,795 B brotli. Growth accepted by the maintainer (2026-11-16). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
-    limit: "13.81 KB",
+    // 2026-11-16 (#4926: an error boundary whose fallback was never on screen (the loading boundary above it fresh, or behind an error fallback) lets a pending through to that boundary instead of keeping its stale error; over next @ 93fa11a, measured locally): 13.81 KB -> 13.84 KB, recorded minified unchanged at 37,611 B (measured 37,593 B, +41 B), measured at 13,827 B brotli (+39 B, mostly layout: +40 B minified on every boundary page). Regression fix for #4908. Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
+    limit: "13.84 KB",
     capMinified: 37611,
     alias
   },
