@@ -224,7 +224,7 @@ export let holdStagingHook:
  * starting value woke are let go (verdict.ts `revert`). */
 export let revertHook: (() => void) | null = null;
 /** Verdict engine, a pass's head (D-22, D-41: the held error `latest` keeps
- * showing; returns whether the pass had sources) and, with `tail`, its end
+ * showing) and, with `tail`, its end
  * (A19 exc. 2: whether it asked the committed question again). */
 export let passHook: ((el: Computed<any>, tail?: 1) => unknown) | null = null;
 export function installVerdictHooks(

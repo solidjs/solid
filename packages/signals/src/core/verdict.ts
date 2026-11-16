@@ -1273,14 +1273,14 @@ function unwake(n: Signal<any>): void {
  * with no committed value. */
 function pass(el: Computed<any>, tail?: 1): boolean {
   if (!tail) {
-    // Written only when there is one to keep or clear: the field is not on
-    // the extension's literal, and adding it to every `_x` would change
-    // its shape on the hot path.
-    const held =
-      (el._config & (CONFIG_STAGED_ERROR | CONFIG_HELD)) === (CONFIG_STAGED_ERROR | CONFIG_HELD);
-    if (el._x && (held || el._x._aheadError !== undefined))
-      el._x._aheadError = held ? el._pendingValue : undefined;
-    return el._deps !== null;
+    // Called only when there is one to keep or clear (`recompute`): the
+    // field is not on the extension's literal, and writing it on every `_x`
+    // would change its shape on the hot path.
+    el._x!._aheadError =
+      (el._config & (CONFIG_STAGED_ERROR | CONFIG_HELD)) === (CONFIG_STAGED_ERROR | CONFIG_HELD)
+        ? el._pendingValue
+        : undefined;
+    return false;
   }
   if (guessing || passLane !== null || el._statusFlags & STATUS_UNINITIALIZED) return false;
   for (let d = el._deps; d !== null; d = d._nextDep) {

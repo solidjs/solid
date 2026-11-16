@@ -572,10 +572,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // An error a pass staged (D-41) is replaced by this pass's answer: a
     // value, a flight, or an error of its own (#4109, #4145).
     // A held one stays the newest answer `latest` shows while this pass's
-    // flight is up (D-22, D-41; verdict.ts `pass`), which also says whether
-    // the pass had sources (a first pass, a revived dormant node, did not:
-    // it asks no question its committed value answers).
-    if (passHook) linked = passHook(el);
+    // flight is up (D-22, D-41; verdict.ts `pass`). `linked`: whether the
+    // pass had sources (a first pass, a revived dormant node, did not: it
+    // asks no question its committed value answers).
+    if (passHook) {
+      linked = el._deps !== null;
+      // Only a node with a held error to keep, or one kept, pays the call.
+      if (el._x !== null && (el._config & CONFIG_STAGED_ERROR || el._x._aheadError !== undefined))
+        passHook(el);
+    }
     if (el._config & CONFIG_STAGED_ERROR) {
       el._pendingValue = NOT_PENDING;
       el._config ^= CONFIG_STAGED_ERROR;
