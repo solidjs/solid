@@ -548,7 +548,7 @@ export interface Dev {
   /**
    * The URL of `code`'s page in the docs — what the finding means and how
    * to fix it, one page per code
-   * (`https://v2.solidjs.com/reference/solid-js/diagnostics/<slug>`, slug =
+   * (`https://docs.solidjs.com/reference/solid-js/diagnostics/<slug>`, slug =
    * the code lowercased with `-` for `_`). The one place the URL is built:
    * the console footer prints it and the performance tracks' Insights link
    * (`learnMoreUrl`) reads it, so both name the same page. Dev-tier: it is
@@ -799,10 +799,8 @@ export function isSuppressed(entry: DiagnosticEvent): boolean {
 
 // The repair guide: the `reactivity-diagnostics` skill `solid-js` ships,
 // one page per code on the docs site. The slug is the code lowercased with
-// `_` → `-` (`STRICT_READ_UNTRACKED` → `strict-read-untracked`). The host
-// flips to docs.solidjs.com at stable (one search-and-replace, with the JSDoc
-// links).
-const GUIDE_URL = "https://v2.solidjs.com/reference/solid-js/diagnostics/";
+// `_` → `-` (`STRICT_READ_UNTRACKED` → `strict-read-untracked`).
+const GUIDE_URL = "https://docs.solidjs.com/reference/solid-js/diagnostics/";
 
 export const DEV: Dev = __DEV__
   ? {

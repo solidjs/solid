@@ -126,7 +126,7 @@ export interface Context<T> extends ContextProviderComponent<T> {
  * }
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/components-context/create-context
+ * @description https://docs.solidjs.com/reference/solid-js/components-context/create-context
  */
 export function createContext<T>(defaultValue?: T, options?: EffectOptions): Context<T> {
   const id = Symbol((options && options.name) || "");
@@ -185,7 +185,7 @@ export function createContext<T>(defaultValue?: T, options?: EffectOptions): Con
  * }
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/components-context/use-context
+ * @description https://docs.solidjs.com/reference/solid-js/components-context/use-context
  */
 export function useContext<T>(context: Context<T>): T {
   if (IS_DEV) checkForeignCopy();
@@ -212,7 +212,7 @@ export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => Resol
  * }
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/components-context/children
+ * @description https://docs.solidjs.com/reference/solid-js/components-context/children
  */
 export function children(fn: Accessor<SolidElement>): ChildrenReturn {
   // `fn` is the user's children expression — may resolve to async values, so

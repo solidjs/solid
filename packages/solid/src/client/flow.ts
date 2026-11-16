@@ -60,7 +60,7 @@ const narrowedError = (name: string): never => {
  * </For>
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/components-jsx/for
+ * @description https://docs.solidjs.com/reference/solid-js/components-jsx/for
  */
 export function For<T extends readonly any[], U extends SolidElement>(props: {
   each: T | undefined | null | false;
@@ -123,7 +123,7 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
  * </Repeat>
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/components-jsx/repeat
+ * @description https://docs.solidjs.com/reference/solid-js/components-jsx/repeat
  */
 export function Repeat<T extends SolidElement>(props: {
   count: number;
@@ -163,7 +163,7 @@ export function Repeat<T extends SolidElement>(props: {
  * </Show>
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/components-jsx/show
+ * @description https://docs.solidjs.com/reference/solid-js/components-jsx/show
  */
 export function Show<T>(props: {
   when: T | undefined | null | false;
@@ -281,7 +281,7 @@ type EvalConditions = readonly [number, unknown, Accessor<unknown>, AnyMatchProp
  * </Switch>
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/components-jsx/switch-and-match
+ * @description https://docs.solidjs.com/reference/solid-js/components-jsx/switch-and-match
  */
 export function Switch(props: { fallback?: SolidElement; children: SolidElement }): SolidElement {
   const chs = children(() => props.children);
@@ -397,7 +397,7 @@ export type AnyMatchProps<T> =
  * </Switch>
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/components-jsx/switch-and-match
+ * @description https://docs.solidjs.com/reference/solid-js/components-jsx/switch-and-match
  */
 export function Match<T>(props: {
   when: T | undefined | null | false;
@@ -437,7 +437,7 @@ export function Match<T>(props: AnyMatchProps<T>) {
  * </Errored>
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/components-jsx/errored
+ * @description https://docs.solidjs.com/reference/solid-js/components-jsx/errored
  */
 export function Errored(props: {
   fallback: SolidElement | ((err: ErrorAccessor, reset: () => void) => SolidElement);
@@ -525,7 +525,7 @@ export function Errored(props: {
  * </Loading>
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/components-jsx/loading
+ * @description https://docs.solidjs.com/reference/solid-js/components-jsx/loading
  */
 export function Loading(props: {
   fallback?: SolidElement;
@@ -584,7 +584,7 @@ export type RevealProps = {
  * </Reveal>
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/components-jsx/reveal
+ * @description https://docs.solidjs.com/reference/solid-js/components-jsx/reveal
  */
 export function Reveal(props: RevealProps): SolidElement {
   return createRevealOrder(() => props.children, {
