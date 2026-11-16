@@ -1617,7 +1617,8 @@ function merge(
   map: WeakMap<object, any>,
   keyFn: ((v: any) => any) | null,
   pv: any,
-  nv: any
+  nv: any,
+  paired?: boolean
 ): any {
   // The same raw re-sent over a row a write moved off it: back to the raw.
   if (pv === nv) {
@@ -1643,7 +1644,8 @@ function merge(
   // raw whole and a capture may detach (#2902, the pruning contract, as
   // store/reconcile.ts `descend`). Positional and derived diffs adopt.
   if (!pt.d && keyFn !== null && t._fam === null) return nv;
-  if (keyFn !== null) {
+  // `paired`: the list pass already matched the two rows' keys.
+  if (keyFn !== null && !paired) {
     const pk = pt.w || pt.c !== null ? keyAt(keyFn, pt) : keyFn(pv);
     if (pk !== undefined && pk !== keyFn(nv)) return nv;
   }
@@ -1701,7 +1703,10 @@ function reconcileTarget(
     let oldVals: any[] | null = null;
     for (let i = 0; i < next.length; i++) {
       const nv = next[i];
-      const cur = i >= len ? ABSENT : oldVals !== null ? oldVals[i] : curOf(t, i);
+      // An unwritten list's slot is its raw's (an index is no prototype's).
+      let cur = i >= len ? ABSENT : oldVals !== null ? oldVals[i] : undefined;
+      if (i < len && oldVals === null)
+        cur = !t.w && t.c === null && (cur = t.v[i]) !== undefined ? cur : curOf(t, i);
       let pv = i < len ? cur : undefined;
       // The same raw at the same slot, its row unmoved by a write: the
       // write would be a no-op and there is nothing below to diff.
@@ -1750,7 +1755,12 @@ function reconcileTarget(
         }
         pv = byKey.get(nk);
       }
-      write(t, i, merge(t, next, map, keyFn, pv, nv), t._fam === null ? cur : write);
+      write(
+        t,
+        i,
+        merge(t, next, map, keyFn, pv, nv, nk !== undefined),
+        t._fam === null ? cur : write
+      );
     }
     ((sentFor = sf), (sentSet = ss));
     for (let i = next.length; i < len; i++) write(t, i, ABSENT);
