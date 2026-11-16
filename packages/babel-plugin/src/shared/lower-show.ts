@@ -11,9 +11,10 @@ import type { PluginConfig } from "../config";
  * getters, and two of its three memos.
  *
  * A callback child `{u => <b>{u().name}</b>}` becomes its body with each
- * `u()` read as `when` again. Only a `when` that reads names, members,
+ * `u()` read as `when` again. Only a `when` that reads names, store members,
  * literals, operators and `const` signal/memo getters is copied, so a second
- * read gives the same value with nothing run in between. A binding that reads
+ * read gives the same value with nothing run in between (a prop's getter can
+ * make its JSX again, #4936). A binding that reads
  * the copy reads `when`'s own sources, so it is the same frame reader the
  * accessor's tracked guard made it (#4354, #3948, #4648); a read after the
  * branch closed reads the falsy value instead of throwing the stale-read
@@ -274,8 +275,8 @@ function callbackBody(
 
 /**
  * Whether reading an expression again gives the same value with nothing run
- * in between: names, members, literals, operators, and calls of a `const`
- * signal or memo getter from Solid.
+ * in between: names, store members, literals, operators, and calls of a
+ * `const` signal or memo getter from Solid.
  */
 function isPlainRead(path: NodePath, config: PluginConfig): boolean {
   const node = path.node;
@@ -288,9 +289,12 @@ function isPlainRead(path: NodePath, config: PluginConfig): boolean {
     path.isTSNonNullExpression()
   )
     return isPlainRead(path.get("expression") as NodePath, config);
+  // A member is a plain read off a store only: any other object's member may
+  // be a getter that runs code, as a prop does (`props.children` makes its JSX
+  // again on each read, #4936).
   if (path.isMemberExpression() || path.isOptionalMemberExpression())
     return (
-      isPlainRead(path.get("object") as NodePath, config) &&
+      storeRooted(path.get("object") as NodePath, config) &&
       (!path.node.computed || isPlainRead(path.get("property") as NodePath, config))
     );
   if (path.isCallExpression())
@@ -313,8 +317,27 @@ function isPlainRead(path: NodePath, config: PluginConfig): boolean {
 
 /** A `const` getter of `createSignal`/`createMemo` from Solid, never reassigned. */
 function isAccessor(callee: NodePath, config: PluginConfig): boolean {
-  if (!callee.isIdentifier()) return false;
-  const binding = callee.scope.getBinding(callee.node.name);
+  return made(callee, config, "createMemo", "createSignal");
+}
+
+/** A member chain (or plain read) whose root object is a Solid store. */
+function storeRooted(object: NodePath, config: PluginConfig): boolean {
+  object = unwrapPath(object);
+  if (object.isIdentifier())
+    return made(object, config, "createProjection", "createStore", "createOptimisticStore");
+  return (
+    (object.isMemberExpression() || object.isOptionalMemberExpression()) &&
+    isPlainRead(object, config)
+  );
+}
+
+/**
+ * Whether `id` names a `const`, never reassigned, that `single(...)` returns
+ * or that is the first element `[x] = tuple(...)` destructures, both Solid's.
+ */
+function made(id: NodePath, config: PluginConfig, single: string, ...tuple: string[]): boolean {
+  if (!id.isIdentifier()) return false;
+  const binding = id.scope.getBinding(id.node.name);
   if (!binding || binding.kind !== "const" || !binding.constant) return false;
   const declarator = binding.path;
   if (!declarator.isVariableDeclarator() || !declarator.node.init) return false;
@@ -322,9 +345,10 @@ function isAccessor(callee: NodePath, config: PluginConfig): boolean {
   if (!t.isCallExpression(init) || !t.isIdentifier(init.callee)) return false;
   const factory = declarator.scope.getBinding(init.callee.name);
   const name = factory && importedName(factory, config);
-  if (name === "createMemo") return declarator.node.id === binding.identifier;
+  if (name === single) return declarator.node.id === binding.identifier;
   return (
-    name === "createSignal" &&
+    !!name &&
+    tuple.includes(name) &&
     t.isArrayPattern(declarator.node.id) &&
     declarator.node.id.elements[0] === binding.identifier
   );

@@ -7,9 +7,10 @@
 //! getters, and two of its three memos.
 //!
 //! A callback child `{u => <b>{u().name}</b>}` becomes its body with each
-//! `u()` read as `when` again. Only a `when` that reads names, members,
-//! literals, operators and `const` signal/memo getters is copied, so a second
-//! read gives the same value with nothing run in between. A binding that
+//! `u()` read as `when` again. Only a `when` that reads names, store
+//! members, literals, operators and `const` signal/memo getters is copied, so
+//! a second read gives the same value with nothing run in between (a prop's
+//! getter can make its JSX again, #4936). A binding that
 //! reads the copy reads `when`'s own sources, so it is the same frame reader
 //! the accessor's tracked guard made it (#4354, #3948, #4648); a read after
 //! the branch closed reads the falsy value instead of throwing the
@@ -66,6 +67,9 @@ struct Facts {
     imports: HashMap<SymbolId, String>,
     /// `const` signal/memo getters never written.
     accessors: HashSet<SymbolId>,
+    /// `const` stores (`createStore`, `createOptimisticStore`,
+    /// `createProjection`) never written: their members read plainly.
+    stores: HashSet<SymbolId>,
     has_show: bool,
     unbound_show: bool,
 }
@@ -120,22 +124,32 @@ fn collect_facts(program: &Program<'_>, scoping: &Scoping, module_name: &str, fa
                     else {
                         continue;
                     };
-                    let getter = match (factory.as_str(), &declarator.id) {
-                        ("createMemo", BindingPattern::BindingIdentifier(id)) => id.symbol_id.get(),
-                        ("createSignal", BindingPattern::ArrayPattern(array)) => {
-                            match array.elements.first() {
-                                Some(Some(BindingPattern::BindingIdentifier(id))) => {
-                                    id.symbol_id.get()
-                                }
-                                _ => None,
-                            }
-                        }
+                    let first = || match &declarator.id {
+                        BindingPattern::ArrayPattern(array) => match array.elements.first() {
+                            Some(Some(BindingPattern::BindingIdentifier(id))) => id.symbol_id.get(),
+                            _ => None,
+                        },
                         _ => None,
                     };
-                    if let Some(symbol) = getter
+                    let single = || match &declarator.id {
+                        BindingPattern::BindingIdentifier(id) => id.symbol_id.get(),
+                        _ => None,
+                    };
+                    let (symbol, store) = match factory.as_str() {
+                        "createMemo" => (single(), false),
+                        "createSignal" => (first(), false),
+                        "createProjection" => (single(), true),
+                        "createStore" | "createOptimisticStore" => (first(), true),
+                        _ => (None, false),
+                    };
+                    if let Some(symbol) = symbol
                         && !self.scoping.symbol_is_mutated(symbol)
                     {
-                        self.facts.accessors.insert(symbol);
+                        if store {
+                            self.facts.stores.insert(symbol);
+                        } else {
+                            self.facts.accessors.insert(symbol);
+                        }
                     }
                 }
             }
@@ -485,6 +499,19 @@ impl<'a> Lower<'_, 'a> {
         body
     }
 
+    /// A member chain (or plain read) whose root object is a Solid store.
+    fn store_rooted(&self, object: &Expression<'a>) -> bool {
+        match unwrap(object) {
+            Expression::Identifier(id) => {
+                resolve(self.scoping, id).is_some_and(|s| self.facts.stores.contains(&s))
+            }
+            object @ (Expression::StaticMemberExpression(_)
+            | Expression::ComputedMemberExpression(_)
+            | Expression::ChainExpression(_)) => self.is_plain_read(object),
+            _ => false,
+        }
+    }
+
     /// Whether reading an expression again gives the same value with nothing
     /// run in between.
     fn is_plain_read(&self, expr: &Expression<'a>) -> bool {
@@ -500,16 +527,19 @@ impl<'a> Lower<'_, 'a> {
             Expression::TSAsExpression(e) => self.is_plain_read(&e.expression),
             Expression::TSSatisfiesExpression(e) => self.is_plain_read(&e.expression),
             Expression::TSNonNullExpression(e) => self.is_plain_read(&e.expression),
+            // A member is a plain read off a store only: any other object's
+            // member may be a getter that runs code, as a prop does
+            // (`props.children` makes its JSX again on each read, #4936).
             Expression::ChainExpression(chain) => match &chain.expression {
-                ChainElement::StaticMemberExpression(m) => self.is_plain_read(&m.object),
+                ChainElement::StaticMemberExpression(m) => self.store_rooted(&m.object),
                 ChainElement::ComputedMemberExpression(m) => {
-                    self.is_plain_read(&m.object) && self.is_plain_read(&m.expression)
+                    self.store_rooted(&m.object) && self.is_plain_read(&m.expression)
                 }
                 _ => false,
             },
-            Expression::StaticMemberExpression(m) => self.is_plain_read(&m.object),
+            Expression::StaticMemberExpression(m) => self.store_rooted(&m.object),
             Expression::ComputedMemberExpression(m) => {
-                self.is_plain_read(&m.object) && self.is_plain_read(&m.expression)
+                self.store_rooted(&m.object) && self.is_plain_read(&m.expression)
             }
             Expression::CallExpression(call) => {
                 call.arguments.is_empty()
