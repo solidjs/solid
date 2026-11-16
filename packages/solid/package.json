@@ -9,6 +9,9 @@
     "type": "git",
     "url": "https://github.com/solidjs/solid"
   },
+  "publishConfig": {
+    "tag": "v1-latest"
+  },
   "main": "./dist/server.cjs",
   "module": "./dist/server.js",
   "unpkg": "./dist/solid.cjs",
