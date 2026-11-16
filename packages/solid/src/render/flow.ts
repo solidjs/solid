@@ -36,16 +36,25 @@ export function For<T extends readonly any[], U extends JSX.Element>(props: {
   fallback?: JSX.Element;
   children: (item: T[number], index: Accessor<number>) => U;
 }) {
-  const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return (IS_DEV
-    ? createMemo(
-        mapArray(() => props.each, props.children, fallback || undefined),
+  const child = props.children;
+  return Show({
+    get when() {
+      return (props.each || []).length;
+    },
+    get fallback() {
+      return props.fallback;
+    },
+    get children() {
+      const mapped = mapArray(() => props.each, child);
+      // Initial row errors must leave this branch before the mapper can retry.
+      untrack(mapped);
+      return createMemo(
+        mapped,
         undefined,
-        { name: "value" }
-      )
-    : createMemo(
-        mapArray(() => props.each, props.children, fallback || undefined)
-      )) as unknown as JSX.Element;
+        IS_DEV ? { name: "value" } : undefined
+      ) as unknown as JSX.Element;
+    }
+  });
 }
 
 /**
@@ -66,16 +75,25 @@ export function Index<T extends readonly any[], U extends JSX.Element>(props: {
   fallback?: JSX.Element;
   children: (item: Accessor<T[number]>, index: number) => U;
 }) {
-  const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return (IS_DEV
-    ? createMemo(
-        indexArray(() => props.each, props.children, fallback || undefined),
+  const child = props.children;
+  return Show({
+    get when() {
+      return (props.each || []).length;
+    },
+    get fallback() {
+      return props.fallback;
+    },
+    get children() {
+      const mapped = indexArray(() => props.each, child);
+      // Initial row errors must leave this branch before the mapper can retry.
+      untrack(mapped);
+      return createMemo(
+        mapped,
         undefined,
-        { name: "value" }
-      )
-    : createMemo(
-        indexArray(() => props.each, props.children, fallback || undefined)
-      )) as unknown as JSX.Element;
+        IS_DEV ? { name: "value" } : undefined
+      ) as unknown as JSX.Element;
+    }
+  });
 }
 
 type RequiredParameter<T> = T extends () => unknown ? never : T;
