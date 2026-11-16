@@ -20,11 +20,11 @@
     "minified": 124608
   },
   "server: floor (getRequestEvent + isServer)": {
-    "cap": "1.29 KB",
-    "minified": 3255
+    "cap": "1.33 KB",
+    "minified": 3355
   },
   "server: renderToString (the server-render floor)": {
-    "cap": "22.92 KB",
-    "minified": 77888
+    "cap": "23.47 KB",
+    "minified": 79975
   }
 }
