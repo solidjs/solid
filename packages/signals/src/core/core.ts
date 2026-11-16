@@ -185,8 +185,9 @@ import {
   laneWriteHook,
   observeFlightHook,
   wireExternalSourceHook,
+  passHook,
   revertHook,
-  passHook
+  heldRewrites
 } from "./scheduler.js";
 import type { Transaction } from "./scheduler.js";
 import type {
@@ -828,7 +829,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // pass is a new question. Settled, there is nothing to classify.
     // A pass that read only committed values asks the committed question
     // again (an input moved back, A24, A19 exc. 2): a re-ask too.
-    if (linked && !reask) reask = !!passHook!(el, 1);
+    // (Asked only of a pending pass: a settled one has nothing to classify,
+    // and the dep walk is too dear to run on every pass.)
+    if (linked && !reask && el._statusFlags & STATUS_PENDING) reask = !!passHook!(el, 1);
     if (el._x !== null) el._x._reask = reask && (el._statusFlags & STATUS_PENDING) !== 0;
   }
 
@@ -2199,6 +2202,8 @@ export function tickBase(el: Signal<any>): unknown {
  * stash is stamped with the clock, which that flush advances. */
 export function stashFlushed(el: Signal<any> | Computed<any>): void {
   const x = el._x!;
+  // D-8: the flush checks whether the rewrite nets (verdict.ts `revert`).
+  if (revertHook && !heldRewrites.includes(el)) heldRewrites.push(el);
   if (x._flushedAt !== clock) {
     x._flushed = el._pendingValue;
     x._flushedAt = clock;
@@ -3107,9 +3112,6 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // _time is a computed-only slot (§12e): writing it on a signal would fork
   // the lean shape. Every read site is computed-typed.
   if ((el as any)._fn !== undefined) el._time = clock;
-  // A tick that nets to the value it began with made no change (D-8): the
-  // readers it woke are let go at the flush (verdict.ts `unrevert`).
-  if (revertHook && wasStaged) revertHook(el, v);
   // Staged-rewrite fast path (§12d): a re-write to a node whose subscribers
   // were already walked — and where nothing has recomputed or linked since
   // (epoch) — re-stages the value and stops. The walk is idempotent (subs

@@ -16,8 +16,8 @@
     "minified": 102187
   },
   "page: live server components (base + live/GET + action + isPending/latest)": {
-    "cap": "41.46 KB",
-    "minified": 124468
+    "cap": "41.47 KB",
+    "minified": 124566
   },
   "server: floor (getRequestEvent + isServer)": {
     "cap": "1.29 KB",

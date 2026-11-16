@@ -220,9 +220,9 @@ export let attachHook: ((node: Computed<any>) => boolean) | null = null;
 export let holdStagingHook:
   | ((c: Computed<any>, el?: Signal<any> | Computed<any>) => unknown)
   | null = null;
-/** D-8 (verdict engine): a write netting to the tick's starting value, or
- * (no argument) the flush's release of the readers it woke (verdict.ts). */
-export let revertHook: ((el?: Signal<any>, v?: unknown) => void) | null = null;
+/** D-8 (verdict engine), at the flush: the readers a tick netting to its
+ * starting value woke are let go (verdict.ts `revert`). */
+export let revertHook: (() => void) | null = null;
 /** Verdict engine, a pass's head (D-22, D-41: the held error `latest` keeps
  * showing; returns whether the pass had sources) and, with `tail`, its end
  * (A19 exc. 2: whether it asked the committed question again). */
@@ -1446,6 +1446,8 @@ function append<T>(a: T[], b: T[]): void {
 
 /** Nodes staged this flush (`_pendingValue` set), committed at its end. */
 export const pendingNodes: Signal<any>[] = [];
+/** Held slots rewritten since the last flush, with the verdict engine (D-8: `revertHook`). */
+export const heldRewrites: Signal<any>[] = [];
 
 /** Passes that read a staging of this flush as the screen — lane work
  * (core.ts `stagedRead`), a verdict reader before the frame's verdict

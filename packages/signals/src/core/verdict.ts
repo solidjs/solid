@@ -35,6 +35,7 @@ import {
   REACTIVE_IN_HEAP,
   REACTIVE_JOINED,
   REACTIVE_LANE_DIRTY,
+  REACTIVE_MANUAL_WRITE,
   REACTIVE_MISSED_WAKE,
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
@@ -102,6 +103,8 @@ import {
   joinFuture,
   list,
   passLane,
+  pendingNodes,
+  heldRewrites,
   queuePendingNode,
   guessing,
   resolveTx,
@@ -1221,39 +1224,48 @@ function r5(r: Computed<any> | null, t: Transaction | null): unknown {
   }
 }
 
-/** D-8: a write netting to the value its tick began with (`setSignal`). */
-const reverted: Signal<any>[] = [];
-/** With no argument, at the flush: a reader such a tick woke whose every
- * source is unchanged has nothing to re-derive — out of the heap, so an
- * async one asks nothing again (F-9). A verdict reader re-runs: what it
- * probes is the pending, not the value. */
-function revert(el?: Signal<any>, v?: unknown): void {
-  if (el) {
-    if (isSame(el, tickBase(el), v)) reverted.push(el);
-    return;
+/** D-8, at the flush: a node this tick staged that nets to the value the
+ * tick began with made no change. A reader it woke whose every source is
+ * unchanged has nothing to re-derive — out of the heap, so an async one asks
+ * nothing again (F-9). A verdict reader re-runs: what it probes is the
+ * pending, not the value. (Read off the tick's staged nodes at the flush,
+ * not noted per write: a setter's extra arm cost it its inlining.) */
+function revert(): void {
+  for (const n of pendingNodes)
+    // A rewrite netting to the committed value is staged as that value itself
+    // (`setSignal`): the comparator runs only for those. A derivation's own
+    // staging is its answer, not a write.
+    if (
+      n._pendingValue === n._value &&
+      (!(n as Partial<Computed<any>>)._fn || (n as Computed<any>)._flags & REACTIVE_MANUAL_WRITE)
+    )
+      unwake(n);
+  // A held slot rewritten since the last flush was staged before it (not in
+  // `pendingNodes`), and nets to its flushed staging (A28, `stashFlushed`).
+  if (heldRewrites.length !== 0) for (const n of heldRewrites.splice(0)) unwake(n);
+}
+function unwake(n: Signal<any>): void {
+  if (n._pendingValue === NOT_PENDING || !isSame(n, tickBase(n), n._pendingValue)) return;
+  for (let s = n._subs; s !== null; s = s._nextSub) {
+    const sub = s._sub;
+    if (
+      !(sub._flags & REACTIVE_IN_HEAP) ||
+      sub._flags & REACTIVE_MISSED_WAKE ||
+      sub._config & CONFIG_VERDICT
+    )
+      continue;
+    let same: unknown = true;
+    for (let d = sub._deps; d !== null && same; d = d._nextDep) {
+      const dep = d._dep as Computed<any>;
+      same = (dep as Partial<Computed<any>>)._fn
+        ? !(dep._flags & (REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK))
+        : dep._pendingValue === NOT_PENDING || isSame(dep, tickBase(dep), dep._pendingValue);
+    }
+    if (same) {
+      deleteFromHeap(sub, dirtyQueue);
+      sub._flags &= ~(REACTIVE_DIRTY | REACTIVE_CHECK);
+    }
   }
-  for (const n of reverted.splice(0))
-    if (n._pendingValue !== NOT_PENDING && isSame(n, tickBase(n), n._pendingValue))
-      for (let s = n._subs; s !== null; s = s._nextSub) {
-        const sub = s._sub;
-        if (
-          !(sub._flags & REACTIVE_IN_HEAP) ||
-          sub._flags & REACTIVE_MISSED_WAKE ||
-          sub._config & CONFIG_VERDICT
-        )
-          continue;
-        let same: unknown = true;
-        for (let d = sub._deps; d !== null && same; d = d._nextDep) {
-          const dep = d._dep as Computed<any>;
-          same = (dep as Partial<Computed<any>>)._fn
-            ? !(dep._flags & (REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK))
-            : dep._pendingValue === NOT_PENDING || isSame(dep, tickBase(dep), dep._pendingValue);
-        }
-        if (same) {
-          deleteFromHeap(sub, dirtyQueue);
-          sub._flags &= ~(REACTIVE_DIRTY | REACTIVE_CHECK);
-        }
-      }
 }
 /** A19 exc. 2: a pass whose every source is at its committed value asked
  * the committed question again (an input moved back, A24) — a re-ask. Not
@@ -1261,11 +1273,13 @@ function revert(el?: Signal<any>, v?: unknown): void {
  * with no committed value. */
 function pass(el: Computed<any>, tail?: 1): boolean {
   if (!tail) {
-    if (el._x)
-      el._x._aheadError =
-        (el._config & (CONFIG_STAGED_ERROR | CONFIG_HELD)) === (CONFIG_STAGED_ERROR | CONFIG_HELD)
-          ? el._pendingValue
-          : undefined;
+    // Written only when there is one to keep or clear: the field is not on
+    // the extension's literal, and adding it to every `_x` would change
+    // its shape on the hot path.
+    const held =
+      (el._config & (CONFIG_STAGED_ERROR | CONFIG_HELD)) === (CONFIG_STAGED_ERROR | CONFIG_HELD);
+    if (el._x && (held || el._x._aheadError !== undefined))
+      el._x._aheadError = held ? el._pendingValue : undefined;
     return el._deps !== null;
   }
   if (guessing || passLane !== null || el._statusFlags & STATUS_UNINITIALIZED) return false;
