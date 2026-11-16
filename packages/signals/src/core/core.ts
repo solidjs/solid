@@ -606,7 +606,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // A held user write is not an answer (REACTIVE_MANUAL_WRITE): the refresh
   // over it asks the same question (D-34 ¶3), so its readers stay the
   // re-ask's and a later lane's guess reaches them (#4887, #4888).
-  const reask =
+  let reask =
     (el._flags & REACTIVE_REASK) !== 0 &&
     !(
       (el._statusFlags & STATUS_PENDING ||
@@ -828,9 +828,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // pass is a new question. Settled, there is nothing to classify.
     // A pass that read only committed values asks the committed question
     // again (an input moved back, A24, A19 exc. 2): a re-ask too.
-    if (el._x !== null)
-      el._x._reask =
-        (reask || (!!linked && !!passHook!(el, 1))) && (el._statusFlags & STATUS_PENDING) !== 0;
+    if (linked && !reask) reask = !!passHook!(el, 1);
+    if (el._x !== null) el._x._reask = reask && (el._statusFlags & STATUS_PENDING) !== 0;
   }
 
   // A node that died during its own pass (#3621) is dead at the end of it,
