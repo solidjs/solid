@@ -1817,6 +1817,7 @@ function copyOf(t: Target, raw: any, keys: PropertyKey[], seen: Map<object, any>
 
 /** Tracking copy: subscribes to every reachable key set and value, and
  * returns snapshot()'s copy (its shape and identity). */
+const isObj = (v: any): boolean => v !== null && typeof v === "object";
 export function thinDeep(value: any): any {
   const seen = new Set<Target>();
   // The traps called directly: a Proxy's invariant checks cost as much again.
@@ -1824,22 +1825,32 @@ export function thinDeep(value: any): any {
     const t: Target | undefined = isThin(v) ? v[$THIN] : undefined;
     if (t === undefined || seen.has(t)) return;
     seen.add(t);
-    const keys = ownKeysOf(t);
-    // A plain store's target is one node for its values (bumped by every
-    // write to it) beside its key set: values are read, not tracked.
+    // A plain store's target is one node for it (bumped by every write to
+    // it, its key set's too): values and keys are read, not tracked.
     if (t._fam === null && t.c === null && !inDraft(t) && getObserver() !== null) {
       read((t.dv ??= slot(t, 0, isEqual, $DEEP)) as any);
-      for (const k of keys) {
+      for (const k of keysOf(t)) {
+        // A leaf's node outside any lane, primitive staged and committed:
+        // nothing below it to walk (the frame value is one of the two).
+        const n = t.n?.[k as any];
+        if (
+          n !== undefined &&
+          n._x === null &&
+          !isObj(n._value) &&
+          (n._pendingValue === NOT_PENDING || !isObj(n._pendingValue))
+        )
+          continue;
         const c = valueOf(t, k);
         if (c !== null && typeof c === "object" && !(c instanceof Box)) walk(child(t, c));
       }
       return;
     }
     const shell = { [$S]: t };
-    for (const k of keys) walk(BASE.get!(shell, k, t.p));
+    for (const k of ownKeysOf(t)) walk(BASE.get!(shell, k, t.p));
   };
   walk(value);
-  return thinSnapshot(value);
+  // One untracked frame for the copy, not one per value read.
+  return untrack(() => thinSnapshot(value));
 }
 
 // Devtools `DEV.setSignal` on a store slot node goes through the setter.
