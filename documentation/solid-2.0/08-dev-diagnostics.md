@@ -895,7 +895,7 @@ const events = capture.stop();
 
 ### `DEV.guideUrl(code)`
 
-Dev builds only. The code's page on the docs site — `https://v2.solidjs.com/reference/solid-js/diagnostics/<slug>`, the slug being the code lowercased with `-` for `_` (`…/diagnostics/strict-read-untracked`). One place builds it: the console footer's first line and the profiler track's Insights link (`learnMoreUrl`, in dev) both read it, so a tool that renders findings elsewhere links to the same page. Dev-tier rather than observe because it is guidance for a developer, and the URL string on a retained object would be a cost every observe build paid.
+Dev builds only. The code's page on the docs site — `https://docs.solidjs.com/reference/solid-js/diagnostics/<slug>`, the slug being the code lowercased with `-` for `_` (`…/diagnostics/strict-read-untracked`). One place builds it: the console footer's first line and the profiler track's Insights link (`learnMoreUrl`, in dev) both read it, so a tool that renders findings elsewhere links to the same page. Dev-tier rather than observe because it is guidance for a developer, and the URL string on a retained object would be a cost every observe build paid.
 
 ### `OBSERVE.ownerPath(subject)`
 

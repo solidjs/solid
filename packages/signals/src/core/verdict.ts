@@ -457,7 +457,7 @@ export function latest<T>(fn: () => T): T {
  * // serving the previous list — dim it instead of showing a spinner.
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/reactivity/is-pending
+ * @description https://docs.solidjs.com/reference/solid-js/reactivity/is-pending
  */
 export function isPending(fn: () => any): boolean {
   // (A frame's pass again, `reask`: the thunk reads plainly and finds

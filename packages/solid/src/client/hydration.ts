@@ -1740,7 +1740,7 @@ export function enableServerComponentHydration() {
  * @param options `MemoOptions` — `id`, `name`, `equals`, `unobserved`,
  *   `lazy`, `transparent`, `ssrSource`
  *
- * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-memo
+ * @description https://docs.solidjs.com/reference/solid-js/reactivity/create-memo
  */
 export const createMemo: {
   // Commit #0 (loadingValue) removes the uninitialized window: the accessor
@@ -1799,7 +1799,7 @@ export const createMemo: {
  *
  * @returns `[state: Accessor<T>, setState: Setter<T>]`
  *
- * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-signal
+ * @description https://docs.solidjs.com/reference/solid-js/reactivity/create-signal
  */
 export let createSignal: {
   <T>(): Signal<T | undefined>;
@@ -1880,7 +1880,7 @@ export function createRevealOrder<T>(
  *
  * @returns `[state: Accessor<T>, setState: Setter<T>]`
  *
- * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-optimistic
+ * @description https://docs.solidjs.com/reference/solid-js/reactivity/create-optimistic
  */
 export const createOptimistic: {
   <T>(): Signal<T | undefined>;
@@ -2162,7 +2162,7 @@ export const createOptimisticStore: {
  * until the pass completes (the mark used to depend on which primitive
  * ran first under it).
  *
- * @description https://v2.solidjs.com/reference/solid-js/advanced/owner-introspection/create-root
+ * @description https://docs.solidjs.com/reference/solid-js/advanced/owner-introspection/create-root
  */
 export let createRoot: typeof coreRoot = coreRoot;
 
@@ -2201,7 +2201,7 @@ export let createRoot: typeof coreRoot = coreRoot;
  * }
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/advanced/specialized-reactivity/create-render-effect
+ * @description https://docs.solidjs.com/reference/solid-js/advanced/specialized-reactivity/create-render-effect
  */
 export let createRenderEffect: typeof coreRenderEffect = coreRenderEffect;
 
@@ -2261,7 +2261,7 @@ export let createRenderEffect: typeof coreRenderEffect = coreRenderEffect;
  * root without an `id`, has no id slot to consume and takes that path on
  * its own.
  *
- * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-effect
+ * @description https://docs.solidjs.com/reference/solid-js/reactivity/create-effect
  */
 export const createEffect: typeof coreEffect = ((...args: any[]) =>
   (_createEffect || coreEffect)(...args)) as typeof coreEffect;

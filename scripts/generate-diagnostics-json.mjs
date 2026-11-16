@@ -38,7 +38,7 @@ export const RFC_MD = "documentation/solid-2.0/08-dev-diagnostics.md";
 export const SKILL_MD = "packages/solid/skills/reactivity-diagnostics/SKILL.md";
 export const OUTPUT_JSON = "packages/solid/diagnostics.json";
 /** The docs site's page per code — the same URL `DEV.guideUrl` builds. */
-export const GUIDE_BASE_URL = "https://v2.solidjs.com/reference/solid-js/diagnostics/";
+export const GUIDE_BASE_URL = "https://docs.solidjs.com/reference/solid-js/diagnostics/";
 
 const RFC_HEADING = "## Diagnostic codes (quick reference)";
 

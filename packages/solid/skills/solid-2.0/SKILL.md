@@ -117,6 +117,6 @@ Also:
   `costs`, `end`).
 - Lint: `eslint-plugin-solid`, config `v2`
   (`import solid from "eslint-plugin-solid/configs/v2"`) or `v2-strict`.
-- Docs: https://v2.solidjs.com (Solid 2.0 docs; `/llms.txt` and
+- Docs: https://docs.solidjs.com (Solid 2.0 docs; `/llms.txt` and
   `/llms-full.txt` for agents). Migration guide: `documentation/solid-2.0/MIGRATION.md`
   in the repository.

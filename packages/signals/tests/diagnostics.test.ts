@@ -306,14 +306,14 @@ describe("diagnostics console footer", () => {
 
   it("DEV.guideUrl is the code's page on the docs site", () => {
     expect(DEV!.guideUrl("STRICT_READ_UNTRACKED")).toBe(
-      "https://v2.solidjs.com/reference/solid-js/diagnostics/strict-read-untracked"
+      "https://docs.solidjs.com/reference/solid-js/diagnostics/strict-read-untracked"
     );
     // The slug is the code lowercased with `-` for every `_`.
     expect(DEV!.guideUrl("SILENT_HOLD")).toBe(
-      "https://v2.solidjs.com/reference/solid-js/diagnostics/silent-hold"
+      "https://docs.solidjs.com/reference/solid-js/diagnostics/silent-hold"
     );
     expect(DEV!.guideUrl("NO_OWNER_EFFECT")).toBe(
-      "https://v2.solidjs.com/reference/solid-js/diagnostics/no-owner-effect"
+      "https://docs.solidjs.com/reference/solid-js/diagnostics/no-owner-effect"
     );
   });
 

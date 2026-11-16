@@ -35,7 +35,7 @@ describe("repair-guide footer (server entry)", () => {
     expect(first).toBe(
       "[REVEAL_IN_RENDER_TO_STRING] probe\n" +
         "[REVEAL_IN_RENDER_TO_STRING] what it means and how to fix it: " +
-        "https://v2.solidjs.com/reference/solid-js/diagnostics/reveal-in-render-to-string\n" +
+        "https://docs.solidjs.com/reference/solid-js/diagnostics/reveal-in-render-to-string\n" +
         "[REVEAL_IN_RENDER_TO_STRING] agent repair guide: " +
         "node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md#reveal_in_render_to_string — " +
         "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#reveal_in_render_to_string"

@@ -10,7 +10,7 @@
 [![Discord](https://img.shields.io/discord/722131463138705510?style=for-the-badge)](https://discord.com/invite/solidjs)
 [![Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/solidjs?style=for-the-badge)](https://www.reddit.com/r/solidjs/)
 
-**[Website](https://www.solidjs.com/) • [API Docs](https://v2.solidjs.com/) • [Tutorial](https://www.solidjs.com/tutorial/introduction_basics) • [Discord](https://discord.com/invite/solidjs)**
+**[Website](https://www.solidjs.com/) • [API Docs](https://docs.solidjs.com/) • [Tutorial](https://www.solidjs.com/tutorial/introduction_basics) • [Discord](https://discord.com/invite/solidjs)**
 
 > ### Solid 2.0 (Release Candidate)
 >
@@ -114,7 +114,7 @@ The public API differs from any Solid examples that predate 2.0. Before generati
 - [`packages/solid/skills/solid-2.0/SKILL.md`](packages/solid/skills/solid-2.0/SKILL.md) — the primer: the three rules that matter most, the 1.x → 2.0 corrections, and the primitives to reach for, in under 8 KB.
 - [`packages/solid/CHEATSHEET.md`](packages/solid/CHEATSHEET.md) — one-page reference; the bottom enumerates patterns that changed from 1.x.
 - [`documentation/solid-2.0/MIGRATION.md`](documentation/solid-2.0/MIGRATION.md) — full migration guide.
-- [v2.solidjs.com](https://v2.solidjs.com) — the Solid 2.0 docs, with `/llms.txt` and `/llms-full.txt`.
+- [docs.solidjs.com](https://docs.solidjs.com) — the Solid 2.0 docs, with `/llms.txt` and `/llms-full.txt`.
 
 The primer and the cheatsheet ship inside the `solid-js` npm package (`node_modules/solid-js/skills/solid-2.0/SKILL.md`, `node_modules/solid-js/CHEATSHEET.md`; the build also emits the cheatsheet as the `solid-2.0-cheatsheet` skill). The packages carry the `tanstack-intent` keyword, so skill registries that scan `node_modules` find them.
 
@@ -156,7 +156,7 @@ Built on JSX and TypeScript, integrates with the Vite ecosystem. Bare-metal abst
 
 ## More
 
-- [Documentation](https://v2.solidjs.com)
+- [Documentation](https://docs.solidjs.com)
 - [Examples](documentation/resources/examples.md)
 - [Tutorial](https://www.solidjs.com/tutorial/introduction_basics)
 
