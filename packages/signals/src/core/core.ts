@@ -2207,9 +2207,10 @@ export function tickBase(el: Signal<any>): unknown {
  * stash is stamped with the clock, which that flush advances. */
 export function stashFlushed(el: Signal<any> | Computed<any>): void {
   const x = el._x!;
-  // D-8: the flush checks whether the rewrite nets (verdict.ts `revert`).
-  if (revertHook && !heldRewrites.includes(el)) heldRewrites.push(el);
   if (x._flushedAt !== clock) {
+    // D-8: the flush checks whether the rewrite nets (verdict.ts `revert`).
+    // Once per node per flush: the stamp below dedupes it.
+    if (revertHook) heldRewrites.push(el);
     x._flushed = el._pendingValue;
     x._flushedAt = clock;
     unflushedStaged = true;
