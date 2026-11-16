@@ -48,12 +48,14 @@ export function unlinkSubs(link: Link): Link | null {
       // pending identically).
       // During a pass's teardown of its unfinished frame, the release waits
       // for the pass to end (`deferredReleases`, #4142).
-      const c = dep as Computed<any>;
-      (c as any)._fn &&
-        c._config & CONFIG_AUTO_DISPOSE &&
-        !(c._flags & REACTIVE_ZOMBIE) &&
-        !(c._statusFlags & STATUS_PENDING) &&
-        (deferredReleases ? deferredReleases.push(c) : unobserved(c));
+      // (No cast alias for `dep`: the minifier keeps one.)
+      (dep as any)._fn &&
+        dep._config & CONFIG_AUTO_DISPOSE &&
+        !((dep as Computed<any>)._flags & REACTIVE_ZOMBIE) &&
+        !((dep as Computed<any>)._statusFlags & STATUS_PENDING) &&
+        (deferredReleases
+          ? deferredReleases.push(dep as Computed<any>)
+          : unobserved(dep as Computed<any>));
     }
   }
   return nextDep;

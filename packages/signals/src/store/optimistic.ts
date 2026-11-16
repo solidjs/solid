@@ -820,7 +820,7 @@ function foldedRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): u
  * a guessed row keeps its target, and its leaves are judged against their
  * guesses. With no guess out, rows nothing guessed are left as the draft
  * wrote them. */
-function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
+function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>, viewed?: boolean): void {
   const fam = t._fam!;
   const keyFn = fam.key;
   const list = Array.isArray(pb);
@@ -862,15 +862,18 @@ function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
     }
   // A row another store's guess added as it is (that store's proxy, not a
   // copy): a guess of that store's still out on the row shows on through
-  // its own carrier until its action ends (F-11, #4902).
-  kgOf(t)?.forEach(c => {
-    const f = guessedValueOf(c);
-    if (Array.isArray(f))
-      for (const r of f) {
-        const ft = r?.[$TARGET];
-        if (ft?.px === r && ft._fam !== fam) pair(keyFn(r), r, true);
-      }
-  });
+  // its own carrier until its action ends (F-11, #4902). A returned landing
+  // (`viewed`) is diffed against the view, which already holds the lent row
+  // by key: its slot stays this store's row (#4918).
+  if (!viewed)
+    kgOf(t)?.forEach(c => {
+      const f = guessedValueOf(c);
+      if (Array.isArray(f))
+        for (const r of f) {
+          const ft = r?.[$TARGET];
+          if (ft?.px === r && ft._fam !== fam) pair(keyFn(r), r, true);
+        }
+    });
 }
 
 /** #4788 (D-33): an action read `key` of `t` (`v`, else the writer's view

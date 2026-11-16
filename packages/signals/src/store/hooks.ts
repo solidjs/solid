@@ -51,7 +51,7 @@ export interface OptHooks {
   reconcile(draft: any, incoming: any, keyFn: ((item: any) => any) | null): void;
   /** The derive's draft wrote `pb` on `t`: the new object at a guessed
    * row's slot (by key in a keyed list) is adopted by that row's target. */
-  pair(t: StoreTarget, pb: Record<PropertyKey, any>): void;
+  pair(t: StoreTarget, pb: Record<PropertyKey, any>, viewed?: boolean): void;
   /** The derive of `fam` went in flight (#4336): a new question asked over
    * the family's guesses is judged by its reads (`stands`) and at the seam
    * (`park`). Returns, for a `refresh()`, the leaves its wake skips. */

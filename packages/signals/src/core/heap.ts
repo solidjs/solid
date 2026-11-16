@@ -144,7 +144,10 @@ function adjustHeight(el: Computed<unknown>, heap: Heap) {
   if (el._height !== newHeight) {
     el._height = newHeight;
     liftOwned(el, newHeight);
-    for (let s = el._subs; s !== null; s = s._nextSub) insertIntoHeapHeight(s._sub, heap);
+    // (Not an owner reading it: it sits below its child by construction,
+    // REACTIVE_OWNER_READS, and a seat below the cursor is never visited.)
+    for (let s = el._subs; s !== null; s = s._nextSub)
+      if (s._sub !== el._parent) insertIntoHeapHeight(s._sub, heap);
   }
 }
 
@@ -156,11 +159,16 @@ function adjustHeight(el: Computed<unknown>, heap: Heap) {
  * per insert. A child waiting in the heap keeps its seat this pass (its next
  * insert lifts it above its owner); what it owns moves either way.
  */
-function liftOwned(o: Owner, h: number) {
+export function liftOwned(o: Owner, h: number) {
   for (let c = o._firstChild as Computed<any> | null; c; c = c._nextSibling as Computed<any> | null)
     if ((c as unknown as Root)._root) liftOwned(c, h);
     else if (c._height <= h) {
-      if (!(c._flags & (REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT))) c._height = h + 1;
+      // A child waiting in the heap moves with it: left at its seat it runs
+      // before the owner whose run disposes it.
+      const f = c._flags & (REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT);
+      deleteFromHeap(c, dirtyQueue);
+      c._height = h + 1;
+      if (f) (f & REACTIVE_IN_HEAP ? insertIntoHeap : insertIntoHeapHeight)(c, dirtyQueue);
       liftOwned(c, h + 1);
     }
 }

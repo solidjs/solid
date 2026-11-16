@@ -40,10 +40,10 @@ export class NotReadyError extends Error {
     // super(). Dev keeps the stack for debuggability; non-V8 engines (no
     // stackTraceLimit) take the plain path.
     const ErrorCtor = Error as unknown as { stackTraceLimit?: number };
-    const limit = !__DEV__ ? ErrorCtor.stackTraceLimit : undefined;
-    if (limit !== undefined) ErrorCtor.stackTraceLimit = 0;
+    const limit = ErrorCtor.stackTraceLimit;
+    if (!__DEV__ && limit) ErrorCtor.stackTraceLimit = 0;
     super();
-    if (limit !== undefined) ErrorCtor.stackTraceLimit = limit;
+    if (!__DEV__ && limit) ErrorCtor.stackTraceLimit = limit;
     this.source = source;
   }
 }
