@@ -5,6 +5,7 @@
 // fns/client.ts with neutral header names and a configurable endpoint.
 import { REVALIDATE_HEADER } from "../../src/response.js";
 import { observeCall } from "../../src/observe.js";
+import { actionDepth } from "solid-js/internal";
 
 // Replaced per build (see src/observe.ts): the observe emitter and its
 // wrapper fold out of the prod artifact behind it.
@@ -605,19 +606,8 @@ async function createRequest(base, id, options, meta) {
   // header of the transport's own (#3406) — the scripted-caller signal is
   // the data address (#3094), and cross-wire correlation is the trace
   // context's job.
-  //
-  // Subscribing to flight data IS the single-flight opt-in: with consumers
-  // registered the transport asks the server for collection on every
-  // mutation call; a consumer-less app never asks the server to do
-  // collection work. The header value is the registered source ids — the
-  // server runs only the collectors the client can consume; the unnamed
-  // registration rides under its reserved id "true" (see
-  // getFlightDataSourceIds). Reads stay plain — folding per-request flight
-  // data into a cacheable url would defeat caching.
-  const flightSources = getFlightDataSourceIds();
-  if (flightSources.length > 0 && !isReadCall(options)) {
-    headers[SINGLE_FLIGHT_HEADER] = flightSources.join(",");
-  }
+  // The single-flight ask (`SINGLE_FLIGHT_HEADER`) is set by the dispatch,
+  // which knows whether an action made the call (#4913).
   let init = {
     method: "POST",
     ...options,
@@ -823,6 +813,28 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // caller sent them — before this dispatch's own controller is spliced in
   // below, so the re-ask mints a controller of its own; a caller-supplied
   // signal rides along, as it owns the wire (below).
+  //
+  // Subscribing to flight data IS the single-flight opt-in, and an action is
+  // what makes a call a mutation (#4913): a non-read call made while an
+  // action body runs (a core `action`, which a router's `formAction` runs
+  // through) asks the server for collection, and its response — folded or
+  // not — reaches the consumers, which apply their default (a router
+  // revalidates everything). A call made anywhere else (a query's fetcher, an
+  // event handler's lookup) asks for nothing: POST is often just how
+  // arguments are encoded, and a default sweep there refetched the query
+  // that made the call, forever. Explicit metadata — `X-Revalidate` keys, a
+  // redirect — still reaches the consumers wherever the call was made. The
+  // header value is the registered source ids — the server runs only the
+  // collectors the client can consume; the unnamed registration rides under
+  // its reserved id "true" (see getFlightDataSourceIds). Reads stay plain —
+  // folding per-request flight data into a cacheable url would defeat
+  // caching. Read here, before the first await, while the caller's action
+  // is still on the stack.
+  const sources = getFlightDataSourceIds();
+  const mutation = !isReadCall(options) && sources.length > 0;
+  const acted = mutation && actionDepth;
+  if (acted)
+    options = { ...options, headers: { ...options.headers, [SINGLE_FLIGHT_HEADER]: sources + "" } };
   const sent = options;
 
   // The call owns an AbortController so a streaming result can be ENDED, not
@@ -914,7 +926,6 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // function), so a mutation reads identically whichever body shape it
   // arrived in. What stays here is the plain body's decode and the
   // read-call exclusion, which are this transport's.
-  const mutation = !isReadCall(options) && getFlightDataSourceIds().length > 0;
   if (mutation) {
     const folded = response.headers.has(SINGLE_FLIGHT_HEADER);
     const metadata = hasFlightMetadata(response);
@@ -997,12 +1008,12 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   if (failed) {
     throw serverFunctionFailure(response, result);
   }
-  // A non-read call is a mutation (#4883): one the server folded nothing into
-  // and that carries no metadata still tells the consumers it happened, so
-  // an integration applies its default — a router revalidates every query
-  // (`revalidate` omitted) after a direct call or a core `action`, as after
-  // a form action. Its `data` is `undefined`; the value is the caller's.
-  if (mutation) await deliverFlightData(response);
+  // An action's call is a mutation (#4883, #4913): one the server folded
+  // nothing into and that carries no metadata still tells the consumers it
+  // happened, so an integration applies its default — a router revalidates
+  // every query (`revalidate` omitted) after a core `action`, as after a
+  // form action. Its `data` is `undefined`; the value is the caller's.
+  if (acted) await deliverFlightData(response);
   // Streaming result: wrap so stopping consumption stops the CALL. Without
   // this, `return()` (a `break` in for-await) only detaches the local
   // iterator — the fetch keeps downloading and the server keeps producing.
