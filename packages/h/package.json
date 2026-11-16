@@ -57,6 +57,9 @@
     "link": "symlink-dir . node_modules/@solidjs/h",
     "test": "vitest run"
   },
+  "dependencies": {
+    "csstype": "^3.1.0"
+  },
   "peerDependencies": {
     "@solidjs/web": "^2.0.0-rc.22"
   },
