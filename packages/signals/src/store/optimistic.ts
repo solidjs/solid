@@ -845,6 +845,12 @@ function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>, viewed?: boolean
         if (rk !== undefined && !at!.has(rk)) at!.set(rk, i);
       });
     }
+    // A returned landing leaves a row another store lent alone (its target
+    // here is chained over that store's proxy, §7b): the diff against the
+    // view keeps it by key, and reconciling the answer into it ties the
+    // lender's row to this landing, so two stores that lent each other rows
+    // waited on each other's flight forever (#4928).
+    if (viewed && px[$TARGET].ch) return;
     const i: any = list ? at!.get(k) : k;
     const nv = i === undefined ? undefined : pb[i];
     // A new object only: not the row's own, nor one another row serves
@@ -1034,7 +1040,10 @@ installOptHooks({
   // only a target carrying a guess stands in — a read of one with none is an
   // ordinary pending read (F-2), so a keyed store's other keys wait for their
   // answer, not for the guess's action; in a lane with no guess of its own,
-  // or with no live guess left, none does (F-6).
+  // or with no live guess left, none does (F-6) — whoever asked: a reader
+  // that joined another action's lane (it reads that action's guess
+  // elsewhere) over mainline's new question waits for its answer, so a
+  // `Loading on` region remounted under it shows its fallback (#4929).
   // A reader already observing the flight (linked) keeps observing it:
   // served the guess, a re-run (the guess's own, the seam) would drop its
   // link and release the hold beside a guess over the previous answer
@@ -1056,7 +1065,16 @@ installOptHooks({
     const a = f._asked;
     const d = f.node!;
     const c: any = context;
-    if (!o?.size || (a === clock + 1 && passLane === null && !o.has(t)) || a === ~clock)
+    if (
+      !o?.size ||
+      (a === clock + 1 &&
+        (passLane === null
+          ? !o.has(t)
+          : ![...o].some(
+              g => (g = laneNodeOf(g) as any) && sameAction(txOf(g as any), passLane!)
+            ))) ||
+      a === ~clock
+    )
       return false;
     // Linked by this pass's hold (below): its other reads keep the guess.
     const j = heldC === c && heldAt === clock;
