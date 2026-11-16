@@ -6721,6 +6721,7 @@ module.exports = [
     // (#4418, #4414)): 1.34 KB -> 1.29 KB, recorded minified 3,255 -> 3,255 B;
     // CI-measured at 1,275 B (3,255 B minified). Lower only: cap at measured +
     // 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // seroval 1.8 (#4909, 2026-11-16, over next @ ba3ec25, size job of #4909): 1.29 KB -> 1.33 KB, recorded minified 3,255 -> 3,355 B (+100 B), measured in CI at 1,311 B brotli. The growth is inside seroval 1.8 (split read/write/shared entries). Server only: client eager chunks are unchanged. Size-Exception accepted by the maintainer (2026-11-16: "Server size growth is fine"). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
     limit: floorCaps["server: floor (getRequestEvent + isServer)"],
     capMinified: floorMinified["server: floor (getRequestEvent + isServer)"],
     alias: serverAlias,
@@ -6820,6 +6821,7 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ ccfc7ea, size job 125848841075: #4653, #4655, #4657, #4659): cap unchanged at 22.87 KB, recorded minified 77,768 -> 77,792 B (+24 B), measured at 22,856 B brotli. The growth of #4653, #4655 and #4659 was accepted by the maintainer; #4657 and #4654 are size-neutral on the gated rows. Re-recorded once after the batch, per the batch process.
     // SSR nodes stamped as runtime-made (#4700, 2026-11-06, over next @ 45648f7, size job 128035426016): 22.87 KB -> 22.92 KB, recorded minified 77,792 -> 77,875 B (+83 B), measured in CI at 22,908 B brotli. Every SSR node carries `$: Symbol.for("solid.ssrNode")` and each insert position checks it, so a plain object with a `t` key is data, never markup. Server only: client eager chunks are unchanged. Size-Exception accepted by the maintainer (2026-11-06: "the server size is less important than the performance"). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
     // Batch re-record (2026-11-08, over next @ 2789ca9, measured locally: #4714, #4711, #4717, #4719, #4720): cap unchanged at 22.92 KB, recorded minified 77,875 -> 77,888 B (+13 B), measured at 22,903 B brotli. A frozen floor, Size-Exception in this PR's body. Re-recorded once after the batch, per the batch process.
+    // seroval 1.8 (#4909, 2026-11-16, over next @ ba3ec25, size job of #4909): 22.92 KB -> 23.47 KB, recorded minified 77,888 -> 79,975 B (+2,087 B), measured in CI at 23,451 B brotli (+531 B). The growth is inside seroval 1.8 and seroval-plugins 1.8. Server only: client eager chunks are unchanged (the lazy decode.js grows 7.09 -> 7.41 KB). Size-Exception accepted by the maintainer (2026-11-16: "Server size growth is fine"). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
     limit: floorCaps["server: renderToString (the server-render floor)"],
     capMinified: floorMinified["server: renderToString (the server-render floor)"],
     alias: serverAlias,
