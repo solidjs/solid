@@ -1461,10 +1461,13 @@ export const stagedReaders: Computed<any>[] = [];
  * holds (a render effect, a verdict reader, lane work) and is re-derived
  * after `t`'s landing (`_reruns`). Once per pass. */
 export function staleReader(c: Computed<any>, t: Transaction): void {
-  if (!(c._flags & REACTIVE_FRAME_READ)) {
-    c._flags |= REACTIVE_FRAME_READ;
-    t._reruns.push(c);
-  }
+  // On each hold the pass reads committed from: one pass can read two (a memo
+  // the flush's hold stages, a row another action's hold keeps), and each
+  // landing re-runs it. Listed once per hold it was not on, the reader missed
+  // the second's landing (#4932). A repeat entry is inert: `reruns` re-runs
+  // the reader at its first and clears the flag the rest wait on.
+  c._flags |= REACTIVE_FRAME_READ;
+  t._reruns.push(c);
 }
 
 export function queuePendingNode(node: Signal<any>): void {
