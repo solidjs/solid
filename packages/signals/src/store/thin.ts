@@ -633,6 +633,10 @@ function put(t: Target, node: Signal<any>, v: any): void {
       joinFuture(txOf(node));
   }
 }
+// A plain store list's reconcile pass bumps its structure node once, at the
+// end, not once per slot it writes (`reconcileTarget`).
+let bumpFor: Target | null = null;
+let bumped = false;
 // `cur`: the caller's draft read of the key (`curOf`), on a plain store.
 function write(t: Target, key: PropertyKey, v: any, cur: any = write): void {
   // No write has moved this target off its raw: every node holds the seed.
@@ -667,6 +671,7 @@ function write(t: Target, key: PropertyKey, v: any, cur: any = write): void {
   if (h !== undefined) put(t, h, v !== ABSENT);
   // Structure: membership for records; position is content for arrays.
   if (t.k !== null && (t.r ? key !== "length" : prev === ABSENT || v === ABSENT)) {
+    if (bumpFor === t) return void (bumped = true);
     // An index guess on a keyed optimistic list is that slot's (point of
     // write): the list's key node another action's guess carries is not a
     // slot the two share (D-33, #4897). This action's bump goes to a key
@@ -1634,10 +1639,18 @@ function reconcileTarget(
     const len = curOf(t, "length");
     const sf = sentFor,
       ss = sentSet;
+    const bf = bumpFor,
+      bd = bumped;
+    if (t._fam === null) ((bumpFor = t), (bumped = false));
     let byKey: Map<any, any> | null = null;
+    // The old rows' keys from the first mismatch on (`keyOf` once per row).
+    let oldKeys: any[] | null = null;
     for (let i = 0; i < next.length; i++) {
       const nv = next[i];
       let pv = i < len ? curOf(t, i) : undefined;
+      // The same raw at the same slot, its row unmoved by a write: the
+      // write would be a no-op and there is nothing below to diff.
+      if (pv === nv && (typeof nv !== "object" || nv === null || !map.get(nv)?.w)) continue;
       // The source last merged into the row at this slot, re-sent and
       // nothing written since: no pairing or diff (`merge`'s identity skip,
       // and the slot keeps its row, so the write is a no-op).
@@ -1650,12 +1663,19 @@ function reconcileTarget(
       )
         continue;
       const nk = keyFn !== null && isWrappable(nv) ? keyFn(nv) : undefined;
-      if (nk !== undefined && keyOf(map, keyFn!, pv) !== nk) {
+      if (
+        nk !== undefined &&
+        (oldKeys !== null && i < len ? oldKeys[i] : keyOf(map, keyFn!, pv)) !== nk
+      ) {
         if (byKey === null) {
+          // Every slot before `i` kept its own row (paired by key at its
+          // slot), so only the rows from `i` on can answer a later key.
           byKey = new Map();
-          for (let j = 0; j < len; j++) {
-            const p = curOf(t, j);
+          oldKeys = [];
+          for (let j = i; j < len; j++) {
+            const p = j === i ? pv : curOf(t, j);
             const k = keyOf(map, keyFn!, p);
+            oldKeys[j] = k;
             if (k !== undefined && !byKey.has(k)) byKey.set(k, p);
           }
           // The truth answering a guessed row (a push the user made) takes
@@ -1685,6 +1705,11 @@ function reconcileTarget(
     }
     ((sentFor = sf), (sentSet = ss));
     for (let i = next.length; i < len; i++) write(t, i, ABSENT);
+    if (bumpFor === t) {
+      const hit = bumped;
+      ((bumpFor = bf), (bumped = bd));
+      if (hit && t.k !== null) put(t, t.k, (x: number) => x + 1);
+    }
     write(t, "length", next.length);
     return;
   }
@@ -1712,7 +1737,8 @@ function reconcileTarget(
           key,
           new Box({ value: nv, writable: true, enumerable: false, configurable: true })
         );
-    } else
+    } else if (pv === nv && (typeof nv !== "object" || nv === null || !map.get(nv)?.w)) continue;
+    else
       write(
         t,
         key,
