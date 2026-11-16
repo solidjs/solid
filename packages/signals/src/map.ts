@@ -418,7 +418,9 @@ function updateKeyedRows<Item, MappedItem>(
   newLen: number
 ): void {
   // The next pass's `_items`, taken first: a store list answers each read of a slot through a trap.
-  const newItems = list.slice(0);
+  // One read per slot: `slice` asks a store list for presence (`has`) before each value.
+  const newItems: Item[] = [];
+  for (let k = 0; k < newLen; k++) newItems[k] = list[k];
   let i: number,
     j: number,
     // The stage slot a mapper writes its row/index signal into: `j` on the

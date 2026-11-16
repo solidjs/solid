@@ -896,6 +896,7 @@ function hasGuess(t: Target): boolean {
 const polluting = (t: Target, key: PropertyKey): boolean =>
   key === "__proto__" || key === "prototype" || (key === "constructor" && inDraft(t));
 const protoOf = Object.getPrototypeOf;
+const isFrozen = Object.isFrozen;
 /** `Reflect.ownKeys` of a plain raw, several times faster on a fast-mode
  * object (same order: names, then symbols). */
 const ownOf = (o: object): (string | symbol)[] => {
@@ -1557,6 +1558,15 @@ function keyAt(keyFn: (v: any) => any, pt: Target): any {
   }
   return keyFn(pt.p);
 }
+/** The source last merged into a plain store's row, re-sent and nothing
+ * written since: the row stays, with nothing to diff (a source merged was
+ * wrappable, so only a freeze since can unwrap it). */
+const kept = (t: Target, next: any, map: WeakMap<object, any>, pv: any, nv: any): boolean =>
+  t._fam === null &&
+  map.get(pv)?.sv === nv &&
+  !isFrozen(nv) &&
+  !map.has(nv) &&
+  !resent(t, next, pv);
 function merge(
   t: Target,
   next: any,
@@ -1574,10 +1584,7 @@ function merge(
     return nv;
   }
   if (typeof nv !== "object" || nv === null) return nv;
-  // The source last merged into this row, re-sent and nothing written
-  // since: the row stays (the identity skip below, before its checks).
-  const pt0 = t._fam === null ? map.get(pv) : undefined;
-  if (pt0 !== undefined && pt0.sv === nv && !map.has(nv) && !resent(t, next, pv)) return pv;
+  if (kept(t, next, map, pv, nv)) return pv;
   // A store inside a derive's value: the slot chains to it (#2864).
   if (t._fam !== null && isThin(nv) && nv[$THIN]._fam !== t._fam) return chainSlot(t, pv, nv);
   nv = unwrapThin(nv);
@@ -1598,11 +1605,8 @@ function merge(
   }
   // The same source re-sent over a row it was merged into, untouched since:
   // nothing to diff (the identity skip a written row lost its raw for).
-  if (t._fam === null) {
-    if (pt.sv === nv) return pv;
-    reconcileTarget(pt, nv, keyFn, 0);
-    pt.sv = nv;
-  } else reconcileTarget(pt, nv, keyFn, 0);
+  reconcileTarget(pt, nv, keyFn, 0);
+  if (t._fam === null) pt.sv = nv;
   return pv;
 }
 function reconcileTarget(
@@ -1661,14 +1665,7 @@ function reconcileTarget(
       // The source last merged into the row at this slot, re-sent and
       // nothing written since: no pairing or diff (`merge`'s identity skip,
       // and the slot keeps its row, so the write is a no-op).
-      if (
-        t._fam === null &&
-        map.get(pv)?.sv === nv &&
-        isWrappable(nv) &&
-        !map.has(nv) &&
-        !resent(t, next, pv)
-      )
-        continue;
+      if (kept(t, next, map, pv, nv)) continue;
       const nk = keyFn !== null && isWrappable(nv) ? keyFn(nv) : undefined;
       if (
         nk !== undefined &&
