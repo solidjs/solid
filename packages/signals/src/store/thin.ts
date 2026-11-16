@@ -896,6 +896,50 @@ function hasGuess(t: Target): boolean {
 const polluting = (t: Target, key: PropertyKey): boolean =>
   key === "__proto__" || key === "prototype" || (key === "constructor" && inDraft(t));
 const protoOf = Object.getPrototypeOf;
+const arraySlice = Array.prototype.slice;
+/** A whole-list copy (`mapArray`'s `slice(0)`) reads each slot once: the
+ * spec's `slice` asks presence (`has`) first, a second read per slot. */
+function thinSlice(this: any, s?: number, e?: number): any[] {
+  if (s || e !== undefined) return arraySlice.call(this, s, e);
+  const t: Target = this[$THIN],
+    n = this.length,
+    c: any[] = new Array(n),
+    // A plain list: a slot with a node is the get trap's read, without the
+    // trap (its other arms are a family's, a draft's, or an observer-less
+    // read's witness and dev checks).
+    tracked = tracking && context !== null,
+    lean =
+      t._fam === null &&
+      t.c === null &&
+      (!tracked || standing === null) &&
+      (getObserver() !== null ||
+        ((verdict === null || affectsHooks === null) &&
+          !(__DEV__ && (asyncTailFlights !== 0 || (strictRead && strictReadActive()))))) &&
+      !inDraft(t);
+  if (__DEV__ && lean && getObserver() === null) checkForeignRead();
+  for (let i = 0, v, node: any; i < n; i++) {
+    if (lean && (node = t.n?.[i]) !== undefined) {
+      v = tracked ? read(node) : peek(node, t, 1, i);
+      if (v === null || typeof v !== "object") {
+        if (v !== ABSENT) {
+          c[i] = v;
+          continue;
+        }
+      } else if (node.pxv === v) {
+        c[i] = node.px;
+        continue;
+      } else if (!(v instanceof Box)) {
+        const p = child(t, v);
+        if ((__OBSERVE__ && attrHooks !== null) || signalHook !== null) noteParent(p, t, i);
+        c[i] = node.px = p;
+        node.pxv = v;
+        continue;
+      }
+    }
+    if ((v = this[i]) !== undefined || i in this) c[i] = v;
+  }
+  return c;
+}
 const isFrozen = Object.isFrozen;
 /** `Reflect.ownKeys` of a plain raw, several times faster on a fast-mode
  * object (same order: names, then symbols). */
@@ -978,7 +1022,7 @@ const BASE: ProxyHandler<any> = {
         pr = (tracked ? read(protoNode(t)) : protoNow(t)) ?? NONE;
       if (own ? !tracked && lookupGetter.call(t.v, key) !== undefined : key in pr) {
         const v = Reflect.get(pr, key, receiver);
-        return typeof v === "function" ? v : child(t, v);
+        return typeof v === "function" ? (v === arraySlice ? thinSlice : v) : child(t, v);
       }
       if (!tracked) {
         if (!own) return undefined;
