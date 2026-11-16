@@ -173,7 +173,7 @@ export function reconcile<T extends U, U>(
       thinReconcile(
         state,
         value,
-        k === null ? null : typeof k === "string" ? (i: any) => i?.[k] : k,
+        k === null ? null : typeof k === "string" ? Object.assign((i: any) => i?.[k], { k }) : k,
         2
       );
       return undefined as any;

@@ -327,8 +327,13 @@ function child(t: Target, v: any): any {
 const PLAIN = {};
 let scopes: object[] = [];
 const scopeOf = (t: Target): object => t._fam ?? PLAIN;
-const inDraft = (t: Target): boolean =>
-  (writing !== 0 && scopes.includes(scopeOf(t))) || (writeOverride && t._fam !== null);
+function inDraft(t: Target): boolean {
+  if (writing !== 0) {
+    const s = t._fam ?? PLAIN;
+    if (scopes[0] === s || scopes.includes(s)) return true;
+  }
+  return writeOverride && t._fam !== null;
+}
 export const unwrapThin = (v: any): any => (isThin(v) ? v[$THIN].v : v);
 
 /** The reader's frame of a node: the draft reads its own staging; everyone
@@ -371,11 +376,7 @@ function peek(node: Signal<any>, t: Target, mode = 0, key?: PropertyKey): any {
     // The derive writes the truth: it composes on the truth beneath a guess.
     if (node._config & CONFIG_GUESS) return under!(node);
   }
-  if (
-    inDraft(t) ||
-    ((globalThis as any).THIN_LEAK && !tracking && getObserver() === null && !(node as any)._subs)
-  )
-    return node._pendingValue !== NOT_PENDING ? node._pendingValue : node._value;
+  if (inDraft(t)) return node._pendingValue !== NOT_PENDING ? node._pendingValue : node._value;
   // Dev: a read after an await is reported by the trap, once per store
   // (core's per-node report is skipped under untrack).
   return tracking || (__DEV__ && asyncTailFlights !== 0) ? untrack(() => read(node)) : read(node);
@@ -920,13 +921,17 @@ const BASE: ProxyHandler<any> = {
     if (t.c !== null) return CHAIN.get!(_, key, receiver);
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(t as any, typeof key === "symbol" ? undefined : key);
-    if (key === $THIN) return t;
-    if (key === $PROXY) return receiver;
-    // Brands a store is not: no node (a merge/omit asks for its record).
-    if (key === $TARGET || key === $RECORD) return undefined;
-    if (key === $REFRESH) return t._fam?.node ?? undefined;
+    // Brands are symbols: a string key skips their checks.
+    const sym = typeof key === "symbol";
+    if (sym) {
+      if (key === $THIN) return t;
+      if (key === $PROXY) return receiver;
+      // Brands a store is not: no node (a merge/omit asks for its record).
+      if (key === $TARGET || key === $RECORD) return undefined;
+      if (key === $REFRESH) return t._fam?.node ?? undefined;
+    }
     if (t._fam !== null) pullFamily(t);
-    if (key === $TRACK) return (track(t), undefined);
+    if (sym && key === $TRACK) return (track(t), undefined);
     let node = t.n?.[key];
     const tracked = !inDraft(t) && getObserver() !== null;
     if (
@@ -1531,7 +1536,19 @@ const curOf = (t: Target, key: PropertyKey): any =>
 function keyOf(map: WeakMap<object, any>, keyFn: (v: any) => any, p: any): any {
   if (!isWrappable(p)) return undefined;
   const pt = map.get(p);
-  return keyFn(pt !== undefined && (pt.w || pt.c !== null) ? pt.p : p);
+  return pt !== undefined && (pt.w || pt.c !== null) ? keyAt(keyFn, pt) : keyFn(p);
+}
+/** A written row's key: a named key (`reconcile(v, "id")`, its keyFn
+ * carries the name) is read off the draft, not through the proxy, unless
+ * it is an object or the prototype may answer it. */
+function keyAt(keyFn: (v: any) => any, pt: Target): any {
+  const k = (keyFn as any).k;
+  if (k !== undefined && pt.c === null && pt.o === null) {
+    const v = valueOf(pt, k);
+    if (v === ABSENT ? !(k in pt.v) : v === null || typeof v !== "object")
+      return v === ABSENT ? undefined : v;
+  }
+  return keyFn(pt.p);
 }
 function merge(
   t: Target,
@@ -1565,7 +1582,7 @@ function merge(
   // store/reconcile.ts `descend`). Positional and derived diffs adopt.
   if (!pt.d && keyFn !== null && t._fam === null) return nv;
   if (keyFn !== null) {
-    const pk = keyFn(pt.w || pt.c !== null ? pt.p : pv);
+    const pk = pt.w || pt.c !== null ? keyAt(keyFn, pt) : keyFn(pv);
     if (pk !== undefined && pk !== keyFn(nv)) return nv;
   }
   // The same source re-sent over a row it was merged into, untouched since:
@@ -1620,6 +1637,17 @@ function reconcileTarget(
     for (let i = 0; i < next.length; i++) {
       const nv = next[i];
       let pv = i < len ? curOf(t, i) : undefined;
+      // The source last merged into the row at this slot, re-sent and
+      // nothing written since: no pairing or diff (`merge`'s identity skip,
+      // and the slot keeps its row, so the write is a no-op).
+      if (
+        t._fam === null &&
+        map.get(pv)?.sv === nv &&
+        isWrappable(nv) &&
+        !map.has(nv) &&
+        !resent(t, next, pv)
+      )
+        continue;
       const nk = keyFn !== null && isWrappable(nv) ? keyFn(nv) : undefined;
       if (nk !== undefined && keyOf(map, keyFn!, pv) !== nk) {
         if (byKey === null) {
