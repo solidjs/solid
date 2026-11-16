@@ -6,7 +6,7 @@ The native Oxc compiler — [`@solidjs/compiler`](../compiler) — is the defaul
 
 It runs on `@babel/core` 7 (7.20.12 or later) and 8.
 
-> **Solid 2.0 (Release Candidate).** Pin exact versions.
+> **Solid 2.0.** Pin exact versions.
 
 ## Features
 

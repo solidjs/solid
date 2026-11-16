@@ -12,6 +12,8 @@ import path from "node:path";
 const version = JSON.parse(fs.readFileSync("packages/solid/package.json", "utf8")).version;
 const changesetConfig = JSON.parse(fs.readFileSync(".changeset/config.json", "utf8"));
 const fixedPackages = changesetConfig.fixed.flat();
+// Matches scripts/release.mjs: prereleases go to `next`, stable to `latest`.
+const distTag = version.includes("-") ? "next" : "latest";
 
 function npm(args, options = {}) {
   const stdout = execFileSync("npm", args, { encoding: "utf8", ...options });
@@ -37,13 +39,13 @@ async function withRetries(label, attempts, action) {
 // 30 × 20s = 10 minutes, well past anything observed.
 await withRetries("dist-tag check", 30, () => {
   for (const name of fixedPackages) {
-    const tagged = npm(["view", name, "dist-tags.next"]);
+    const tagged = npm(["view", name, `dist-tags.${distTag}`]);
     if (tagged !== version) {
-      throw new Error(`${name} dist-tag 'next' is ${tagged}, expected ${version}.`);
+      throw new Error(`${name} dist-tag '${distTag}' is ${tagged}, expected ${version}.`);
     }
   }
 });
-console.log(`dist-tag 'next' points at ${version} for all ${fixedPackages.length} packages.`);
+console.log(`dist-tag '${distTag}' points at ${version} for all ${fixedPackages.length} packages.`);
 
 const project = fs.mkdtempSync(path.join(os.tmpdir(), "solid-smoke-"));
 fs.writeFileSync(

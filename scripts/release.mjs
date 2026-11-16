@@ -60,6 +60,15 @@ function localTagExists(tag) {
   );
 }
 
+// A prerelease version (2.0.0-rc.N) publishes to the `next` channel; a stable
+// version publishes to `latest`. Trusted publishing (OIDC) can't run
+// `npm dist-tag`, so pointing `next` at a stable release is a manual step.
+const releaseVersion = JSON.parse(
+  fs.readFileSync(new URL("../packages/solid/package.json", import.meta.url), "utf8")
+).version;
+const distTag = releaseVersion.includes("-") ? "next" : "latest";
+console.log(`Publishing ${releaseVersion} to the '${distTag}' dist-tag.`);
+
 async function findDispatchedRun(startedAt) {
   for (let attempt = 0; attempt < 30; attempt++) {
     const runs = JSON.parse(
@@ -115,7 +124,7 @@ if (!packageIsPublished(compiler.name, compiler.version)) {
     "-f",
     "publish=true",
     "-f",
-    "npm-tag=next",
+    `npm-tag=${distTag}`,
     "-f",
     `source-ref=${releaseSha}`
   ]);
@@ -130,7 +139,8 @@ if (!packageIsPublished(compiler.name, compiler.version)) {
 
 // Changesets forbids a custom dist-tag while pre mode is active: `publish`
 // would use the semver prerelease name (`rc`) instead of the channel (`next`).
-// Publish the fixed group directly, with internal dependencies first.
+// Publish the fixed group directly, with internal dependencies first, to the
+// channel picked from the version above.
 const changesetConfig = JSON.parse(fs.readFileSync(".changeset/config.json", "utf8"));
 const releaseNames = new Set(changesetConfig.fixed.flat());
 const packages = new Map();
@@ -174,7 +184,7 @@ const released = [];
 for (const directory of packageDirectories) {
   const pkg = JSON.parse(fs.readFileSync(`${directory}/package.json`, "utf8"));
   if (!packageIsPublished(pkg.name, pkg.version)) {
-    run("npm", ["publish", `./${directory}`, "--access", "public", "--tag", "next"]);
+    run("npm", ["publish", `./${directory}`, "--access", "public", "--tag", distTag]);
   } else {
     console.log(`${pkg.name}@${pkg.version} is already published; skipping.`);
   }

@@ -2,7 +2,7 @@
 
 Solid 2.0's native Oxc JSX compiler. Integrations call `transform()` once per source module; this package is not a Vite, Rollup, or Babel plugin by itself. The JavaScript fallback is [`@solidjs/babel-plugin`](../babel-plugin).
 
-> **Solid 2.0 (Release Candidate).** Pin exact versions. The Node `transform()` interface is the supported public contract; the Rust `compile` API is unstable.
+> **Solid 2.0.** Pin exact versions. The Node `transform()` interface is the supported public contract; the Rust `compile` API is unstable.
 
 ## Installation
 

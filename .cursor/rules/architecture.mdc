@@ -5,11 +5,11 @@ alwaysApply: true
 
 # Architecture
 
-SolidJS core monorepo — a declarative JavaScript UI library that compiles templates to real DOM nodes with fine-grained reactivity. Version 2.0 beta (pre-release, every release may be breaking).
+SolidJS core monorepo — a declarative JavaScript UI library that compiles templates to real DOM nodes with fine-grained reactivity. Version 2.0.
 
 ## Monorepo Structure
 
-PNPM workspaces + Turborepo. All packages version together (`2.0.0-rc.x`).
+PNPM workspaces + Turborepo. All packages version together as one changesets fixed group.
 
 - **`@solidjs/signals`** (`packages/signals/`): The reactive engine — signals, memos, effects, async, stores, optimistic lanes, scheduler. Internal to this repo; everything else builds on it (see `signals.mdc`).
 - **`solid-js`** (`packages/solid/`): Core runtime — component model, flow controls, context, hydration. Wraps `@solidjs/signals` with a UI layer.
