@@ -63,8 +63,12 @@ export function storeMarks(t: StoreTarget, key: PropertyKey | undefined): Marked
   // Untracked by construction: raws and nodes, never traps; the writer's
   // view (a draft's or an optimistic family's guesses) is what is walked.
   const walk = (v: any, fam: any): void => {
-    const ct = e.target(v, fam);
-    const raw = ct !== undefined ? ct.v : v;
+    let ct = e.target(v, fam);
+    // Another store inside this family's value: the family's own view of
+    // it is marked, never that store's data (#4914, A24 (4)).
+    let it: any;
+    if (fam && ct !== undefined && ct._fam !== fam) ((it = ct), (ct = fam.map.get(v)));
+    const raw = it ? v : ct !== undefined ? ct.v : v;
     if (raw === null || typeof raw !== "object" || visited.has(raw)) return;
     visited.add(raw);
     entry._scope.add(raw);
@@ -75,7 +79,15 @@ export function storeMarks(t: StoreTarget, key: PropertyKey | undefined): Marked
         for (const k of Reflect.ownKeys(ct.n)) if (k !== $AFFECTS) found.push(ct.n[k as any]);
       if (ct.h !== null) for (const k of Reflect.ownKeys(ct.h)) found.push(ct.h[k as any]);
       if (ct.k !== null) found.push(ct.k);
-      for (const k of e.keys(ct)) walk(e.value(ct, k), ct._fam ?? fam);
+      if (ct.c) for (const st of e.sub(ct)) walk(st.p, fam);
+    }
+    if (it)
+      for (const k of e.keys(it)) {
+        const ft = e.target(e.value(it, k), it._fam);
+        if (ft !== undefined) walk(ft.p, fam);
+      }
+    else if (ct !== undefined) {
+      if (!ct.c) for (const k of e.keys(ct)) walk(e.value(ct, k), ct._fam ?? fam);
     } else
       for (const k of Reflect.ownKeys(raw)) {
         const d = Object.getOwnPropertyDescriptor(raw, k)!;
@@ -99,6 +111,10 @@ function covering(t: StoreTarget, key: PropertyKey | undefined, skip?: Marked): 
     // A chained target is covered through the store it reads.
     const c = (t as any).c;
     if (c && entry._scope.has(c[$THIN].v)) return carrier;
+    // A view of another store born in the window is covered through the
+    // row it was read from.
+    for (let p: any = t; (p.c || p.v[$THIN]) && (p = p.u) !== null; )
+      if (entry._scope.has(p.v)) return carrier;
   }
   return null;
 }

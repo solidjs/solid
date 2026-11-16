@@ -547,6 +547,10 @@ importers:
         version: link:../solid
 
   packages/h:
+    dependencies:
+      csstype:
+        specifier: ^3.1.0
+        version: 3.2.3
     devDependencies:
       '@solidjs/web':
         specifier: workspace:*
@@ -611,9 +615,6 @@ importers:
       '@solidjs/signals':
         specifier: workspace:*
         version: link:../signals
-      csstype:
-        specifier: ^3.1.0
-        version: 3.2.3
       seroval:
         specifier: ^1.8.0
         version: 1.8.1
@@ -660,6 +661,9 @@ importers:
 
   packages/web:
     dependencies:
+      csstype:
+        specifier: ^3.1.0
+        version: 3.2.3
       seroval:
         specifier: ^1.8.0
         version: 1.8.1

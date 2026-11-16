@@ -808,9 +808,11 @@ export function setTrackedQueueCallback(value: boolean) {
 
 // Dev-only marker for the effect half of createEffect/createRenderEffect, so
 // flush() can report the no-op instead of failing silently (React parity).
-/** Action bodies on the stack (action.ts): `flush()` is refused inside one —
- * the body's writes are its transaction's and commit when it settles; a
- * drain mid-step cannot reveal them, and dev says so. */
+/** @internal Action bodies on the stack (action.ts): `flush()` is refused
+ * inside one — the body's writes are its transaction's and commit when it
+ * settles; a drain mid-step cannot reveal them, and dev says so. Read live
+ * by `@solidjs/web`'s server function transport: a call made while it is
+ * nonzero is the action's mutation (#4913). */
 export let actionDepth = 0;
 export function enterAction(): void {
   actionDepth++;
@@ -1007,6 +1009,7 @@ export class GlobalQueue implements IQueue {
         target(v: any, fam: any): any;
         keys(t: any): PropertyKey[];
         value(t: any, k: PropertyKey): any;
+        sub(t: any): Iterable<any>;
         view(on: boolean): void;
       }
     | undefined;

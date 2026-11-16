@@ -506,6 +506,7 @@ GlobalQueue._storeEngine = {
     isThin(v) ? v[$THIN] : isWrappable(v) ? ((fam?.map as any) ?? targets).get(v) : undefined,
   keys: keysOf,
   value: valueOf,
+  sub: (t: Target) => subChains.get(t)?.values() ?? [],
   view: (on: boolean) => void (writerView = on)
 };
 /** The logical value of `key` in the reader's frame (ABSENT when not own). */
@@ -1276,7 +1277,7 @@ function subChain(t: Target, key: PropertyKey, iv: any): any {
   if (e === undefined || e.r !== r) {
     const raw = r ? [] : {};
     chainRaws.add(raw);
-    thinWrap(raw, t._fam);
+    thinWrap(raw, t._fam, t);
     e = t._fam!.map.get(raw) as unknown as Target;
     m.set(key, e);
     if (__DEV__) subKeys!.set(e, key);
@@ -1302,7 +1303,7 @@ function chainSlot(t: Target, pv: any, nv: any): any {
   if (pt === undefined || pt.r !== Array.isArray(nv)) {
     pv = Array.isArray(nv) ? [] : {};
     chainRaws.add(pv);
-    thinWrap(pv, t._fam);
+    thinWrap(pv, t._fam, t);
     pt = t._fam!.map.get(pv) as any;
   }
   chainTo(pt!, nv);
