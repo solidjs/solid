@@ -1,5 +1,0 @@
----
-"solid-js": patch
----
-
-Fix the `solid-js/refresh` runtime resurrecting stale module scopes when a hot update re-executes a module whose rendered tree was already torn down (solid-refresh#85). The Babel transform's `fixRender` feature registers the `render()` disposer with `hot.dispose`, so on entry-module (or multi-boundary) updates the previous tree is disposed and a fresh one is rendered through the *new* registrations before the accept callback patches the registry — but `patchComponent` still treated the first execution's registration as the mounted one, redirecting the live render back through the previous execution's component closure (dead `createContext` instances, prior-generation imports). In Solid 2.0 this crashed the reactive system with `ContextNotFoundError` (dead UI); on earlier betas it appended duplicate trees on every save. Registrations now track live rendered instances, and when none survive the update the registry adopts the re-executed component instead of resurrecting the old one.

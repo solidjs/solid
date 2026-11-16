@@ -1,5 +1,0 @@
----
-"@solidjs/signals": patch
----
-
-`mapArray` update passes shed their fixed O(n) overhead. Previously every non-empty update staged the matched suffix, copied the whole changed range back at commit, and unconditionally re-sliced `_mappings` (plus the `newItems` copy) — ~4 full-array passes even for a single-row removal. The suffix is now counted rather than staged, and commit lands the retained prefix/suffix plus the diffed window into fresh arrays in one pass each and swaps them in (the swap provides the new array identity downstream change propagation relied on the slice for). Sparse `j in temp` checks became `tempNodes[j] === undefined`. New no-change fast path: when every position matches in place at equal length — the common shape after `reconcile` preserves row identities — the same mapped array is returned, so downstream `<For>` insert effects don't re-run at all. Staged-commit exception safety (#2903) is unchanged: mappers still run before any live state is touched, and an aborted pass disposes only the owners it created.
