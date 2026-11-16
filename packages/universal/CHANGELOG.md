@@ -1,5 +1,16 @@
 # @solidjs/universal
 
+## 2.0.0-rc.23
+
+### Patch Changes
+
+- Updated dependencies [cdf4542]
+- Updated dependencies [eb31c86]
+- Updated dependencies [0f6a978]
+- Updated dependencies [93fa11a]
+- Updated dependencies [6b317b2]
+  - solid-js@2.0.0-rc.23
+
 ## 2.0.0-rc.22
 
 ### Patch Changes

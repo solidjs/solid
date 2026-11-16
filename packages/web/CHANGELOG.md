@@ -1,5 +1,35 @@
 # @solidjs/web
 
+## 2.0.0-rc.23
+
+### Patch Changes
+
+- cdf4542: fix(web): only a server function call made inside an action gets the default revalidation (#4913)
+
+  A non-GET call made while an action body runs (a core `action`, or a router `formAction`) is a mutation: it asks for single-flight collection, and its response reaches the flight consumers even with nothing folded, so a router revalidates every query. A call made anywhere else, such as a query's fetcher, no longer does, which stops the refetch loop that started in rc.22. Explicit `X-Revalidate` keys and redirects still reach the consumers wherever the call was made.
+
+- 7302320: A server function called with one argument whose encoding has no bytes (`''`, an empty `URLSearchParams`, `Blob`, `ArrayBuffer` or `Uint8Array`) receives that value when the host passes the request on with no body, as Node adapters do for `Content-Length: 0` (#4939). The format tag says one argument was sent, so the server decodes it from the empty body. Before, the call ran with no arguments: `echo('')` ran as `echo(undefined)`. An untagged empty POST is still a zero-argument call.
+- 6c7f186: A reactive spread that evaluates to a falsy value (`{...(cond() && { k: 1 })}`) contributes no props, as `{}` does, on components and elements, on the client and the server (#4937). Since rc.9 it threw `Cannot use 'in' operator … in false` and halted reactivity: function sources were only checked for nullish values.
+- eb31c86: Fix the reactivity bugs in Milo's `lean.test.ts` repros (21 of 25; the other four stay pinned as open questions or as rulings not built yet):
+  - Sync glitches: a stale CHECK no longer stops the next flush's marking (S0). A memo that reads its own child sees the updated value (S1). A queued child moves with its owner and no longer runs before the owner that disposes it (S3). Height adjustment no longer requeues an owner that reads its child (S2). A pass's owned write to a signal it just read is a missed wake (S4, F-10).
+  - A tick that nets back to its starting value (D-8) no longer asks async readers a new question. A pass that read only committed values asks the committed question again, which is a quiet re-ask (F-9, K1/K1b). `refresh()` no longer launders a held new question (K4).
+  - `latest()` keeps showing a held error, or a held first answer, while the next question is in flight (D-22, D-41; T2, K3).
+  - A write lands while an `<Errored>` shows its fallback over a pending read (F-3, F-12; E1).
+  - A hold's commit lands each async node on the answer to its own question, and a user effect waits for the end of the hold: a run owed for a superseded pass is dropped (F-1, F-2; T1).
+
+  Size offsets: `solid-js` exports `createRoot`, `createSignal` and `createRenderEffect` as live bindings that `enableHydration()` reassigns, instead of wrappers that spread their arguments into the hydrated or core function. A client-only app calls the core function directly.
+
+- 0f6a978: `seroval` and `seroval-plugins` now depend on `^1.8.0` instead of the exact `1.7.0` pin, so apps can share one seroval copy with other packages on 1.8.
+- bed865a: An SSR document a shared cache may store (`Cache-Control` with `public` or `s-maxage`, or a storable `CDN-Cache-Control`) no longer tells the browser the request's trace: no `<meta name="traceparent">` in the shell head and no trace entry in `Server-Timing` (#4938). The cache replays one response to every viewer, so each browser attached its spans to the request that filled the cache, and the per-request meta tag changed the body on every render, which defeated `ETag` revalidation. The decision reads the response head when the shell head is written, so an `httpHeader("Cache-Control", …)` set while the shell renders counts. Server-function reads already worked this way (#3985). `getTraceContext()` is unchanged.
+- 93fa11a: fix: `csstype` is declared by the packages whose published JSX types import it (#4922). `@solidjs/web` (#4923) and `@solidjs/h` now depend on it, and `solid-js`, whose types no longer use it, drops it.
+- 6b317b2: `@solidjs/web`'s published declarations no longer import `heldRead` from `solid-js`, which strips it from its own declarations. Any project with `skipLibCheck: false` got a type error from rc.22's `client.d.ts`. The seam now comes from `solid-js/internal`, which declares it. A new `skipLibCheck: false` type check over every `@solidjs/web` entry's published declarations catches a stripped import before release.
+- Updated dependencies [cdf4542]
+- Updated dependencies [eb31c86]
+- Updated dependencies [0f6a978]
+- Updated dependencies [93fa11a]
+- Updated dependencies [6b317b2]
+  - solid-js@2.0.0-rc.23
+
 ## 2.0.0-rc.22
 
 ### Patch Changes

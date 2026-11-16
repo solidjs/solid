@@ -1,5 +1,20 @@
 # @solidjs/h
 
+## 2.0.0-rc.23
+
+### Patch Changes
+
+- 93fa11a: fix: `csstype` is declared by the packages whose published JSX types import it (#4922). `@solidjs/web` (#4923) and `@solidjs/h` now depend on it, and `solid-js`, whose types no longer use it, drops it.
+- Updated dependencies [cdf4542]
+- Updated dependencies [7302320]
+- Updated dependencies [6c7f186]
+- Updated dependencies [eb31c86]
+- Updated dependencies [0f6a978]
+- Updated dependencies [bed865a]
+- Updated dependencies [93fa11a]
+- Updated dependencies [6b317b2]
+  - @solidjs/web@2.0.0-rc.23
+
 ## 2.0.0-rc.22
 
 ### Patch Changes
