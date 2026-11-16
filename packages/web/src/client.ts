@@ -1307,7 +1307,7 @@ export function spread(node, props, skipChildren, skip, name, loc) {
       insert(node, () => {
         for (let i = props.length - 1; i >= 0; i--) {
           const s = resolveSource(props[i]);
-          if (s != null && entryHas(s, "children")) return entryGet(s, "children");
+          if (s && entryHas(s, "children")) return entryGet(s, "children");
         }
       });
     if ("_SOLID_DEV_") unscopedByDesign = null;
@@ -1333,7 +1333,7 @@ export function spread(node, props, skipChildren, skip, name, loc) {
     // key, no re-enumeration and no per-key walk of the later sources.
     const table = resolvedTable(source);
     if (table !== undefined) return collectTable(newProps, table, skip);
-    if (source != null) {
+    if (source) {
       const view = viewOf(source);
       if (view instanceof OmitView) collectProps(newProps, view, SOURCE_OMIT, skip);
       else if (view !== undefined) collectSources(newProps, view.sources, view.kinds, skip);
@@ -1359,9 +1359,7 @@ export function spread(node, props, skipChildren, skip, name, loc) {
     } else
       insert(node, () => {
         const source = resolveSource(props);
-        return source != null && entryHas(source, "children")
-          ? entryGet(source, "children")
-          : undefined;
+        return source && entryHas(source, "children") ? entryGet(source, "children") : undefined;
       });
   }
   if ("_SOLID_DEV_") unscopedByDesign = null;
@@ -1428,7 +1426,7 @@ function pushEntry(resolved, kinds, s, kind) {
     return;
   }
   s = resolveSource(s);
-  if (s == null) return;
+  if (!s) return;
   const view = viewOf(s);
   if (view instanceof OmitView) {
     resolved.push(view);
