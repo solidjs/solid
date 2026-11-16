@@ -21,7 +21,9 @@ concurrency:
 jobs:
   benchmarks:
     name: Run benchmarks (${{ matrix.lane }})
-    runs-on: ubuntu-latest
+    # Pinned: CodSpeed's instrument reports "Unsupported system" on the
+    # ubuntu-26.04 image ubuntu-latest moved to (2026-11), failing every lane.
+    runs-on: ubuntu-24.04
     # CodSpeed merges these results only when the jobs share one workflow.
     strategy:
       fail-fast: false
