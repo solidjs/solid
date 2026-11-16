@@ -2029,6 +2029,17 @@ function withBufferedBody(request, body) {
 // itself so the two can never drift: a tag added there is accepted here the
 // same day, and a tag from anywhere else is not.
 const KNOWN_BODY_FORMATS = new Set(Object.values(BodyFormat));
+// Tags whose value can encode to no bytes: `''`, empty `URLSearchParams`, an
+// empty `Blob`/`ArrayBuffer`/`Uint8Array`. A host may hand such a request on
+// with a null body (Content-Length 0); the tag still says one argument was
+// sent, so it decodes from the empty body instead of being dropped (#4939).
+const EMPTY_BODY_FORMATS = new Set([
+  BodyFormat.String,
+  BodyFormat.URLSearchParams,
+  BodyFormat.Blob,
+  BodyFormat.ArrayBuffer,
+  BodyFormat.Uint8Array
+]);
 
 // Brands the unknown-tag refusal so dispatch's malformed-arguments 400 can
 // surface ITS message in development: version skew has a recovery (redeploy
@@ -2144,7 +2155,7 @@ async function parseArguments(request, url, scripted, codec, buffered) {
     // a cache keys on the url, so the same url must mean the same call.
     parsed.push(url.searchParams);
   }
-  if (request.method === "POST" && request.body !== null) {
+  if (request.method === "POST" && (request.body !== null || EMPTY_BODY_FORMATS.has(bodyFormat))) {
     // The tag names the encoding, so a tag this build has no case for is
     // refused BEFORE the decode switch runs (#3245): `extractBody`'s
     // content-type sniffing branches (there for form posts that never saw
@@ -2165,7 +2176,8 @@ async function parseArguments(request, url, scripted, codec, buffered) {
     // original through `event.request`. Every path below reads this branch:
     // a matched decode consumes it, and the fall-through hands it to the
     // empty-body inspection instead of minting a second clone.
-    const body = request.clone();
+    const body =
+      request.body !== null ? request.clone() : new Response(null, { headers: request.headers });
     let decoded;
     if (bodyFormat === BodyFormat.Serialized) {
       let argumentCodec = argumentCodecFor(codec);
