@@ -317,19 +317,19 @@ export default [
   {
     input: "server-functions/src/client.ts",
     output: { file: "server-functions/dist/client.js", format: "es" },
-    external: ["seroval", "seroval-plugins/web"],
+    external: ["solid-js", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(false)].concat(plugins)
   },
   {
     input: "server-functions/src/client.ts",
     output: { file: "server-functions/dist/client.observe.js", format: "es" },
-    external: ["seroval", "seroval-plugins/web"],
+    external: ["solid-js", "seroval", "seroval-plugins/web"],
     plugins: [replaceFlags(false, true)].concat(plugins)
   },
   {
     input: "server-functions/src/client.ts",
     output: { file: "server-functions/dist/client.dev.js", format: "es" },
-    external: ["seroval", "seroval-plugins/web"],
+    external: ["solid-js", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(true)].concat(plugins)
   },
   {

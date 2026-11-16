@@ -36,6 +36,7 @@ import {
 } from "@solidjs/web/server-functions/client";
 import type { FlightDataConsumer } from "@solidjs/web/server-functions/client";
 import { redirect, reload, respond } from "@solidjs/web";
+import { createMemo, createRoot } from "solid-js";
 
 // The event-scope fallback the handler uses is the AsyncLocalStorage that
 // @solidjs/web/storage's provideRequestEvent parks on the global under the
@@ -594,6 +595,76 @@ describe("single-flight client bridge (built client bundle)", () => {
     const unsubscribe = subscribeFlightDataClient(consumer);
     try {
       const response = await GET(createServerReference("sf-bridge-meta-read-0"))();
+      expect(response).toBeInstanceOf(Response);
+      expect((response as unknown as Response).headers.has(REDIRECT_HEADER)).toBe(true);
+      expect(consumer).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+      restore();
+    }
+  });
+
+  it("a call made inside a tracking computation is a read: no header, no delivery (#4913)", async () => {
+    // `query((id) => getPost(id))` runs the arrow inside the query's own
+    // computation — the same position `createMemo(() => getPost())` puts the
+    // call in. Before this rule the transport classified it a mutation: the
+    // plain delivery swept every query cache, refetching the very read in
+    // flight, forever (11k requests in 500 ms on the reported repro).
+    registerServerFunction("sf-bridge-tracked-0", async () => "post");
+    const original = globalThis.fetch;
+    let requestLeg: string | null = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      const request = new Request(new URL(url, "http://localhost"), init);
+      request.headers.set("Sec-Fetch-Site", "same-origin");
+      requestLeg = request.headers.get(SINGLE_FLIGHT_HEADER);
+      return handleServerFunctionRequest(request);
+    }) as typeof fetch;
+    const restore = () => {
+      globalThis.fetch = original;
+    };
+    const consumer = vi.fn();
+    const unsubscribe = subscribeFlightDataClient(consumer);
+    try {
+      const ref = createServerReference("sf-bridge-tracked-0");
+      let call!: Promise<unknown>;
+      createRoot(dispose => {
+        createMemo(() => (call = ref() as Promise<unknown>));
+        dispose();
+      });
+      // a tracked call asks for no collection and delivers nothing — both
+      // would only revalidate the read being fetched; the value is the
+      // caller's, decoded as before
+      expect(await call).toBe("post");
+      expect(requestLeg).toBeNull();
+      expect(consumer).not.toHaveBeenCalled();
+      // the gate is per-call: an untracked call of the same function still
+      // advertises its consumers and still delivers (#4883 stands)
+      expect(await ref()).toBe("post");
+      expect(requestLeg).toBe("true");
+      expect(consumer).toHaveBeenCalledTimes(1);
+      expect(consumer.mock.calls[0][0]).toBeUndefined();
+    } finally {
+      unsubscribe();
+      restore();
+    }
+  });
+
+  it("a tracked call carrying a redirect still passes through whole", async () => {
+    // Response metadata is the calling integration's to apply — suppressing
+    // the mutation delivery must not swallow it: a read holds across the
+    // navigation, the same rule as the GET read above.
+    registerServerFunction("sf-bridge-tracked-redirect-0", async () => redirect("/elsewhere"));
+    const restore = connectTransport();
+    const consumer = vi.fn();
+    const unsubscribe = subscribeFlightDataClient(consumer);
+    try {
+      const ref = createServerReference("sf-bridge-tracked-redirect-0");
+      let call!: Promise<unknown>;
+      createRoot(dispose => {
+        createMemo(() => (call = ref() as Promise<unknown>));
+        dispose();
+      });
+      const response = await call;
       expect(response).toBeInstanceOf(Response);
       expect((response as unknown as Response).headers.has(REDIRECT_HEADER)).toBe(true);
       expect(consumer).not.toHaveBeenCalled();

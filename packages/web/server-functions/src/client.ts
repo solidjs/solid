@@ -5,6 +5,7 @@
 // fns/client.ts with neutral header names and a configurable endpoint.
 import { REVALIDATE_HEADER } from "../../src/response.js";
 import { observeCall } from "../../src/observe.js";
+import { getObserver } from "solid-js";
 
 // Replaced per build (see src/observe.ts): the observe emitter and its
 // wrapper fold out of the prod artifact behind it.
@@ -18,6 +19,13 @@ const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
 // and its five `createRequest` sites would cost the prod artifact bytes for a
 // value it never carries; every read of this key sits behind `IS_OBSERVE`.
 const CALL_OBSERVATION = Symbol("solid.CallObservation");
+// A call initiated inside a tracking computation is the computation
+// fetching its value — a read whatever the wire shape, beside GET and
+// `read: true` (#4913). The flag rides the per-call options down to
+// `createRequest`, where the dispatched request takes its final shape —
+// the way CALL_OBSERVATION and LIVE_WIRE do — and is lifted off before
+// the init is built; the response half reads the local that spliced it on.
+const TRACKED_CALL = Symbol("solid.TrackedCall");
 // Local bindings for the annotations below — the `export type` block only
 // re-exports these names without bringing them into scope, and declaration
 // emit would leave them dangling (implicit any for every consumer).
@@ -591,6 +599,14 @@ async function createRequest(base, id, options, meta) {
     // rides beside the position, under the same rule.
     if (wire.headers) Object.assign(headers, wire.headers);
   }
+  // The computation-fetch marking (spliced on at dispatch, see TRACKED_CALL)
+  // is lifted off under the same rule as the wire slot: it decides the
+  // single-flight ask below and must not reach the init.
+  const tracked = !!options[TRACKED_CALL];
+  if (tracked) {
+    options = { ...options };
+    delete options[TRACKED_CALL];
+  }
   // Observe tier: lift the call's observation off before the init is built
   // (see CALL_OBSERVATION); it sees the final init below, after
   // `prepareRequest` has had its say.
@@ -615,7 +631,7 @@ async function createRequest(base, id, options, meta) {
   // getFlightDataSourceIds). Reads stay plain — folding per-request flight
   // data into a cacheable url would defeat caching.
   const flightSources = getFlightDataSourceIds();
-  if (flightSources.length > 0 && !isReadCall(options)) {
+  if (!tracked && flightSources.length > 0 && !isReadCall(options)) {
     headers[SINGLE_FLIGHT_HEADER] = flightSources.join(",");
   }
   let init = {
@@ -825,6 +841,15 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // signal rides along, as it owns the wire (below).
   const sent = options;
 
+  // Initiated inside a tracking computation, the call is the computation
+  // fetching its value — a read for mutation policy whatever the wire
+  // shape (#4913): asking the server to collect and telling the consumers a
+  // mutation happened (#4883) would only revalidate the very read being
+  // fetched. Ambient context is gone by the first await, so the flag rides
+  // options from here (see TRACKED_CALL) to the request leg.
+  const tracked = getObserver() !== null;
+  if (tracked) options = { ...options, [TRACKED_CALL]: true };
+
   // The call owns an AbortController so a streaming result can be ENDED, not
   // just abandoned: `iterator.return()` on the received iterable aborts the
   // fetch, which closes the response body here (settling the codec's
@@ -914,7 +939,7 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // function), so a mutation reads identically whichever body shape it
   // arrived in. What stays here is the plain body's decode and the
   // read-call exclusion, which are this transport's.
-  const mutation = !isReadCall(options) && getFlightDataSourceIds().length > 0;
+  const mutation = !isReadCall(options) && !tracked && getFlightDataSourceIds().length > 0;
   if (mutation) {
     const folded = response.headers.has(SINGLE_FLIGHT_HEADER);
     const metadata = hasFlightMetadata(response);
