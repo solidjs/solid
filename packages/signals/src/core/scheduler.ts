@@ -1466,8 +1466,8 @@ export function staleReader(c: Computed<any>, t: Transaction): void {
   // landing re-runs it. Listed once per hold it was not on, the reader missed
   // the second's landing (#4932). A repeat entry is inert: `reruns` re-runs
   // the reader at its first and clears the flag the rest wait on.
-  c._flags |= REACTIVE_FRAME_READ;
   t._reruns.push(c);
+  c._flags |= REACTIVE_FRAME_READ;
 }
 
 export function queuePendingNode(node: Signal<any>): void {
