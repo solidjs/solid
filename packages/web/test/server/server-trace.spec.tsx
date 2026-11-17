@@ -20,6 +20,7 @@ import { afterEach, beforeAll, afterAll, describe, expect, test, vi } from "vite
 import {
   Loading,
   commitEventResponse,
+  composeMiddleware,
   createRequestEvent,
   createSSRResponse,
   getTraceContext,
@@ -764,6 +765,40 @@ describe("a document a shared cache may store (#4938)", () => {
       const body = await response.text();
       expect(body.includes('<meta name="traceparent"')).toBe(emit);
       expect(serverTiming(response.headers).has("traceparent")).toBe(emit);
+    }
+  });
+});
+
+describe("a shared-cache policy a middleware sets before next() (#4967)", () => {
+  // Middleware runs inside the request scope, so a policy it knows before the
+  // render (from its own route table) goes on the response stub, where the
+  // shell-head check reads it. Headers set on the returned Response after
+  // next() come after the shell and cannot withhold the trace.
+  test("withholds the trace from the document, string and stream", async () => {
+    for (const mode of ["stream", "string"] as const) {
+      const evt = event({ traceparent: INCOMING });
+      const run = composeMiddleware([
+        async (_request, next) => {
+          httpHeader("Cache-Control", "public, max-age=0, s-maxage=600");
+          return next();
+        }
+      ]);
+      const response = await inScope(evt, () =>
+        run(evt.request, () =>
+          mode === "stream"
+            ? createSSRResponse(
+                renderToStream(() => <Doc />),
+                evt
+              )
+            : createSSRResponse(
+                renderToString(() => <Doc />),
+                evt
+              )
+        )
+      );
+      expect(await response.text()).not.toContain('<meta name="traceparent"');
+      expect(serverTiming(response.headers).has("traceparent")).toBe(false);
+      expect(inScope(evt, () => getTraceContext())!.traceId).toBe(TRACE_ID);
     }
   });
 });
