@@ -2489,10 +2489,15 @@ export function read<T>(el: any): T {
           // hold's: it re-derives now, served the hold's writes (verdict.ts
           // `holdStaging`), and the reader reads that. A memo that probes in
           // its own body stays the screen's (F-6, #4544's inline rows,
-          // #4341). A pass that asks is display like any other (S-51).
+          // #4341). A pass that asks is display like any other (S-51): an
+          // async derivation's read (its last answer a flight) seats nothing —
+          // re-derived into the hold, the memo pulled the branch it gates into
+          // the verdict lane, born there, and the lane waited on that branch's
+          // mount while the mount waited on the lane (#4965).
           if (
             (el._config & (CONFIG_VERDICT | CONFIG_FRAME | CONFIG_ASYNC | CONFIG_OWN_PROBE)) ===
-            CONFIG_VERDICT
+              CONFIG_VERDICT &&
+            !(c._config & CONFIG_ASYNC)
           ) {
             const t = resolveTx(
                 c._config & CONFIG_HELD ? txOf(c as Computed<any>) : flushTransaction!
