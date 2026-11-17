@@ -4,7 +4,7 @@ Solid 2.0's web platform runtime — DOM rendering, hydration, server-side rende
 
 > **Solid 2.0.** In 1.x this package was the `solid-js/web` subpath; in 2.0 it's a separate `@solidjs/web` package.
 >
-> See [`solid-js`'s CHEATSHEET](https://github.com/solidjs/solid/blob/next/packages/solid/CHEATSHEET.md) and [MIGRATION guide](https://github.com/solidjs/solid/blob/next/documentation/solid-2.0/MIGRATION.md) for the 2.0 surface.
+> See [`solid-js`'s CHEATSHEET](https://github.com/solidjs/solid/blob/main/packages/solid/CHEATSHEET.md) and [MIGRATION guide](https://github.com/solidjs/solid/blob/main/documentation/solid-2.0/MIGRATION.md) for the 2.0 surface.
 
 ## Entry points
 
@@ -21,5 +21,5 @@ The control-flow components from `solid-js` (`For`, `Show`, `Switch`/`Match`, `L
 ## More
 
 - [Documentation](https://docs.solidjs.com)
-- [Cheatsheet (2.0 public API)](https://github.com/solidjs/solid/blob/next/packages/solid/CHEATSHEET.md)
-- [Migration guide (1.x → 2.0)](https://github.com/solidjs/solid/blob/next/documentation/solid-2.0/MIGRATION.md)
+- [Cheatsheet (2.0 public API)](https://github.com/solidjs/solid/blob/main/packages/solid/CHEATSHEET.md)
+- [Migration guide (1.x → 2.0)](https://github.com/solidjs/solid/blob/main/documentation/solid-2.0/MIGRATION.md)
