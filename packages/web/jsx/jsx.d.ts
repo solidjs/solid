@@ -3730,7 +3730,7 @@ export namespace JSX {
       Properties<SVGFEColorMatrixElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feComponentTransfer
-     * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEComponentTransferElemen
+     * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEComponentTransferElement
      */
     feComponentTransfer: FeComponentTransferSVGAttributes<SVGFEComponentTransferElement> &
       Properties<SVGFEComponentTransferElement>;
