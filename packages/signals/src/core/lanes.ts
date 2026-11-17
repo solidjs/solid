@@ -397,7 +397,12 @@ export function laneStage(
         x._shown = false;
         x._transaction = null;
       }
-      // The lane's staging of it is void.
+      // The lane's staging of it is void, and so is what its readers derived
+      // from it in the lane: they re-derive, or a lane run released after
+      // this pass shows the void value and a re-derivation equal to their
+      // committed one notifies nobody (a Show's condition read the hold's
+      // selection through the lane, F-1, F-7, D-34, #4990).
+      if (el._pendingValue !== NOT_PENDING) insertSubs(el);
       el._pendingValue = NOT_PENDING;
     }
     el._config &= ~(CONFIG_OVERRIDE | CONFIG_HELD | CONFIG_HELD_FRAME);
