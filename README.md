@@ -10,7 +10,7 @@
 [![Discord](https://img.shields.io/discord/722131463138705510?style=for-the-badge)](https://discord.com/invite/solidjs)
 [![Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/solidjs?style=for-the-badge)](https://www.reddit.com/r/solidjs/)
 
-**[Website](https://www.solidjs.com/) • [Docs](https://docs.solidjs.com/) • [Playground](https://playground.solidjs.com/) • [Discord](https://discord.com/invite/solidjs)**
+**[Website](https://www.solidjs.com/) • [Docs](https://docs.solidjs.com/) • [Tutorial](https://docs.solidjs.com/tutorial) • [Playground](https://playground.solidjs.com/) • [Discord](https://discord.com/invite/solidjs)**
 
 Solid is a declarative JavaScript library for building user interfaces. Instead of a Virtual DOM, it compiles templates to real DOM nodes and updates them with fine-grained reactivity. Declare your state and use it throughout your app — when a piece of state changes, only the code that depends on it re-runs.
 
@@ -171,6 +171,7 @@ Built on JSX and TypeScript, integrates with the Vite ecosystem. Bare-metal abst
 ## More
 
 - [Documentation](https://docs.solidjs.com)
+- [Tutorial](https://docs.solidjs.com/tutorial)
 - [Examples](examples/)
 - [Playground](https://playground.solidjs.com/)
 
