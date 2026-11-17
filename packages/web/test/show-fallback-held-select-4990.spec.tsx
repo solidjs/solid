@@ -12,12 +12,15 @@ import {
   createMemo,
   createSignal,
   createOptimisticStore,
-  createErrorBoundary,
   refresh,
   flush,
   untrack
 } from "solid-js";
+import * as Solid from "solid-js";
 import { render } from "../src/index.js";
+
+// Not in the public types: the boundary `x catch () => alt` compiles to.
+const createErrorBoundary = (Solid as any).createErrorBoundary;
 
 // #4990: a Show's fallback reads what its condition read. A held select,
 // a list's first load failing, and an unread error boundary over a memo of
@@ -58,7 +61,7 @@ for (const extra of [false, true])
       );
       const caught = (f: () => any, alt: any) => {
         const acc = untrack(() =>
-          (createErrorBoundary as any)(
+          createErrorBoundary(
             () => f(),
             () => ({ fb: alt })
           )
