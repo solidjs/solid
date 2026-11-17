@@ -166,7 +166,7 @@ const template = props => {
           {
             name: "Jason"
           },
-          dynamicSpread,
+          () => dynamicSpread(),
           new _P$(props, content)
         )
       )

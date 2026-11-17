@@ -62,6 +62,7 @@ import {
   REACTIVE_MISSED_WAKE,
   REACTIVE_PROBED,
   REACTIVE_WINDOW,
+  WINDOW_KINDS,
   REACTIVE_AHEAD,
   CONFIG_OWN_PROBE,
   CONFIG_FRAME,
@@ -2906,8 +2907,12 @@ export function stagedScreen(c: Computed<any>, el?: Signal<any> | Computed<any>)
   // #4806: content a display-ahead gate opens is a mount, whatever its
   // shape — text read in the gate's own pass too. Its verdict lane reveals
   // with the landing, as for a born-held element (lanes.ts `lanesBlocked`,
-  // which reads the mark on a verdict lane only).
-  if (laneStageHook && el && fresh && passLane) passLane._opened = 1;
+  // which reads the mark on a verdict lane only). #4966 (F-6, D-23): not
+  // under a gate that is only the pass's own `isPending` window — what a
+  // verdict gates shows while the question is open, and a read's place
+  // after the probe or before it never changes what shows.
+  if (laneStageHook && el && fresh && passLane && c._flags >> WINDOW_KINDS != 1)
+    passLane._opened = 1;
   staleReader(c, flushTransaction);
   return true;
 }
