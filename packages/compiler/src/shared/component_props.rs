@@ -115,9 +115,12 @@ pub(crate) fn component_props_expression<'a>(
 }
 
 /// Babel's component spread handling: a dynamic spread argument
-/// (`isDynamic(..., { checkMember: true })`) defers behind a thunk — a bare
-/// zero-arg call unwraps to its callee — and forces the `mergeProps` wrap;
-/// static spreads pass through untouched.
+/// (`isDynamic(..., { checkMember: true })`) defers behind a thunk and forces
+/// the `mergeProps` wrap; static spreads pass through untouched. A zero-arg
+/// call is NOT unwrapped to its callee here (unlike element spreads and
+/// inserts): `mergeProps` memoizes a function source, and a memo calls its
+/// compute with the previous value, so `{...fn()}` would call `fn(prev)`
+/// (#4964).
 pub(crate) fn component_spread_expression<'a>(
     ctx: &impl ComponentPropContext<'a>,
     expression: &Expression<'a>,
@@ -130,8 +133,7 @@ pub(crate) fn component_spread_expression<'a>(
             force_merge: false,
         };
     }
-    let value = crate::shared::condition::zero_arg_call_thunk(&cloned, ctx.allocator())
-        .unwrap_or_else(|| ctx.arrow_return_expression(span, cloned));
+    let value = ctx.arrow_return_expression(span, cloned);
     ComponentSpread {
         value,
         force_merge: true,
