@@ -7,6 +7,7 @@
 //
 // Run from the repo root. Exits non-zero with an explanation per violation.
 import fs from "node:fs";
+import { releasePackages } from "./release-packages.mjs";
 
 const failures = [];
 
@@ -25,8 +26,7 @@ if (platformPackages.length === 0) {
   );
 }
 
-const changesetConfig = JSON.parse(fs.readFileSync(".changeset/config.json", "utf8"));
-const fixedPackages = changesetConfig.fixed.flat();
+const releaseNames = [...releasePackages().keys()];
 
 const workspaceYaml = fs.readFileSync("pnpm-workspace.yaml", "utf8");
 
@@ -64,7 +64,7 @@ for (const name of platformPackages) {
 // pinned entry either deadlocks the next release (platform packages) or means
 // some dependency chain tests published code instead of the workspace.
 const lockfile = fs.readFileSync("pnpm-lock.yaml", "utf8");
-for (const name of [...fixedPackages, ...platformPackages]) {
+for (const name of [...releaseNames, ...platformPackages]) {
   const pattern = new RegExp(`^\\s*['"]?${escapeRegExp(name)}@\\d[^:]*['"]?:`, "m");
   const match = lockfile.match(pattern);
   if (match) {
@@ -83,5 +83,5 @@ if (failures.length > 0) {
 
 console.log(
   `Release invariants hold: ${platformPackages.length} platform link stubs, ` +
-    `${fixedPackages.length} fixed packages workspace-resolved.`
+    `${releaseNames.length} release packages workspace-resolved.`
 );

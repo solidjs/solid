@@ -55,7 +55,7 @@ Short summary of the change
 ```
 
 - **Changesets follow semver:** `patch` for fixes, `minor` for features, `major` for breaking changes. (During the 2.0 prereleases every changeset was `patch`; that ended with 2.0.0.)
-- List the package(s) that actually changed, by directory. Source under `packages/solid/src/` → `solid-js`; `packages/signals/src/` → `@solidjs/signals`; `packages/web/src/` → `@solidjs/web`; etc. If a single change touches multiple package sources, list each one. (All packages in the `fixed` group still version together; the changeset header is documenting *what* changed, not *what bumps*.)
+- List the package(s) that actually changed, by directory. Source under `packages/solid/src/` → `solid-js`; `packages/signals/src/` → `@solidjs/signals`; `packages/web/src/` → `@solidjs/web`; etc. If a single change touches multiple package sources, list each one. (The core runtime packages are one `fixed` group, so a changeset for any of them bumps all five; the compilers are linked; h, html and element bump only when a changeset names them. See `.changeset/config.json`.)
 - If a commit only touches examples, tests, or tooling config (not source under `packages/`), no changeset is needed.
 - The changeset file name should be descriptive (e.g., `fix-ssr-async-error-handling.md`), not random words.
 

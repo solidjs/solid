@@ -3,20 +3,9 @@
   "changelog": "@changesets/cli/changelog",
   "commit": false,
   "fixed": [
-    [
-      "solid-js",
-      "@solidjs/babel-plugin",
-      "@solidjs/compiler",
-      "@solidjs/web",
-      "@solidjs/html",
-      "@solidjs/h",
-      "@solidjs/universal",
-      "@solidjs/element",
-      "@solidjs/signals",
-      "@solidjs/diagnostics"
-    ]
+    ["solid-js", "@solidjs/signals", "@solidjs/web", "@solidjs/universal", "@solidjs/diagnostics"]
   ],
-  "linked": [],
+  "linked": [["@solidjs/compiler", "@solidjs/babel-plugin"]],
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
