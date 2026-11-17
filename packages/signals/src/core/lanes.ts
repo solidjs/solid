@@ -572,6 +572,11 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
       // it: an input's truth equal to its committed value is silent).
       x._transaction = null;
       if (!effect) {
+        // Its readers re-derive unless the lane was held: a shown lane's runs,
+        // released below, show the void staging, and its own re-derivation
+        // may land on what the screen shows and notify nobody (F-1, D-34,
+        // #4971).
+        if (!l._held && n._pendingValue !== NOT_PENDING) insertSubs(n);
         // A staged error is a staging too: void with it, or the commit below
         // would publish the empty slot as the node's error (#4748).
         n._pendingValue = NOT_PENDING;
@@ -1215,11 +1220,12 @@ const laneSeams = (t: Transaction | null): void => {
  * it through `c` too: the source's own landing walk stops at `c`, which no
  * longer has it, and a render effect left marked would hold its transaction
  * on a flight that has landed (D-11, F-2, #4576; a nested action's refresh). */
-/** The last lane pass served a flight's committed value, that flight, and
- * the pass (`_depGen`): a later pass of the same node did not read it. */
-let served: Computed<any> | null = null,
-  servedFlight: Computed<any> | null = null,
-  servedGen = 0;
+/** Each lane pass served a flight's committed value: that flight, and the
+ * pass (`_depGen`), so a later pass of the same node did not read it. Kept
+ * per node: a pass that runs another node's pass inside its own (a nested
+ * memo created or pulled mid-body) must still find its own record after the
+ * inner one recorded (#4927). */
+const served = new WeakMap<Computed<any>, [flight: Computed<any>, gen: number]>();
 const laneServed = (
   c: Computed<any>,
   el: Signal<any> | Computed<any> | null,
@@ -1231,9 +1237,10 @@ const laneServed = (
   // old answer (F-1, F-2; S-57).
   // Asked with `flight` (core.ts `recompute`): whether it was so served.
   if (el === null) {
-    if (served === c && servedGen === c._depGen && servedFlight!._statusFlags & STATUS_PENDING) {
+    const s = served.get(c);
+    if (s && s[1] === c._depGen && s[0]._statusFlags & STATUS_PENDING) {
       if (flight) return true;
-      throw servedFlight!._x!._error;
+      throw s[0]._x!._error;
     }
     return;
   }
@@ -1247,9 +1254,7 @@ const laneServed = (
     if (c._flags & REACTIVE_STAGED_READ) return false;
     const u = (el as Computed<any>)._x?._transaction || flushTransaction;
     if (u) staleReader(c, resolveTx(u));
-    served = c;
-    servedGen = c._depGen;
-    servedFlight = el as Computed<any>;
+    served.set(c, [el as Computed<any>, c._depGen]);
     return true;
   }
   const from = (el as Computed<any>)._x?._pendingSources;

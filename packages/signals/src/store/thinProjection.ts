@@ -350,7 +350,7 @@ export function runProjectionComputed<T extends object>(
           // Not a lane's pass served the committed value of a flight still
           // up: the derive keeps its pending (core `recompute`), and so do
           // the readers waiting on it — a boundary keeps its fallback (F-4,
-          // #4862).
+          // #4862, #4927).
           if (
             (!first || !(owner._statusFlags & STATUS_UNINITIALIZED)) &&
             !(

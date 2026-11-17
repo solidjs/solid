@@ -3,22 +3,11 @@
   "changelog": "@changesets/cli/changelog",
   "commit": false,
   "fixed": [
-    [
-      "solid-js",
-      "@solidjs/babel-plugin",
-      "@solidjs/compiler",
-      "@solidjs/web",
-      "@solidjs/html",
-      "@solidjs/h",
-      "@solidjs/universal",
-      "@solidjs/element",
-      "@solidjs/signals",
-      "@solidjs/diagnostics"
-    ]
+    ["solid-js", "@solidjs/signals", "@solidjs/web", "@solidjs/universal", "@solidjs/diagnostics"]
   ],
-  "linked": [],
+  "linked": [["@solidjs/compiler", "@solidjs/babel-plugin"]],
   "access": "public",
-  "baseBranch": "next",
+  "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": [
     "chat-example",
@@ -30,6 +19,11 @@
     "hackernews-example",
     "hackernews-spa-example",
     "notes-example",
-    "effect-example"
+    "effect-example",
+    "board-example",
+    "canvas-example",
+    "server-dbmon-example",
+    "todos-server-example",
+    "test-integration"
   ]
 }

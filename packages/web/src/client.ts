@@ -1307,7 +1307,7 @@ export function spread(node, props, skipChildren, skip, name, loc) {
       insert(node, () => {
         for (let i = props.length - 1; i >= 0; i--) {
           const s = resolveSource(props[i]);
-          if (s != null && entryHas(s, "children")) return entryGet(s, "children");
+          if (s && entryHas(s, "children")) return entryGet(s, "children");
         }
       });
     if ("_SOLID_DEV_") unscopedByDesign = null;
@@ -1333,7 +1333,7 @@ export function spread(node, props, skipChildren, skip, name, loc) {
     // key, no re-enumeration and no per-key walk of the later sources.
     const table = resolvedTable(source);
     if (table !== undefined) return collectTable(newProps, table, skip);
-    if (source != null) {
+    if (source) {
       const view = viewOf(source);
       if (view instanceof OmitView) collectProps(newProps, view, SOURCE_OMIT, skip);
       else if (view !== undefined) collectSources(newProps, view.sources, view.kinds, skip);
@@ -1359,9 +1359,7 @@ export function spread(node, props, skipChildren, skip, name, loc) {
     } else
       insert(node, () => {
         const source = resolveSource(props);
-        return source != null && entryHas(source, "children")
-          ? entryGet(source, "children")
-          : undefined;
+        return source && entryHas(source, "children") ? entryGet(source, "children") : undefined;
       });
   }
   if ("_SOLID_DEV_") unscopedByDesign = null;
@@ -1428,7 +1426,7 @@ function pushEntry(resolved, kinds, s, kind) {
     return;
   }
   s = resolveSource(s);
-  if (s == null) return;
+  if (!s) return;
   const view = viewOf(s);
   if (view instanceof OmitView) {
     resolved.push(view);
@@ -2601,14 +2599,15 @@ export function hydrate(code, element, options = {}) {
   // in-place-rewrite stash) sitting ahead of the shell's authored children
   // shift every read by one. Move that leading run — inert metas in an
   // unrendered element — to the end of head before any claiming. For apps
-  // without a prelude the loop exits on its first check.
+  // without a prelude the loop exits on its first check. It walks a snapshot
+  // of head's children: when the run is the whole head (no authored
+  // children), a live walk would reach the moved tags again and rotate the
+  // head forever.
   const head = (element.nodeType === 9 ? element : element.ownerDocument).head;
   if (head && element.contains(head)) {
-    let n = head.firstChild;
-    while (n && n.nodeType === 1 && n.hasAttribute("data-dh") && !n.hasAttribute("data-dhf")) {
-      const next = n.nextSibling;
+    for (const n of [...head.childNodes] as Element[]) {
+      if (n.nodeType !== 1 || !n.hasAttribute("data-dh") || n.hasAttribute("data-dhf")) break;
       head.appendChild(n);
-      n = next;
     }
   }
   options.renderId ||= "";

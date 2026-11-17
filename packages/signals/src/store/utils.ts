@@ -60,7 +60,7 @@ const EMPTY = Object.freeze({});
 // The object behind a LEAF entry (any kind but OMIT): a memo is read
 // (tracked, as merge's own reads are) and a nullish result has no keys.
 function leafOf(s: any, kind: SourceKind): any {
-  return kind === SOURCE_MEMO ? ((s = s()) == null ? EMPTY : s) : s;
+  return kind === SOURCE_MEMO ? (s = s()) || EMPTY : s;
 }
 
 /** @internal The record behind an `omit()` proxy: `source` with `hidden`
@@ -146,7 +146,7 @@ function recordOf(o: any): MergeView | OmitView | undefined {
 
 /** @internal The `OmitView` behind an `omit()` proxy, or undefined. */
 export function omitView(o: any): OmitView | undefined {
-  if (o == null || !($PROXY in o)) return undefined;
+  if (!o || !($PROXY in o)) return undefined;
   const r = o[$RECORD];
   return r instanceof OmitView ? r : undefined;
 }
@@ -372,7 +372,7 @@ export class MergeView {
 /** @internal The `MergeView` behind a `merge()` proxy — its flattened
  * `sources` with their `kinds` — or undefined. */
 export function mergeView(o: any): MergeView | undefined {
-  if (o == null || !($PROXY in o)) return undefined;
+  if (!o || !($PROXY in o)) return undefined;
   const r = o[$RECORD];
   return r instanceof MergeView ? r : undefined;
 }
@@ -382,7 +382,7 @@ export function mergeView(o: any): MergeView | undefined {
  * for anything else (a plain object, a store, a foreign proxy). Two fast
  * traps on a proxy (`has`, then `$RECORD`), none on a plain object. */
 export function viewOf(o: any): MergeView | OmitView | undefined {
-  return o != null && $PROXY in o ? o[$RECORD] : undefined;
+  return o && $PROXY in o ? o[$RECORD] : undefined;
 }
 
 /** @internal The resolved key table of a merge/omit view — every own key of
@@ -415,7 +415,7 @@ export function viewOf(o: any): MergeView | OmitView | undefined {
  * Once built — by a `spread`, `Object.keys`, `{...props}`, or the count —
  * every trap uses it. */
 export function resolvedTable(o: any): Map<PropertyKey, any> | undefined {
-  if (o == null || !($PROXY in o)) return undefined;
+  if (!o || !($PROXY in o)) return undefined;
   const r = recordOf(o);
   if (r instanceof OmitView) return omitTable(r);
   return r === undefined ? undefined : mergeTable(r);

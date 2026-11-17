@@ -31,7 +31,8 @@ import {
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
-  STATUS_UNINITIALIZED
+  STATUS_UNINITIALIZED,
+  NewSet
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { notifyStatus } from "./async.js";
@@ -1461,12 +1462,19 @@ export const stagedReaders: Computed<any>[] = [];
 
 /** A15's stale reader: `c` was served the committed value of a node `t`
  * holds (a render effect, a verdict reader, lane work) and is re-derived
- * after `t`'s landing (`_reruns`). Once per pass. */
+ * after `t`'s landing (`_reruns`). Called per read of a held node, so `t`'s
+ * list holds one entry per such read, not one per pass: `reruns` re-runs the
+ * reader at its first entry and skips the rest by the cleared flag. (A dedupe
+ * here costs ~17-30 B minified in every client bundle, which the 10 KB
+ * compiled floor cannot take; the repeats are inert and short-lived — the
+ * list empties at the landing.) */
 export function staleReader(c: Computed<any>, t: Transaction): void {
-  if (!(c._flags & REACTIVE_FRAME_READ)) {
-    c._flags |= REACTIVE_FRAME_READ;
-    t._reruns.push(c);
-  }
+  // On each hold the pass reads committed from: one pass can read two (a memo
+  // the flush's hold stages, a row another action's hold keeps), and each
+  // landing re-runs it. Guarded by the flag alone, the reader was listed on
+  // the first hold only and missed the second's landing (#4932).
+  t._reruns.push(c);
+  c._flags |= REACTIVE_FRAME_READ;
 }
 
 export function queuePendingNode(node: Signal<any>): void {
@@ -1535,9 +1543,16 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
 
 /** Every flight `c` waits on is a `refresh()` re-ask (`_reask`): its own,
  * with no sources, or each source's, through a source that waits on
- * another's flight (a projection over the re-asked memo, #4824). */
-export function reasks(c: Computed<any>): boolean {
-  return [...(c._x!._pendingSources ?? [c])].every(p => (p === c ? p._x!._reask : reasks(p)));
+ * another's flight (a projection over the re-asked memo, #4824). The
+ * propagated copies can form a cycle: two keyed projections whose derives
+ * each read a row lent from the other's store are each pending on the
+ * other's derive (D-1, D-9: a read of a pending leaf is pending on it), and
+ * both on the real flight (#4969). A source already walked adds no flight of
+ * its own; the flights at the ends of the walk decide. */
+export function reasks(c: Computed<any>, seen: Set<Computed<any>> = new NewSet()): boolean {
+  return [...(c._x!._pendingSources ?? [c])].every(p =>
+    p === c ? p._x!._reask : seen.has(p) || (seen.add(p), reasks(p, seen))
+  );
 }
 /** Lane work re-staged (lanes.ts; `recompute`): the node's subscribers are
  * notified (`insertSubs`), and the lane's members among them re-derive as

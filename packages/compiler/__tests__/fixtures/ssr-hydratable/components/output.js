@@ -155,7 +155,9 @@ const template = (props) => {
 		get children() {
 			return _v$6 = _$ssrHydrationKey(), _$ssr(_tmpl$3, _v$6);
 		}
-	}))), _v$10 = _$escape(Child(_$mergeProps({ name: "Jason" }, dynamicSpread, new _P$(props, content)))), _v$11 = (() => {
+	}))), _v$10 = _$escape(Child(_$mergeProps({ name: "Jason" }, () => {
+		return dynamicSpread();
+	}, new _P$(props, content)))), _v$11 = (() => {
 		var _ref$5 = props.consumerRef();
 		return _$escape(Context.Consumer({
 			ref(r$) {

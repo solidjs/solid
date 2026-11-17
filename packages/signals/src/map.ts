@@ -47,7 +47,7 @@ export type Maybe<T> = T | void | null | undefined | false;
  * );
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/advanced/jsx-component-primitives/map-array
+ * @description https://docs.solidjs.com/reference/solid-js/advanced/jsx-component-primitives/map-array
  */
 export function mapArray<Item, MappedItem>(
   list: Accessor<Maybe<readonly Item[]>>,
@@ -713,7 +713,7 @@ function updateKeyedRows<Item, MappedItem>(
  * const view = repeat(count, i => `Item ${i}`, { fallback: () => "empty" });
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-js/advanced/jsx-component-primitives/repeat
+ * @description https://docs.solidjs.com/reference/solid-js/advanced/jsx-component-primitives/repeat
  */
 export function repeat(
   count: Accessor<number>,

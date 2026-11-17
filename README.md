@@ -1,5 +1,5 @@
 <p>
-  <img src="https://assets.solidjs.com/banner?project=Library&type=core" alt="SolidJS" />
+  <img src="https://assets.solidjs.com/banner?project=Library&type=core&version=2.0" alt="SolidJS" />
 </p>
 
 [![Build Status](https://img.shields.io/github/actions/workflow/status/solidjs/solid/main-ci.yml?branch=main&logo=github&style=for-the-badge)](https://github.com/solidjs/solid/actions/workflows/main-ci.yml)
@@ -10,21 +10,11 @@
 [![Discord](https://img.shields.io/discord/722131463138705510?style=for-the-badge)](https://discord.com/invite/solidjs)
 [![Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/solidjs?style=for-the-badge)](https://www.reddit.com/r/solidjs/)
 
-**[Website](https://www.solidjs.com/) • [API Docs](https://v2.solidjs.com/) • [Tutorial](https://www.solidjs.com/tutorial/introduction_basics) • [Discord](https://discord.com/invite/solidjs)**
-
-> ### Solid 2.0 (Release Candidate)
->
-> You're on the **`next`** branch — Solid 2.0. The public API differs from 1.x: split-phase `createEffect`, microtask batching, `Loading`/`Errored` boundaries, draft-first store setters, async-in-computations, removed `solid-js/web` and `solid-js/store` subpaths, and more.
->
-> - **Migrating from 1.x?** Start with [`documentation/solid-2.0/MIGRATION.md`](documentation/solid-2.0/MIGRATION.md).
-> - **Quick API reference:** [`packages/solid/CHEATSHEET.md`](packages/solid/CHEATSHEET.md) (one screen, every public export).
-> - **Design rationale:** the 2.0 RFCs at [`documentation/solid-2.0/`](documentation/solid-2.0/).
-> - **JSX compiler and DOM runtime** live here (`@solidjs/babel-plugin`, `@solidjs/compiler`, `@solidjs/web`). File those issues on this repo, not [DOM Expressions](https://github.com/ryansolid/dom-expressions).
-> - **Stable Solid 1.x?** Use the default [`main` branch](https://github.com/solidjs/solid).
+**[Website](https://www.solidjs.com/) • [Docs](https://docs.solidjs.com/) • [Tutorial](https://docs.solidjs.com/tutorial) • [Playground](https://playground.solidjs.com/) • [Discord](https://discord.com/invite/solidjs)**
 
 Solid is a declarative JavaScript library for building user interfaces. Instead of a Virtual DOM, it compiles templates to real DOM nodes and updates them with fine-grained reactivity. Declare your state and use it throughout your app — when a piece of state changes, only the code that depends on it re-runs.
 
-## At a glance (Solid 2.0)
+## At a glance
 
 ```tsx
 import { createSignal } from "solid-js";
@@ -68,7 +58,7 @@ function Counter() {
 delegateEvents(["click"]);
 ```
 
-Reads update on the next microtask (or call `flush()` for synchronous interop). Effects are split into a tracking `compute` phase and a side-effecting `apply` phase — see [MIGRATION.md](documentation/solid-2.0/MIGRATION.md) for the full model.
+Reads update on the next microtask (or call `flush()` for synchronous interop). Effects are split into a tracking `compute` phase and a side-effecting `apply` phase — see the [docs](https://docs.solidjs.com) for the full model.
 
 </details>
 
@@ -87,12 +77,33 @@ Reads update on the next microtask (or call `flush()` for synchronous interop). 
 
 ## Quick start
 
+Start from a [template](https://github.com/solidjs/templates):
+
 ```sh
-npm i solid-js @solidjs/web
-npm i -D @solidjs/babel-plugin
+npx degit solidjs/templates/solid-v2/basic my-app
+cd my-app
+npm install
+npm run dev
 ```
 
-Add `@solidjs/babel-plugin` to your Babel config (or use Vite's Solid plugin) and configure TypeScript:
+Or add Solid to an existing Vite project:
+
+```sh
+npm i solid-js @solidjs/web
+npm i -D vite @solidjs/vite-plugin
+```
+
+```js
+// vite.config.ts
+import { defineConfig } from "vite";
+import solid from "@solidjs/vite-plugin";
+
+export default defineConfig({
+  plugins: [solid()]
+});
+```
+
+and point TypeScript at the web JSX types:
 
 ```json
 {
@@ -103,9 +114,11 @@ Add `@solidjs/babel-plugin` to your Babel config (or use Vite's Solid plugin) an
 }
 ```
 
-For web projects, `jsxImportSource` points at `@solidjs/web`. In 2.0, `solid-js` owns renderer-neutral component types, while renderer packages such as `@solidjs/web` and `@solidjs/h` own their JSX namespaces and `jsx-runtime` type entries.
+`solid-js` owns renderer-neutral component types, while renderer packages such as `@solidjs/web` and `@solidjs/h` own their JSX namespaces and `jsx-runtime` type entries.
 
-2.0 starter templates are tracked at [solidjs/templates](https://github.com/solidjs/templates). Existing 1.x templates target 1.x.
+### Coming from Solid 1.x?
+
+Read the [migration guide](documentation/solid-2.0/MIGRATION.md). Solid 1.x is maintained on the [`1.x` branch](https://github.com/solidjs/solid/tree/1.x), installs with `npm i solid-js@v1-latest`, and its docs are at [v1.solidjs.com](https://v1.solidjs.com).
 
 ## For LLMs / AI assistants
 
@@ -114,13 +127,13 @@ The public API differs from any Solid examples that predate 2.0. Before generati
 - [`packages/solid/skills/solid-2.0/SKILL.md`](packages/solid/skills/solid-2.0/SKILL.md) — the primer: the three rules that matter most, the 1.x → 2.0 corrections, and the primitives to reach for, in under 8 KB.
 - [`packages/solid/CHEATSHEET.md`](packages/solid/CHEATSHEET.md) — one-page reference; the bottom enumerates patterns that changed from 1.x.
 - [`documentation/solid-2.0/MIGRATION.md`](documentation/solid-2.0/MIGRATION.md) — full migration guide.
-- [v2.solidjs.com](https://v2.solidjs.com) — the Solid 2.0 docs, with `/llms.txt` and `/llms-full.txt`.
+- [docs.solidjs.com](https://docs.solidjs.com) — the docs, with `/llms.txt` and `/llms-full.txt`.
 
 The primer and the cheatsheet ship inside the `solid-js` npm package (`node_modules/solid-js/skills/solid-2.0/SKILL.md`, `node_modules/solid-js/CHEATSHEET.md`; the build also emits the cheatsheet as the `solid-2.0-cheatsheet` skill). The packages carry the `tanstack-intent` keyword, so skill registries that scan `node_modules` find them.
 
 ## Repository
 
-This is a PNPM workspaces monorepo. The packages here are versioned together as `2.0.0-rc.x`:
+This is a PNPM workspaces monorepo. The core runtime (`solid-js`, `@solidjs/signals`, `@solidjs/web`, `@solidjs/universal`, `@solidjs/diagnostics`) always shares one version. The two compilers share a version when they release together, and `@solidjs/h`, `@solidjs/html` and `@solidjs/element` version on their own.
 
 | Package                 | Path                    | Purpose                                                               |
 | ----------------------- | ----------------------- | --------------------------------------------------------------------- |
@@ -133,8 +146,9 @@ This is a PNPM workspaces monorepo. The packages here are versioned together as 
 | `@solidjs/element`      | `packages/element`      | Web Components wrapper.                                               |
 | `@solidjs/compiler`     | `packages/compiler`     | Native Oxc JSX compiler.                                              |
 | `@solidjs/babel-plugin` | `packages/babel-plugin` | Babel plugin for JSX compilation.                                     |
+| `@solidjs/diagnostics`  | `packages/diagnostics`  | Dev-only diagnostics and attribution harness for tests and agents.    |
 
-Runtime DOM operations live in `@solidjs/web` (and `@solidjs/universal` / `@solidjs/h` / `@solidjs/html`).
+Runtime DOM operations live in `@solidjs/web` (and `@solidjs/universal` / `@solidjs/h` / `@solidjs/html`). The JSX compilers and the DOM runtime live in this repo, so file their issues here, not on [DOM Expressions](https://github.com/ryansolid/dom-expressions). The API reference in one page is [`packages/solid/CHEATSHEET.md`](packages/solid/CHEATSHEET.md), and the design notes are under [`documentation/solid-2.0/`](documentation/solid-2.0/).
 
 ## Why Solid?
 
@@ -144,7 +158,7 @@ Engineered for performance with years of research behind it — Solid's runtime 
 
 ### Powerful
 
-Performant state management is built in (Context, Stores, Projections). Async is a first-class capability of computations — no separate `createResource` model — with `<Loading>` / `<Errored>` boundaries and `isPending` for revalidation indicators. Full SSR, streaming, and progressive hydration when you're ready to move to the server.
+Performant state management is built in (Context, Stores, Projections). Async is a first-class capability of computations, with `<Loading>` / `<Errored>` boundaries and `isPending` for revalidation indicators. Full SSR, streaming, and progressive hydration when you're ready to move to the server.
 
 ### Pragmatic
 
@@ -156,23 +170,22 @@ Built on JSX and TypeScript, integrates with the Vite ecosystem. Bare-metal abst
 
 ## More
 
-- [Documentation](https://v2.solidjs.com)
-- [Examples](documentation/resources/examples.md)
-- [Tutorial](https://www.solidjs.com/tutorial/introduction_basics)
+- [Documentation](https://docs.solidjs.com)
+- [Tutorial](https://docs.solidjs.com/tutorial)
+- [Examples](examples/)
+- [Playground](https://playground.solidjs.com/)
 
 ## Browser support
 
 SolidJS Core supports the last 2 years of modern Firefox, Safari, Chrome, and Edge (desktop and mobile). IE and similar sunset browsers are not supported. For server environments, Node LTS, the latest Deno, and Cloudflare Worker runtimes are supported.
 
-<img src="https://saucelabs.github.io/images/opensauce/powered-by-saucelabs-badge-gray.svg?sanitize=true" alt="Testing Powered By SauceLabs" width="300"/>
-
 ## Community
 
-Come chat on [Discord](https://discord.com/invite/solidjs). Solid's creator and the rest of the core team are active there, and we're always looking for contributions.
+Come chat on [Discord](https://discord.com/invite/solidjs). Solid's maintainers are active there, and we're always looking for contributions.
 
 ### Contributors
 
-<a href="https://github.com/solidjs/solid/graphs/contributors"><img src="https://opencollective.com/solid/contributors.svg?width=890&amp;button=false" style="max-width:100%;"></a>
+<a href="https://github.com/solidjs/solid/graphs/contributors"><img src="https://contrib.rocks/image?repo=solidjs/solid" style="max-width:100%;"></a>
 
 ### Open Collective
 

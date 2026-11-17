@@ -62,6 +62,7 @@ import {
   REACTIVE_MISSED_WAKE,
   REACTIVE_PROBED,
   REACTIVE_WINDOW,
+  WINDOW_KINDS,
   REACTIVE_AHEAD,
   CONFIG_OWN_PROBE,
   CONFIG_FRAME,
@@ -2489,10 +2490,15 @@ export function read<T>(el: any): T {
           // hold's: it re-derives now, served the hold's writes (verdict.ts
           // `holdStaging`), and the reader reads that. A memo that probes in
           // its own body stays the screen's (F-6, #4544's inline rows,
-          // #4341). A pass that asks is display like any other (S-51).
+          // #4341). A pass that asks is display like any other (S-51): an
+          // async derivation's read (its last answer a flight) seats nothing —
+          // re-derived into the hold, the memo pulled the branch it gates into
+          // the verdict lane, born there, and the lane waited on that branch's
+          // mount while the mount waited on the lane (#4965).
           if (
             (el._config & (CONFIG_VERDICT | CONFIG_FRAME | CONFIG_ASYNC | CONFIG_OWN_PROBE)) ===
-            CONFIG_VERDICT
+              CONFIG_VERDICT &&
+            !(c._config & CONFIG_ASYNC)
           ) {
             const t = resolveTx(
                 c._config & CONFIG_HELD ? txOf(c as Computed<any>) : flushTransaction!
@@ -2906,8 +2912,12 @@ export function stagedScreen(c: Computed<any>, el?: Signal<any> | Computed<any>)
   // #4806: content a display-ahead gate opens is a mount, whatever its
   // shape — text read in the gate's own pass too. Its verdict lane reveals
   // with the landing, as for a born-held element (lanes.ts `lanesBlocked`,
-  // which reads the mark on a verdict lane only).
-  if (laneStageHook && el && fresh && passLane) passLane._opened = 1;
+  // which reads the mark on a verdict lane only). #4966 (F-6, D-23): not
+  // under a gate that is only the pass's own `isPending` window — what a
+  // verdict gates shows while the question is open, and a read's place
+  // after the probe or before it never changes what shows.
+  if (laneStageHook && el && fresh && passLane && c._flags >> WINDOW_KINDS != 1)
+    passLane._opened = 1;
   staleReader(c, flushTransaction);
   return true;
 }

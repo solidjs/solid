@@ -1,5 +1,2292 @@
 # solid-js
 
+## 2.0.0
+
+### Major Changes
+
+- c3e5e78: Async everywhere
+- 2645436: Update to R3 based signals
+- e855fcb: Fix dual runtime package type resolution for CommonJS consumers.
+
+  Add CJS-specific declaration outputs for dual-runtime packages and stop exporting legacy `dist/*` entrypoints in favor of the supported public package surface.
+
+- 2a7c6a5: Move JSX type ownership from `solid-js` to renderer packages.
+- a4c833d: Update to new package layout, signals implementation, compiler
+
+### Minor Changes
+
+- f0c3692: Point-of-pain discovery for diagnostics: `DEV.diagnostics.setConsoleFooter(fn)` registers a footer printed once per diagnostic code after that code's first console report. solid-js registers a footer in dev pointing at its shipped repair skill (`node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md`), so anyone — human or agent — hitting a diagnostic warning learns where the prescribed fix lives without prior knowledge of the skill system.
+- ce8e46b: SSR support for `loadingValue` / `seedLoadingValue` — the server flushes commit #0 and the client hydrates with it. A loading-value memo (or seeded derived store) never suspends on the server: markup renders from the loading value (the boundary never trips), the landing streams to the client as data, and the hydrating node is born committed with the same loading value, so the claim walk matches the server markup by construction; the serialized landing then closes the window on both sides right after hydration. The first-value lock generalizes to commit #0: HTML-visible reads stay at the loading value for the whole response (later renders in the same stream can't tear against already-flushed placeholder markup), and every landing after the placeholder flushed ships as data — including synchronous landings after a NotReady retry, the one exception to "sync results are never serialized". On the client, a settled serialized landing is handed to the async runtime as a thenable instead of unwrapping synchronously, so commit #0 also serves through the claim walk when the response was fully loaded before hydration began. `ssrSource: "client"` sources flush the loading value too, matching the prev-serving hydration wrapper on the client.
+- ad7d1f5: Move pre-release tag from experimental to beta
+- 8d249c7: Patch-mode list driver: keyed `<For>` over a store array is offered to the
+  runtime's row-ops driver (create/bind at op-apply, LIS moves, node removal —
+  no mapArray, no per-row owners, no DOM-side reconcile). `For` carries `$ll`
+  metadata on a lazy classic accessor so unaware renderers and declined lists
+  (non-store subject, impure rows proven by a bind-time owner probe, fallback
+  or index usage) fall through to today's mapArray path unchanged. Array
+  identity swaps keep keyed semantics by raw-identity matching. Adds
+  `ownerIsBlank` (signals) for the purity probe and `driveList` (web, rxcore
+  seam) for the runtime.
+- 1b94264: Question-scoped pending model and the `affects()` primitive (supersedes the optimistic mask)
+
+  `isPending` is re-derived from one rule: a read is pending iff a value change is in flight for it that has not yet revealed, or it carries a live `affects()` mark.
+  - **Same-question re-asks are silent.** `refresh()`, polling, and confirm refetches whose tracked inputs are value-stable no longer read as pending — the fresh value reveals silently.
+  - **New questions pend monotonically.** An input value change in flight pends every read under the source until its answer reveals, and nothing can silence it.
+  - **Optimistic writes are verdict-inert.** An active override displays without decreeing settlement: it neither reads pending on its own slot (only a differing held correction re-opens the verdict) nor masks anything else. The store-wide optimistic mask (A21) and node mask (A20) are removed.
+  - **New `affects(target, ...keys)` primitive** (re-exported from `solid-js`). Declares that in-flight work will change the targeted data: the named slots (a store record, specific record keys, or a source accessor) read pending from the declaration until the surrounding transaction settles or reverts. `affects(x); refresh(x)` is the declared-reload idiom.
+
+- 536dec5: Require a declared commit #0 for `ssrSource: "client"` (#2981). The server cannot run a client source, so the author must say what the pre-compute window renders: `loadingValue` on signal-family sources (`createMemo`, function-form `createSignal`/`createOptimistic`; an explicit `loadingValue: undefined` is a valid declaration — put the undefined in the type and branch on it), `seedLoadingValue: true` on store-family sources (`createProjection`, derived `createStore`/`createOptimisticStore`; the seed is what the window shows). Effects are exempt — nothing renders from them.
+
+  Enforced at the type level (the bare `"client"` overloads are gone) and with a runtime error naming the fix — behind the dev flag on the client (zero production bytes; prod falls back to the previous gate behavior), always-on in the single-build server entry, where the implicit promotion would flush into markup. `Portal`'s internal client-sourced memos now declare `loadingValue: undefined` ("server renders nothing" is their honest commit #0).
+
+- 159d204: Add Reveal component SSR support with streaming fragment coordination, collapsed fallback mode, and nested composite slots
+- 75eebc2: feat: snapshot-based boundary-local hydration safety (Goal 4)
+
+  Signal writes during hydration are now safe by construction. Each Loading boundary gets its own snapshot scope — computations created during hydration read snapshot values (matching server DOM) while writes update only the current value. After a boundary's sync hydration walk completes, its snapshot scope is released and stale computations rerun with current values.
+
+  Key changes:
+  - Add markTopLevelSnapshotScope/releaseSnapshotScope plumbing to all hydrated primitives
+  - Extract createBoundaryTrigger() helper for internal trigger signals excluded from snapshot capture
+  - Add resumeBoundaryHydration() with isDisposed guard, per-boundary scope management, and flush
+  - Add onCleanup for cleanupFragment to handle orphaned streaming content on navigation
+  - Remove deferHydration option (no longer needed with snapshots)
+  - Remove isHydrating/onHydrationEnd from public API (snapshots make hydration timing transparent)
+  - Update @solidjs/signals to ^0.10.7, dom-expressions to 0.41.0-next.6
+
+- 75eebc2: feat(ssr): implement ssrSource, async iterable streaming, and client hydration (Goal 2d)
+
+  Adds the ssrSource option (4 modes: "server", "hybrid", "initial", "client") controlling how computations serialize and hydrate. Server-side async iterable streaming via processResult tap wrapper with patch-based projection serialization. Client-side async iterable hydration with synchronous first-value consumption from seroval and scheduleIteratorConsumption for remaining values. Includes isHydrating/onHydrationEnd lifecycle APIs, deferHydration option, and subFetch updates for generator dependency capture.
+
+### Patch Changes
+
+- 4b4c2cb: A server `<Loading>` whose creating pass is disposed (an `<Errored>` retry re-rendering its children) now stops retrying instead of looping until "did not converge". A boundary re-created under the same fragment id owns the fragment, so the abandoned instance never settles it with blank markup; with no successor, the abandoned instance releases its fragment so the response still ends.
+- 7b8fd28: `until`'s `signal` option types as the global `AbortSignal` when the DOM lib or `@types/node` declares one, and as the minimal abort surface `until` uses otherwise, so the published declarations type-check with neither lib under `skipLibCheck: false` (previously TS2304).
+- a85c889: New package `@solidjs/diagnostics`: agent-consumable diagnostics harness. `captureArtifact()` runs a scenario with the dev-mode diagnostic and attribution channels open and folds both into a serializable artifact; assertion helpers (`expectNoDiagnostics`, `expectDiagnostic`, `expectRerunBudget`, `expectNoWaste`) and scenario budgets (`assertBudget`, checked-in budget files) gate correctness, update granularity, and wasted recomputes; Vitest matchers via `@solidjs/diagnostics/vitest`; a browser bridge (`@solidjs/diagnostics/browser`) plus a structurally-typed Playwright adapter (`@solidjs/diagnostics/playwright`) capture the same artifacts from real pages, with live `whyDidRun`/`costs` queries against an open session; `@solidjs/diagnostics/protocol` publishes the wire types for the vite-plugin dev-server endpoint; `artifactToJSONL()` provides line-oriented egress for offline/agent analysis. `solid-js` now ships a `skills/reactivity-diagnostics` repair guide mapping every diagnostic code to its fix.
+- 729a5e1: Add a dev-only `solid-js/refresh` subpath entry hosting the HMR component-swap runtime (ported from the standalone `solid-refresh` package). Compiled HMR wrappers keep the frozen `$$registry`/`$$component`/`$$refresh`/`$$decline` ABI and the `hot.data` protocol; the production build resolves to inert stubs. The "cannot hot-swap" bail path is now configurable via `configureRefresh({ invalidate })` instead of hardcoding `window.location.reload()`.
+- 500d484: Narrow `affects()` to a single optional key: `affects(target, key?)`. The variadic form read like a 1.x store path (`affects(state, "user", "name")` suggests `state.user.name` but marked two sibling slots) — mark multiple slots with multiple calls, or target the nested record directly. Passing more than one key now throws in dev.
+- 512fd5e: update signals to 0.3.0
+- 3d8a8a9: Point JSDoc `@description` links at the 2.0 reference docs (v2.solidjs.com), document `isPending`, point the console footer, diagnostics guide and cheatsheet links at the `next` branch, and replace the stale `onMount` advice in the server-side client-only API error.
+- 59dd11f: Docs prep for the 2.0 reference auto-generation pass: backfill JSDoc examples on previously-undocumented public APIs (`getObserver`, `isDisposed`, `createRenderEffect`, `onCleanup`, `createErrorBoundary`, `createLoadingBoundary`, `createRevealOrder`, `flatten`, `enableExternalSource`, `NotReadyError`, `NoHydration`, `Hydration`, `isServer`, `isDev`); normalize inline JSDoc code fences to `@example` tags on the JSX components (`<For>`, `<Repeat>`, `<Switch>`, `<Errored>`, `<Reveal>`, `dynamic`, `<Dynamic>`); and tag cross-package wiring / compiler-emitted exports with `@internal` so the doc generator can hide them from the user-facing surface (`getContext`, `setContext`, `createOwner`, `getNextChildId`, `peekNextChildId`, `enforceLoadingBoundary`, `sharedConfig`, `enableHydration`, `NoHydrateContext`, `$DEVCOMP`, `$PROXY`, `$REFRESH`, `$TRACK`, `$TARGET`, `$DELETED`, `ssr*` helpers, `escape`, `resolveSSRNode`, `mergeProps`, `ssrHandleError`, `ssrRunInScope`). Also extends the `equals` field JSDoc on `SignalOptions` / `MemoOptions` to mention `isEqual` as the default.
+- 9015b12: AI-readiness docs/JSDoc pass — continued from the initial pass shipped earlier on this branch. Targets the failure modes surfaced while authoring the kitchen-sink TodoMVC example.
+
+  **Cheatsheet (`solid-js/CHEATSHEET.md`)**
+  - New "Props" section leading with "props are reactive values, not accessors". Covers the two failure modes that dominated the audit: passing `filter={filter}` instead of `filter={filter()}`, and destructuring props in the child (`function Comp({ value })`) which unwraps reactivity once and breaks tracking. The footgun list now points at this section.
+  - Reframed `onSettled` as the canonical lifecycle primitive for component-level setup/teardown (return a cleanup function from the body); demoted `onCleanup` to advanced.
+  - Store/setter/projection entries reframed to match the JSDoc precision below.
+
+  **`createStore`, `createOptimisticStore`, `createProjection`**
+  - `StoreSetter<T>` is mutation-first; the return form is shallow (arrays index-replace + length-adjust, objects top-level diff) and is **not** keyed reconciliation. Keyed reconciliation belongs to the projection-function return path (`createStore(fn, …, { key })`, `createProjection`, `createOptimisticStore(fn, …)`), where the function's return is reconciled by `options.key` (default `"id"`).
+  - `createStore` JSDoc gained a paragraph against putting signal accessors as store property values — the proxy already tracks reads per-property; nesting `() => signal()` inside a store property gives you a getter that won't track when called.
+  - `createOptimisticStore` / `createProjection` — explicit note that `options.key` defaults to `"id"` and is only worth specifying for non-`id` identity fields. Replaced the imperative `draft.length = 0; draft.push(...)` example with a `return …filter(...)` form that names the keyed-reconcile guarantee, plus a per-property mutation example.
+  - Added a `setStore(s => s.list.filter(...))` line to `createStore` and a `removeTodo` `filter`-return action to `createOptimisticStore`.
+
+  **`<Loading>`**
+  - Added a sentence on scoping: place the boundary around the data-dependent slot, not the surrounding shell, so revalidation doesn't replace layout chrome with the fallback.
+
+  **Hydration wrappers (`solid-js`)**
+  - The hydration-aware re-exports of `createMemo`, `createSignal`, `createOptimistic`, `createProjection`, `createStore`, `createOptimisticStore`, `createRenderEffect`, `createEffect`, and `createErrorBoundary` previously had no docs at the wrapper site — hovering them in `solid-js` showed only the type signature. Each wrapper now carries the canonical primitive description plus a short **Hydration** paragraph pointing at the new `HydrationSsrFields` type, which centrally documents the `ssrSource` modes (`"server"` / `"hybrid"` / `"client"`) and `deferStream`.
+  - `HydrationProjectionOptions` (used by `createProjection`, the projection form of `createStore`, and `createOptimisticStore`) gets its own JSDoc explaining the `ssrSource` extension over `ProjectionOptions`.
+
+  **`@solidjs/universal` README**
+  - 2.0 banner added matching the `@solidjs/web` pattern — names the `solid-js/universal` → `@solidjs/universal` rename and the new deferred-mount semantics in the wrapped `createRenderer.render` (top-level mount goes through the effect queue and drains with a tail `flush()`; uncaught top-level async holds the initial commit on the active transition).
+  - Custom-renderer example fixed: import path corrected to `@solidjs/universal`, the destructured `use` (1.x relic) replaced with `applyRef, ref` to match the actual `dom-expressions/universal.js` return shape, and the forwarded control-flow list updated to 2.0 names — `For, Repeat, Show, Switch, Match, Errored, Loading, Reveal` instead of `For, Show, Suspense, SuspenseList, Switch, Match, Index, ErrorBoundary`.
+
+  JSDoc/example/docs only — no runtime or type-signature changes.
+
+- fb2e43b: Docs and JSDoc pass for AI-assisted code generation: rewrite root, `solid-js`, and `@solidjs/web` READMEs for the 2.0 beta; ship a one-page `CHEATSHEET.md` inside the `solid-js` npm package; audit and add `@example` blocks to the high-traffic public exports across `solid-js`, `@solidjs/web`, and `@solidjs/signals`. No runtime changes.
+- 845b6bb: Drop the solid-side support machinery for dom-expressions' old
+  `memo(accessor, true)` wrap in `insert()`. That wrap has been replaced in
+  dom-expressions with a conditionally nested render-effect pattern that
+  splits the accessor's creation scope from its read scope — fixing stale
+  reads and transition-ownership regressions (the Sierpinski hover freeze)
+  without reintroducing the #2610 sibling re-render.
+
+  Solid-side companion cleanup:
+  - `@solidjs/web` `memo` helper collapses to `createMemo(() => fn())` and
+    drops the `coreMemo` import; the `transparent` branch and `$r`
+    short-circuit are no longer reachable.
+  - `@solidjs/signals` `accessor()` no longer tags the returned function
+    with `$r`.
+  - `@solidjs/web` drops `@solidjs/signals` from `peerDependencies` and
+    `devDependencies` — it reaches signals transitively through
+    `solid-js`.
+
+  No public API changes. Coordinates with a forthcoming dom-expressions
+  release.
+
+- 215de3b: Align store overloads across the signals, client, and server entry points. Plain stores share `StoreOptions`, projection forms share `ProjectionOptions`, plain optimistic stores expose their existing options argument, and derived optimistic stores are typed as refreshable.
+- df3f514: Align with dom-expressions: add MathML support to Dynamic/createElement, consolidate namespaces, remove deprecated isSvg/Properties/SVGNamespace
+- 34c65b8: CSR: async reads without a `Loading` ancestor no longer throw. The root mount now participates in transitions — when uncaught async surfaces during initial render, the root DOM attach is withheld until all pending settles and then attaches atomically. On the no-async happy path, `render()` still attaches synchronously before returning (via an internal tail `flush()`).
+
+  **New `schedule` option on effects**
+
+  `@solidjs/signals` exposes a new `schedule?: boolean` option on `EffectOptions`. When `true`, the initial effect callback is enqueued through the effect queue (the same path user effects already take) instead of running synchronously at creation. This lets the initial run participate in transitions — if any source bails during the compute phase, the callback is held until the transition settles.
+
+  ```ts
+  createRenderEffect(
+    () => source(),
+    v => {
+      /* runs after flush, deferred by any pending transition */
+    },
+    { schedule: true }
+  );
+  ```
+
+  `@solidjs/web`'s `render()` uses this option internally for its top-level insert, which is what enables permissive top-level async in CSR.
+
+  **Dev diagnostic**
+
+  `ASYNC_OUTSIDE_LOADING_BOUNDARY` is now a non-halting `console.warn` (severity downgraded from `error` to `warn`). With deferred-mount the runtime is correct; the diagnostic is an informative FYI rather than a correctness failure. The warning only fires during the synchronous body of `render()` / `hydrate()` — post-mount transitions (including lazy route changes) run under their own transitions with the guard off and do not emit this warning.
+
+  Placing a `Loading` boundary remains the right tool when you want explicit fallback UI or partial progressive mount.
+
+  **Known limitation: multi-phase async**
+
+  Multi-phase async flows — for example, a `lazy()` component whose resolved body reads a second pending async memo — may still reveal partial DOM between waves. This is because the scheduler currently nulls `activeTransition` before running the completing flush's restored queues; a new transition started by recomputes during that phase does not re-stash already-restored callbacks. Single-wave nested async (including static siblings alongside a pending descendant) commits atomically. The multi-phase case is tracked as a follow-up; the recommended workaround today is to place a `Loading` boundary around multi-phase async subtrees.
+
+- 2a0da2f: fix(web): refuse an async memo that resolves to an element (#4242)
+
+  On the server, an async memo (or async iterable source) whose value is rendered output — JSX, a component's result, a `<Loading>`/`<Errored>` boundary — can no longer reach the hydration serializer. A boundary's output failed in seroval, so its record never resolved and the hydrating client waited on the memo forever (streamed, the boundary reverted to its fallback); a template object crossed as data, duplicating the markup, and streamed the client could not insert it (`UNRECOGNIZED_INSERT_VALUE`). The memo now rejects where its value lands, with the new diagnostic `ASYNC_MEMO_ELEMENT` (recorded on the observe channel; the dev message says what to do instead, other tiers carry the code), and its boundary contains the error like any render error: the nearest `<Errored>` renders its fallback and the client hydrates it; with none, the `<Loading>` fragment rejects and the client renders the subtree. Return data from the async memo and render the JSX from it. Ordinary data is never refused (only plain objects in the SSR template shape, boundary outputs and fragment arrays holding them count as rendered output), and content that never hydrates (`<NoHydration>`) is untouched.
+
+  Also, a fragment failing while a boundary registered under an undefined key (one created inside an async memo's continuation) is pending no longer fails the whole request in `renderToStream`.
+
+- 8bf04ea: New dev diagnostic `ASYNC_STORE_SETTER`: a store setter callback that returns a Promise now throws in dev (through the diagnostics channel) instead of being silently ignored. A store setter is a synchronous transaction — the draft closes when the callback returns — so `setStore(async d => …)` committed only the writes before its first `await` and lost the rest. Covers every store family with a user setter (`createStore`, `createOptimisticStore`, the derived store's manual setter); a derived store's own async compute is not affected. Store-specific: a signal may legitimately hold a promise, so `setSignal` has no such rule. Production is unchanged.
+
+  Docs: the `OBSERVE.exclude` guidance in RFC 08 no longer suggests `runWithOwner(panelRoot, …)` for panel writes (that is a write in an owned scope, see #3512); the store's own nodes carry the excluded owner.
+
+- fd36d37: `attribution.enable(opts)` now returns the release of the hold it takes (idempotent, like `subscribe`), and options combine across holds by the most demanding request per key (the log prints while any holder wants it, a check runs while any holder wants it at the most sensitive threshold asked for, `historyLimit` is the largest), so a hold adds to what the engine does and never takes away what another asked for — a track enabled with `log: false` beside a console session leaves its log alone, in either order — instead of every call rebuilding the options from defaults. `disable()` is the full teardown whatever holds are outstanding (the console's reset), so re-enabling to reopen a window and calling `disable()` once cannot strand a hold. `enablePerformanceTracks` releases through the token. Dev builds create a component's `console.createTask` task only for components rendered while an attribution engine is installed — the stack capture per call roughly doubled dev mount for a session with nothing enabled; the tracks enabled at bootstrap still see every component's site.
+- 1a1e2f2: Attribution: `feedback()` — what the user waited on, as ranked tables.
+
+  `DEV.attribution.feedback()` is a pure fold over the records the engine already keeps — `holds()` and the interaction on each re-run — with no measurement or hook sites of its own, the way `costs()` folds re-runs into scope and write tables. `sources` ranks each set of async sources that held writes by the silent time spent behind them, with `holds`/`heldMs`/`worstMs`, `silent`/`silentMs`, `acknowledgedBy` (which affordance answered and in how many holds — a source acknowledged on one screen and silent on another reads as exactly that), `latestOnly` (answered only by a `latest()` shadow), the `interactions` that were held, the distinct `writes`, and `actions`. `interactions` ranks user events (type + target; repeated dispatches fold together) by total cost, pairing the synchronous re-run work one dispatch caused (`runs`, `selfMs`, `worstDispatchMs` — the long-flush hazard) with the time its writes spent held (`holds`, `heldMs`, `silentMs`, `worstHoldMs` — the silent-hold hazard): the two INP failure modes as columns of one row. Every hold counts at any duration; `SILENT_HOLD` remains the thresholded verdict over the same records. New exported types `FeedbackSource` and `FeedbackInteraction`; the reactivity-diagnostics skill gains a "where to start" entry, and `solid-js`'s console footer names the surface.
+
+- fd36d37: Attribution engine: timeline records, and a `flushStart` hook
+
+  Five new listener-gated records on `attribution.subscribe`: `create` (a computation's creation run — the mount flame), `effect` (an effect callback, timed and joined to its compute run), `flush` (one scheduler drain: runs, creations, whether it parked a transition, the interaction it served), `flight` (an async flight from origin to landing or abandonment, with the async node's owner path) and `fallback` (a loading boundary's fallback from show to hide). None is built, logged or folded unless something is subscribed to its type, so the console/agent readers pay nothing for records only a timeline wants. `OBSERVE.subjectOf` answers for the node-bearing ones.
+
+  Core: a `flushStart` hook beside `flushEnd` (one drain, never nested), and `effectRunStart` now fires in observe builds like its `effectRunEnd` twin, so writes inside effect callbacks carry their `effect` origin in observe too, not only in dev. The observe core grows by 67 bytes minified; prod is byte-identical.
+
+  The engine's effect-frame → node map is now filled by the first write inside a callback rather than by every callback (every reader resolves it through a write's origin, and most effect callbacks never write), which removes a WeakMap write per effect callback from the enabled engine's hot path.
+
+  `@solidjs/web/performance-tracks` paints the new records: creation runs and effect callbacks on the `Effects`/`Memos` tracks, drains on the `Propagation` track (one wave per drain), flights and fallbacks on a new `Async` track.
+
+- 7c14e23: Attribution: write provenance — who performed a change.
+
+  Every root `ChangeRecord` now carries `origin`: the imperative frame that made the write. `interaction` (a user event — type, described target such as `button#next "Next →"`, and dispatch time), `effect` (the callback's name), `action` (the generator's name), `async` (the landing's node), or `external` (timers, sockets, promise callbacks — including writes after an `await` rather than a `yield` inside an action, the documented transaction escape). Frames nested under an interaction carry it: an action a click started (every step, including post-`yield` resumptions), an effect whose run a click's write caused, an async flight a click's write launched. Why-chains print the origin after the write; `RerunEvent.interaction` and `HoldEvent.interaction` expose the interaction a run or hold traces back to, and `SILENT_HOLD` now opens with what the user did and measures the wait from the event, not from the first parked flush.
+
+  `@solidjs/web` declares the interaction around its two dispatch sites — delegated events (`onClick`, `onInput`, `onKeyDown`, pointer events: every INP-relevant type) and runtime-attached direct handlers (spreads, non-literal handler expressions) — via the new `DEV.attribution.withInteraction(ref, fn)`, which custom renderers and test harnesses can call themselves. New core dev hooks `effectRunStart`/`effectRunEnd` (replacing `effectRun`) and `actionStepStart`/`actionStepEnd`; all sites fold out of prod, verified byte-identical against the size scenarios.
+
+- 8d249c7: External-audit fixes on the patch-list driver surface: family (projection/optimistic) arrays now decline the driver — their structural changes emit no row/slot ops and the proxy identity is stable, so an engaged list would freeze on optimistic or projection structure (classic mapArray handles them correctly, including on identity-swap handoff). Shallow slot-patch registration is now multi-consumer — two driven lists over one shallow array previously overwrote each other's channel. Adds `storeHasFamily` (with server stub) and regression tests for both.
+- 51ffcb9: `refresh(target)` now returns a promise for the target's next QUIESCENT state — the re-ask (and anything that supersedes it) has settled. Accessor targets resolve with the settled value; store targets resolve with the store node passed (nested targets re-ask the whole family but resolve with the node the caller was looking at). A failed re-ask rejects, so `yield refresh(x)` in an action throws back at the yield point and reverts like any failed step; an ignored promise never surfaces an unhandled rejection, keeping fire-and-forget refresh unchanged. Semantics are quiescence, not flight identity: a superseding refresh folds every waiter onto whatever finally lands. Inside actions, truth landing into the held transaction is staged; the promise settles then (matching `resolve()`/`until()` delivery) and delivers the staged value — never the caller's optimistic override. The re-ask stays verdict-quiet (`isPending` unchanged).
+
+  Implementation is pay-for-use and shares `resolve()`/`until()`'s effect machinery: the waiter is a microtask-delivered, direct-commit, authoritative-read effect over the marked node, deferred one microtask so same-tick refreshes still coalesce into a single re-ask. One new reader bit (`CONFIG_FRESH_READ`) makes the waiter's read pull a still-dirty source through recompute inline — it then parks on the re-ask's pending window (woken by the settle walk, which runs on every landing including equal-value ones) or serves the sync answer, instead of misreading the pre-re-ask value as settled. `updateIfNecessary` now also refuses disposed nodes outright (#2983's bug class), and a disposed or non-derived target resolves immediately with its last value.
+
+- 427dc18: Bare `ssrSource: "client"` (no `loadingValue`/`seedLoadingValue`) is now the structural form instead of a dev error: on the server the source is a final hole — reads suspend the nearest `<Loading>` boundary, which flushes its fallback with the client-continue marker (or rejects its stream fragment when the hole surfaces after registration) and hands the position to the client, which renders the content fresh after hydration. Read outside a `<Loading>` boundary it throws a real error instead of hanging the stream. The declared form is unchanged: `loadingValue`/`seedLoadingValue` renders the declared first paint on the server and stays the value-channel alternative. Also swallows the settled-rejected fragment promise at the hydration claim so rejected fragments (error finalize or client handoff) no longer surface unhandled-rejection noise.
+- 4b5272f: `createErrorBoundary` and `createLoadingBoundary` now return a properly typed `Accessor<T | U>` (content union fallback) instead of `() => unknown`, with the same external signature across the core, client hydration, and server layers.
+- 928ba28: Fixed a pending `<Loading>` leaking its asset-attribution scope to later document-order siblings during streaming SSR (#2860). The boundary assigned `_currentBoundaryId` on its buffered context at creation, but the property is an accessor inherited from the root context over shared tracking state — the assignment mutated the global boundary id with no restore, so a root-level `lazy()` after the boundary filed its module under the boundary's already-serialized asset map instead of the root `_assets` map, and that island never hydrated. The creation-time assignment is removed; every render phase already scopes the id correctly via `runWithBoundaryErrorContext`, which sets and restores it around the run.
+- 5bef430: Move `createErrorBoundary`, `createLoadingBoundary` and `createRevealOrder` types to `solid-js/internal`; they remain runtime exports of `solid-js` but are no longer part of its public types (#3709)
+- dea16f3: Add client hydration support with tree-shakeable createMemo/createSignal wrappers, fix SSR context isolation for concurrent requests, align seroval serialization format, update @solidjs/signals to ^0.10.2
+- 15dc3c6: return of useTransition, small API tweaks
+- b964dc7: Bump dom-expressions, babel-plugin-jsx-dom-expressions, hyper-dom-expressions, and sld-dom-expressions to 0.50.0-next.10.
+
+  This includes SSR runtime optimizations for synchronous function holes and plain SSR array resolution, reducing overhead in list-heavy server rendering.
+
+- 76b11b2: Bump dom-expressions to next.22 with cascading root hole fix and jsx-properties type resolution
+- 23f7550: Bump dom-expressions/babel-plugin-jsx-dom-expressions/hyper-dom-expressions to 0.50.0-next.3. Replace lit-dom-expressions with sld-dom-expressions in @solidjs/html for an AST-driven, CSP-safe tagged-template runtime. Wire `untrack` into @solidjs/h's runtime to satisfy the new hyper API. Add small vitest smoke suites for @solidjs/h and @solidjs/html, and a `@solidjs/web#test-types` task with a tripwire for upstream `client.d.ts` re-exports of `VoidElements`/`RawTextElements`. Refresh both READMEs.
+- 8b9c5bf: Bump dom-expressions, babel-plugin-jsx-dom-expressions, hyper-dom-expressions, and sld-dom-expressions to 0.50.0-next.4. Picks up the hyperscript callback-prop materialization fix (returning `h(Comp, …)` from a render-prop callback no longer re-mounts stable rows on parent updates) and the upstream `client.d.ts` re-exports of `VoidElements`/`RawTextElements`. Drops the local workarounds in `@solidjs/web` (explicit constants re-export and the `client.d.ts` skip in `types:copy-web`). Folds the For-row regression cases into `@solidjs/h`'s smoke suite as plain tests.
+- e841f8c: Bump dom-expressions, babel-plugin-jsx-dom-expressions, hyper-dom-expressions, and sld-dom-expressions to 0.50.0-next.5. Picks up the document-root reactivity fix: `render(..., document)` and `hydrate(..., document)` now wrap the rendered tree in a transparent render effect (mirroring what `insert` does for non-document roots), so a top-level reactive expression at the document root stays driven by signal changes after the initial flatten. Previously the document-root path called `flatten(code)` and discarded the subscription scope, leaving any top-level memo idle after the first walk — most visible with full-document hydration as in TanStack Solid Start. The new JSDoc on the JSX `class` attribute (a string vs. array+object form note carried up from dom-expressions) is also picked up.
+- 95ca987: Bump dom-expressions, babel-plugin-jsx-dom-expressions, hyper-dom-expressions, and sld-dom-expressions to 0.50.0-next.8.
+  - **SSR attribute/textContent grouping** (next.7): the compiler now coalesces contiguous runs of dynamic attribute and `textContent` closures into a single `_$ssrGroup(() => […], N)` per element, and the runtime resolves all `N` hole positions through one closure invocation instead of `N`. Inserts/children stay separate so child isolation and hydration ids are unaffected. Bench: ~+15% on `search-results` (heavy attribute usage), neutral on `color-picker` (no qualifying groups).
+  - **SSR bail-path single-invocation fix** (next.8): `ssr()` was invoking certain function holes twice when their return value walked into the bail branch (e.g., an array containing a NotReady-throwing item). For closures that read stateful getters such as JSX `props.children` — which rebuilds an owner subtree on each access — the duplicate invocation produced a divergent hydration-key prefix that the client could not claim, surfacing as "Hydration completed with N unclaimed server-rendered node(s)" warnings. The bail path now consumes the already-evaluated value instead of re-invoking the original closure.
+
+- 46ab2dd: Dev diagnostic `CAUGHT_REACTIVE_READ` (D-42 / S-47): warns once per computation when a reactive read's throw — `NotReadyError` or the source's error — was caught inside the computation's body and the pass completed with a value. An `async` computation is judged when its flight settles (a rejection is the throw continuing; a landed value is the catch). The runtime's own catches (boundaries, `isPending`, `watch`, comparator/cleanup/effect-callback routing, solid-js's hydration trace) never warn. Dev-only; no production bytes.
+- cf839ea: Context providers no longer create an owner of their own: the provided value now sits on the two memos that resolve the provider's children, so each provider allocates one node and one bound function fewer.
+- 1b81476: `CHEATSHEET.md` (and the `solid-2.0-cheatsheet` skill built from it) no longer recommends module-scope state for app-wide state (#4141). It now matches the `createContext` JSDoc and the 2.0 docs: create state in a Provider, which owns it per request on the server, and reserve module scope for constants.
+- 0090fe3: Fix: a streamed `<Loading>` claimed after a client write changed a shell memo it reads now shows the client's value. A hydrated memo adopted while its server answer was still streaming had no snapshot, so once a client write took its compute over, the boundary's claim read the client's value while adopting the server's markup — and kept the server's text (or attribute) for good, since nothing re-ran the binding. The memo's server answer is now its snapshot when it lands, even when the write already superseded it: the claim reads what the markup shows and replays the client's value at its release, as for a written signal. If the client's recompute is still in flight when the boundary resumes, the claim is served the snapshot instead of going pending, so the boundary keeps the server's content (no fallback over it, no detached nodes, no lost queued click) until the client's value lands.
+- db8241c: A cleanup (`onCleanup` or an effect's returned cleanup) that throws no longer aborts the rest of the teardown: every other cleanup in the tree still runs, and the first error is rethrown once the teardown is done. Outside a flush (a root's `dispose()`), the dispose call rethrows it. Inside a flush (a branch switch retiring a frame, a pass replacing an uncommitted one, an effect disposing a root), `flush()` rethrows it after the flush has finished, so commits and effects are never left half-applied, and lazy nodes released before the throw are still released. An `unobserved` hook that throws is handled the same way. If an uncaught error halts the reactive system, a collected cleanup error is dropped rather than surfacing later from an unrelated `dispose()`. On the server, `disposeOwner` runs every cleanup the same way, so `renderToStream`'s final dispose still reports the error (#4193).
+- 43fae6e: `onCleanup` callbacks on one owner now run in reverse registration order (unwind), restoring the 1.x #1562 semantics; in production, component bodies share the enclosing owner, so a parent that registers cleanup before rendering its children now tears down after them, matching dev (#3572).
+- d826cd3: The client error hook — `configureClientErrors({ onError })` from `solid-js`, and `render`/`hydrate`'s `onError` option in `@solidjs/web`: the prod-tier seam through which an app, or an error monitor, hears the one failure nothing else can see — an `<Errored>` / `createErrorBoundary` collected it and renders its fallback. The twin of the server's `configureServerErrors`. An uncaught error is not this hook's: the halt (`REACTIVITY_HALTED`) hands its cause to the platform's `reportError`, the channel every monitor already listens on.
+
+  Once per error object (a `reset()` re-collecting the same failure says nothing new; a primitive is reported per sight); `ownerPath` carries the component labels where the runtime keeps owner names; no return — the client has no wire to map for; a throwing hook is reported and ignored. A root's own hook wins over the ambient one for failures under it.
+
+  Pay-for-use: the hook machinery (`core/error-hooks.ts`) is retained by `createErrorBoundary` or the app's own `configureClientErrors` import; a root's hook is parked on the root owner under the registered `ROOT_ERROR_HOOK` symbol (defined in the scheduler), so `render` retains nothing for an app that passes none. Core floor unchanged; apps with a boundary +~200 B.
+
+  **The server surface consolidates on the same name.** `onError` on `renderToStream`/`renderToString` and on `handleServerFunctionRequest` _is_ the server error hook (`(error, context) => wire | void`); `onServerError` is removed. A one-argument `onError` written for the old shape keeps working and now hears every handled failure — filter on `context.handling === "failed"` for the request-failing ones alone. New `handling: "serialize"` for a hydration value that would not serialize (what seroval's `onError` reported, for a render that passed one). With no hook anywhere, a failure that fails the request still reaches `console.error`.
+
+- ee94440: Hydration keeps a client-only boundary's served fallback (#4286). A `<Loading>` whose content reads a bare `ssrSource: "client"` source is served as its fallback plus the `"$$f"` marker; the client hydrated that fallback, then resumed by re-running the boundary, and when the content suspended on the question it now asks, the new boundary built a second fallback and dropped the served one (losing focus, selection or a running animation in it). The `"$$f"` route now creates the loading boundary once, at hydration: its content waits on the resume and its fallback hydrates the served one (built at the boundary's id, as the server built it), so content that suspends after the resume keeps the hydrated fallback until it can show.
+- 21b9784: A `"recovery"` record on `OBSERVE.records` (`RecoveryEvent`): the client rendering a `<Loading>` boundary the server handed over — its fragment rejected or the stream was cut — with how long the fallback stood (`waitedMs`) and what the fresh render cost (`renderMs`), joined to the server's `"boundary"` record by `id`.
+- a7c6b8e: Keep client-sourced stores pending during hydration until their first client result unless `seedLoadingValue` exposes the seed as commit zero.
+- 56918c6: Close a serialized async iterator once the response that carries it is abandoned. When a `renderToStream` consumer cancels the readable or a `pipe` sink throws, the render is disposed, but the tapped iterator handed to the serializer kept delegating `next()` to the source, so an iterable memo, an async memo that resolves to an iterable, and a generator projection kept pulling (or never ran their `finally`) for as long as the source lived. The tapped iterator now answers `done` and calls the source's `return()` once its computation is disposed, and the projection pump closes its source when it stops for disposal. The render's wind-down also closes the serializer, which returns every async iterator it is still pulling — including a source whose pending `next()` never settles, which the disposed check on the next pull could never reach.
+- 01ac18c: Compiler `componentNames` option: component owner labels that survive minification. With the flag on, DOM output carries the tag as written in source as a third `createComponent` argument — `<Home />` compiles to `createComponent(Home, props, "Home")`, `<Ui.Button />` to `"Ui.Button"`, `<this.Row />` to `"this.Row"` — and the dev and observe runtimes label the component's owner with it (`<Home>` in diagnostic `ownerPath`s, attribution chains, and the devtools `_component.name`), falling back to `Comp.name` as before. Until now an observe-tier production bundle reported hot scopes and holds under whatever the minifier left of the function name (`<Xt> › <Kn>`), and a `lazy()` or HMR wrapper hid the tag name even in dev. Off by default and byte-identical output when off; SSR (which inlines the call) and universal output never emit it; the production `createComponent` ignores the argument. Both compilers implement it in parity (shared fixtures, cross-mode ratchet). `@solidjs/vite-plugin` enables it for the dev and `observe` postures.
+- fd36d37: Rename the compilers' `componentNames` option to `sourceNames`, now `boolean | { components?: boolean }`. `sourceNames: true` (or `{ components: true }`) is what `componentNames: true` was — the tag as written in source as `createComponent`'s third argument, on DOM and SSR output. The option is now the home for every kind of source name the compilers can carry into output for the dev and observe runtimes to label the reactive graph with (binding effects and primitives follow); the object form picks kinds. `@solidjs/compiler` rejects `componentNames` as an unknown option, so a stale `@solidjs/vite-plugin` fails loudly rather than compiling without labels.
+- 21ff8f8: Infer `createEffect` and `createRenderEffect` compute results as const so inline tuple results retain their element types without a type argument or `as const`.
+- f3accb3: Container tier at the slot border (DR-2 case 3): projections passed as slot args to server components cross as bounded async traces — one snapshot, then PatchOp batches — and materialize on the client as live read-only projections. Server: the projection trace registry (`getProjectionTrace`) with a multi-consumer shared pump (one source iterator drives an append-only patch log; hydration resume and every slot crossing replay from their own cursor, snapshots captured only at stable pull boundaries). Client: `materializeContainerTrace` — a projection fed by the trace under its own root; the container reference is available synchronously, reads into it suspend until the snapshot (the fill's own `<Loading>` covers them), patch batches apply granularly, the trace's end latches the last state. The frames client installs the materializer, revives document-face `{ $tr, $ta }` marker literals at arg-read, and classifies containers FIRST and trap-safe (a pending projection's property probe throws not-ready): the slot props proxy returns the store instead of async-probing it, and the record-dedupe compare identity-tests containers through the host's `isContainer` hook.
+- 3c1d512: A fill that claims adopted markup reads the state the server rendered it from (frames-rulings 3.6 (iii), "the consumer parks" — S1's third commit ported onto `next` without its `claiming` hint).
+  - `materializeContainerTrace` parks a replayed backlog beyond the snapshot until hydration ends (`onHydrationEnd`; the next microtask when no hydration is in progress) and then applies it as one ordinary update. A container trace is materialized at a fill's arg-read; when that fill claims server markup — the document's pass, a frame's deferred claim under its hold, a claim at a fragment's reveal after hydration-done — the snapshot is what the markup was rendered from, the claim trusts the markup (a text hole is never rewritten during a claim), and a store already past the markup left the DOM diverged for good. Parked, the claim reads the snapshot and the backlog lands after it, so the DOM catches up outside hydration. The release order is the one 3.2 pins: the claim, the frame's hold release, done, then the backlog. A fresh mount pays one beat for not being told apart: its backlog lands a microtask after its snapshot, before any paint. A failure in the backlog applies in order, after the parked patches.
+  - The materializer creates its projection under a DETACHED root. Rooted under the reading owner — during hydration an id-carrying one — a trace revived at t=0 consumed one child id per trace while one revived by a late claim consumed none, and a keyed sibling after the frame hydrated under different keys in the two runs.
+
+- 9015b12: `createContext<T>()` (default-less form) is now typed `Context<T>` (was `Context<T | undefined>`). `useContext` returns `T` directly and the runtime continues to throw `ContextNotFoundError` when no Provider is mounted (this was already the runtime behavior — only the type signature was lying).
+
+  This eliminates the `useX`-with-throw wrapper hook idiom: `const useTodos = () => { const t = useContext(Ctx); if (!t) throw …; return t; }` becomes a plain `useContext(TodosContext)` call.
+
+  The default form `createContext<T>(defaultValue)` is unchanged: `useContext` falls back to `defaultValue` outside any Provider. Reserved for primitive fallbacks (theme, locale, frozen config); for any context carrying reactive state, prefer the default-less form.
+
+  **Breaking:** consumers that rely on `useContext(ctx)` returning `undefined` for a default-less context (and branch on that) will now see the throw at runtime and the type narrowing they were doing becomes a type error. Migration: pass an explicit default to `createContext`, or remove the now-redundant null check.
+
+- 690228a: Clearer dev message for `ContextNotFoundError` (#4181). `undefined` still means "not provided" for context, but the message now names the context and says which case it hit: no provider and no default; a `createContext(undefined)` default, which is no default; or a provider that passed `undefined`, which counts as not provided. Each suggests `null` as the explicit empty value (`createContext<T | null>(null)`). Applies on the client and the server. Production messages and bundles are unchanged. The context docs and cheatsheet now say that `undefined` is "not provided" and that `null` is how to make a context optional.
+- b8617ec: `createDeferred(fn, options?)`: an async memo that may lag, but never leads. Before its first answer it is an ordinary async memo (readers suspend to `<Loading>`, or `loadingValue` shows). After it, a refetch holds nothing: readers keep the previous answer until the new one lands, the rest of the screen moves on, and `isPending` reports the refetch on the node and on everything derived from it, store keys included. A refetch that read a held value lands with that hold. A rejection errors like any memo. `refresh(d)` is a quiet re-ask, and `await refresh(d)` and `until` wait for the landing. It is `createMemo` on the server and hydrates like one.
+
+  The rules: F-1 and F-2 are amended for declared lag, and D-40 / S-41 are new. The `affects()` mark core moved to its own module (`affects-marks.ts`), which `createDeferred` shares. A mark on the source of a derived store now covers that store's keys.
+
+- 61bb177: `createOwner` leaves solid-js's public types: it is typed only through `solid-js/internal`, like the boundary primitives behind `Errored`, `Loading` and `Reveal` (#3709). It stays a runtime export for the renderers. Solid 1.x had no `createOwner`, and application code that used it in an RC should host a scope with `createRoot()` (its `dispose` argument can be passed around as a plain function) and re-enter one with `runWithOwner()`. A detached `owner.dispose` keeps throwing, since it is a method and not part of the public API (#4444).
+- c74365d: `createRoot` JSDoc now states that a root created inside an owner is disposed with it (detach with `runWithOwner(null, …)`); MIGRATION note added.
+- cc0396b: `_parent` joins `_name` as a field signals' property mangling reserves — the two cross-package owner fields.
+
+  Signals' prod and observe artifacts rename every `_`-prefixed property except a reserved list; the dev artifact (which the test suites run against) is unmangled. Two things read `_parent` across the package boundary and only worked in dev:
+  - `solid-js`'s client hydration walks `owner._parent` to the root to mark the hydration snapshot scope. In the built prod and observe artifacts the walk found nothing and marked the current owner instead, so computations created outside that owner's subtree during hydration read live values rather than the server snapshot.
+  - The core's owner walks — `ownerPath` and `OBSERVE.exclude`/`isExcluded` — over `solid-js`'s server owners. `ownerPath` had a server-side shim (`located()`, now removed); `OBSERVE.exclude` was a silent no-op for a server owner outside dev.
+
+  Cost: ~40 B brotli on the prod app scenarios; the observe scenarios did not grow. Pinned from both ends: `packages/solid/test/cross-package-fields.spec.ts` checks the reserved fields survive in the mangled artifacts and scans the built client artifacts of `solid-js`, `@solidjs/web` and `@solidjs/universal` for any signals `_` field that is not reserved; `packages/web/test/server/server-owner-walks.spec.tsx` runs `ownerPath` and `OBSERVE.exclude` over server owners against the built observe and development artifacts.
+
+  Also: RFC 08 gains "Values in records — the PII surface", the complete list of record and finding fields that carry user data (value previews, interaction target text, navigation paths/params, `data.error` on the server error findings) for exporters that leave the process.
+
+- 8923ac6: Shrink CSR bundles by moving the hydration-phase coordination seams (`sharedConfig.isHydrationInProgress` / `sharedConfig.onHydrationEnd`) out of the `sharedConfig` object literal and into `enableHydration()`, matching the null-slot pattern every other hydration hook already follows. Declaring them in the literal retained their bodies and the hydration-phase bookkeeping they close over (`_pendingBoundaries`, `_hydrationDone`, the callback list) in every client bundle; installed by `enableHydration()` they shake out of pure-CSR builds (≈100 B brotli on the CSR size scenario, ≈80 B on the minimal-app floor). Both fields were already typed optional and documented as cross-package internal wiring; consumers treat absence as "not hydrating" — the refresh runtime already optional-chains, and `clientOnly` now falls back to a bare `queueMicrotask`, which is byte-for-byte the behavior `onHydrationEnd` itself had outside hydration.
+- 874c256: fix input compilation, rebased dom-expressions
+- 667a020: Deduplicate the pre-hydration gate lifecycle shared by the ssrSource client/hybrid branches (signal, store, and effect shapes) into one helper — no behavior change, recovers ~40 B brotlied in store-carrying hydrating bundles.
+- cdf4542: fix(web): only a server function call made inside an action gets the default revalidation (#4913)
+
+  A non-GET call made while an action body runs (a core `action`, or a router `formAction`) is a mutation: it asks for single-flight collection, and its response reaches the flight consumers even with nothing folded, so a router revalidates every query. A call made anywhere else, such as a query's fetcher, no longer does, which stops the refetch loop that started in rc.22. Explicit `X-Revalidate` keys and redirects still reach the consumers wherever the call was made.
+
+- 8402421: Demote low-level `solid-js` boundary primitive docs in favor of the component APIs.
+- c6c415b: Mark `createTrackedEffect` as `@deprecated`. It is retained to ease 1.x migration, but it should not appear in new code: use `createEffect(compute, effect)` for side effects that follow reactive state (it separates tracking from the side effect, knows its dependencies before it runs, and participates in async and transitions) and `onSettled` for one-time DOM work after render. `onSettled` is unaffected (it uses the internal tracked-effect node directly).
+- 28d5289: Deprecate setter writes on the server with a `[SERVER_WRITE]` warning (once per process per category: signal, store, optimistic). Server render is pure — change enters through async sources, never setters. Behavior is unchanged this release: signal and store writes still land as inert data (nothing re-renders) and optimistic writes remain no-ops, but server writes will become an error in a future release. If you are bridging a subscription, make it the async source itself instead of pushing writes from its callback.
+- 178605c: `isPending` of a derived store's key no longer reads `true` for one pass at the store's first landing. A first answer is loading, not pending, as it is for the memo the store copies. Before, a `<Show when={isPending(...)}>` over such a key could open for that pass and mount content that was never meant to show.
+- 17ec571: A derived store whose derive reads an async memo through `latest()` no longer shows its seed for one pass after it first resolves: a memo (or a second derived store) reading it now sees what the derive wrote, so a render effect downstream commits only the real value, the same as one reading the store directly (#4355).
+- 178605c: A render effect reading a derived store that errored, then recovered through `latest()` into a new flight, now re-runs when that flight lands. Before, it never re-ran: an `Errored` around it went back to its content with the value missing, or a `Loading` around it stayed on its fallback.
+- 9a213bb: Derived writes apply first, then derivations re-run. A manual write to a writable derived value (`createSignal(fn)`, `createStore(fn)`) lands at once; when one of its sources changes — in the same update or later, inside or outside an action, across async holds — the function re-runs and receives the write as `prev` (or as the draft for `createStore(fn)`), and decides what to keep. A write on its own never re-runs the function.
+
+  This reverses beta.11's same-tick precedence (#2692), where a write beat a source change in the same flush: a function that ignores `prev` now discards a write made in the same update as a source change, and a same-value write no longer holds against it. To keep a local value across source changes, carry it in the data as a flag the function honors. It also fixes #3733 (a write inside an action blocked later source changes for the whole hold, a regression since #2692) and supersedes the frame-scoped mask from #3740, whose changeset this replaces.
+
+- bd22ac8: Rename the three legacy client dev artifacts to the `<entry>.dev.{js,cjs}` convention every other dev build already uses: `solid-js/dist/dev.*` → `dist/solid.dev.*`, `@solidjs/web/dist/dev.*` → `dist/web.dev.*`, `@solidjs/universal/dist/dev.*` → `dist/universal.dev.*`. With server dev builds now shipping as `dist/server.dev.*`, a bare `dev.js` no longer says which entry it is the dev build of. The `exports` maps are updated; only code deep-importing `dist/dev.js` directly (bypassing `exports`) is affected.
+- db1fed6: Dev mode now throws a descriptive error when a JSX tag's component resolves to a non-function (e.g. a missing or misnamed import resolving to `undefined`), instead of crashing inside the dev build with `Cannot read properties of undefined (reading 'name')`. Client dev builds only — zero production cost.
+- 711b557: Move the #3338 diagnostics out of prod bytes. The `lazy()` "not preloaded" explanation and the document-root preload-failure framing are dev-only; prod keeps terse messages and, at a document root, hands the preload failure itself to `reportError` (no wrapper `Error`). The `haltReactivity` `reportError` hand-off is compacted.
+- 74ea248: Dev tooling 2.0 surface: remove registerGraph/sourceMap, consolidate devComponent metadata into single \_component object, wire DEV.hooks to @solidjs/signals hook registration (onOwner, onGraph, onUpdate, onStoreNodeUpdate), expose graph traversal helpers (getChildren, getSignals, getParent, getSources, getObservers) through DEV, export isDisposed
+- 7599885: Dev diagnostic `UNSCOPED_HOLE_ALLOCATED_IDS`: an unscoped hole that took hydration ids at a position the other side does not share (#3567 follow-up)
+
+  The one hydration-key gap left after #3599 is a bare identifier bound to a function — `const renderHead = () => props.header; <div>{renderHead}</div>`. The compiler sees a value and scopes nothing; both runtimes unwrap the function, but not at the same point (the client's `insert` at the statement, the server's `ssr()` inside the walk after every scoped sibling reserved its slot), so the keys of the hole's content and of the holes after it permute. `JSX.Element` excludes functions in 2.0, so type-checked code cannot write this hole; by ruling it is **not** scoped (no production cost for a shape the types reject). Instead the dev builds detect the permutation and raise `UNSCOPED_HOLE_ALLOCATED_IDS` (`warn`, kind `render`, once per site) on both server render and client hydrate. The server reports structurally — the counter's next id when the hole was registered (`data.registered`) differs from the one it was evaluated at (`data.before`, `data.after` after it ran); the client, which always builds in place, reports when the content it built inside an unscoped function hole moved the counter and missed a server-rendered key. A function hole with nothing scoped after it lands on the same ids on both sides and stays silent (a boundary's zero-arity `fallback={() => <F />}` thunk built by the consuming hole is that shape). `data.name` is the function; the message names the fix: call the function at the hole (`{renderHead()}`) or pass the built value. Scoped holes, memo and component accessors, `children()`, `<For>` rows and the runtime's own children inserts never raise it.
+
+  Plumbing: a dev-only `sharedConfig.devPeekNextContextId()` on both `solid-js` facades (the next child id of the current owner, read without consuming — on the server without materializing a pending hole slot), installed under the dev gate so the prod and observe artifacts of `solid-js` and `@solidjs/web` are byte-identical to before.
+
+- 8187065: Add dev-mode enforcement of Loading boundaries for async content. During `render()`, async values consumed by JSX without a `<Loading>` boundary now throw an error catchable by `<Errored>` boundaries. Re-export `enforceLoadingBoundary` from `@solidjs/signals`.
+- 6717d35: Diagnostic code consolidation. Codes are public API (the Sentry fingerprint roots); three renames.
+  - `WIDE_WRITE` is folded into `HUGE_FAN_OUT` — one code, one threshold story. The core's always-on check warns at 2000 subscribers; the attribution engine's `fanOut` threshold (default 250, was `wideWrites`) warns earlier while it is enabled and reports through the same emitter, so `data.count` is the subscriber count and, from the engine, `data.write` says which write reached it (`"write"`, `"refresh"`, `"async"`). One WeakMap dedupes both reporters (re-warn after another 500). `AttributionOptions.wideWrites` → `fanOut`.
+  - `SERVER_FN_ERROR_SANITIZED` and `SSR_ERROR_SANITIZED` are one code, `SERVER_ERROR_SANITIZED` — the same fact from two roads. `data.source` is `"server-function"` (severity `error`, from `@solidjs/web/server-functions`) or `"ssr"` (severity `info`, from the SSR `<Errored>`/rejection path); `data.error` is the original and `data.wire` the replacement on both.
+  - `ASYNC_WATERFALL` is client-only again: the server's boundary-passes verdict is its own code, `SSR_BOUNDARY_WATERFALL` (kind `ssr`; `info` for two sequential waits, `warn` for three or more; `data: { boundary, passes, sequentialMs }`). `data.side` is gone with it.
+
+- c324d2c: Diagnostic messages now include their stable code identifier as a prefix (e.g. `[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed`). Applied to all dev-mode diagnostics: `STRICT_READ_UNTRACKED`, `PENDING_ASYNC_UNTRACKED_READ`, `PENDING_ASYNC_FORBIDDEN_SCOPE`, `SIGNAL_WRITE_IN_OWNED_SCOPE`, `RUN_WITH_DISPOSED_OWNER`, `NO_OWNER_CLEANUP`, `CLEANUP_IN_FORBIDDEN_SCOPE`, `NO_OWNER_EFFECT`, `NO_OWNER_BOUNDARY`, `ASYNC_OUTSIDE_LOADING_BOUNDARY`, and `MISSING_EFFECT_FN`.
+
+  The previously bare `throw new Error("Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled")` (raised when creating a memo, effect, or owner inside `createTrackedEffect`/`onSettled`) is now also surfaced through the diagnostic system as `PRIMITIVE_IN_FORBIDDEN_SCOPE` (severity `error`, dev-only, throws after emitting). Existing tests that match the message substring continue to work.
+
+  The code identifier surfaces in console output and thrown errors, so users (and AI tools) can search documentation, issue trackers, and the source by code rather than parsing prose. The `code` field on `DiagnosticEvent` is unchanged — this only affects the human-readable `message` string.
+
+- b0c6e6a: Add the missing diagnostic guide sections so every diagnostic code links to its repair guidance.
+- 6c8c956: Diagnostics console addressability: compiled JSX binding effects (attribute, class, style, property, spread, insert) are tagged in dev with the element they write, and a console diagnostic about such an effect prints that element as a second argument — hover highlights it on the page, click jumps to it in the Elements panel. Why-chains (`DEV.attribution.enable()` logging) print as collapsed console groups, one headline per run with the causes inside. The once-per-code footer now pairs the installed skill path with the file's stable GitHub URL, anchored to the code's section.
+- d5aba4b: `WIDE_WRITE` and `HOT_SCOPE_FANOUT` diagnostics, and the reactivity-diagnostics and agent-loops skills, now prescribe a projection (`createProjection`, or a `createStore(fn)` keyed by id) as the fan-out repair. They previously named an API that is not part of 2.0 (#3304).
+- 3ae0ca0: Diagnostics locate themselves and report once.
+  - Every `DiagnosticEvent` now carries `ownerPath` — the root-first chain of named owners enclosing the subject (`["<App>", "<TodoRow>", "effect"]`). Component roots are labeled `<Name>` by `solid-js`'s dev component wrapper, so the path reads as the component tree down to the scope; owned-scope write errors in a component body now say `(in <TodoRow>)`.
+  - Console reports are a single entry per finding: message, an `in <App> › <TodoRow> › effect` line, and the once-per-code repair footer as trailing lines — the footer no longer lands as a separate, duplicate-looking `[CODE]` line. Advisory (`info`) events emit no footer at all.
+  - `ASYNC_OUTSIDE_LOADING_BOUNDARY` fires once per `render()` instead of once per pending render effect (N async siblings at mount produced N copies).
+  - New dev-only helpers on the signals core: `reportDiagnostic(entry)` (the console face) and `ownerPath(subject)`; `emitDiagnostic` takes an optional subject (defaulting to the ambient reactive context).
+
+- 1a1e2f2: Diagnostics: the responsiveness gate — holds and feedback in the artifact, `expectNoSilentHolds`, and Loop 4.
+
+  The artifact (format v2) now carries `attribution.holds` — every transition hold the scenario caused, with the held writes, the blockers, the wait measured from the interaction, and which affordances acknowledged it — and `attribution.feedback`, the ranked `sources`/`interactions` tables folded from them. JSONL egress emits `hold` and `feedback` records; the browser bridge and the `/__solid/diagnostics` protocol gain `holds()` and `feedback()` live queries.
+
+  New gates: `expectNoSilentHolds(artifact, { maxSilentMs })` fails on any hold the screen never acknowledged (no `isPending()`/`latest()` reader, no optimistic value, no `affects()` mark, nothing painted) with the interaction, held write, blocker, and duration as evidence; `expectHoldBudget(artifact, ms, { source })` bounds hold latency regardless of acknowledgment. `ScenarioBudget` gains `maxSilentHoldMs` and `maxHoldMs`; Vitest gains `toHaveNoSilentHolds()` and `toStayWithinHoldBudget(ms)`. The agent-loops skill gains "Loop 4 — Responsiveness": read `feedback.sources` first, repair by shape (`isPending` → `latest` → `createOptimistic`), and the explicit anti-repair — never make the gate pass by moving the write off the async path. Types `HoldEvent`, `ChangeOrigin`, `AttributionFeedback`, `FeedbackSource`, `FeedbackInteraction` are exported.
+
+- 4a99c84: `createComponent(Comp, props, name?, loc?)` takes the JSX site the compiler emits beside the tag (`"src/App.tsx:12:5"`); the dev and observe component owner carries it on both the client and the server, so a finding raised inside a component reports `at src/App.tsx:12:5` (and `event.loc`) when nothing closer was located. The console footer is now two lines: the code's docs page for a human (`what it means and how to fix it: https://v2.solidjs.com/reference/solid-js/diagnostics/<slug>`), then the repair skill for an agent (installed path and GitHub URL, anchored to the code's section). `diagnostics.json` links each code to its docs page, and the `reactivity-diagnostics` skill documents the `at` line.
+- a2a5b6f: The migration guide notes when a `from()` async generator's cleanup runs, the cheatsheet adds `createDeferred`, and the docs note that `SETTLED_CLEANUP_UNOWNED` throws in development (#4183).
+- 83aa07c: Dev warnings, diagnostic guide links and JSDoc links point at docs.solidjs.com, which now serves the Solid 2.0 docs. v2.solidjs.com redirects there, so links in earlier releases keep working.
+- 50a810b: The DOM docs and cheatsheet narrow the ref-timing note: inside a ref, `el.ownerDocument.defaultView` is `null` only when the element's template contains no custom element; a template with one is imported into the live document as a whole.
+- 0a7c278: Document the mode-specific callback shapes for mapArray and For.
+- 3bcce84: Document-face live holes (Stage 4): `inServerComponentScope` gates live-hole arming and the iterable-memo pump to server-component render barriers on the document face, and the frames client pumps the `sc:live` channel record — one module-level reader broadcasting hole/attr ops to every adopted boundary (geometry routes; a log replay catches up boundaries that adopt after ops arrived, and call-driven streams supersede document ops).
+- df2ba6c: The dev "multiple instances of Solid" warning now fires when two copies actually meet (a component or `useContext()` from one copy runs inside a component rendered by another, with no owner) instead of whenever a second copy loads. Isolated copies, such as a devtools panel rendering into its own root or a Solid 1 copy on the same page, no longer warn (#2549). Solid 2 no longer sets v1's `globalThis.Solid$$` flag.
+- 4afc662: Move `dynamicComponent` into `solid-js`. `@solidjs/web` keeps `dynamic` and re-exports `dynamicComponent`.
+- f373683: Dev: an event handler fired synchronously from an effect callback (by `el.focus()`, `el.click()`, `dialog.showModal()`) no longer inherits the effect's strict-read window or effect-callback phase, so reading a prop in it no longer logs `STRICT_READ_UNTRACKED`, and creating a root in it no longer throws `PRIMITIVE_IN_EFFECT_CALLBACK`. Development builds only; production output is unchanged.
+- 6c8c956: Attribution: `EFFECT_RELAY_TEAR` diagnostic — derived state kept in sync by an effect (`createEffect(() => f(a()), v => setS(v))`). "Should have been a memo" is a claim about intent the runtime cannot see; what it can see is the harm: every scope that reads both `a` and `S` runs twice for one write of `a` — once in the flush where `a` changed (against the stale `S`), once after the effect's write lands — and the first frame was inconsistent. The engine proves that from the cause chain (a re-run whose root writes all came from effects, one of whose runs shares a root write with the victim's previous run) and reports it once per relay, with intent heuristics as message modifiers rather than gates: `copy` (the written value is the effect's compute output — by contract a pure function of its tracked reads, so derivable; warns immediately, and on its own after two runs even with no double-running reader, since everything reading the copy paints a flush behind the source), `passthrough` (the compute output is one of the effect's sources — the prop-to-state port: read the source directly), and `soleWriter` (nothing else writes the signal). A tear whose write is none of these is `info` (a DOM-measurement effect tears legitimately — the cost of measuring) until the same relay has torn three times. The `reactivity-diagnostics` skill documents the code and repairs.
+- 1a1e2f2: Attribution: `EFFECT_WRITES_OWN_SOURCE` diagnostic. An effect whose callback writes a value its own inputs depend on converges (the second run finds nothing to change) rather than looping, so the flush guard never fires — yet the flush settled in two passes and the screen rendered the pre-write value in between. The engine now walks each effect re-run's cause chain (root writes, through any depth of memos) and, when a root write's effect origin resolves to the effect that is re-running, reports the cycle once: `warn` for a single effect (the written value is a function of what the effect reads — make it a memo, or normalize where the source is written), `info` for a cycle relayed across several effects (each effect-origin write is joined to the run that made it, so the walk continues hop by hop). Effect-origin `ChangeOrigin` frames gain `run`, the `RerunEvent.run` whose effect phase performed the write. The `reactivity-diagnostics` skill documents the code and repair.
+- 0771dc8: Docs: effects never compare compute values. The effect half (and the previous cleanup) runs every time the compute half re-runs, even when compute returned an equal value. To skip work on an unchanged value, read a `createMemo` (optionally with `equals`) in the compute. Noted in the `solid-2.0` skill and the cheatsheet (#4184).
+- 53280e7: The error hooks and `SSR_RENDER_ERROR_CONTAINED` tell where an error was thrown apart from where it was met.
+
+  `ownerPath` on `ClientErrorContext` and `ServerErrorContext` is now where the error was **thrown**: the labels root-first up the owner chain of the computation that threw — the component that broke — falling back to the boundary's chain when the throw crossed nothing the runtime could name. A new `boundaryPath` is where it was **met**: the same labels up the chain of the `<Errored>` that rendered its fallback (client and server) or the `<Loading>` that shipped the rejection (server, `handling: "client"`). Before, `ownerPath` was the boundary's on both sides, so every component under one boundary grouped into one path. On the client the engine's status wrapper already named the thrower (`StatusError.source`); on the server the owner scopes stamp it as the error escapes. The `SSR_RENDER_ERROR_CONTAINED` finding follows: `ownerPath` locates the throw, `data.boundary` / `data.boundaryPath` the boundary.
+
+- f5cf675: An `<Errored>` around a `<Loading>` whose async read fails during a streamed render now shows its fallback in the server HTML outside server components too, and the client adopts it. Before, the boundary's HTML was empty until hydration (neither the loading nor the error fallback), and the hydrating client rendered the failed boundary from scratch: it asked again and showed the loading fallback. Now, when the `<Loading>` is all of the `<Errored>`'s content, the server draws the error fallback in its place (in the shell, or in the streamed fragment after the shell) and serializes the error at the `<Errored>`, so a client that hydrates after the failure arrived claims that markup and adopts its data without asking again, and recovers when the content's inputs change, as for any hydrated failure (#4273). A client that hydrated before the failure arrived renders it once, with nothing of the server's swap left beside it. With markup between the two boundaries the server still leaves the position blank and the client renders the failure (#4287).
+- 0f64d82: `<Errored>` escapes its children on the server (#4116). A boundary's content never passes a compiled `escape` hole, so `<Loading>` escapes it itself; `<Errored>` did not, and a string child (or an array of strings, or a function returning one) was written into the HTML raw — user text inside an error boundary became live markup, and the client's text node mismatched on hydrate.
+- 8f1d9d2: Server: when an `<Errored>` renders its fallback for a `<Loading>` that failed after the shell, and a hole in that fallback rejects while the server waits for it, the rejection now goes to the next boundary up, as it does when a fallback throws synchronously. Inside a pending outer `<Loading>`, that outer fragment fails; under an outer `<Errored>` whose whole content is that position, the outer fallback is drawn there and the client adopts it. Before, the region streamed blank and the hydrating client halted (#4316). A synchronous throw in that fallback no longer writes an error record for an outer `<Errored>` without sending its fallback.
+
+  The server's wait for that fallback now stops after the same pass budget as the `<Loading>` resume loop and then streams what it has. It also stops as soon as the render is torn down, for example when the request is aborted (#4317).
+
+- 8f1d9d2: An `<Errored>` whose fallback fails while rendering (a hole that rejects, or a synchronous throw) now passes that failure to the enclosing boundary on the server, in the shell as well as in a streamed fragment. An outer `<Errored>` draws its fallback in place of the region, and with none the request fails. Before, the region was sent blank, with the errors recorded and no markup for them.
+- 75ed5e9: `<Errored>` builds a function-valued `fallback` inside its own scope, whatever its arity — like `<Show>` resolving a function child. A zero-arity thunk (`fallback={() => <F />}`, type-reachable since `() => X` is assignable to `(err, reset) => X`) used to be handed back unresolved for the consuming hole to build on the enclosing owner's counter, which permuted hydration keys whenever a scoped hole followed the boundary in the same element (surfaced by #3620). Zero-arity and two-arity fallbacks now allocate identically on server and client; reset, error narrowing, fallback reactivity and the dev `console.error` for a fallback that cannot see the error are unchanged. A rest-parameter fallback (`(...args) => …`, `length` 0) now receives `err` and `reset` too.
+- c7f4403: A hydrated `<Errored>` showing the server's fallback no longer logs `Hydration key miss` (or builds detached elements) for content it creates lazily: children behind a context provider, a component returning a function, a `children()` accessor, or a nested `<Loading>`, `<Errored>`, `<Show>` or `<For>` resolved after the content's own run. Nothing under the boundary claims server DOM, so the fallback stays up until a content input changes or `reset()` (#4348). A nested `<Loading>` there no longer waits on a fragment the server dropped with the content.
+- 0856fee: An `<Errored>` boundary hydrated in the error state the server rendered now recovers. Before, hydration threw the server's error without running the content, so the boundary tracked nothing and stayed on the fallback until `reset()`, even after the failed content's inputs changed. Now the content runs during hydration, reading its server data without refetching but claiming no DOM, while the fallback claims the server's markup. If the content fails on the client, the boundary holds that client error and recovers when the content's inputs change. If the error only happened on the server, the server's fallback and error stay up until `reset()` is called or the content re-runs (#4273).
+- 25fb7be: fix(hydration): a content-input write made before a rejected fragment's chunks arrive recovers the hydrated `<Errored>` fallback (#4588)
+- 542ff6f: An `<Errored>` whose fallback reads async data, around a `<Loading>` that fails after the shell, now streams its fallback once that data is ready, and a client hydrating after it arrived claims it. Before, the failure landed while the fallback's read was still pending, so the server had no markup for it. On its own, the boundary swapped to a blank and the client rendered the failure itself, asking for the failed read again. Inside an outer `<Loading>` still pending, the outer fragment arrived with the Errored region blank, and the client hydrated against the blank with warnings and showed nothing there. Now the failure waits for the fallback, as a swap to a fallback waits for the fallback to be ready: the loading placeholder stays until the finished fallback replaces it (carried by the outer fragment when that is still pending), and the error is serialized with it (#4306).
+- b460640: A rejection contained by `<Errored>` is no longer reported as unhandled when the boundary shares a `{props.children}` slot with an async sibling during SSR (#3973). While its holes were pending, the server boundary threw a combined promise that the slot retry could drop, so its rejection exited Node even though the fallback rendered. The combined promise is now marked handled where it is created; anything that awaits it still sees the rejection.
+- cb04b8e: Export public primitive option types from the root `solid-js` entrypoint and align projection options with hydration fields.
+- 284738e: Re-export `enableExternalSource` and related types from `@solidjs/signals`. Add `on` prop to `<Loading>` component for declarative boundary reset.
+- 3dbf12b: Fix the document-face slot-fill hydration misses (the chat welcome/status shape): adopted fills now claim the settled server markup instead of key-missing and re-rendering. Three defects, one per layer. `@solidjs/web`: the lazy async-read memos in `slotArgsProxy` minted a hydration child id the document producer never allocated (shifting every subsequent key in the occurrence namespace) and treated record-revived settled promises as pending — they are now `transparent` and fast-adopt the serializer's settle stamps. `solid-js` boundary: a SUPERSEDED fragment (settled `_fr` whose markup never shipped because an outer boundary converged first) was hydrated "straight through", claiming keys the document never emitted — the boundary now detects the unswapped placeholder, hydrates the showing fallback, and resumes with fresh client DOM. `solid-js` containers: `materializeContainerTrace` gains a synchronous path for the raw-stream trace wire shape, so a snapshot the document already delivered reads as ready DURING the synchronous claim walk instead of suspending a settled boundary into a phantom fallback.
+- af97611: A `<Loading>` inside a server component now reveals on document SSR (#2978). A deferred fragment whose producer ran on the SERVER has no client boundary to ever register as its claimant, so a `$df` settling after hydration completed was held forever by the held-swap policy (#2964) — fallback frozen on screen — while the frames classification gate (#2968) deferred on the very `fr.pending()` answer that hold kept true: a deadlock between two individually-correct policies. The fragment ledger now exposes the claimant contract (`_$HY.fr.claim`/`release`, the same one Loading boundaries use internally), and the frames document adoption — which owns the markup it adopts wholesale — goes on record as the claimant for every `pl-*` placeholder in its region: at adopt time, again for content revealed into the region later (an outer fragment's payload can carry a nested pending one), retiring its claims when the frame disposes. The secondary defect is fixed in the ledger itself: content whose placeholder range was removed (a refetch morphed over the region before the document delivered) can never swap, so it no longer keeps `fr.pending()` reading "in flight" for the rest of the page's life.
+- f8f992d: A rejected chunk preload no longer hangs boundary hydration forever (#2817 layer 3). Every asset-wait path in `createLoadingBoundary` now handles rejection: the error is reported via console and the boundary resumes with a fresh client render (`shouldHydrate=false`), letting `lazy()`'s own `import()` retry or fail through normal error channels.
+- 5869c94: Fix ASYNC_OUTSIDE_LOADING_BOUNDARY diagnostic firing even when a boundary handled the async
+- 8187065: Refactor async iterable hydration to delegate to signals' handleAsync pipeline:
+  - Replace imperative consumeFirstSync/scheduleIteratorConsumption with normalizeIterator that ensures V1 is sync for snapshot capture and V2+ are greedily batched after a single microtask deferral
+  - createMemo, createProjection, and createStore(fn) hydration now return async iterables that handleAsync processes natively, eliminating manual flush/schedule management
+  - Fix hybrid mode: processResult and createProjection .then() callbacks now return values so serialized promises resolve correctly
+- 03e2cca: Forward async iterator cancellation through hydration and SSR wrappers so generators close when hydration adapters or SSR serializers stop consuming them.
+- 8187065: Fix SSR createSignal(fn) with async value showing undefined instead of triggering Loading boundary
+- 23657d2: Fix signal-shaped async-iterable hydration losing buffered yields when the stream completed (or advanced multiple resolutions) before client hydration began. `normalizeIterator`'s greedy batching loop advanced `latest` unconditionally, so when the buffered backlog ended in the stream's `done` result — seroval's deserialized streams buffer it synchronously right behind the data — the loop returned `{ done: true }` and every yield after the first was discarded: the hydrated `createMemo` / `createSignal(fn)` / `createOptimistic` stayed on the first resolution forever, while the store replay path (`hydrateStoreFromAsyncIterable`) correctly applied all buffered yields under the same conditions. The batching loop now tracks the last data yield separately (mirroring the store path's `if (!r.done)` guard), delivers it as the batch's value, and hands the done result to the following pull. Replay semantics are unchanged otherwise: the buffered backlog still conflates to its latest yield in one visible update — the same final state the store path's batched patch application produces — and live post-hydration yields still apply one at a time.
+- a37611e: Fix store-shaped async-iterable hydration orphaning server-rendered DOM when the stream's yields were already buffered before client hydration began (delayed client script). `hydrateStoreFromAsyncIterable` applied the buffered patch backlog synchronously inside the very pull that hydration's claim pass triggers (`Repeat` reading the projection's `length` drives it), and because a projection's draft writes stage in the store's override layer until the firewall commits, write-time snapshot capture recorded the still-uncommitted seed — not the first-yield state the SSR DOM shows — as the pre-write base. Any claim pass running after the batch then hydrated against pre-stream state (length 0), claimed nothing, and rebuilt every row fresh: the server-rendered row survived unclaimed next to a full set of duplicate client rows. The backlog is now parked until hydration completes (`onHydrationEnd` — a plain microtask when hydration has already finished), which is exactly where a live stream's yields land, so the claim pass hydrates against the SSR snapshot and reuses the server-rendered rows. Conflated-notification semantics are unchanged: every synchronously-available patch still applies in order within one pull, and observers see a single update to the final state; live post-hydration yields still apply one at a time.
+- a360ad0: Fix SSR hanging when a derived async computation reads a bare `ssrSource: "client"` hole inside `<Loading>`. `createMemo(async …)`, `createProjection`, and `dynamic({ deferStream: true })` whose compute throws the client-hole NotReady now classify FINAL — the boundary hands the subtree off to the client exactly as a direct read does — instead of subscribing a retry to a source that never settles and leaving the response open. A client hole that surfaces before the shell has flushed now takes the same fallback + `$$f` route as one found at discovery, rather than rejecting the fragment over an empty region.
+- 2d64742: Fix a per-request SSR memory leak for bare `ssrSource: "client"` sources (#3657). A derived read of a client-only source (`<Show when={client().length}>`, a `dynamic()` source memo, an `<Errored>` aggregate) subscribed its retry to the shared never-settling client-hole promise; those subscriptions could never fire but were never released either, pinning each request's computation, props and data for the life of the process. The client hole is now an inert thenable rather than a native promise — `then` drops its callbacks — so no subscription site can accumulate anything on it. Rendered output is unchanged.
+- f658824: Fix `createProjection` seed typing so readonly store seeds do not override inference from the projection function return type.
+- b0db6c9: Ensure manual writes to writable derived signals and derived stores win over queued same-tick recomputes.
+- 47c0e6f: Fix memory leak where individually-disposed owners (e.g. `<For>` rows whose
+  keyed-by-identity entries are replaced) stayed wired into their parent's
+  `_firstChild → _nextSibling` chain forever, causing zombie Owner shells to
+  accumulate per click. The previous fix (`ac50d5cf`) had stopped nulling
+  `_nextSibling` to keep the chain intact during cascading `unobserved()` walks,
+  but that left no path to detach an individually-disposed node from its parent.
+
+  Owners now form a doubly-linked sibling list (`_prevSibling` added to the
+  `Owner` shape, mirroring how subscriptions already use `_prevSub`/`_nextSub`).
+  On individual disposal we splice the node out of its parent's chain in O(1).
+  The splice is skipped when the parent is itself being torn down (batch
+  dispose path is unchanged) or when the node was already a zombie sitting on
+  `_pendingFirstChild`. The disposed node's own `_nextSibling` is deliberately
+  left intact so an in-flight outer dispose walk that already advanced past
+  this node still reaches later siblings — preserving the cascade-safety from
+  the original fix.
+
+- 4cab248: Fix Dynamic component hydration key misalignment by aligning server-side createDynamic owner tree with client
+- 3af4696: fix(web): an async `dynamic()` instance serializes its landing and the client adopts it (#3666)
+
+  `dynamic()` no longer opts its memo out of hydration serialization. The per-instance value memo is an ordinary async memo: when the source introduced async (returned a thenable during SSR) its landing is serialized under the instance's id and the client memo adopts the record during hydration instead of re-running the source and waiting on it — the pending beat that committed the enclosing `<Loading>` to a fallback the server never rendered, then missed the SSR'd nodes. A server component lands as a flight reference (`_$SC.r(id, address)` now resolves to the call's binding, so a wrapped `query()` or `async` arrow around a server reference hydrates the same as a direct call), a tag name as its string, and a sync source lands nothing — unchanged.
+
+  A source that resolves to a client component _function_ cannot serialize and is now refused on the server at the point the memo would serialize it — new diagnostic `DYNAMIC_ASYNC_COMPONENT` (recorded on the observe channel; the memo rejects into the nearest `<Errored>` / `onError` in every tier). Move the async upstream (`createAsync`/`createMemo` read synchronously by the source) or use `lazy()`.
+
+  Wire shape: each async `dynamic()` instance now writes one hydration record, and every `dynamic()` instance allocates one more hydration owner id (keys under a `dynamic()` element shift by one slot).
+
+- 76cb1aa: Fix `dynamic()` and `lazy()` gating the SSR shell flush instead of suspending into their boundary
+
+  Both registered their source promise as a renderer-blocking promise, so the document's first flush waited on it. An enclosing `<Loading>` never rendered its fallback and a slow source stalled the entire document — a 500ms server component pushed the shell from 27ms to 527ms with nothing streamed, and an un-preloaded `lazy()` held the shell for the full module load.
+
+  The pending read now simply suspends, letting the nearest boundary own it and stream the content in behind its placeholder. Where there is no boundary to defer to the read becomes a root hole and the renderer blocks the shell on it as before, so a bare `dynamic()` or `lazy()` still resolves inline. Near-instant sources and preloaded modules continue to inline with no fallback flash.
+
+  For `lazy()` this does not affect asset ordering: `assetsPending` gates the render memo separately, so a fragment still cannot flush before its styles and module map are registered.
+
+  Also adds an internal `serialize: false` option to the server `createMemo`, which keeps a value out of the hydration payload while the subtree still hydrates normally (unlike `NoHydrateContext`, which opts the subtree out entirely and suppresses the id allocation needed for client parity). It carries the contract that the client recomputes the value. This lets the server `dynamic()` drop its hand-rolled promise tracking and mirror the client's two-memo shape, since its resolved value is a component function that must never cross the wire.
+
+- 39450e5: Keep an SSR Errored fallback's hydration ids when its children slot is retried.
+- f083220: Align server `Errored` boundaries with client hydration and preserve streamed outer error fallbacks for rejected `Loading` content.
+- dc7b5c2: Fix hydration id drift from allocation-capable prop getters in flow controls (#2976)
+
+  A compiled conditional prop (`when={a ? x : b ? y : null}`) allocates a
+  condition memo every time the getter is evaluated, under whichever node is
+  reading. The server flow controls compensated for the client's internal memo
+  slots with bare id burns, but evaluated the getters themselves under a
+  different internal node than their client twins — so the getter's allocation
+  landed in a different owner's id space on each runtime and drifted every
+  hydration id assigned after it (unclaimed nodes, dead bindings).
+
+  The server twins now evaluate each such getter inside a real node at the
+  same child slot as the client: Show reads `when` through a mirrored
+  conditionValue memo, Switch evaluates each Match's `when` inside per-match
+  conditionValue memos under a mirrored switchFunc memo, and mapArray/repeat
+  give the row id space its own owner at slot 0 with the memo at slot 1 so
+  `each`/`count`/`from` getters evaluate where the client's computed node
+  evaluates them (previously the allocation also shifted the row id base).
+  Dynamic and boundary fallback getters were audited and already aligned. The
+  compiler output is unchanged. Adds parity-harness scenarios for Show
+  (dynamic + static), Switch, For, and Loading fallback ternaries.
+
+- 1122d74: Fix server-side flow component hydration key alignment for Show, Errored, and Repeat
+- cbd66e5: Preserve mounted context IDs during hot module evaluation, before another module can refresh a consumer. Previously a consumer refreshing before the context module's accept callback could throw `ContextNotFoundError` or read the context's default instead of the provided value. Unmounted context registrations retain fresh IDs for entry-module remounts.
+- d9050a8: Hybrid async-iterable takeover for signal-shaped nodes (#2993). `ssrSource: "hybrid"` on a `createMemo`/`createSignal(fn)` async generator serializes only the server's first yield — the client is supposed to continue the iteration, but signal-shaped nodes adopted that first yield and latched there forever (stores already re-ran their generator through the shadow-draft takeover). The client now re-runs the generator once hydration adoption completes: its first yield reproduces the server value and subsequent yields apply live. Sync and promise-shaped hybrid computes keep their adopt-the-serialized-value semantics.
+- a10d33b: Hybrid memo/signal handoff waits for the server answer to land and opens no pending window. An `ssrSource: "hybrid"` `createMemo` or function-form `createSignal` over an async generator re-ran the client generator at creation — a fresh flight ahead of the still-pending server answer, superseding it and reading pending from creation until the client's first yield — so a streamed `<Loading>` resuming to claim its fragment after the answer landed selected its fallback against resolved server content: a "Hydration key miss" warning and a flash of the fallback over the streamed content (the #3574 failure, on the value-shaped takeover). The handoff now follows the store's rules (#3551, #3593): it waits for the adopted answer to land, lands that answer as the handoff stream's synchronous first step, discards the client's duplicate first yield, adopts a rejected server answer, and is superseded by a dependency change before the landing. The node reads settled through the handoff, and `isPending` is false for it, until the client generator produces something new. Sync and promise-shaped hybrid computes are unchanged.
+- ae2bc9f: Hybrid store hydration waits for the server's answer before handing off to the client (#3498)
+
+  Root cause: the hybrid store gate flipped synchronously at the end of the claim pass. With `loadingValue`/`seedLoadingValue` the server serializes a _pending_ placeholder whose real answer arrives later over the stream; flipping before it landed let the client takeover supersede the server flight, so the engine dropped the server's answer and the store never showed it.
+
+  The handoff now follows four rules:
+  1. **It waits for the first server answer to land.** Synchronous when the serialized value is already settled, as before. When it is pending, the handoff happens when that answer lands — resolve or reject — by adopting it as a one-yield stream whose next pull (the engine's own continuation after the landing commits) is the handoff. It never waits on hydration end and never holds hydration open.
+  2. **Only the handoff run's first yield is the duplicate.** Later runs (a dependency change, `refresh()`) run the client source against the real draft and commit their first yield normally; previously every run kept discarding it.
+  3. **A rejected server answer is the adopted answer.** The store surfaces the error until a `refresh()` (a non-handoff run) replaces it; the client's handoff run does not paper over the rejection.
+  4. **A dependency change before the pending answer lands supersedes it.** Like any new pending change, it cancels the incoming server answer: the store goes live on that run — genuinely new work, not a handoff, so its first yield commits — and the abandoned server flight's landing or rejection is dropped without applying to the store or running it again.
+
+- cf61b8e: Hybrid store handoff no longer opens a pending window (#3574). An `ssrSource: "hybrid"` store's client takeover run — the re-run that continues from the adopted server answer — made the store read pending until its duplicate first yield landed, so a streamed `<Loading>` resuming to claim its fragment after the answer landed selected its fallback against resolved server content: a "Hydration key miss" warning and a flash of the fallback over the streamed content. The handoff now lands the adopted answer as a synchronous first step (generator and promise-shaped sources alike); the store reads settled through the handoff, and `isPending` is false for it, until the client source produces something new.
+- ff5c321: Fix hydration of nullish serialized values (#2914). A settled serialization ref `{ s: 1, v: null }` previously hydrated to the internal ref object instead of `null`, and a directly serialized `null`/`undefined` was treated as "no server value", running the client compute instead of adopting it. The unwrap now reads the ref payload directly and presence is decided by `sharedConfig.has` rather than nullish-checking the loaded value.
+- 681d6a5: Update the bundled `@solidjs/signals` baseline to `0.13.6` and fix boundary hydration so `ssrSource: "client"` children resume after hydration mode turns off.
+- f3da41e: Fix mid-stream dependency changes being silently lost by hydration-latched computations. A node adopting its serialized server value re-serves it on every recompute while the stream is open (orphaning protection) — but that recompute left the node clean, so a dependency that changed during the hydration window never re-ran the compute afterwards: the change was lost, not deferred. Re-entry into the serialized-adoption path now arms the hydration-end takeover gate (the same mechanism live-branded sources use), re-running exactly the diverged nodes against their live sources once hydration completes. Applies to the default/"server" `ssrSource` paths; hybrid's sync/promise adopt-and-latch semantics are unchanged.
+- 7742b28: Fix hydration adoption trace pulling an async iterable the compute did not construct. The trace-run (`subFetch`) primed async-generator computes by pulling their first step under mocked `fetch`/`Promise`; it now does so only when the returned value is its own iterator (a generator object), leaving live-call iterables and deserialized codec streams untouched. Pulling a foreign adapter minted its resolver through the mocked `Promise`, corrupting its queue — the next streamed value threw `temp.s is not a function` from the document's inline runtime. Surfaces with a nested-async live answer (`{ progress: asyncIterable }`) read by a child memo during hydration, and as #3647: a foreign iterable whose `[Symbol.asyncIterator]()` is the subscription itself (the router's `liveQuery`) was opened against a `fetch` that never settles, so it never connected after hydration.
+- da84bd9: Fix hydration adoption throwing when a traced compute calls `Promise.withResolvers()` or `Promise.try()`. The trace run swaps the global `Promise` for a never-settling mock that lacked these two statics, so the call threw out of hydration instead of adopting the server value. The mock now provides both: `withResolvers` returns a never-settling mock with no-op `resolve`/`reject`, and `try` returns a never-settling mock without invoking its callback (matching how the mock's constructor ignores its executor).
+- 1c5cc7c: Avoid extra strict-read warnings when keyed Show and Match pass raw store-backed values to function children.
+- 51f971b: Server-component boundaries that settle after the shell flush now mount (#2964). A boundary waiting on a pending streamed fragment registers as its claimant (`_$HY.fk`), so the fragment swap proceeds — or is held and replayed at registration — even after global hydration completes, instead of being discarded. The frames claim scope now also engages when a slot's server content is a pending fragment placeholder with no hydratable elements (a plain-text `Loading` fallback), so the deferred fragment resumes with hydration rather than falling through to a fresh client mount.
+- b6a90f9: Fix `deferStream` being a silent no-op inside a code-split `lazy()` component (#3299). A module load is code, not data: the shell's "no new async discovered during the sync render" rule cannot be evaluated for a segment whose code has not run, so the shell now waits for the chunk even under a `<Loading>` (the boundary still owns the data the loaded code discovers — plain async streams behind the fallback as before, and a `deferStream` read inside the chunk holds the shell exactly like one in an eagerly imported component). Only the first render that reaches an un-preloaded chunk pays; a lazy mounted by a post-shell fragment streams as before.
+
+  Also closes a gap in the flush loop where a shell blocker registered while a boundary resumed during the drain — after the awaited set had settled but before the flush attempt snapshotted it — was never re-awaited.
+
+  `dynamic()` keeps streaming its source by default (a source is data of unknown cost) and gains a `deferStream` option to opt into holding the shell on it, with the same meaning as `createMemo`'s.
+
+- 3242e50: Move loadModuleAssets to dom-expressions and consume via sharedConfig for lazy hydration without Loading boundary
+- 3c68ab2: lazy() no longer caches rejected module promises: a failed chunk download retries on the next mount or preload() on the client (so Errored reset() flows work, matching the platform's re-fetch of failed dynamic imports), and a transient import failure on the server no longer poisons every subsequent SSR request for the process lifetime. Failed loads also no longer surface as unhandled rejections. (#2999)
+- bbc5ac8: Fix `lazy()` stranding surviving instances when the first in-flight instance is disposed (#2915). The memo tracking the shared import was owned by whichever instance rendered first; disposing that instance killed the memo and survivors never saw the module resolve. The import promise stays shared (still fetched once), but each in-flight instance now owns its own tracking memo.
+- 7f9bd7a: `lazy()`'s `preload()` and `moduleUrl`, and `getTraceContext()` outside a request scope, resolve the caller's own render instead of the global SSR context
+
+  Both read the module-global `sharedConfig.context`, which is whichever render started or finished last. A `preload()` or `moduleUrl` read made outside the component's own render pass (a route data function, code after an `await`) registered its modulepreload/stylesheet hints into, and resolved its URL through the manifest of, whatever render held the global, possibly another concurrent request's page. An unscoped `getTraceContext()` read the same way could return another render's trace. Both now resolve the render through the caller's owner, walking to the render root the renderer claimed. A call no render can be attributed to hints nowhere, and `moduleUrl` returns the raw specifier and `getTraceContext()` returns `undefined`. The component's own render still registers its assets when it mounts. A render's `"render"` observe record settles under the render's root owner, so its listener still reads that render's trace.
+
+- 3424f9a: Consume the first value of live-derived stores during SSR and reconnect their live sources after hydration.
+- 8ef7ece: **Loading hydration (client):** Serialized boundary refs that are already settled (`{ s: 1, v }`) still run one deferred `resumeBoundaryHydration` (with optional lazy-asset wait) so inner memos/projections match SSR; a per-boundary closure flag prevents double-scheduling—no global `WeakSet`/`Map`. Terminal serialized states `{ s: 1 }` and `{ s: 2 }` stay gather-only so a promise that later gets `p.s = 2` does not keep re-entering the pending branch and trapping the UI on the fallback. Standalone asset loading only runs when `!sharedConfig.has(id)` so it does not duplicate work when the boundary ref path handles assets. `gather` is optional for test hosts.
+- 98a7385: Fix late-streamed `<Loading>` fragments being orphaned/duplicated during hydration when a chained async memo recomputes between stream chunks. A computation is now treated as still hydrating while the overall lifecycle is in progress (`!done`) and it has an unconsumed serialized value, so it short-circuits to the server's deferred value instead of re-running its async body on the client.
+- 7742b28: Fix hydration of `<Loading on={...}>`: the server's boundary now accounts for the client's `on` dependency node when it fakes the boundary's nesting depth, so content and thunk-fallback element keys match. Previously every element under a boundary with `on` missed its key on hydration (detached duplicates, nothing interactive). The server `Loading` also passes `on` through to `createLoadingBoundary`.
+- ## 8db4de8: Treat Loading on as a value prop so keyed loading boundaries work with normal component usage.
+
+  ## "solid-js": patch
+
+  Treat Loading as a value prop so keyed loading boundaries work with normal component usage.
+
+- f18780e: Update `@solidjs/signals` to `0.13.12` to fix `Loading` boundaries mounted during async refresh so new fallbacks render instead of holding stale content.
+- ed2079f: Fix SSR `<Loading>` to handle a bare async memo passed directly as its child (e.g. `<Loading>{asyncValue()}</Loading>`). The boundary now catches the synchronous `NotReadyError` from the discovery pass, awaits the underlying source, and re-runs discovery — restoring parity with the client and allowing inner `<Errored>` boundaries to propagate async holes through outer `<Loading>` on the server (issue #2677).
+- ba7560f: Loading-window integrity fixes (#2988, #2989, #2990): seed-window projections run their derive against a detached shadow of the seed so mid-flight draft writes can never tear through commit #0 (each commit point reconciles a detached snapshot; the server freezes the seed before the derive runs to match); a parked retry on an errored loading-value node no longer replaces the settled error with a NotReadyError; and the window now closes when the first answer becomes observable — direct commits close it immediately, transition-held landings keep it open until the hold commits — so no one-frame isPending pulse can leak to live observers at the landing.
+- 088f97e: fix(server): serialize chained async memo values resolved after a nested Loading boundary commits
+
+  A chained async memo reached through a synchronous derived memo (e.g. `a` async → `m = createMemo(() => a()[0])` → `b = createMemo(() => fetchItems(m()))`) resolves only after its dependency, so inside a nested `<Loading>` boundary it serializes _after_ the surrounding boundary has already flushed and committed. That late serialization landed in a buffer that never flushed again, so the value was dropped — only the dependency's value survived. On the client the memo then re-ran its compute and orphaned the server-streamed fragment ("Hydration completed with N unclaimed server-rendered node(s)"). This is the shape produced when route content is nested in a root layout's boundary (e.g. TanStack Start).
+
+  Once a boundary has flushed, later serializations now write through to the parent context instead of being buffered into a buffer that will never flush again.
+
+- ed60f05: A cleanup that disposes its own root (or throws) runs exactly once: the disposal list is detached before it runs (#3601).
+- 4620612: Fix `createOptimisticStore` flicker on the second toggle of the same property when the action calls `refresh()` after `yield`. The stash branch's committed-view rerun was firing whenever the action queue was empty, even if the transition was still waiting on async reporters — causing render effects to briefly read the previous committed value before the new override. The rerun now also requires `_asyncReporters` to be empty, matching `transitionComplete`'s definition of idle.
+- ea7f892: Fix ownerless conditional memo reads by reviving suspended unowned computeds on direct access, and align Repeat and Reveal compiler/runtime exports.
+- 62e7883: Fix blank page when an async read rejects before the SSR shell flushes under
+  `Errored > Loading` (#2997). The fragment channel now owns the error once the
+  boundary has registered: `<key>_fr` rejects and the client re-renders the
+  subtree as fresh DOM (adopting the serialized rejection), letting the
+  client-side Errored catch it — matching post-flush semantics. Previously the
+  server also invoked the enclosing Errored's handler at async time; its
+  rendered fallback had no consumer, and the error record it serialized at the
+  boundary id made the hydrating client try to claim fallback DOM that was
+  never emitted, derailing hydration into a permanently blank region. Also
+  defuses the two client-side unhandled-rejection leaks in this flow (the
+  serialized rejected flight consumed via its stamp, and the trace-run promise
+  in `subFetch`).
+- bbcce0a: Fix async-generator projections (and memos) freezing after SSR hydration (#3060)
+
+  A `createProjection`/`createMemo` driven by an async generator that settled
+  during SSR never resumed on the client: after hydration, a dependency change
+  or `refresh()` re-ran the adoption wrapper, which orphaned a fresh generator
+  via subFetch and handed back the already-consumed serialized replay — the
+  node froze at its SSR value forever. The adoption wrappers now track the
+  serialized stream's terminal state (done/error): re-runs before the terminal
+  are NotReady retries of the same flight and keep adopting the replay; re-runs
+  after it hand over to the live user compute.
+
+  Two deeper bugs surfaced by the fix:
+  - Projection drafts are now proxies over a fake target (the store's own
+    TargetShape trick) instead of the store proxy itself. Spec invariant
+    validation runs against a proxy's target after each trap returns — outside
+    the draft's write-override bracket — so `Object.keys(state)` in a derive
+    continuation re-entered the store's ownKeys, hit the seed-invisibility
+    firewall gate, and re-threw the projection's own pending NotReadyError into
+    the derive. The draft traps (including new ownKeys / getOwnPropertyDescriptor /
+    defineProperty coverage) forward to the store inside the bracket; invariants
+    only ever see the dummy.
+  - The store replay's first-pull thenable swallowed exceptions thrown while
+    applying the SSR snapshot (the rejection landed on a derived promise nobody
+    observed), silently killing the drain and wedging boundary hydration open.
+    Failures now route to the flight's rejection and surface through the normal
+    error channel.
+
+- 2597a4a: Fix `createProjection` hydration from async iterables when no `Loading` boundary wraps the consumer (e.g. `Repeat` reading projection state directly).
+  - `hydration.ts`: disable snapshot capture while applying the initial full value from the server iterable so `prepareStoreWrite` doesn't record the pre-write (empty) base as the snapshot. Without this, reads during hydration (like `Repeat` reading `length`) see the stale pre-value and fail to match the server-rendered DOM, producing unclaimed nodes and duplicated items.
+  - `projection.ts`: eagerly assign the inner `computed` owner to the outer `node` binding on first run so `STORE_FIREWALL` lookups work during synchronous hydration writes (before `node = computed(...)` returns).
+
+- 5c961fa: Add regression test for #2620: createProjection + refresh with keyed For/Show tree rendering stale DOM nodes due to uncleared STATUS_PENDING flags (fix in @solidjs/signals)
+- a10cf1a: Fix streaming SSR hanging permanently (0 bytes, 100% CPU) when a component body reads a property of a pending `createProjection`/`createStore(asyncFn)` store (#3068). An async projection can never be ready at creation-scope read time, so the read threw NotReadyError and the retry re-ran the scope — but `createProjection` allocated a fresh generator, deferred, and serialized promise on every pass, so the read could never succeed and the flush loop spun forever. Server projections now keep by-slot flight memory (the #3003 memo mechanism): a re-created projection at a known slot returns the same in-flight proxy — one generator run, one trace, one serialized channel — and post-settle passes read through it synchronously.
+- 4a954e7: Fix server-side `createProjection` promise serialization to resolve with the projected state so hydration receives the correct value.
+- 00c3f78: Fix `createProjection` streaming when no outer `Loading` boundary is present. Two related bugs were fixed, plus a small internal refactor:
+  - The synchronous `reconcile` path in `createProjectionInternal` now goes through `storeSetter` so the `writeOnly` guard is engaged during reconcile reads. Previously it bypassed the guard, causing the projection's own reads (via its store's `_firewall`) to be tracked as dependencies, dirtying the projection mid-recompute and producing a runaway self-loop.
+  - `recompute` now snapshots `_inFlight` before running the node's `_fn`. When `_fn` self-registers an async subscription (as `createProjection` does via an internal `handleAsync(owner, asyncIterable, setter)` call that returns `undefined` from the body), the outer `handleAsync(el, undefined)` would otherwise clear `_inFlight` and drop every subsequent yielded value. The snapshot lets `recompute` skip the outer `handleAsync` in that case and keep the internally-registered iteration alive, so projections stream all values (not just the first) regardless of whether a `Loading` boundary is present.
+  - Internal: the projection recompute body (`draft + storeSetter + handleAsync + commit`) is now shared between `createProjection` and the derived form of `createOptimisticStore` via a `runProjectionComputed` helper. As a side-effect this routes optimistic projections' sync commit through `storeSetter` too, bringing them in line with the fix above.
+
+- 263be3f: fix(signals): `refresh()` no longer cascades into upstream memos. Only the memos read at the top level of the refresh callback (or the explicit `refresh(memo)` target) recompute; their dependencies are left untouched. `isRefreshing()` still reports `true` for the entire refresh call so consumers can opt into deeper refresh manually.
+- b1b2f82: Fix `lazy()` hydration crashing when Solid Refresh registers a component in the dynamically imported chunk (#2920). The module-scope `$$component(...)` registration created its bookkeeping signal through the hydration-aware `createSignal`, which requires a reactive owner to consume a hydration child id — at module evaluation time there is none, so `peekNextChildId` threw and hydration fell back to client rendering. Registration signals are dev bookkeeping and never participate in hydration: the component is now stored in a plain-object signal (`createSignal({ current })`), so no hydration-aware computation is created and no hydration child ids are consumed.
+- a79f974: Fix streamed `<Loading>` boundaries duplicating resolved content when a Solid Refresh HMR update lands while hydration is still in progress (#2919). A hot swap disposes the mounted component; if a streamed boundary's `$df` reveal had already swapped its settled content into the DOM but the boundary had not yet resumed to claim it, disposal could no longer find the fragment markers and the revealed server nodes leaked as duplicate content. The refresh runtime now defers registry patching until the hydration pass settles (via the internal `sharedConfig.onHydrationEnd` hook), letting the old component finish claiming its server-rendered DOM before the swap reconciles it; patches outside a hydration pass still apply synchronously.
+- 8187065: Include `$REFRESH` in the return types of `createStore(fn)`, `createOptimisticStore(fn)`, and `createProjection` to match `@solidjs/signals` upstream types, and re-export `$REFRESH` from `solid-js`
+- a24a4de: Fix the `solid-js/refresh` runtime resurrecting stale module scopes when a hot update re-executes a module whose rendered tree was already torn down (solid-refresh#85). The Babel transform's `fixRender` feature registers the `render()` disposer with `hot.dispose`, so on entry-module (or multi-boundary) updates the previous tree is disposed and a fresh one is rendered through the _new_ registrations before the accept callback patches the registry — but `patchComponent` still treated the first execution's registration as the mounted one, redirecting the live render back through the previous execution's component closure (dead `createContext` instances, prior-generation imports). In Solid 2.0 this crashed the reactive system with `ContextNotFoundError` (dead UI); on earlier betas it appended duplicate trees on every save. Registrations now track live rendered instances, and when none survive the update the registry adopts the re-executed component instead of resurrecting the old one.
+- 157dfe2: Pass an error accessor to error boundary fallbacks so repeated async errors from the same captured source update reactively.
+- 51a1a49: Server errors reach their own request's `onError`, never another request's. The server error hook picked the per-request hook off the module-global `sharedConfig.context`, which is whichever render touched it last, and a finished `renderToString` context stays there. So a failure that landed later from async work went to another in-flight or finished request's `onError`. That request's handler got the error with all its details, and its return became the wire value this request's client received. The affected paths are a `<Loading>` boundary failing from its resume loop (`failed` pre-shell, `client` post-shell), a streamed hydration value that won't serialize, a server function dispatched over HTTP without a handler `onError` (its thrown tail and result-graph channels), and an in-process server-function call during SSR that rejects late or is made after an `await`.
+
+  `reportServerError` no longer reads the global context. Every caller passes the hook of the render or request the failure belongs to. Boundaries pass the `errorPolicy` of the context they were created under, and the renderer passes its own `onError`. An HTTP-dispatched server function uses its handler's hook. An in-process call uses the hook of the render serving the request it was made under, which the render files against its request event when it starts. A failure no render or request owns reaches the ambient `configureServerErrors` hook alone.
+
+- 4608539: Release the Reveal group slot when a streamed boundary errors so sequential/together frontiers don't stall and later resolved siblings still activate (#2776)
+- c943c5c: Stop SSR from silently swallowing errors thrown in server effects. `serverEffect` now re-throws real errors so a wrapping `createErrorBoundary`/`<Errored>` can catch them (matching the client/hydration path), while still propagating `NotReadyError` as suspense control flow (#2777).
+- f14e3e3: Stop pending async reads in server effects from throwing through the render. An effect compute reading a not-yet-ready async source previously propagated `NotReadyError` out of the effect, forcing the surrounding `Loading` boundary to rebuild its whole subtree on every settle — re-creating the async work each time in an infinite discovery loop (#2801). Now render effects register the pending source with the stream (holding flush like top-level JSX async) and retry once it settles so the effect function runs with the resolved value, matching how render effects drive boundaries on the client. Plain `createEffect` is swallowed outright — it never impacts boundaries even on the client.
+- 8b6c298: Server render effects now respect `defer: true` — the compute still runs for parity, but the initial side-effect run is skipped like on the client (#2811)
+- 35b30a1: Keep server signal overload declarations adjacent to their implementation so declaration builds succeed.
+- 4f84cd5: Server `createMemo` now honors the internal `transparent` (and explicit `id`) options when creating its owner, matching the client's id inheritance. Previously a transparent memo consumed a child-id slot on the server but not on the client, shifting every subsequent sibling hydration id — unclaimed DOM and dead bindings after the component (#3012).
+- 5bc9080: Loading boundaries whose serialized state is already settled now hydrate straight through to content instead of rendering the fallback for a microtask. The fallback only hydrates when it is actually what the server left showing (i.e. the streamed fragment has not swapped in yet). The phantom fallback pass created detached client DOM and poisoned insert's node bookkeeping, causing async values beside siblings at fragment root to duplicate instead of update on post-hydration refresh (#2801).
+- b083833: Non-keyed Show judges staleness from the truthiness that selected the child, so a first mount of when={latest(x)} renders and a live update does not look stale
+- c78ec9f: Bump dom-expressions to 0.41.0-next.9 to fix SSR spread element hydration mismatch. Dynamic children of spread elements were incorrectly wrapped in memo() on the server, consuming extra owner slots and causing \_hk value misalignment with the client.
+- 9788bad: Harden SSR async error handling: add try/catch to Loading's async IIFE, serialize errors in createErrorBoundary for client hydration, and fix unhandled promise rejections in processResult
+- 59d84ba: Fix the Tier-1 SSR `search-results` / `color-picker` benches under `packages/solid-web/test/server/`. Both files now carry a `@jsxImportSource @solidjs/web` pragma so `tsc --project tsconfig.test.json` can resolve `JSX.IntrinsicElements`. The `search-results` bench had a latent typing bug — it passed the row accessor through `<For>` while typing the row component's prop as the resolved `SearchItem`, so every `props.item.title` read returned `undefined` and the bench was silently emitting empty `textContent` for every dynamic field. The bench now mirrors the realistic Solid 2.0 keyed shape under performance optimized situations: dereference the row accessor at the `<For>` boundary, destructure `props.item` once at function entry, then read plain locals in the JSX. This means a single props-proxy trap per row instead of one per field access, and the bench now actually measures rendering of real data.
+- 0e8672a: Fix streamed SSR infinite loop when async work is created inside an `Errored` boundary (#2809 follow-up). The server error boundary discarded its partial template when children went async and disposed + re-ran them on every retry pull, recreating the async computation (and its fetch) each pass so the render never completed. The boundary now stashes the pending template and resumes its surviving holes across retries, matching how `Loading` already resumes.
+- 7d985b6: Fix SSR XSS: strings yielded by flow-control memos rendered unescaped
+
+  `<Show when={s}>{s}</Show>`, `<For>{v => v}</For>`, `<Dynamic component={() => s} />`,
+  `<Switch>/<Match>`, boundary fallbacks and any component that returns a string through a
+  memo rendered that string raw on the server. The server flow controls return memos for
+  hydration-id alignment; `escape()` passed functions through by identity, and the resolver
+  appended whatever they later produced without escaping.
+
+  One rule now: `escape(x)` at a hole covers everything reachable from `x` — strings, array
+  items, and what a function yields when the resolver calls it (a deferred-escape wrapper).
+  Finished `{ t }` nodes pass through. `Loading` escapes its content the way it already
+  escaped its fallback. The compilers stop wrapping fragment / mixed component children in
+  `_$escape` (they are values; escaping them too double-escaped through
+  `<Comp>{props.children}</Comp>`), and a single-expression fragment at a hole keeps the
+  hole's wrap. Live-hole tags ride the wrapper and `$slot` survives the array copy, so
+  frames behave as before.
+
+- e6177b4: Fix streamed SSR `Loading` and `Errored` hydration so async memo rejections render the expected fallback and recover correctly after reset.
+- 8ef7ece: Align server `createMemo` Promise handling with `@solidjs/signals`: pending promises now always attach `NotReadyError` regardless of initial value, so seeds like `[]` no longer skip Loading/async boundaries.
+- 1833f14: Fix SSR hydration owner id parity for function-source prop merging and list helpers.
+- 25a5685: Unlink disposed SSR owners from their parent's child chain before pooling. The pool cleared `_parent`/`_nextSibling` on the recycled node, but the parent's `_firstChild`/sibling chain still referenced it — so once the pool reused the owner in a different tree, disposing the old parent walked its stale chain and disposed live owners in the new tree. Boundary retries (`self=false`) are unaffected; subtree disposal still unlinks each child in O(1).
+- f41c6a4: Fix `renderToString` exiting the process on a late async rejection (#3570). Every server async flight settles an internal deferred; under `renderToString` (no serialization channel, the sync `<Loading>` path never awaits the pending source), in a `<NoHydration>` zone, or for an unread source, nothing observed it, so an async memo/store/projection that rejected after the HTML was returned became an `unhandledRejection`. The deferred is now observed at creation; consumers see exactly what they saw before.
+- 17b0afb: Fix SSR `createProjection` mishandling replacement values (values returned or yielded that differ from the draft) (#2948). Replacements are now authoritative snapshots on every server path — keys absent from the replacement are deleted instead of retained from the seed, matching the client's replace-mode reconcile. Later async-generator replacement yields are now applied through the patch-recording draft before the batch is drained, so their sets/deletes actually stream to the client instead of emitting an empty patch batch. The client's hydration first-snapshot apply mirrors the same replace semantics for object roots.
+- 4f14a34: Fix rejected SSR `lazy()` so it reaches `<Errored>` instead of stack-overflowing or leaking an unhandled rejection (#2780). `lazy()` hand-rolls its own promise tracking and previously had no rejection handler, so a failed module load left `p.v` undefined forever (the render memo kept throwing `NotReadyError`, i.e. perpetual "loading") and the orphaned rejection escaped as a process-level `unhandledRejection`. The loader now captures the rejection on the lazy and surfaces it through the render memo, and `ctx.block` swallows its duplicate rejection branch — bringing `lazy()` to parity with async memos, whose rejections already propagate to error boundaries. Once the error reaches the boundary, the existing streamed-fragment hydration path renders the fallback as usual.
+- c7bb2c8: Fix SSR async retry paths re-running computes without resetting owner child state (#2900). The client disposes children and resets the child-id counter on every recompute; on the server only `createSyncMemo` did. Every other retry path — serverEffect retries, async `createMemo` reruns, `createProjection` reruns, and `disposeOwner`'s leaf fast path hit by the Loading discovery retry — kept allocating child hydration ids where the failed run left off, drifting the successful run's ids past the client's so serialized values and DOM nodes hydrated under the wrong keys. Retries now reset child state first (failed runs' onCleanups fire at retry instead of leaking to root disposal), with the retrying primitives' lifecycle cleanups moved to the creation context so a retry can't cancel itself.
+- 8366208: Server async convergence hardening (#3003). Async reads that hand back a
+  fresh promise per call (e.g. the router's `query()` cache-hit `.then()`
+  wrapper) defeated the promise-stamp adoption during boundary retry
+  discovery: every pass re-suspended with a new deferred, looping at
+  microtask speed until the process ran out of memory. The render context now
+  keeps a per-slot flight record keyed by owner id — re-creations of a slot
+  join the existing in-flight deferred (one serialization per slot, ever) and
+  adopt settled answers synchronously. A settled answer always resolves the
+  serialized deferred even when the computing node was superseded and
+  disposed, so the response stream can always close (previously a superseded
+  pass's serialized deferred dangled and held the connection open forever).
+  Discovery is additionally capped by a retry budget that fails the boundary
+  loudly instead of looping unbounded.
+- bff4c21: Handle pending store reads in server projections during SSR.
+- f41c6a4: Fix `renderToStream` hanging or throwing `TypeError: Cannot read properties of undefined (reading 'emit')` when an async read that rejects is the direct child of `<Loading>` (#3569).
+  - `solid-js`: a bare child's throw (`<Loading>{data()}</Loading>`, or a component whose return is the read) now routes through the boundary's error handler exactly like a template hole's does — the fragment rejects and the client re-renders the subtree (`handling: "client"`), instead of escalating to a request failure pre-flush.
+  - `@solidjs/web`: a render failure (`failRender`) now completes the consumer — the awaited promise resolves with the HTML produced so far, `pipe()` ends its sink, `pipeTo()`/`readable` close the writable — and the serializer's completion no longer assembles a shell on the disposed render.
+
+- 1458907: Fix hydration key drift when a compiler-emitted expression memo reads a pending async source during streamed SSR (#2801). The server's lean sync memo re-runs its compute on every pull after a `NotReadyError`, but did so without resetting the owner's child state — each failed pull leaked the child-id slots it consumed (e.g. the inner condition memo of `{data().value && <h4>...</h4>}`), so hydration keys produced by the eventual successful pull drifted ahead of the client's single successful compute and the affected nodes went unclaimed (duplicated in prod, "unclaimed server-rendered node" warning in dev). The sync memo now disposes children and resets `_childCount` before each re-pull, mirroring how the client resets an owner on recompute, so every pull emits the same ids.
+- 284738e: Fix ssrSource "client" and "hybrid" mode hydration for projections and stores
+  - "client" mode: use a `hydrated` signal gate so the user's function runs only after hydration completes, instead of returning an identity function that never transitions
+  - "hybrid" mode: use a `hydrated` signal gate to load the server promise during hydration, then transition to the client's async generator post-hydration. A shallow shadow draft absorbs the first iteration's reads/writes (preventing first-value duplication) before switching to the real reactive store
+  - Fix microtask timing in `hydrateStoreFromAsyncIterable` with a custom thenable so `process` and `asyncWrite` execute in the same microtask
+  - Skip hydration wrapper for transparent memos (HMR support)
+
+- d46928f: fix: stores now batch like signals on cold writes
+
+  Untracked reads of a store property after a `setStore` mutation now return the
+  previous value until `flush()` (or the surrounding effect/transition) commits,
+  matching `createSignal` semantics. The `in` operator batches the same way —
+  after a cold add or delete, presence reflects the pre-write shape until commit.
+  Previously both reads resolved synchronously against the override, which broke
+  the "no reading uncommitted state" invariant for store properties that had
+  never been observed.
+
+  Internally we upsert a transient pending node for the property (and, on
+  presence change, a matching `STORE_HAS` node) on cold writes, queue the new
+  value as `_pendingValue`, and sweep nodes that never gain a subscriber when
+  their pending write commits. Optimistic stores and projection writes are
+  unaffected — they keep their immediate-visibility semantics.
+
+- a93a216: Fix store reads of inherited accessor getters so class/prototype getters track through the store proxy.
+- a60b288: Fix `ssrSource` on derived stores during SSR: the server `createStore` dropped the options argument entirely, so `ssrSource: "client"` sources still ran on the server (#2972) and `ssrSource: "server"` async sources were not awaited or serialized (#2971). Sync sources are unaffected: their code is the value transport, so the client re-runs them on hydrated inputs as before.
+- cf92b55: Guard storePath against prototype pollution through dangerous path segments.
+- d0e487b: `STRICT_READ_UNTRACKED` now fires in two places it was skipped (#3675). In `@solidjs/signals`, `read()` served a snapshot-scope reader the captured value and returned before the strict-read check, so a component body's direct read stayed silent during the hydration pass and only warned after client navigation; the check now runs first. In `solid-js`, `lazy()` rendered the loaded component through a bare `untrack()` instead of `createComponent`, so its body had no component label and its direct reads were never checked — and, in dev/observe builds, its owner carried no component name for diagnostics. It now renders through `createComponent`; production output is unchanged. The warning's console line also names the value that was read when it has a name — a signal's `name` option or the store key: `Reactive value "count" read directly in <Child> will not update.` (the `nodeName` field already carried it).
+- 9f27cdf: Fix `<Switch>` crashing (and halting the reactive system) when a child resolves to a nullish value, e.g. a `<Match>` gated behind a false `<Show>` (#2911). Nullish child slots are now skipped during match selection on both client and server, matching the existing tolerance for boolean children.
+- 21fff6f: Make insert render effects transparent and align SSR owner tree to fix hydration ID mismatches
+- fd8b3df: Fix `hydrate()` halting with `TypeError: Cannot read properties of null (reading '_config')` when a `useHead({ tag: "link", props: { rel: "stylesheet", href } })` sheet is still loading as hydration reaches it (the default with an async entry script), including on a late streamed boundary resume. The `waitAsset` gate memo is created without an owner, and the hydrating `createMemo` tried to peek a hydration id from that null owner; the gate is now `transparent`, so hydration never sees it. `useHead` also no longer gates stylesheets while hydrating: that content is already visible, and a pending read inside a boundary's claim window made the boundary render fresh DOM beside the server's.
+
+  A streamed `<Loading>` boundary whose fragment swap the server holds on a stylesheet (`$dfs`) now resumes when the swap lands, not when its `_fr` record settles. Resuming on the settle claimed against a document that did not have the content yet, then the delayed swap inserted a second copy.
+
+- 66accfb: Flatten one async level for computations: a promise that resolves to an AsyncIterable is now consumed as the stream itself rather than settling on the iterable object. `createMemo(() => serverFn())` works directly when the async stub resolves to a stream — no `yield* await` wrapper needed. Client core (`handleAsync`) pumps the resolved stream under the original flight's identity with iterator close registered on the flight's disposal; SSR mirrors with first-yield settle, first-value lock, a tapped stream on the serialized promise channel (which client hydration adopts and flattens again), hybrid first-value-and-close, and the frame binding-ledger pump.
+- 8858189: The `flush` record lists what each drain changed on screen; the attribution hooks shrink around it
+  - **`FlushEvent.changes`**: one entry per signal, memo or store property whose shown value the drain changed — by a commit, a held transition's landing, or an optimistic value appearing or lifting — with `nodeId`, `nodeName`, `key` (store properties) and `origin` (the action step, effect, interaction or navigation that staged the value; a held write keeps its origin, so a landing names its action). First values and effects are not listed. New types `FlushChange` and `FlushLive`: the record's `live` is now `{ changes: [{ node, prev?, value? }] }`, index for index with `event.changes`, the values only for a listener that subscribed with `{ bodies: true }`.
+  - **Visibility is judged once, by the engine.** Core reports where a value was staged (`AttributionHooks.staged`, from `queuePendingNode` and `list`), never where it became visible; the engine compares what each staged node showed before and after the drain. `OPTIMISTIC_REVERTED` and the `fallback` record's display instant are judged from that comparison. Removed: the `optimisticReverted` hook, the engine's per-transaction copy of staged fallbacks (`stagedFallbacks` and its rebasing on settle/merge), and the `schedule()` a mounting boundary made so the engine got a drain end.
+  - **Hook inputs reduced to what core knows** (internal `AttributionHooks`): `recomputeEnd(el, create, changed, phase, held)` replaces the `optimistic`/`transition` pair with the `phase` the engine derived from them, and absorbs `derivedChanged`; `asyncLanded(el, value, changed)` replaces `asyncStart` + `asyncEnd(direct)` — an async landing through `setSignal` is reported once, not first as a `write` (the engine no longer snapshots the node to tell whether it committed); `storeWrite(target, old, written, keys)` replaces `storeReplaced`, and the immutable-update census moves from the store into the engine; `boundaryFallback` takes the boundary's output instead of the transaction its swap is staged under.
+
+- 91e300a: Fix `<For>` followed by siblings desyncing hydration (#3161, rc.4 regression). The patch-mode list seam made `For`'s `mapArray` creation lazy, but hydration ids mint at creation time — deferring to first read spent the list's id scope after later siblings had already claimed their template keys, shifting every hydration key after the list and leaving the siblings detached (dead buttons). A hydrating `For` now creates its map eagerly at source position, restoring rc.3 id parity; outside hydration the lazy creation stands.
+- d682022: Document how form inputs work with `value`/`checked` bindings: draft signals for editable fields, writing rejected input back in the handler (or `equals: false`), uncontrolled inputs, and spreads (#4185).
+- 009d3de: Apply the remaining formatting updates for the streamed SSR hydration fixes and their regression coverage.
+- 467ac97: Hydration: a streamed `<Loading>` fragment that is the first to carry a `lazy()` module's assets now loads them before its resume claims the revealed content, instead of rendering nothing while they load and clearing the parent's revealed nodes (#4087).
+- 40b05e1: One reveal owner for streamed document fragments (DR-4): the hydration
+  runtime now keeps a fragment ledger — declarations are the serializer's
+  `<id>_fr` records, settlement is seroval's status marks, reveals are the
+  inline script's `_$HY.v` marks — published as `_$HY.fr` ({ pending,
+  subscribe }). The frames client's document adoption reads "may a boundary
+  still arrive" and learns of reveals from the ledger instead of scanning the
+  page for `pl-*` templates and monkey-patching `_$HY.fe`. The ledger also
+  detects truncation (#2958): a declaration still unsettled when the parser
+  finishes is marked rejected with a truncation error, releasing its boundary
+  through the normal rejection path instead of hanging on the fallback
+  forever, and letting document-adoption waiters give up and mount fresh.
+- 40af691: Own streamed-fragment reveal policy in the hydration runtime. `enableHydration()` installs `_$HY.f`, and every `$df(id)` the stream emits routes through it: swaps proceed while hydration is in progress or the fragment's boundary is on record as its claimant; unclaimed post-done arrivals are held intact and replayed the moment their boundary registers — before any of its paths read the DOM. This replaces the `markFragmentClaim`/`_$HY.fk`/`_$HY.hq` flag protocol from #2964 with a single owner, and closes a hole in it: a held swap arrives in the same chunk that settles the `<id>_fr` ref, so a boundary rendering later took the settled path (which assumes the swap already ran) and never consulted the hold queue.
+- 1d3ec5d: Server `createProjection` / `createStore` over an async iterable pump in frame scope like a memo does (Stage 8 B5): inside a server-owned frame render every yield lands in the store, commits the binding ledger (live holes reading the store re-emit) and holds the response until the source ends; reads follow the live state. A live-branded source there stays connected, and under a live component's document render a projection takes its first value and closes the source, so the document completes. The slot-border trace's snapshot now waits only for undrained writes, not for a pull in flight.
+- 1d3ec5d: Frame renders tear down when their reader is gone. `serverComponentResponse`'s body `cancel()` and the request's abort (`frameTransformResult` / `frameTransformFlightResult` pass `event.request.signal`) now dispose the render through `renderToStream`'s disconnect path — previously `cancel()` only dropped writes and the render ran on until its sources happened to end. `renderToStream` gains a `signal?: AbortSignal` option for this (the `SSR_STREAM_ABANDONED` finding reports it as `data.reason: "signal"`); `renderToFrameStream`, `renderServerComponent` and `serverComponentResponse` accept it through their options. A frame flight response stops at the frame in progress and skips the rest. In `solid-js`, the server pump over an async iterable in frame scope closes its source from the compute's disposal — `return()` now, not at the source's next yield — so a standing source (a change feed, a subscription) does not hold what it subscribed to until an event nobody would see.
+- 3c1d512: Frames A5′ — a deferred fragment's placeholder inside a server component's element is the frame's content by rendering, not by adoption (frames-rulings 3.3, ruled 2026-10-06).
+
+  **`solid-js`:** the document fragment ledger's `fragmentPolicy` lets a post-done swap proceed when the fragment is owned — its `pl-*` template is in the document and the integration's ownership predicate `_$HY.fa(placeholder)` says so — beside the existing claimant case; no hold, no replay for owned fragments. `_$HY.fr.claim` / `_$HY.fr.release` are removed from the published ledger (`_$HY.fr` is `{ pending, subscribe }`); `_$HY.fa(placeholder): boolean` is the new integration hook. `fragmentPending` now reads a revealed fragment from its swap record (`_$HY.v`) before its `_fr` stamp: the producer emits the swap script and then the `_fr` settle in the same batch, so a `_$HY.fr.pending()` read inside the reveal notification saw the revealing fragment as still pending — a page's last reveal never read as exhaustion and a waiter released on exhaustion waited forever.
+
+  **`@solidjs/web` (frames client):** installs `_$HY.fa` once (`pl.closest("[data-fid]")`, minus elements of a boundary disposed in place — C14); deletes `claimRegionFragments`, the per-adoption claim set, the cascade's claim half and the release loop (the dev-only rejection report over the region's `pl-*` templates stays, 0 prod bytes); `documentBoundary` pends on the intercept's one arrival answer (`awaitBoundary`) and `boundaryWaiters` is deleted (G9). A post-done swap into server-component markup no client has adopted yet now lands at once; the adoption that follows finds it in place and reads its declared records synchronously.
+
+- 3c1d512: A server `<Loading>` inside a server component that fails after the first flush renders the server's outcome into its fragment instead of a blank (C12 (c), frames-rulings 3.3): the nearest server `<Errored>`'s fallback for the error, at the `<Loading>`'s position (asked through the boundary error handler's new `outcome` mode; a `<Loading>` between passes the question up); with no server `<Errored>` the error escapes the component — the frame's own `:error` on the stream face (an unkeyed `error` chunk), a frame-addressed `{ type: "error", fid, error }` op on the document face's `sc:live` channel (only the owning adopted boundary applies it) — and the position keeps the boundary's own fallback. `_fr` still rejects and the keyed error chunk still rides (the diagnostics). Outside a server component nothing changes (the blank the client twin renders fresh over). `HydrationContext.registerFragment`'s resolver gains a third argument (`escaped?: { frame?: string }`) and the context an internal `frameId`.
+- 3c1d512: An adopted frame occurrence claims its server markup by re-entering hydration the way a streamed `<Loading>` resume does (frames-rulings 3.1 / 3.2, the savings plan's A2 — S-hold's window form).
+  - `solid-js`: `hydrateWindow(id, fn, scope?)` is factored out of a streamed boundary's resume and reached as `sharedConfig.hydrateWindow` (`@internal`): the keys under `id` gathered into the registry (the captured `scope` pair when another `hydrate()` root replaced the live one, #2917), hydrating on for the synchronous window, the current owner the claim owner (a render the window forces elsewhere is a client render, #3504), the owner the window's snapshot and live scope when none is open — so a write during a late claim is held and replays once the claim is over, and a late claim no longer re-marks the root's scope. `sharedConfig.claimRoots` (`@internal`) is typed: the claimant declares a range that may be detached around its window. `holdBoundary` stays the registration; the resume path is unchanged in behaviour.
+  - `@solidjs/web` (frames): `claimRender` is the window — one `createOwner({ id: prefix })` and the call — instead of a registry of its own gathered by walking the range, a hydrating flag flipped through `sharedConfig`'s setter (which reset hydration-done and re-ran its completion from outside the runtime), and a hand-over of keys from the root registry: `gatherClaims` and `hasPendingFragment` are deleted (the window gathers by the producer prefix and always engages). `adoptBoundary` captures the registry/gather pair it adopts under so a claim made long after — under the frame's hold, at a fragment's reveal — gathers against the root that holds the frame.
+  - `@solidjs/web`: `gatherHydratable`'s prefix-scoped gather selects its keys natively (`[_hk^="…"]`) instead of sweeping every `_hk` and filtering in JS — it now runs once per adopted occurrence, not only per late resume.
+
+- 1bcee91: Server components hydrate their client slot occurrences on demand. The adoption pass mounts none of them; an occurrence mounts when an event lands in it (outermost first, before the event reaches a handler), before any signal or store write applies (every remaining occurrence, against the server's state), or in idle slices after the load event. Hydration stays in progress until the last one has mounted. The write side is an internal pre-write hook in `@solidjs/signals`, tree-shaken from apps without server components.
+- 47a217f: Frames: a signal or store write during deferred hydration mounts only the slot occurrences the server recorded as its readers, then applies, instead of mounting every pending occurrence first. The server names plain signals (`<owner id>~<n>`) and plain stores (by their root) in server-component renders and emits `sc:deps` records per frame; writes it cannot vouch for (unnamed, derived, optimistic, projection or wide sources) still mount everything first. Apps without server components keep their sizes and code paths.
+- 9d89df7: Hydration-done counts the frames client's holds (frames-rulings 3.1, ruled): an adopted occurrence the frame has not claimed yet — waiting for its args record or a `{$ref}`'s data — registers as a pending boundary through the same registration a streamed `<Loading>` resume takes (`sharedConfig.holdBoundary`, internal), so `onHydrationEnd` and `isHydrationInProgress()` mean the same thing with or without server components (contract C3 a).
+- 1d3ec5d: Live server components on the document face (Stage 8 B3)
+
+  Server: a component a `live` server function answers with renders into the document under a live scope — every async source it reads takes its first value into the markup and is closed, so the document completes; nested server components inherit the scope. The scope is judged from the memo's owner, which also fixes an unbranded thenable-resolved stream in server-component scope serializing instead of pumping. New dev-only check `SSR_UNDECLARED_LIVE_SOURCE`: an undeclared async iterable still pumping five seconds into a document render is named (frame-stream renders are never judged).
+
+  Client: the frames intercept is consulted synchronously by `live()` and its answer rides on the iterable (`LIVE_LOCAL`); a hydrating `dynamic()` adopts it as its value at t=0 — no request, no pending beat — and takes over at its hydration scope's release, re-yielding the adopted binding and connecting once at the live address. A boundary the page is still delivering is answered with a promise that lands at its reveal, so a `dynamic(() => call())` over a streaming boundary waits for the document instead of fetching. `dynamic`'s memo treats the same server-component instance (same component and address) as equal, so placeholder and per-address binding never remount.
+
+- 7233451: frames: the container-trace materializer is the frames client's traces tier — `@solidjs/web/frames/trace`, loaded through the server-announced tier mechanism (`prepareTier("trace")`), so the store engine leaves every server-component page that never meets a trace (page base −6.6 KB brotli, page live −6.7 KB; frames eager −83 B). `solid-js/internal/container-trace` is a new `solid-js` entry carrying `materializeContainerTrace(marker, claiming?)` (the store engine reached through `@solidjs/signals`, the hydration dispatch `withStoreHydration` and the patch protocol read back from `solid-js`); the materializer leaves `solid-js`'s main and `solid-js/internal` entries. The eager frames client keeps the trigger: the loader entry, the held-set predicate (an adopt-time record whose args carry a `{ $tr }` marker while the tier is absent is held under frames-rulings 3.1 — its server interior on screen, hydration-done waits — and mounts with the record it was held on, a replacement applying as an args change), and the `claiming` hint (`FrameHostOptions.revive(value, claiming?)`), which keys the materializer's parked backlog on the claim again: a fresh mount reads the fold of its whole backlog at once.
+- 2c9fdd9: A boundary whose server render failed is rendered fresh on the client while adopting the server's records. Inside that render, a `<Dynamic>` tag now creates its element instead of throwing a hydration mismatch, and a `<Portal>` mounts. Hydration also completes when the adopted error has no client boundary to catch it.
+- 15b512f: Accept ref array in component ref type
+- c927463: fix(web): `useHead` tags of content behind a boundary's fallback are withdrawn while the fallback shows (an `<Errored>` keeps its content alive for `reset()`, so the error page kept the failed page's title) and come back when the content reveals (#4873)
+- b6071ba: Root-level async head-tag props hold the SSR streaming shell instead of being warn-dropped (#2975 follow-up). `ssrHandleError` gains a side-effect-free probe mode (second argument) that the dom-expressions head registry uses to identify pending reads without routing real errors through the handler chain; the settled tag renders in the shell like any other root-level async content.
+- 3218b7a: A held derivation is not a proposal (#3612). A mainline write to a writable memo (`createSignal(fn)`) or function-form store (`createStore(fn)`) whose staging is a pass result held by another transaction no longer suppresses that transaction's re-derivation: the write still joins the transaction (A34), and the derivation re-runs under the hold with the written value as `prev`. Same-frame "manual write wins" (#2692) and last-write-wins for writes made inside the transaction are unchanged.
+- 4ba1731: A controlled input no longer loses typed text when its signal write is held (an async derivation of it is pending) and another binding in the same template re-runs, such as a sibling `isPending` class flipping: a stateful DOM prop (`value`, `checked`, …) in a grouped effect or a spread skips an unchanged write while the effect is a stale reader of an open hold, and the hold's landing writes the bound value (#4872). Outside a hold every run still writes (#2016, #4186).
+- 00d1d5d: Stop exposing generated declaration files through `solid-js/types/*`. Public values and types remain available from `solid-js`; keeping implementation declarations private also prevents TypeScript from suggesting invalid runtime imports such as `solid-js/types/server/signals.js`.
+- e0e4224: A client hydrating mid-stream no longer asks again for an async read whose server answer was an error, nor flashes back to the `<Loading>` fallback after the failure showed (#4287, #4306). The content of a hydrated failure (a hydrated `<Errored>`'s content run, or a rejected fragment's fresh render over the `<Errored>` fallback the server drew) reads a shell memo a cycle after its error landed, and a later tracked read retries an errored async node; the serialized-value latch took that rerun for a client write and computed. Inside such a content run the rerun now re-serves the server's answer and arms nothing. A rejected fragment with no outcome streams an empty template (it was a lone space), so the nodes its swap lists are the server's outcome alone.
+- e0e4224: A memo that adopted its server answer no longer asks again when the server's answer for one of its sources arrives mid-stream. Hydrated mid-stream, an async shell memo `b` reading another, `a`, re-ran when `a`'s server value landed, and the serialized-value latch took that rerun for a client write and computed `b`. The arrival of a served answer, with the flush that carries it, is now hydration's own pass (as a hydrated failure's content run is): a latched node re-running there re-serves its own answer and arms nothing. Only a client write makes it compute.
+- 3154ed6: A signal written from `onSettled` or `createEffect` during hydration no longer strands the DOM it reveals (#3504). Two halves: a root created while hydrating marks the hydration snapshot scope itself, so a write during the root pass is held until the pass completes and then replays — previously the scope was marked lazily by the first hydration-aware primitive, so a `<Show>` condition created before that sat outside it and the write cascaded mid-claim. And a streamed boundary's resume window now claims only the subtree under that boundary: a write from the resumed content that reaches a signal above it (a route's `onSettled` adding a toast to a provider) re-renders that already-hydrated region as a client render — fresh nodes, live inserts — instead of claiming against the server registry, missing with a "Hydration key miss" warning, and rendering detached.
+- 28f7bec: Hydrating apps that never use stores no longer ship the store engine (~7 KB gz: the store, reconcile, projection, and optimistic modules). `enableHydration()` used to install a dedicated hydrated implementation per store-family primitive, which statically retained `coreStore`/`coreOptimisticStore`/`coreProjection`/`coreOptimistic` in every bundle that calls `hydrate()`. The families now share generic hydration adapters parameterized by the core implementation: `enableHydration()` installs only the adapters (which reference no store code), and each primitive wrapper passes its own core function in — so the engine rides the import the app already needs to use stores, and shakes when it doesn't. No API change and no action required: `sharedConfig.hydrating` can only become true after `enableHydration()` installs the adapters, so a hydrating store call can never miss its adapter, and with-store hydration behavior (including buffered async-iterable replay and its deferred patch backlog) is byte-for-byte the same logic, just reached through the adapter slot. The no-store hydrating size scenario drops 22.60 → 15.83 KB brotli; the with-store scenario and the CSR scenarios are unchanged within noise.
+- b68a907: Fix: after the root hydration pass, a node that adopted its serialized server value and sits outside every still-pending streamed boundary now updates on a client write (a navigation or a cache write while a slow boundary streams in) instead of re-adopting its server value until the whole page finished hydrating. The wait contradicted the snapshot design: snapshots exist so everything outside an incomplete boundary hydrates and moves on, while each pending boundary later hydrates against its server snapshot and then catches up to the client's newer state. Streamed boundary owners are now marked pending until they resume or are disposed; nodes under a pending boundary, and nodes in the claim in progress (the root pass, or the resuming boundary's own subtree), keep the latch as before.
+- b149cd2: - Hydration facades (`createMemo`, function-form `createSignal`/`createOptimistic`, function-form `createStore`/`createOptimisticStore`, `createProjection`, `createErrorBoundary`, `createLoadingBoundary`, effects) no longer throw when created with no owner (`runWithOwner(null, …)`) or under a root without an `id` while hydrating. A node with no id counter to consume has nothing to hydrate positionally, so it takes the same non-hydrating path as `transparent: true`. Function-form `createSignal` now honors `transparent` like `createMemo` does (#3609).
+  - `ssrSource: "hybrid"` on a sync or promise-shaped compute is now identical to `"server"` for function-form stores, `createOptimisticStore` and `createProjection`, matching memos and function-form signals: the serialized value is adopted and the compute does not re-run on the client (no refetch) until a dependency changes or `refresh()`. The handoff — the client continuing the server's stream from the adopted answer — only arms when the compute returns an async iterable. The creation-time gate flip that memos and signals made for non-iterable shapes is gone too: its write was held by the hydration snapshot scope and replayed after hydration completed, which re-ran the compute live.
+- 60f2922: Add hydration-aware wrappers for createErrorBoundary, createOptimistic, createProjection, createStore(fn), and createOptimisticStore(fn). Server-side createProjection now creates owner for ID alignment and handles async Promise returns. Bump @solidjs/signals to 0.10.4 for peekNextChildId support.
+- 6c8c956: Attribution: `IMMUTABLE_UPDATE_IN_STORE` diagnostic. A store setter that replaces a container with a fresh object or array whose leaves are mostly the same values — `draft.user = { ...draft.user, name }`, `draft.items = [...draft.items, x]`, `draft.items = draft.items.filter(…)` — is the React habit the store does not need: it tracks leaves, so a fresh container makes every reader of the container's path re-run for the one leaf that moved. The store's write-channel notify now announces replaced containers to the attribution engine with a leaf census (identity on unwrapped values; object keys by key, array items by membership; containers over 64 leaves are skipped), and the engine warns once per store path when at least half the leaves carried over unchanged, naming the draft mutation that touches only the changed key or index and `reconcile()` for data arriving from outside. Genuinely new data (nothing carried over), draft mutation, and `reconcile()` do not report. New `AttributionHooks.storeReplaced` hook point.
+- beb419e: Move `@solidjs/signals` into the monorepo and wire local builds, tests, and releases to the workspace package.
+- fe1eb68: The route the document arrived on, declared by the router with the call it already uses. `NavigationRef.initial` on `OBSERVE.attribution.withOrigin`: a router wraps the work that establishes its initial match (building its context) instead of a location write, on both sides. On the client the attribution engine opens the frame at the time origin (`at` defaults to `0`, the document's own navigation start; a router mounted late passes its own), takes no `from`, and settles it `committed` with `writes: 0` when the frame closes, so the first `"navigation"` record (`NavigationEvent.initial: true`) names the route the page loaded as — the pageload's route pattern, which every navigation but the first already had. It is a declaration, not a timing: kept out of `feedback().navigations`. On the server, where there is no engine, the server entry's `withOrigin` files the ref on the render, and the request's `"render"` record carries it as `RenderEvent.route` (`{ name, to, params }`, read from the ref when the render settles) — the name a consumer gives the request (`http.route`) where the URL would scatter one page across as many names as it has parameters. New type `RenderRoute` from `@solidjs/web`.
+
+  `NavigationRef.interaction`: a router that awaits between the request and the write (guards or loaders resolved in its core before it publishes the location) captures `OBSERVE.attribution.currentOrigin()` in the request and hands it back on the ref, and the write it publishes later joins the click as if it had been synchronous. Declared beats ambient: the key's presence is the declaration, and an interaction on the stack at write time is used only when the key is absent.
+
+  `formatOrigin` renders the initial declaration `initial navigation to /users/:id (/users/42)`. Prod artifacts byte-identical; the observe tier's client artifacts byte-identical.
+
+- fb4e637: `sharedConfig` and `$DEVCOMP` are no longer part of `solid-js`'s public types; they are typed from `solid-js/internal` (not public API, no semver guarantee). Their runtime exports from `solid-js` are unchanged. Libraries that import `sharedConfig` from `solid-js` must switch to `solid-js/internal`. Under `skipLibCheck: false`, `solid-js`'s declarations now type-check clean (they re-exported both names after stripping them, #3709). The `REACTIVITY_HALTED` message now points to `<Errored>` only.
+- b298154: Move the runtimes' seams off the `solid-js` surface and behind `solid-js/internal`
+
+  `merge()`/`omit()` returning lazy views (#3454) gave `spread()` and
+  `ssrElement()` a protocol for reading props leaf by leaf instead of trapping
+  through the proxy per key. Because `@solidjs/web` and `@solidjs/universal`
+  depend on `solid-js` alone — never on `@solidjs/signals` directly, so an app
+  holds exactly one reactive engine — every piece of that protocol went out
+  through `solid-js`'s main export: eleven names, `mergeSources` before them in
+  #3325, on the public surface with no marking. None of it is API.
+
+  The protocol (`viewOf`, `mergeView`/`omitView`, `MergeView`/`OmitView`,
+  `sourceKeys`/`sourceHas`/`sourceGet`, `hasStaticKeys`, `resolvedTable`, the
+  `SOURCE_*` kinds, `SourceKind`) now lives on a `solid-js/internal` subpath,
+  along with the server-scope seams that were already `@internal` in JSDoc and
+  consumed only by `@solidjs/web` (`ssrHandleError`, `ssrScope`,
+  `runInServerComponentScope`, `inServerComponentScope`, `creationStamp`,
+  `getProjectionTrace`, `materializeContainerTrace`). The names stay exported
+  from the main entries at runtime, so the subpath shares one module state and
+  the single-engine guarantee is untouched; `stripInternal` keeps them out of
+  the generated declarations, so TypeScript no longer offers or types them.
+  `internal-surface.spec.ts` pins the boundary in both directions.
+
+  Also dropped from the entries: `storeIsShallow`, `storeHasFamily`,
+  `storeHasOptimisticFamily` (leftovers of the gutted patch channel),
+  `storePath` and `$REFRESH` (referenced only by `@solidjs/signals`'s own
+  internals), and `NoHydrateContext` (`@internal`, used only by `solid-js`'s
+  server code). Nothing in the repo consumed them.
+
+  No runtime behavior change. `merge`, `omit`, and the rest of the reactive
+  surface are unaffected.
+
+- 4404f9f: Make `isPending(fn)` perform the read it checks, so pending indicators subscribe naturally and ownerful async reads participate in Loading/SSR readiness.
+- 759a9b6: A server memo re-created at a still-pending slot now takes the slot's answer when the earlier flight settles it (#3815). A retry pass that re-creates a component while its async memo is in flight hands the new memo the slot's shared deferred, but only the earlier memo's promise settles it, so the new memo kept its `NotReadyError` on that already-resolved promise. A memo reading it then retried every microtask, so no timer fired again, the stream never ended and the process sat at 100% CPU. On rc.13 the trigger was a function hole that created a component returning a pending `lazy()` view. On `next` it is an `<Errored>` retry that re-creates a pending `<Loading>`, with a fresh promise per setup and a memo reading it. The joined memo now adopts the slot's value or error when the shared deferred settles, the same way a re-created async-iterable node already did.
+- f14e4ec: Fix the dev-streaming SSR livelock behind beta.33's hang/OOM on lazy routes
+  under layouts. With an async asset resolver (the dev-server manifest shape),
+  `lazy()` armed a fresh `assetsPending` gate on every component re-creation
+  even after its module and assets had settled: the per-request `_lazyAssets`
+  cache memoized the resolver's PROMISE forever (each new wrap chained `.then`
+  off an already-resolved promise — pending at the render memo's compute,
+  settled one microtask later), and the moduleUrl-less path chained `p.then`
+  per creation with the same geometry. Any pattern that re-creates the lazy
+  component across suspended render passes — a route layout's outlet, or any
+  recomputing parent — then threw `NotReadyError` on a gate that resolved
+  immediately after, and the boundary resume loop re-rendered forever on the
+  microtask queue: timers starved, hydration ids and serializer state grew
+  without bound, and the dev server died on V8 heap exhaustion (~30s per
+  request). The 0.50.0-next.41 retry-wrapper flattening exposed this: the old
+  per-pass wrapper stacking happened to bound the loop by side effect.
+  Production manifests answer synchronously and never enter the async branch,
+  so only dev-mode streaming SSR was affected. Both gates now settle
+  structurally: the cache entry upgrades to the resolved value when the
+  resolver settles, and a re-creation after the module import settled reads
+  `$$moduleUrl` synchronously instead of chaining another promise hop. This
+  should ship as beta.34 promptly — beta.33's dev streaming SSR is unusable
+  for lazy routes under layouts (the solid-router fullstack shape).
+- 7d21226: Server `lazy()` now supports resolver manifests (dev servers answering asset
+  lookups from their live module graph): when `ctx.resolveAssets` returns a
+  promise, registration defers with boundary attribution preserved and the
+  lazy render memo stays not-ready until the assets have registered, so
+  streamed fragments cannot flush without their styles. CSS entries resolved
+  as `{ id, content, attrs }` descriptors register as `inline-style` assets
+  (SSR'd `<style>` tags, e.g. dev CSS that Vite's HMR client adopts) instead
+  of stylesheet links. The `moduleUrl` getter (islands) prefers the context's
+  `resolveAssetsSync` fast path, so it keeps returning a client-loadable URL
+  and registering modulepreload hints under async dev resolvers too.
+- 6c95f60: Lazy memos with an in-flight async computation no longer autodispose when
+  their last subscriber momentarily drops (e.g. a consumer disposing
+  mid-request): the pending work counts as an observer, so a later subscriber
+  attaches to the same computation instead of re-executing the source — one
+  server fetch per suspended re-read, not one per churn. Settling while
+  unobserved still releases the node (normal lazy teardown resumes once
+  idle).
+- 433eae5: Make `children` helper lazy to prevent hydration mismatches when resolved children are never inserted into the DOM. Export `storePath` and related types (`StorePathRange`, `ArrayFilterFn`, `CustomPartial`, `Part`, `PathSetter`) from both client and server builds. Bump `@solidjs/signals` to 0.11.1.
+- 56ca647: `lazy()` and `clientOnly()` accept an `{ export }` option to select a named export of the resolved module (defaults to `default`). The export name is a call-site literal available in both bundles, so lazy hydration still resolves the component synchronously from the preloaded module — wrappers that pick an export at runtime inside the import thunk remain unsupported and now fail loudly in dev. `lazy()`'s bundler-injected `moduleUrl` moves to the third argument to make room, matching `clientOnly()`.
+- dbc5d00: `SSR_BOUNDARY_WATERFALL` now judges a wait by when its work started, the same origin rule the client's `ASYNC_WATERFALL` uses. A nested route meets its levels one render pass at a time, but the router starts every matched level's `lazy()` import and preload together. Before, the first request to a cold server warned about a data waterfall that wasn't there. A wait whose work had all started before the previous wait landed is now left out of the count (`data.parallelWaits`). `lazy()` and `lazyModule()` stamp their imports. The start stamps move from the attribution engine to the core's `OBSERVE.attribution` (`markFlight`, `flightOrigin`), so a router or cache can stamp what it hands out without loading the engine. `attribution.markFlight` writes to the same place.
+- fe3ab92: Make a failed lazy() hydration observable instead of a silently dead page (#3338):
+  - The client's "was not preloaded before hydration" error no longer says to add a Loading boundary — none is required for root-level `lazy()`. It now names the actual cause: the server serialized no client entry for the module (check the server log for "Asset manifest returned no client assets for module"), or the hydration id namespaces are misaligned.
+  - An uncaught error that halts the reactive system is handed to `reportError` where the platform provides it, so it reaches `window.onerror` / error monitoring. Creation-time throws (a lazy miss during the hydration render) are converted to status by ancestor recomputes and never reached the top; console.error was their only trace.
+  - `hydrate()`'s "module preload failed → fall back to client render" path no longer runs for a document root, where a client render is impossible (the shell cannot be created) and died deep in the walk with an unrelated "Hydration Mismatch" as an unhandled rejection. It now reports an explicit error carrying the preload failure as its cause.
+
+- fe9ed90: Redesign SSR asset handling for `lazy()` around hydration ids instead of module specifiers.
+  - The server now keys the streamed module map by the hydration id of the lazy render memo, and the client looks preloaded modules up by computing the same id positionally. Module identity no longer needs to exist client-side, so bundler `moduleUrl` injection is only required on the server.
+  - New glob support: when a `lazy()` callsite has no static import specifier (e.g. `lazy(globModules[path])` over `import.meta.glob`), the server defers asset resolution until the import settles and reads the module's bundler-injected `$$moduleUrl` export. Assets still attribute to the boundary that rendered the component. Rendering without any resolvable identity now warns (late client load) instead of throwing.
+  - `Component.moduleUrl` on the server is now a getter that resolves through the active request's asset manifest, returning the client-loadable entry URL (e.g. `/assets/About-abc123.js`) for stamping into markup (islands and similar). Reading it during SSR also registers modulepreload hints for the module's chunks — the only preload signal for lazy components under `NoHydration`. Outside a request context it returns the raw specifier.
+
+- 5413c06: `lazy()` and `lazyModule()` no longer cache a loader promise created while hydration traces an adopted async compute. During the trace the global `Promise` is a never-settling stub, so a loader that builds its promise from it (as Vite's `__vitePreload` does) used to leave `.preload()` and later renders waiting forever (#4013). A load started during the trace is no longer cached, so the next call loads for real.
+- 0c4bff7: Add `lazyModule()` so a lazy module that is not a component can be preloaded and hydrated by module id.
+- 4cc6113: Fixed `lazy()` inside `<NoHydration>` silently rendering nothing during SSR (#2859). The moduleUrl/manifest guards are intentionally waived for no-hydrate zones, but the early return that gated asset registration also gated the render memo — so exactly those waived cases returned `undefined` and the lazy content vanished from the output with no error. Asset registration is now decoupled from rendering: the render memo is always created, and async SSR waits for the module as usual. Also fixed the lazy module rejection check treating a falsy rejection value as "still loading" (same class as #2857).
+- 6692a2c: `lazy().preload()` now registers the module's client JS/CSS as head hints on the server, not just its import. Registration used to wait for the component to render, so a router warming a matched route imported the module without emitting any `<link>` for it. The import is never gated on asset resolution, the per-request resolution cache is shared with the render path, and `registerModule` stays with the render — its hydration key is only known there.
+- eb31c86: Fix the reactivity bugs in Milo's `lean.test.ts` repros (21 of 25; the other four stay pinned as open questions or as rulings not built yet):
+  - Sync glitches: a stale CHECK no longer stops the next flush's marking (S0). A memo that reads its own child sees the updated value (S1). A queued child moves with its owner and no longer runs before the owner that disposes it (S3). Height adjustment no longer requeues an owner that reads its child (S2). A pass's owned write to a signal it just read is a missed wake (S4, F-10).
+  - A tick that nets back to its starting value (D-8) no longer asks async readers a new question. A pass that read only committed values asks the committed question again, which is a quiet re-ask (F-9, K1/K1b). `refresh()` no longer launders a held new question (K4).
+  - `latest()` keeps showing a held error, or a held first answer, while the next question is in flight (D-22, D-41; T2, K3).
+  - A write lands while an `<Errored>` shows its fallback over a pending read (F-3, F-12; E1).
+  - A hold's commit lands each async node on the answer to its own question, and a user effect waits for the end of the hold: a run owed for a superseded pass is dropped (F-1, F-2; T1).
+
+  Size offsets: `solid-js` exports `createRoot`, `createSignal` and `createRenderEffect` as live bindings that `enableHydration()` reassigns, instead of wrappers that spread their arguments into the hydrated or core function. A client-only app calls the core function directly.
+
+- 80b4e8d: Replace the upstream `@solidjs/signals` owner runtime with a lean SSR-specific implementation. The server is single-pass and pull-based, so the scheduler / heap / zombie graph / observer linked list that the upstream owner carries serve no purpose during SSR. The new `SSROwner` shape is a forward-only linked list with cleanup hooks and an id (~9 fields vs. ~14 upstream), plus a freelist that recycles owners across the disposal at end-of-render — repeat renders of the same shape pay ~0 steady-state owner allocation.
+
+  Layered on top:
+  - `mapArray` and `repeat` rows reuse the parent memo owner instead of allocating a new owner per iteration. Per-row id parity with the client is preserved by mutating the memo owner's `id` and resetting `_childCount` for each iteration; nested compiler-emitted memos / providers / boundaries see the correct synthetic row id as their parent prefix. Safe because `mapFn` runs once per render (sync `NotReadyError` propagates up through the `sync: true` outer memo and the engine reruns the whole `mapArray`) and async retries always live in their own nested owners with snapshotted ids.
+  - `createSyncMemo` is a separate lean memo for computes statically guaranteed to return synchronously (compiler-emitted `_$memo` / `_$effect` wrappers, internal control-flow primitives). It skips the full `ServerComputation` / `processResult` / `$REFRESH` / `runWithObserver` / `onCleanup` scaffolding that async memos need, while still letting `NotReadyError` propagate to the nearest boundary.
+  - The Loading boundary now uses `disposeOwner(o, false)` directly (instead of `o.dispose(false)`) to wipe the boundary's children on retry while keeping the boundary owner itself alive for the re-run. `SSRTemplateObject` is widened to a union covering both the heavy `{ t: string[]; h: Function[]; p: Promise[] }` shape and the leaf `{ t: string }` shape; the boundary's pending-loop narrows to the heavy variant before threading values back through `ctx.ssr`.
+
+- b1646a5: update signals
+- 7c36f2b: Server `For` in a live hole: a row that read an async memo or projection besides its item, or whose item was edited in place, now renders again on each sweep instead of reusing stale markup.
+- 0a49dd8: Live holes: on a live response, a sweep that changed some rows of a `<For>` sends just those rows (replace, append, truncate by index), and the frames client morphs only their ranges. A client whose range doesn't show what the rows were taken against resumes its live connection, which sends the hole whole.
+- 51d005a: Server `<For>` keeps its rows across live-hole sweeps (#4056). A markup hole that re-emits (a live server component, a standing source) re-evaluated every row of a list on every write. During a sweep, a row whose item at the same index is unchanged (the same reference, or a shallow-equal object, as a live source's fresh snapshot usually is) now reuses the row it rendered on the previous sweep. Plain SSR and a server component's first render are unchanged. A row is a function of its item: an item mutated in place keeps its old row, and a row that reads outside data keeps the value it rendered with.
+- c5da908: A live hole whose content calls a slot keeps updating. Before, the first re-run that called a slot latched the hole (`SSR_LIVE_HOLE_LATCHED`, cause "records"). Now each occurrence's identity belongs to its hole: it is its position there, or its `$key`. Calls outside any hole keep the ids they had. A re-run sends a record only for a new occurrence or for args that changed. On the client, the hole's morph resolves slot ranges against the frame's displaced-range index, the same way the root morph does. An occurrence that survives keeps its range, its interior and its mounted component, even when it moves into another hole. New occurrences mount and the ones that are gone dispose. Under deferred hydration, an occurrence that is not mounted yet claims its markup with the record that markup was rendered from, then takes the newer one. A live attribute that calls a slot still latches, and so does a re-run that creates owners.
+- 09e2d3b: Server support for live markup holes (Stage 3): `creationStamp()` exposes an owner-creation counter the live-holes engine uses as an impurity gate, boundary output accessors (`Loading`, error boundaries) tag `$lhSkip` so boundary machinery is never treated as a re-runnable hole, and the async-iterable memo pump acquires the response-window hold (`ctx.hold()`) so iterable-fed holes stream every value before the response closes.
+- 7742b28: `live` claims the whole response and its post-hydration takeover fires per hydration scope.
+  - A live connection now lives as long as its response: an answer holding nested promises or async iterables (`{ meta, progress: gen }`) keeps the connection open until every one has settled. A body ending with deferreds still open is a death — the loop reconnects and re-yields the whole answer, fresh; one whose deferreds all settled is a completion. Nothing is added to the wire: the decoder counts what the codec's own close records leave open (`createJSONDeserializer`'s returned function gains an `open()` accessor beside `abort()`). Deferreds a reconnected-from death left open stay pending until the iteration ends for good, then fail.
+  - In process, `live()` brands the answer that is the source — the top-level iterable, or a function-valued answer (a component) as a whole. Sources nested in a value answer are not branded: they are bounded and end on their own, and a document render pumps them to their end as it does any streamed answer (their sharing between the serializer and a reading memo is the SSR fix in the companion changeset).
+  - The hydration takeover gate is keyed per snapshot scope: a live node in the shell reconnects when the root pass ends, a live node under a boundary when that boundary hydrates — no live node waits on another boundary or on page-wide hydration end. A later hydration pass (islands) arms its own gate.
+  - The takeover run tells the live answer the value the page was served with (`Symbol.for("solid.LiveResumeFrom")`), which the loop names as its first connection's `Last-Event-ID`; a takeover that finds the same value on the server yields nothing.
+
+- c50abb6: A `dynamic` mount of a live server component that switches arguments and comes back to its first call (a windowed view scrolling back to the slice the page was served with) shows that call again. The equals gate compared the incoming binding with the one the memo holds, which is the first resolution's, so the way back read as "nothing changed" and the mount stayed on the other address.
+
+  A live connection cancelled before its body's `start` arrived now reads as a death, and the loop reconnects. A remount replaying a warm store gives up on a row-op record by cancelling the new connection so the resume re-sends the hole whole; with nothing open yet, the end read as a completion and the mount was left with no live connection.
+
+- ec4483d: Live `For` rows whose markup kept its structure now travel as text and attribute edits that the client writes in place, instead of html it parses and morphs; any other change still ships the row whole. A dev server also ships a hash of each patched row's element tree, so a row the browser's parser restructured is reported and resynced instead of written. A live `<Repeat>`'s rows now take the same path; before, its hole was re-sent whole on every change.
+- 366da09: Live sources get automatic SSR policy (auto-hybrid)
+
+  A `live()`-declared server function's iterable is branded a standing answer (every yield is the complete current value; the source re-yields current state on any invocation). SSR now detects the brand and applies the right lifecycle without any `ssrSource` declaration:
+  - **Document face**: takes the first value, closes the iterator, and serializes a plain value — instead of streaming an unbounded source into a response that never closes. The brand selects hybrid under server mode whether defaulted or declared ("server" has no meaning for a standing answer).
+  - **Client takeover**: the hydration adoption path's existing trace run detects the brand and arms a shared post-hydration gate — the node adopts the serialized t=0 value for the claim walk, then re-runs its compute to reconnect, serving the stale value until the first live yield lands.
+  - **Stream face**: inside a server-owned frame render the scope-gated commit pump keeps the standing answer connected — the brand does not close it there.
+
+  Declared `ssrSource: "hybrid"`/`"client"` behave as before; unbranded iterables keep their bounded-trace semantics on every path.
+
+- e345dc7: A live source whose server value is still streaming when the root hydration pass ends now takes over when hydration ends, not when the root pass ends. A source with a `loadingValue` keeps taking over when the root pass ends: its markup is commit #0, which needs no claim against the streamed value. Before, a source created in the shell and read by a streamed `<Loading>` boundary connected before that boundary's fragment arrived, so the boundary could not claim its server-rendered DOM and rendered a second copy beside it.
+- ffe0c1c: Dev: warn `LOADING_ON_ACCESSOR` when a Loading boundary's `on` receives a function (`on={route}` or `on={() => route()}`). The boundary never calls it, so it never re-arms; pass the value, `on={route()}`. Dev builds only.
+- c9e1954: Loading `on` follows the frame (#3540). When a dependency of `on` changes, the boundary still stops waiting on its current content immediately — the frame no longer waits for it — but its fallback swap now lands with the same frame as the change that caused it, instead of in the current frame beside content the change is still holding. Navigating product A → B inside an action (or by a write whose async is in flight) with the shell reading `product(id)` outside a `<Loading on={id()}>` that reads `comments(id)` goes `[A] → [B + spinner] → [B + comments]`, not `[A] → [A + spinner] → [B + spinner] → [B + comments]`. If the comments land before the shell, no fallback is ever shown. Nothing else holding the frame, the fallback and the committed change land together in the same pass, as before.
+
+  Read `latest()` in `on` (or any display-ahead state: `isPending()`, an optimistic signal) to keep the previous behavior — the fallback shows now, beside the still-held frame.
+
+  If the same data the boundary is waiting on is also read outside it, the frame waits on that read and no fallback appears; DEV warns `LOADING_ON_OUTSIDE_HOLD` with the fix (move the outside read under the boundary). A frame held by the write's action or by other data past the content's landing shows no fallback either — a race, not a warning.
+
+  `Errored` no longer accepts `on` (nor `createErrorBoundary` an `on` option). It was added in #3556 and never released in a stable — rc-only. Retry through the `reset` the fallback receives (`fallback={(err, reset) => ...}`), or re-mount the boundary on the dependency (`<Show keyed when={id()}>`).
+
+- 55779c0: `Loading`'s `on` prop is a dependency list, not a key (#3540). The expression is tracked and its value is never compared: a write to anything it reads — plain, optimistic, or a source going pending — **re-arms** the boundary. A re-armed boundary that has something pending under it shows its fallback again; one with nothing pending does nothing (no fallback flash). `latest()` inside `on` is redundant.
+
+  The re-arm lands in the **current frame**. A write that makes content pending is held by the readers still showing the old content, and its batch commits when the data lands — but the boundary's swap to its fallback is not part of that batch: it is applied at the flush's finalize, mainline, past any transaction park, so the fallback shows now beside whatever the write is still holding elsewhere on the page. Previously the swap was staged into the pending write's transaction and landed with its commit, by which point the data had arrived and the fallback never showed whenever any other reader of the same data existed (#3524, #3529). The children are not re-created; they stay alive behind the fallback.
+
+  `Errored` accepts the same `on`: while it shows its error fallback, a change to a dependency clears the caught error and retries the children (reset keys). `createErrorBoundary` takes `{ on }` as its third argument.
+
+  Boundaries are exempt from A29 born-held: a `Loading` mounted while a transaction holds what it reads shows its fallback now (and reveals the staged content at the commit) instead of being born held with the transaction. Born held stays right for a plain memo or effect — published, its value would tear the frame — but a boundary that has not revealed is the exception by definition: its job is to catch what is not ready under it rather than let it hold. This also closes the static-vs-function-child `<Show keyed>` inconsistency from the issue.
+
+- 84562fc: `LOADING_ON_OUTSIDE_HOLD` now recommends the structural fix (one hold owns the data, or `isPending()` for the wait) and mentions `latest()` in `on` only as a capability. Docs and JSDoc for `Loading on` updated to match.
+- 28fcc9b: The DEV `LOADING_ON_OUTSIDE_HOLD` diagnostic now reports only the deterministic shape: `on` re-armed a Loading boundary while the very async source it is waiting on is also read by a live reader outside it, so the frame is held on that source and the fallback can never be seen (`data.source` names it; the fix is to move the outside read under the boundary). The after-the-fact report — the frame held by the write's action or by other pending data past the content's landing, so the staged fallback was cleared before display — is removed: that is a race the developer does not control, a fallback that loses it is a legitimate outcome, and the engine cannot tell an action that awaited exactly this data from one that awaited something slower.
+- 913913a: Size pass over the loading-window (loadingValue/seedLoadingValue) client code: the unready-source parking sequence dedupes into one shared `parkLoadingWindow` helper (used by recompute's catch and handleAsync's handleError), the repeated `instanceof NotReadyError` tests in recompute's catch hoist into one boolean, and the window-clear writes at landing points become unconditional stores. The hydration entry stops precomputing the window flag per wrapper — options thread through to `readHydratedValue`, which does the check at read time. Behavior unchanged. The signals size gates ratchet for the feature itself (core floor 7.1 -> 7.35 KB, isPending 8.75 -> 9 KB, measured 7.18 / 8.84): the window support rides always-retained memo paths by construction (it's an option, not an import), so its ~110 B brotli cannot tree-shake.
+- c320429: Harden the loading window across every ssrSource mode, pinned by a full parity matrix (thenable/iterator × server/hybrid/client × memo/store, in loaded and streamed replay). Two hydration fixes fell out: a fully-buffered iterator replay delivered its first yield synchronously, closing the window mid-claim (the memo replay now defers the first yield one microtask when a loading window is open, keeping sync delivery for windowless nodes whose claim needs the value); and the buffered store replay applied the first-yield snapshot synchronously at claim — correct for windowless stores where the snapshot IS what the SSR DOM shows, but a seed-window store's DOM shows the SEED, so the snapshot now parks until hydration completes alongside the patch backlog. Types learn commit #0: `loadingValue` overloads on createMemo/createSignal/createOptimistic (client and server runtimes) drop `undefined` from the accessor — including `ssrSource: "client"`, where the loading value covers the pre-compute window — and type `prev` as `T`, matching the signals core.
+- 766ea30: Keep the loading window open through the `ssrSource: "client"` hydration gate. The gate's synchronous prev-return counted as the node's first real answer and closed the loading window, so the post-hydration compute — the node's actual first question — reported `isPending: true`, unlike the same source on a fresh CSR mount. The gate now returns a never-settling flight for loading-window sources (`loadingValue` / `seedLoadingValue: true`): commit #0 serves verdict-quiet until the first real flight lands, and only then does refetch work become pending-class. Signal and store families both.
+- f4d3c87: Responsiveness thresholds and the LONG_HOLD diagnostic.
+  - `SILENT_HOLD` defaults tighten to `holds: { infoMs: 100, warnMs: 200 }` (from 300/500): RAIL's "feels instant" ceiling and the INP "good" ceiling. The engine measures to the commit, not the paint, so every number is a floor on what the user saw; the console's thresholds now sit at the strict end of the band.
+  - New `LONG_HOLD` (`responsiveness` kind): an acknowledged hold whose quiescent tail — from the last write to join it to the commit — reached `longHolds.infoMs` (default 500ms), `warn` from `longHolds.warnMs` (1000ms). Measured from the last join so a hold that keeps taking input is judged by each wait, not its lifetime. The repair is a fallback: a `Loading` boundary keyed with `on` (a revealed boundary without `on` keeps the old content — that is the hold), a fresh boundary, or making the data fast. A silent long hold stays one `SILENT_HOLD` with the same repair appended and `data.long: true`.
+  - `HoldEvent.tailMs` added; `holdMs` now runs from the interaction dispatch or the first parked flush, whichever is earlier (a node rewritten mid-hold keeps only its latest record, so the flush clock keeps the first wait from being forgotten). `ChangeRecord.at` stamps root writes.
+  - `feedback().sources[].late/lateMs` replaced by `long/longMs`: holds whose tail reached the long-hold threshold, acknowledged or not.
+  - `@solidjs/diagnostics` artifact format version 3 (`tailMs` on holds, `long`/`longMs` on sources); hold evidence in assertion failures includes `tailMs`.
+  - `RerunEvent.phase` value `"transition"` renamed to `"held"` (`"plain" | "held" | "optimistic"`) — the dev surface uses one word for the state.
+
+- f7d5af6: Fix `<For keyed={false}>` (and `mapArray` with `keyed: false`) lagging by one update when its source is a store and a store property is mutated in-place. The mapArray internal owner now points its `_parentComputed` at the mapArray computed, so untracked store-proxy reads inside `updateKeyedMap` resolve to the pending value being written in the same flush rather than the stale committed value. Fixes #2687.
+- e8d8403: add action helper
+- 899c2c4: `merge()` and `omit()` are always lazy views, and props consumers read their leaves
+
+  `omit(props, ...keys)` returns a live view of `props` for every input — a plain object included — instead of copying it with a `getOwnPropertyDescriptor` + `defineProperty` per prop. A predicate form hides keys by rule without enumerating first: `omit(props, k => k[0] === "$")`. `merge()` no longer builds an eager copy when its sources are plain objects: under `Proxy` it always returns an O(1) view over the flattened sources (a single non-function source is returned as is).
+
+  The two compose flat. An `omit()` over a `merge()` carries one filtered view per flattened merge source, a `merge()` over an `omit()` takes the view record as a leaf, and nested omits fold their filters into one record. A component chain of `merge(defaults) → omit(consumed) → merge(statics) → omit("as")` — the shape headless-UI libraries render every element through — collapses to leaf views over the original objects, each with its accumulated filter, with no proxy layer left between the outermost spread and the author's props. `merge()` keeps the omitted keys hidden by construction (#3014) rather than by treating the omit as opaque. Construction cost drops 3–7× at depth 1–7; the SSR polymorphic-chain bench (#3448) runs ~2.4× faster.
+
+  Reads stay cheap: a view over plain objects resolves a key → owning-leaf table once, on first read, and every `get`/`has`/descriptor is one lookup after that. `spread()` (DOM and universal) and `ssrElement()` read the leaves directly — never through the proxies' traps — and walk that table when there is one, so an effect rerun costs one read per key, as it did over the copy. Both proxies use a class target and one shared handler (no per-instance closures).
+
+  A view over a store asks the store nothing but the read. Each source's kind (plain object, omit record, proxy, memo) is decided once, when the view is built, and carried beside it — every brand check on a Proxy is a trap (`instanceof` is a `getPrototypeOf` trap, as expensive as a store read), and store detection goes through `$TARGET`, a symbol the store's `get` trap answers on its fast path, never its generic tracked-read path. `merge(defaults, store)` constructs ~30% faster than the copy did and reads ~15% faster; `omit(store)` reads at parity.
+
+  The views tell the truth: `Object.getOwnPropertyDescriptor(view, key)` reports a data descriptor only when the key is a data property of a plain leaf (the compiler's encoding of a static prop) and an accessor for a getter, a store key, or a memo source. Together with the new internal `hasStaticKeys()`, `spread()` now skips the children effect for static children behind `omit`/`merge` layers (#3388 through views).
+
+  Behavior changes:
+  - Writes to a `merge()` or `omit()` result are no-ops (they already were for the proxy forms). A caller that needs its own object copies it (`{ ...merged }`), and the copy carries no sources (#3384). `@solidjs/html` now collects its own props and spreads into one `merge()` at the end instead of assigning onto the result.
+  - A data property on a source is read live through the view rather than snapshotted at `merge()`/`omit()` time.
+  - Key order of a merged view is the merged order — every key at the position of the last source that carries it — matching `ssrElement`'s array form.
+  - Sources are treated as own-keyed; a key added to a plain source after merging is not seen (the copy did not see it either).
+  - Enumerating a view through its traps (`for…in`, `Object.keys`, `{ ...view }`) costs a trap per key, as any proxy does; the internal consumers avoid it. Environments without `Proxy` keep the copy paths.
+
+  Internal helpers for consumers, exported from `solid-js`: `viewOf(o)`, `mergeView(o)`, `omitView(o)`, `sourceKeys(entry, kind)`, `sourceHas(entry, kind, key)`, `sourceGet(entry, kind, key)`, `hasStaticKeys(o)`, `resolvedTable(o)`, the `SOURCE_*` kinds.
+
+- c324d2c: `createEffect(compute)` (single-argument form) is now a hard error. Solid 2.0's `createEffect` requires a separate effect callback as its second argument: `createEffect(() => signal(), value => doWork(value))`.
+
+  Two layers now surface the misuse:
+  - **TypeScript** — calls without a separate effect callback are rejected.
+  - **Runtime (dev)** — calling without an effect function now throws synchronously with a clear message and emits a new `MISSING_EFFECT_FN` diagnostic (replaces the previous opaque `TypeError: Cannot read properties of undefined`).
+
+  If you want a derived value, use `createMemo`. If you want a one-shot side effect at construction time, just call the function directly.
+
+- 12f15a2: Align control-flow callback values with their keying mode so stable rows receive raw values and index-owned rows receive accessors only where the value can change.
+- 3bd00d2: Move `Loading` into the flow exports while keeping hydration-aware behavior in `createLoadingBoundary`.
+- e3d5fed: Starting hydration for a second root no longer resets the pending-boundary bookkeeping of an earlier root that is still waiting on a serialized `<Loading>` boundary (#2917). The pending-boundary counter now spans hydration roots: `sharedConfig.done` only flips once every root's boundaries have resumed, instead of a later root's completion draining hydration (and clearing snapshots) out from under an earlier pending root and driving the counter negative when it finally resumed. Each boundary registration now releases its pending count exactly once — via resume, the fallback asset path, or disposal — so a disposed boundary whose promise never settles cannot hold global hydration open.
+- dadeeeb: Add NoHydration/Hydration components, expose moduleUrl on lazy, fix mapArray hydration ID mismatch, update dependencies
+
+  **NoHydration / Hydration components** — Moved from dom-expressions into solid-js using the owner-tree context API. `NoHydration` suppresses hydration keys and signal serialization for its children. `Hydration` re-enables hydration within a `NoHydration` zone with an `id` prop matching the client's `hydrate({ renderId })`. On the client, `NoHydration` skips rendering during hydration; `Hydration` is a passthrough. Lazy components inside `NoHydration` register CSS but not JS modules, enabling code-split islands without a compiler.
+
+  **lazy().moduleUrl** — Exposed `moduleUrl` as a read-only property on lazy component wrappers (both client and server) to support Islands architectures and advanced asset discovery.
+
+  **mapArray hydration ID fix** — Server-side `mapArray` was constructing owner IDs by decimal string concatenation (`"prefix" + 10 = "prefix10"`), while the client uses base-36 encoding (`"prefixa"`). Refactored to use parent/child `createOwner()` pattern matching the client, ensuring ID parity for lists with 10+ items.
+
+  **Dependency updates** — `@solidjs/signals` ^0.11.3 (fixes strictRead in computations), `dom-expressions` 0.41.0-next.11 (resolveAssets base path prefixing, removed NoHydration/Hydration stubs), `babel-plugin-jsx-dom-expressions` 0.41.0-next.11 (SSR conditional memo alignment).
+
+  **Test fixes** — Updated strict read warning message assertion, fixed SSR streaming test manifests to use relative paths (matching real Vite output), removed stale TODO, added comprehensive test suites for NoHydration/Hydration, mapArray base-36 IDs, ternary conditional ID parity, and Show fallback hydration toggling.
+
+- c324d2c: Tighten npm `description` fields across the published packages so they identify each package's role unambiguously in npm search results and AI-indexed package metadata.
+  - `solid-js` — was generic ("A declarative JavaScript library for building user interfaces."); now names the actual differentiators (real DOM, signal-based updates, no virtual DOM).
+  - `@solidjs/web` — names the concrete entry points (rendering, hydration, SSR, Portal, Dynamic).
+  - `@solidjs/signals` — names the actual primitives (signals, memos, effects, stores, async-aware computations) instead of "reactive core implementation".
+  - `@solidjs/h` — drops the self-deprecating "less-optimal" wording; states the use case (no compiled JSX).
+  - `solid-html` — leads with the user-visible benefit (no build step).
+  - `babel-preset-solid` — mentions what makes it Solid-specific (fine-grained DOM ops vs. generic JSX).
+
+  `solid-element` and `@solidjs/universal` descriptions left unchanged.
+
+- 235173e: Prune the observability surface: `OBSERVE.attribution.install`, the `AttributionHooks` type, `DEV.setConsoleFooter`, the `TraceSlot` and `OriginRef` aliases, `PerformanceTracksOptions.group`, and the untested `solid-js/refresh` runtime modes (`esm`, `webpack5`, `rspack-esm`) are gone — `@solidjs/compiler`'s `transformRefresh({ bundler })` accepts only `"vite" | "standard"` to match. `ownerPath()` is now `OBSERVE.ownerPath(subject)` and `diagnosticGuideUrl()` is `DEV.guideUrl(code)`; `why()` also accepts a scope name. Engine record types (`RerunEvent`, `HoldEvent`, …) live on `solid-js/attribution` only, and `InteractionRef`/`NavigationRef` on the main entries only. `@solidjs/diagnostics` types its record tables off the runtimes' own catalogue (`RecordEvent<K>`), adds the `recovery` table, and bumps the artifact `formatVersion` to 8.
+- 0bf5758: Observe tier: `OBSERVE.include(owner)` and a body viewer's `"call"` record.
+  - `OBSERVE.include(owner)` re-admits an owner subtree under an excluded one; `isExcluded` answers by the nearest marked ancestor, so an observer that renders the app inside its own shell (`<DevToolbar><App /></DevToolbar>`) can hide its chrome and still see the app. One mark per owner — a later `exclude`/`include` on the same owner replaces it — and a mark belongs at the owner's creation (the engine caches each node's verdict on first read).
+  - `OBSERVE.records.subscribe(type, listener, { bodies?: boolean })` — a listener that reads the live handles an emitter pays per record to take asks for them; `OBSERVE.records.observed(type, "bodies")` is that emitter's second gate, true only while such a listener of the type is installed (`RecordSubscribeOptions` exported from `@solidjs/signals` and `solid-js`). Accepted for any type; meaningful today for `"call"`.
+  - The `"call"` record's bodies are taken only under that opt-in — a plain listener (an APM adapter, the performance tracks) gets no `live.request` and the transport's own `live.response`, as before. With it, `live.request` is the request as dispatched (final url and `RequestInit`, `prepareRequest` applied), built into a `Request` of the listener's own — with the body only when it is a `string`, `URLSearchParams`, `FormData`, `Blob`, `ArrayBuffer` or a view of one, and without it for a `ReadableStream` or an async iterable (a streaming upload); `live.response` is an unread `clone()` taken before the transport's decode. The clone is not taken for an event-stream response, is cancelled at settle for a deferred result (a generator's stream — the branch would buffer every chunk for nobody), and falls back to the transport's object when `clone()` refuses (an already-read response a configured `fetch` handed over); the request is absent when the address is relative and there is no `location` to resolve it against, and when the `Request` constructor rejects what the configured `fetch` accepted — nothing taken for the record can fail the call. `CallEvent.name` carries the reference's metadata name (the compiler's dev-only seed, or an explicit label, which survives to production).
+
+- 3ae9e92: `OBSERVE.records` — one records channel on both platforms (observe/dev tiers); frame records from both ends; the client `"call"` record; `observeServerFunctionCalls` removed
+  - **`@solidjs/signals`**: `OBSERVE.records` — `subscribe(type, listener)`, `observed(type)`, `emit(type, event, live)` — the channel every runtime record rides, created once per process and registered on `globalThis` under `Symbol.for("@solidjs/signals/observe/records")` so a second copy of the core (a bundled server build instrumented through `--import`) and wire layers bundled without a framework import reach the same listener sets. Listeners are snapshotted per emit; a throwing listener is reported and the rest run. Types: `Records`, `RecordTypes` (extends `HostRecordTypes`; both declared empty, for the runtimes to augment — one augmenter per interface), `RecordType`, `RecordEvent`, `RecordLive`, `RecordListener`. Folds out of prod. New **`OBSERVE.attribution.currentOrigin()`** (and the `currentOrigin` hook on `AttributionHooks`): the provenance a root write performed now would be stamped with — the interaction whose handler is running, the navigation/effect/action frame open, or inside a recompute the origin of the change that caused it — as the engine's own `ChangeOrigin` object, `undefined` when external or with no engine; for a runtime stamping a record of its own. The installed hooks are also registered on `globalThis` under `Symbol.for("@solidjs/signals/observe/attribution")`, the same reach-without-an-import the channel has.
+  - **`solid-js`**: the `"boundary"` record moves from `OBSERVE.server.records` to `OBSERVE.records` (augmenting the core's `RecordTypes`). `OBSERVE.server` keeps only the `trace` slot; `ServerRecords` is gone.
+  - **`@solidjs/web`**: the `"invocation"` and `"frame"` records move to `OBSERVE.records` (augmenting `HostRecordTypes` through `solid-js`). New **`"call"` record** (`CallEvent`, `CallLive`, `CallListener`): one per server-function call made from the browser, at the caller's settle — `{ id, at, durationMs, method: "GET" | "POST", outcome, status?, origin?, deferred? }` with `{ args, response?, result? | error? }` beside it; joins the server's `"invocation"` by `id`, and — through `origin`, the engine's own interaction/navigation object read at dispatch via `currentOrigin()` — the attribution engine's `InteractionEvent` / `NavigationEvent` / `HoldEvent` by identity, so an observer files the call under the click that made it without a time join. The **`"frame"` record now has a client half**: `FrameEvent` is `FrameProducedEvent | FrameAppliedEvent`, discriminated by `side`, same census on both; the client half (`applyFrameResponse`, one per stream in a response) adds `address` (the `as` remap) and `outcome: "truncated"` for a body that ended before `complete`, with `live.response`. Server census fix: `regions` counts `html` chunks addressed to a child frame id (the former count read a chunk type that does not exist), and `shellMs` is set by the stream's own shell only. The emitters and their wrappers fold out of the prod client artifacts behind the observe literal (prod `applyFrameResponse` and the server-function dispatch are the pre-existing functions, no extra frame or promise hop). The server-functions and frames **client** entries gain `observe` and `development` builds and export conditions (`server-functions/dist/client.{observe,dev}.js`, `frames/dist/client.observe.js`); the server-functions client is now built with its flags replaced in every tier (before, `_SOLID_DEV_` there was an unreplaced truthy string).
+  - **Removed**: `observeServerFunctionCalls` and the `ServerFunctionCall` / `ServerFunctionRequestCall` / `ServerFunctionResponseCall` types, from both server-function entries. Subscribe to `OBSERVE.records` `"call"` (client) or `"invocation"` (server) instead.
+  - **`@solidjs/diagnostics`** (format v6): `artifact.server` is replaced by `artifact.records: { boundary, invocation, frame, call }` — always present, captured on both platforms including the browser bridge; types `BoundaryRecord`, `InvocationRecord`, `FrameRecord` (`FrameProducedRecord | FrameAppliedRecord`), `CallRecord` (with `origin?: ChangeOrigin`), `ArtifactRecords` replace the `Server*Record` / `ArtifactServer` names. JSONL: one line per record with `type` naming its table; the meta line's `boundaryCount`/`invocationCount`/`frameCount` become `recordCounts: { boundary, invocation, frame, call }`.
+
+- 0961d97: Observe tier: first-class interaction records and a typed record channel.
+  - `attribution.interactions()` and `InteractionEvent`: one record per `withInteraction` dispatch with `at`, `handlerMs`, `writes`, `runs`, `created` (computations built in its runs), `runMs`, the `holds` and `navigations` attached, and `settledMs`/`outcome` (`idle` | `committed` | `held`) once everything it caused is through.
+  - `attribution.subscribe(type, listener)` for `"rerun" | "interaction" | "hold" | "navigation"`, delivered synchronously as each record completes; the bare `subscribe(listener)` form is unchanged.
+  - `RerunEvent.at` and `HoldEvent.at` — absolute times on the `performance.now()` clock beside the existing durations.
+  - `HoldEvent.acknowledgements` replaces `acknowledgedBy`: one `{ kind, source, reader? }` per affordance, `reader` the owner path of the effect that painted it. `feedback().sources[].acknowledgedBy` still ranks by `kind:source`. `@solidjs/diagnostics` artifact format version 4 (holds carry `acknowledgements`; assertion evidence likewise).
+  - `NavigationRef.params` values may be `undefined` (an optional segment left unbound).
+  - `OBSERVE.exclude(owner)` / `OBSERVE.isExcluded(subject)` — an observer rendering inside the app it watches marks its own subtree; diagnostics about it are suppressed and the engine records none of its runs.
+  - `solid-js` re-exports the tier types from its root: `InteractionRef`, `NavigationRef`, `OriginRef`, `DiagnosticEvent` and friends, and the engine's record types (`ChangeOrigin`, `RerunEvent`, `HoldEvent`, `NavigationEvent`, `InteractionEvent`, …).
+
+- 1807f7f: Observe tier: split dev-only checks from production-legal observability wiring.
+
+  **Breaking (pre-release):** `DEV.diagnostics` moved to a new `OBSERVE` export
+  — `OBSERVE.diagnostics.{subscribe,capture,emit}`, `OBSERVE.subjectOf(event)`.
+  `DEV` keeps the devtools surface (`hooks`, `getChildren`/`getSignals`/
+  `getParent`/`getSources`/`getObservers`) and gains the console face
+  (`DEV.report`, `DEV.setConsoleFooter` — formerly
+  `DEV.diagnostics.setConsoleFooter`). Both are exported from `@solidjs/signals`
+  and `solid-js` (client and server).
+
+  **Breaking (pre-release):** the attribution engine is its own entry.
+  `DEV.attribution.enable()` and friends are now
+  `import { attribution } from "solid-js/attribution"` (or
+  `@solidjs/signals/attribution`) — `enable/disable/subscribe/history/why/
+subscriptions/costs/waterfalls/holds/feedback/markFlight/format/formatOrigin`,
+  plus the record types (`RerunEvent`, `ChangeRecord`, `ChangeOrigin`,
+  `HoldEvent`, …) which were previously unexported. The runtime keeps only the
+  core's side as `OBSERVE.attribution`: `install(hooks)`/`installed` (the hook
+  slot an engine — built-in or a devtools' own — installs into) and
+  `withInteraction(ref, fn)` (the frame the web runtime opens around every event
+  dispatch; `fn()` when no engine is installed). A build that never imports the
+  engine never ships it: the observe tier costs ~1.3 KB brotli over prod on the
+  CSR scenario, the engine 9.7 KB more when enabled. The import is legal in
+  every tier — prod resolves an inert engine with the same surface.
+  `@solidjs/diagnostics` requires `OBSERVE` and imports the engine itself; it now
+  works against observe builds.
+
+  **New build tier.** Every package with wiring ships `<entry>.observe.{js,cjs}`
+  beside its prod and dev artifacts, selected by a new `observe` export condition
+  (listed after `development`, so dev still wins when both are set): signals
+  `dist/observe/` + `dist/node.observe.cjs` (each with an `attribution` entry
+  beside `index`; the flat dev/CJS builds are code-split so both entries share
+  one module instance), solid-js `solid.observe.*` and
+  `server.observe.*`, web `web.observe.*`, universal `universal.observe.*`.
+  Observe builds keep attribution hook sites, owner labels (`_name`, flow-control
+  memo names, component roots), graph edge counters and the diagnostics channel;
+  they fold out strict-read checks, invariants, forbidden-scope guards, devtools
+  brands and all console output. Entries without wiring (frames, server-functions,
+  storage, h, html, element) fall through to prod under `observe`. Signals gates
+  on `__OBSERVE__` (dev implies observe; asserted at init), solid-js/web/universal
+  on the `"_SOLID_OBSERVE_"` literal. Default prod artifacts are unchanged apart
+  from the new `OBSERVE = undefined` export; `_name` is reserved from property
+  mangling so the cross-package label survives in the observe tree.
+  `OBSERVE.diagnostics.emit` accepts an explicit `ownerPath` for hosts whose
+  owners are not signals' owners (the SSR runtime).
+
+- 328580f: `omit()` over a `merge()` is one record that holds the merge's record, not one leaf view per merge source
+
+  An omit over a merge used to flatten at construction: one `OmitView` plus one combined hidden-key list per flattened leaf, and the next `merge()` copied those entries into its own arrays. On a component chain of defaults + omit + spread (Kobalte-shaped: `merge(omit(merge(omit(props))))`, four layers) that was ~19 records and as many list copies per element — the largest allocation of the render. The omit now holds the `MergeView` record itself (a new source kind, `SOURCE_MERGE`) and is one record however many leaves the merge has; a later `merge()` carries it as one entry, and a later `omit()` folds into it. Nothing is read through a proxy trap along the way: the entry helpers (`sourceKeys`/`sourceHas`/`sourceGet`, `hasStaticKeys`, descriptors, the resolved table) recurse into the record by function call.
+  - Reads through the nesting are one walk per read (a nested entry answers presence and value together), and a nested record counts no reads of its own toward the table threshold — the view that was asked decides for the whole tree, and its table is collected in one pass over the leaves rather than one table per layer.
+  - New `@internal` `sourceOwners(source, keys, owners)`: every key of a props source — a plain object, a store, or a merge/omit view — appended in merged order with the object that owns it, in one pass, later sources moving a key to the end. `ssrElement` collects any spread that is not plain objects only (a view, a store, the array form with one among them) this way, so each attribute is one direct read of its owner — no `in` walk per key through the layers, no key list per leaf, no table, and no per-entry classification (`pushEntry` is gone).
+  - An omit's `$SOURCES` never answers anything now (previously its filtered leaf views); consumers reach the record through `viewOf` and walk it as one filtered entry.
+
+  Measured against `next` (interleaved, min of N, quiet machine): the tier-1 polymorphic-chain SSR harness allocates 12% less per row (14.6 → 12.8 KB) and is 2–6% faster across the interpreter, Sparkplug, Maglev and TurboFan tiers; the props-chain microbench builds 6–65% faster and builds+consumes 7–31% faster by depth and tier; the omit/merge micro-suite is flat or better in every shape. On the yak-bench SSR lanes with every yak piece on Solid primitives: +7% geomean, +20–36% on the component-composition cases (`polymorphic-chain`, `tabs`, `multifile-composition`), which brings those to parity with yak's hand-rolled runtime.
+
+- 1d6c40f: Add `onFlush(fn)`: runs `fn` once right after the pending flush, before paint, without waiting on async work. A write made there is its own update, so it is not held by async work another write in the same frame started (a menu closing while the consumer's `onSelect` navigates). Meant for event handlers and effect callbacks; dev warns (`ON_FLUSH_IN_OWNED_SCOPE`) in a component body or computation. Tree-shakes when unused.
+- 384a631: One records channel: the attribution engine's records (`rerun`, `create`, `effect`, `flush`, `flight`, `fallback`, `interaction`, `hold`, `navigation`, `graph`) are `RecordTypes` entries delivered on `OBSERVE.records.subscribe(type, (event, live) => …)`, with the live node beside each record. Removed `attribution.subscribe` (both overloads), `OBSERVE.subjectOf`, the `AttributionRecords`/`AttributionRecordType` types, and the `isSilentHold`/`isLongHold` helpers — `HoldEvent` now carries `silent` and `long`, computed at settle. `attribution.history()`, `waterfalls()`, `holds()`, `navigations()` and `interactions()` collapse into `attribution.history(type)`. `DiagnosticListener` receives the subject as its second argument. The channel allocates nothing per emit (copy-on-write listener lists), and a `RerunEvent` is built only while a listener, a fold or the log wants it. Record listeners belong to the channel and are no longer dropped by `attribution.disable()`.
+- e76279f: Dev now warns `OPTIMISTIC_WRITE_WHILE_LOADING` when an optimistic setter runs while its source, which has answered before, is loading a new question. The setter composes on the previous answer, and the new answer replaces the guess (#4795).
+- 3ee92f3: Fix mid-transition observability of mixed optimistic and entangled state. Subscribers recomputing under an optimistic lane that read a plain signal with a pending mid-transition write now see the signal's committed value (entangled), while optimistic overrides still project their optimistic value. Async drivers continue to read latest values for correct fetching. At commit, gated subscribers re-run with the new committed view.
+- 0ef177e: Fixes #2686. Owned non-lazy memos no longer autodispose when their
+  subscriber count momentarily drops to zero (e.g. during a transition swap,
+  or when read only through `untrack` from a suspending render-effect). They
+  now live for their owner's lifetime and retain their cached value, so an
+  async `createMemo` read via `untrack` from a suspending consumer settles
+  once and stays settled across re-runs.
+
+  Lazy memos (`createMemo(fn, { lazy: true })`) and unowned memos retain the
+  previous "compute-on-demand, dispose-when-not-needed" semantics, and the
+  JSDoc on `lazy` now documents this contract.
+
+  Internally this folds the per-node config booleans (`_ownedWrite`,
+  `_noSnapshot`, `_transparent`, `_inSnapshotScope`, `_childrenForbidden`,
+  `_preventAutoDisposal`) into a single `_config: number` bitfield with
+  `CONFIG_*` constants, replacing `_preventAutoDisposal` (opt-out) with
+  `CONFIG_AUTO_DISPOSE` (opt-in). Public node options are unchanged.
+
+- 8f1d9d2: Server: a `<Loading>` that fails after the shell while its fragment waits inside an outer `<Loading>` that is still pending no longer arrives as a blank region reported as a success. The failure now goes to the nearest enclosing boundary, as it does when the same read fails inside the outer `<Loading>`'s own render. An `<Errored>` between them draws its fallback in the outer fragment, the client adopts it, and its error is serialized with it. With no `<Errored>` between them, the outer fragment fails, and an `<Errored>` whose whole content is that outer `<Loading>` draws its fallback there. This also covers an `<Errored>` fallback that fails in that position. Before, the client hydrated the blank region and either halted or rendered nothing there (#4316).
+- 8d249c7: Patch-mode lists now implement the identity semantics the view declares instead of the reconcile key's. Deep lists are unaffected (adoption preserves proxy identity, so key ops and reference semantics coincide). Shallow reference-keyed lists rebuild rows whose records were replaced — matching classic `mapArray` exactly, where the driver previously patched them in place (a default-on compiler mode must never change observable DOM identity). `For` forwards its `keyed` prop on the list metadata; explicit `keyed={fn}` lists decline the driver until the accessor-row binding contract lands.
+- d94d5c3: Pay-for-use tree-shaking, phase 2 (#2883). The optimistic write engine (override writes, lane routing/suspension, stashed-optimistic reads, transition-completion blockage, optimistic-node resolution) moves out of `core.ts`/`scheduler.ts`/`lanes.ts` into a new internal `optimistic` module behind fourteen nullable `GlobalQueue` hooks, installed by the verdict layer and at first `createOptimistic`/`createOptimisticStore` call. Every core call site is gated on state only the engine can create (an `_overrideValue` slot, a live lane, a non-empty optimistic batch), and the A17 override-is-the-value read path stays inline in core. On the `solid-js` side, `createLoadingBoundary`'s hydration-resume machinery (boundary triggers, resume scheduling, asset-failure reporting, snapshot capture) now installs through the existing `enableHydration()` seam, so client-only apps stop shipping it.
+
+  Measured (esbuild, minify, `_`-prop mangling, gzip -9): core floor 8.2 → 7.7 KB gzip; plain-store subset 13.0 → 12.4 KB; minimal app from published dist 11.5 → 10.9 KB; a CSR app using `<Loading>` drops a further ~0.9 KB gzip; opting into `hydrate()` costs +43 min bytes. Cumulative with phase 1, the minimal-app floor is down ~14% and the signals floor ~13.5% with no behavioral change — differential smoke runs are byte-identical and the full Tier-A suite passes unchanged.
+
+- d0b9c91: Pay-for-use tree-shaking, phase 3 (#2883) — mechanical cleanups selected by cost/benefit audit. Signals: the effect re-enqueue block (four copies) and zombie/dirty queue selection dedupe into shared `enqueueSub`/`queueFor` helpers (hot-path microbenched, no regression); boundary/reveal internal method names are `_`-prefixed so property mangling reaches them; production error strings trim to their diagnostic codes (dev builds keep full sentences); and the prod dist build stops stripping `/*@__PURE__*/` annotations — rollup-plugin-prettier is off the prod tree, terser re-emits annotations, and a new `check-pure` build guard fails the build if they ever vanish again. solid-js client: `sharedConfig.getNextContextId` and `lazy()`'s hydration-module lookup install from `enableHydration()` instead of shipping in every CSR bundle, and MockPromise's class static block (which defeated dead-code elimination in every client bundle) becomes a PURE-annotated factory. CDN `unpkg`/`jsdelivr` fields now point at browser production ESM instead of CommonJS files.
+
+  A last-mile pass closes part of the esbuild-vs-Rollup shaking gap at the source level (Rollup's literal tracking folds never-written state that esbuild retains): the external-source wiring in computed setup and `untrack` moves behind hooks that mirror `enableExternalSource()`'s config liveness, the affects-only `onlyMarkPending` read-path helper moves into the affects module, and the optimistic-store settle loop moves inside its store-side hook. All are Rollup-neutral by measurement.
+
+  Measured: minimal app 10.9 → 10.3 KB gzip under esbuild and **9.8 KB gzip / 9.0 KB brotli under Vite** (Solid's default toolchain — under the 10 KB mark); CSR app with `<Loading>`/`lazy` 13.9 → 12.6 KB; signals floor 7.7 → 7.4 KB; and the full-featured bundle _shrinks_ ~330 gzip bytes, recovering a third of the phase-1/2 hook indirection tax. Cumulative across all three phases the minimal app is down ~19% with all 1,941 tests across the affected packages passing unchanged.
+
+- 8d1ba82: Suspend property, symbol, membership, enumeration, and descriptor reads on pending server projections.
+- c4fad7a: A `<Loading>` boundary that resumes after another `hydrate()` root has started now claims server DOM against the root it registered under (#2917, follow-up to the pending-boundary counter fix). Boundary registration captures the current root's registry/gather pair via the DOM runtime's `sharedConfig.captureBoundaryScope`, keyed by the full boundary id; the resume path swaps the captured pair in for its synchronous window and restores the globals afterwards, falling back to the live globals when no capture exists. Previously a late resume gathered against the last-hydrated root's container and registry, so the server-streamed fragment went unclaimed and the boundary's reactive bindings attached to orphaned client nodes. Captures are cleaned up when the boundary's pending count releases (resume, fallback asset path, or disposal).
+- 3e48a75: Dev console footer: perf/graph diagnostic codes now also point at the attribution surface (`DEV.attribution.enable()` — why-chains, `costs()`, `waterfalls()`) and the agent-loops skill. Breaks a discovery circularity: the sensitive perf detectors only fire while attribution is enabled, so the always-on graph warnings are the moment to teach that the deeper evidence channel exists.
+- 1a1a5d4: add `from` to repeat
+- fd36d37: `@solidjs/web/performance-tracks`: Solid's records on the Chrome Performance panel
+
+  `enablePerformanceTracks(options?)` paints the attribution engine's records — re-runs (`Effects`/`Memos`, coloured by self time, `warning` for a provably wasted run), interactions (input delay, handler, settle by outcome), holds (`warning` for a silent hold, `error` for a long one — the engine's own verdicts), navigations (named by route) — and the web runtime's server-function `call` and `frame` records (`Server`) as custom tracks in the group `Solid`, through the panel's extensibility API. Every span is emitted retroactively from the record's own `performance.now()` stamps; labels come from the shared formatters (`formatOrigin`, `formatRerun`, `ownerPath`), so the timeline agrees with the diagnostics artifact by construction. Dev builds emit `performance.measure` entries with `detail.devtools` (why-chain tooltips, cause/deps/blocker properties; entries cleared in batches); observe builds emit `console.timeStamp` spans with a `0.05ms` floor and scrub value previews and non-button element text. Prod builds fold the module to a no-op. Options: `attribution` (the engine hold's options, `log: false` by default — asking for no console log, which quiets it only while no other holder wants it), `minMs`, `rich`, `group`, `scrub`. Returns the release of this adapter's hold — the engine's and its own.
+
+  `solid-js` now exports `ownerPath` (already public on `@solidjs/signals`) — the root-first owner labels of a subject — on both the client and server entries, so in-process consumers of the records (this adapter) can label a re-run by its component path without importing signals directly.
+
+- fd36d37: Performance tracks: findings as markers, JSX-site stacks, richer properties
+  - Every `DiagnosticEvent` delivered while `enablePerformanceTracks()` is on becomes a marker on the Performance panel's Timings track (`SILENT_HOLD — <App> › <Search>`), coloured by severity; at `warn` or worse it is annotated as a performance issue (`detail.devtools.performanceIssue`) for the Insights sidebar, linking the repair guide's section for the code. Under the scrub only the code, kind and owner travel.
+  - In dev, the component wrapper stores a `console.createTask(label)` task on the component record (`_component.task`) for components rendered while an attribution engine is installed (a session with nothing enabled pays nothing), and every span and marker is emitted inside the nearest component's task, so the entry's stack in the panel points at the JSX site that rendered the component.
+  - Rich mode adds `Owner path` (the unfolded runtime path), `Node id` and the root write's `Origin` to every node span.
+  - `solid-js` exports `diagnosticGuideUrl(code)` — the repair guide URL the console footer already prints.
+
+- fd36d37: `@solidjs/web/performance-tracks`: a `Propagation` track (replacing `Scheduler`)
+
+  Nothing re-renders in Solid, so React's component flame has no counterpart here; the picture a Solid developer wants is the graph a write travelled. The `Propagation` track paints each scheduler drain as a wave named by the writes that started it and what they reached (`count 0 → 1 — click on button#next · 5 runs, 1 unchanged`), and every run inside it — compute runs, creation runs, effect callbacks — at its own time, labelled by what made it run (`<TodoRow> › effect ← doubled`). The panel stacks the runs beneath their wave by time, so a wide flat wave is a coarse signal everyone depends on, a deep one a chain of memos, and a `warning` node with nothing after it the equality cutoff at work; a wave that mostly re-ran unchanged nodes is itself a `warning`. The wave span ignores `minMs`, so a fan-out of runs too small to paint still reads as its count.
+
+  Node labels fold framework structure into what the developer wrote: a flow control's own nodes (`<Show>`'s `condition value` / `condition` / `value`, a boundary's `children` / `boundary` / `value`, `<Switch>`'s `conditions`, `<Reveal>`'s `reveal order`) present as the tag, and a `primitive.local` name (the store convention, and what the compiler will emit for a composed primitive's internals) as the primitive — with the runtime's name kept in the span's `Node` property. Presentation only: the records are what the engine delivered.
+
+  Engine: `ChangeRecord` carries `nodeId` (the written signal's, or the changed memo's — the same id space as `RerunEvent.nodeId`), so a derived cause joins the run that produced it and repeated writes to one signal join each other after the record has left the process. `@solidjs/signals`' boundary nodes and `<Switch>`'s condition-builder memo are now named in observe builds (`children`, `boundary`, `value`, `reveal order`, `conditions`) where they read as anonymous `computed`s in owner paths before.
+
+- 757d1eb: Performance tracks: server spans in the browser panel (Stage 5)
+
+  Dev and observe servers now write the request's timed work as `Server-Timing` metrics beside the trace entries: `solid-invocation;dur;desc="<id>"` on a server-function response, and `solid-shell;dur` plus one `solid-boundary;dur;desc="<owner path>"` per boundary that waited and settled before the shell on a document. Dev builds always write them; observe builds only while something on the server is subscribed to the `invocation` / `boundary` records (no wire change without an observer); prod builds carry no code. `desc` values are sanitized to printable ASCII (a non-ASCII header value throws from `Headers.append`, which used to be able to hang a response whose first write carried it).
+
+  `@solidjs/web/performance-tracks` reads the metrics back: a `call` record's response headers become `<id> · server` spans beneath the call, placed against the resource's `responseStart` (via `PerformanceObserver` for late-arriving entries, centred in the call when none arrives within 30 s), and the document's `PerformanceNavigationTiming.serverTiming` paints `shell · server` / `boundary … · server` when the tracks enable.
+
+- Add store return tuple type aliases and harden store draft writes against prototype pollution keys.
+- 32b4294: Fail renderToStream when the default serializer reports a synchronous error before the first flush, matching asynchronous failures. No HTML is sent, onCompleteAll is skipped, and createSSRResponse returns 500 when consuming the stream. An error an `<Errored>` contained does not fail the render when it cannot be serialized: its record and the rejection of its source, deferStream or streamed, are sent as a plain Error with its message, the fallback stays, and the error hook hears the failure once. A rejection nothing contained still fails the render.
+- 8d249c7: Projection (non-optimistic) family arrays are drivable by the patch-mode list driver: their recomputes walk reconcile, whose row/slot emissions were never family-gated and ride the transition-stamped apply queue. The blanket family decline narrows to optimistic families only (`storeHasOptimisticFamily`), whose user writes ride node overrides and emit no structural ops. Fixes chained-backing patch registration: a projection wrapper's backing is another store's proxy, so `registerPatch`/`patchableRaw` now resolve through the chain to the ultimate owner target — patches registered on wrapped projection rows previously never fired (value transitions fold on the source). Equivalence matrix extended with 13 projection scenarios including recompute-driven structure and retention topology.
+- 1f9d41a: Public hydration API, so data libraries (Solid Router, TanStack Solid Query / Router) no longer reach into `sharedConfig` from `solid-js/internal`:
+  - `isHydrating()` (`solid-js`): whether the running code is claiming server-rendered DOM — the root pass of `hydrate()`, or code under a streamed boundary while that boundary resumes. `false` on the server. Not reactive.
+  - `isHydratable()` (`solid-js`): whether the calling owner sits where hydration applies — `false` under `<NoHydration>`, `true` again inside a nested `<Hydration>`, `false` with no owner; on the server it also requires the owner to belong to a render in progress. The client `<Hydration>` stays a passthrough: a client `<NoHydration>` zone renders only outside hydration, so there the answer stays `false`.
+  - `getHydrationWriter()` (`@solidjs/web`, server): the caller's render's keyed server-to-client channel, found through the owner, else through the request scope when exactly one render is open for the request; `undefined` outside a render and on the client. `write(key, value, { deferStream })` — the first write of a key wins, a key counts as written only once serialized, a write after the render closed returns `false`, and a promise under `renderToString` throws. Writes are not gated on `<NoHydration>`: the library decides with `isHydratable()`.
+  - `takeHydrationValue(key)` (`@solidjs/web`, client): reads and removes the value written under `key`, as a `HydrationValue` — `resolved`, `rejected`, or `pending` with the streaming promise. `undefined` on the server. Tests can seed `globalThis._$HY = { r: { key: value } }`.
+  - New types `HydrationWriter` and `HydrationValue` (`@solidjs/web`).
+
+- 25935fe: `onHydrationEnd` is public API again, as `@experimental` (#4000), so end-to-end tests have a documented end-of-hydration signal instead of reading `_$HY` internals. It was already a runtime export of both entries; only its declarations change (it is no longer stripped as `@internal`), so it adds no runtime bytes. `sharedConfig` and `isHydrationInProgress` stay internal.
+  - `onHydrationEnd(callback)` (`solid-js`): runs `callback` once when the hydration phase ends — the root pass of `hydrate()` over and every streamed `<Loading>` boundary (and every hold an integration registers) resumed or cancelled. With no hydration in progress, and on the server, it runs in the next microtask.
+  - Register it after calling `hydrate()`: registered before hydration starts (or after a `hydrate()` parked mid-parse, #3971), it runs in the next microtask and does not wait for hydration work started afterward.
+  - It reports that the phase ended, not that hydration succeeded: a document root whose module preload fails ends the phase with the server markup kept and not interactive.
+  - It is not page-wide completion with several hydration roots: a root deferred behind its module preload is not counted (GH5).
+  - Intended for test tooling and markers, not for branching what the app renders.
+
+  This reverses the part of the earlier "Remove isHydrating/onHydrationEnd from public API" entry that covered `onHydrationEnd`, as #3718 did for `isHydrating`: hydration snapshots make timing transparent to code inside the app, not to a test reading the page from outside it.
+
+- 5f29f14: Update signals, dom expressions to default attrs
+- da59aea: Recover from `REACTIVITY_HALTED` in dev workflows. A halt is global to the runtime instance, so one uncaught error used to permanently brick HMR (hot swaps are signal writes, which a halted scheduler drops) and playground-style embedders (a fresh `render()` never mounts because its queued effects can never flush) until a full page reload. Now the refresh runtime revives scheduling before patching a hot update, and `render()` resets the halt in dev before mounting. `resetErrorHalt` is re-exported from `solid-js` (no-op on the server) so dev tooling can do the same. Production behavior is unchanged: a halt remains a hard crash.
+- d2529e3: Redesign refresh to invalidate a single explicit target without reading accessor values.
+- 04b5b7f: Reduce server projection gating code while preserving pending, ready, and rejected reads
+- 9c917ea: A ref callback that reads a sync memo on a row mounted while an async memo is in flight no longer leaves that update held forever (#4767). Refs run in the attribute effect's commit half with no owner; a memo born into the hold has only a staged value, and an ownerless read of it threw `NotReadyError` (A19 exception 1), which errored the effect mid-hold so the transaction never landed. `runRefCallback` now marks the read, and `serve` returns the staged value only when the ref's creating pass was born into that memo's hold (F-7); production `ref()` always goes through `runRefCallback` so the mark is present outside dev too.
+- 7230c08: A ref callback (`ref={el => …}`) now runs the way a render effect's callback runs at creation (#4761). It is untracked and runs in the context of the pass that creates the element, so its reads see what that pass is building. Before, it ran with no owner, so its reads were outside reads that saw the screen before the pass committed. A non-keyed `<Show>`/`<Match>` branch that an optimistic write had hidden could not come back: its ref read the narrowed accessor, got the old falsy condition, and threw a stale read that halted the app.
+
+  A ref still owns nothing. In dev, creating a memo, effect or root inside it throws `PRIMITIVE_IN_EFFECT_CALLBACK`, and `onCleanup` inside it throws `CLEANUP_IN_FORBIDDEN_SCOPE`. Set those up in the factory that returns the ref, which runs in the component body. Writes, `refresh`, action calls and `onFlush` stay allowed in a ref, as in an effect callback.
+
+- 85aa54f: Refactor SSR stream blocking: delegate deferStream blocking to dom-expressions via serialize instead of imperative ctx.block() calls in processResult. Pass deferStream option through createSignal(fn), createMemo, and createProjection to serialize. Update dom-expressions to 0.41.0-next.3 for structural blocking support.
+- 000da61: Refactor `WidenPropValue` helper in `jsx-properties.d.ts` to split the nested conditional into a small named helper. Behavior-identical; removes a line that sat exactly at `printWidth: 100` so formatters running at the default width no longer fight the repo's prettier config.
+- 3eed9c1: Refine server Loading and Errored settlement and update dom runtime dependencies.
+- 0d4c5e0: Hot reload: a PascalCase helper function that the refresh transform wraps now gets every argument when it is called directly, not only the first (#4513).
+- 974506c: The `solid-js/refresh` HMR memo is now framework plumbing to the observe tiers: an internal `_plumbing` memo option (`CONFIG_PLUMBING`) leaves it unnamed, out of every owner path, and unrecorded by the attribution engine — no creation or re-run record of its own — while the component body it runs stays fully observed. Replaces the empty-name workaround from #3629, which still produced a blank-named `create` record per component mount.
+- e77087a: The `solid-js/refresh` HMR wrapper no longer appears in owner paths. Its memo is nameless, so a component reads as `<App> › <Router>` in performance-track labels, diagnostic findings and captures rather than `<App> › [solid-refresh]App › <Router>`; the proxy also carries the component's own name, so an unlabelled `createComponent` opens a `<App>` root rather than `<[solid-refresh]App>`.
+- 9015b12: Introduce `Refreshable<T>` as a public type alias for the `$REFRESH` brand applied to derived/projected stores. The return types of `createOptimisticStore`, `createProjection`, and the projection form of `createStore` now use `Refreshable<Store<T>>` instead of inlining `Store<T> & { [$REFRESH]: any }`.
+
+  This fixes a TS4058 error in user-defined hooks that wrap these primitives — the inferred return type would previously reference the unique `$REFRESH` symbol from a deep import path, forcing consumers to write an explicit return annotation. `Refreshable` is re-exported from both `@solidjs/signals` and `solid-js` (client + server entries) so the inferred type is now nameable from any consumer.
+
+- 3f36f77: Server components: binding slots are removed. Client components in slots replace them: place a client component through a `Slot` (`<props.x />`) where the server's markup needs client behavior, or a form `action` for a mutation. Removed with them: the `BindingSlot`, `SlotOutput` and `SlotError` types, the lazy `@solidjs/web/frames/bind` entry and its `"bind"` tier, the `_s:*` position markers and the compiled `ssrClaim` hole, the effect of the `serverComponents` compiler option (`@solidjs/compiler` and `@solidjs/babel-plugin` still accept it, so existing build configs keep working, and ignore it), and the `BINDING_SLOT_POSITION` diagnostic code (`@solidjs/signals`' `DiagnosticCode`, `solid-js`'s `diagnostics.json`). Ordinary slots, their `slot:<id>` ranges and records, and `$key` are unchanged.
+- a39415c: **Breaking:** all runtime packages are ESM only and declare `engines.node >= 22.12`.
+
+  Every `.cjs` artifact, every `require` branch in the exports maps, and the `types-cjs/` declaration mirrors are gone. Node 22.12+ loads ESM through `require()` natively, so a CommonJS host resolves the same files through the same export conditions it always did (`browser`, `node`, `development`, `observe`, …) — there is one module graph per tier rather than two to keep in step. `main` now points at the ESM server entry.
+
+  For consumers:
+  - ESM apps, Vite, Vitest, Bun, Deno, workers: no change.
+  - CommonJS Node apps: require Node 22.12 or later. `require("solid-js")` keeps working.
+  - TypeScript CommonJS projects: use `module: "NodeNext"` (TS 5.8+), which type-checks `require()` of ESM packages; `module: "Node16"` will report TS1479.
+  - Jest: needs Node 22.12+ for `require(esm)`; any preset that maps specifiers to `.cjs` paths (as `solid-jest` does for Solid 1.x) has nothing to map to and must be updated.
+
+  `@solidjs/signals` drops its flat `dist/node*.cjs` builds; its ESM entries (`dist/prod/`, `dist/observe/`, `dist/dev.js`) are the only ones. `@solidjs/babel-plugin` and `@solidjs/compiler` (build-time tooling loaded by Babel/Node) are unchanged.
+
+- bd563d0: Remove the misleading initial value parameter from derived primitives and require explicit seed values for store-backed projection APIs.
+- 2e4a924: Remove the `ssrSource: "initial"` mode and type derived `client` hydration reads as possibly undefined until hydration resumes.
+- 52255dc: Remove the public `isRefreshing()` API and treat `refresh()` as write-like invalidation in dev owned-scope diagnostics.
+
+  `refresh()` is an action that invalidates an explicit refresh target; it should not expose ambient phase state to pure computations. User-visible mutation or retry intent should be modeled with actions and optimistic state, while readiness remains observable through `Loading` and `isPending`.
+
+- 6fec663: Remove `on:` namespace event typings and document ref callbacks for native listener options.
+- d601119: Remove the experimental patch channel and patch-mode list driver (always opt-in, never default). Graph-native regions own value delivery and the unified-For design owns list structure, so the channel's parallel delivery machinery is retired: `patch.ts`/`patch-driver.ts` deleted, the compiler-contract exports (`registerPatch`/`registerRowOps`/`registerSlotPatch`/`patchableRaw`, `patchDriver`/`rowProof`/`driveList`) removed, the `patchDriver` compiler option dropped from both compilers, the insert `$ll` seam stripped, and the write-side channel struct dieted to the single written-keys bound (`t.wk`) the core fold/notify paths actually use. Store-family app bundles reclaim up to ~900 B brotli; every measured tier shrinks.
+- 80b4e8d: Remove `ssrRunInScope` from the public surface. The function had been a true pass-through identity (`fn => fn`) on the server runtime since owner-capture moved into `tryResolveString`'s `NotReadyError` handler, and the compiler no longer emits it. With no internal callers and no behavior to provide, the export was dead surface area and is now removed from `solid-js` (server export, server core impl, client stub) and from `@solidjs/web`'s `rxcore` re-export. User code that called it can drop the wrap (it was a no-op) or replicate the original deferred-callback owner-capture intent in two lines with `getOwner()` + `runWithOwner()`.
+- ac5159a: Preserve the supplied type in `Store<T>` instead of adding a shallow readonly mapping.
+- 284738e: Rename `createLoadBoundary` to `createLoadingBoundary` for consistency with the `<Loading>` component naming.
+- 433eae5: Rename `pending` API to `latest`. `isPending(() => latest(value))` reads more naturally than the redundant `isPending(() => pending(value))`. Also renames internal `pendingReadActive`, `_pendingValueComputed`, and `getPendingValueComputed` in @solidjs/signals to align with the new name.
+- 5086c21: Rename `pureWrite` option to `ownedWrite` across signals and hydration to align with error messaging and documentation
+- dd53561: `"render"` record and `AttributionOptions.values` — the two remaining places where the observe surface duplicated a record or scrubbed one after the fact.
+
+  **`"render"` record** (`@solidjs/web`, server). A server render — `renderToString` or `renderToStream` — is now a record on `OBSERVE.records`: `RenderEvent { mode: "string" | "stream", at, shellMs?, durationMs, boundaries, outcome: "complete" | "abandoned" | "error" }`, delivered when the render ends, with `RenderLive { event?: RequestEvent, trace: TraceContext }` beside it. `shellMs` is render start → the shell complete (the stream's shell handed to the sink; the string's document assembled); `boundaries` counts the `<Loading>` boundaries the shell waited on. Types `RenderEvent`, `RenderLive`, `RenderListener` are exported from `@solidjs/web`.
+
+  The response's `Server-Timing` metrics are now strictly projections of records, one gate each (`observed(type) || dev`): `solid-invocation` from the `"invocation"` record, `solid-shell` from the `"render"` record's `shellMs`, `solid-boundary` from each `"boundary"` record the shell waited on — computed from the record objects at head commit, no second push. Wire format unchanged. **Behavior change (observe tier):** `solid-shell` now rides the `"render"` listener, not the `"boundary"` listener; an observe deployment that subscribed to `"boundary"` alone keeps its `solid-boundary` metrics and needs a `"render"` subscription for `solid-shell`. Dev builds still write all three always.
+
+  **`AttributionOptions.values: "full" | "labels" | "none"`** (`@solidjs/signals`, re-exported by `solid-js/attribution`). One engine option governs the user-data fields of the engine's records at the source: `ChangeRecord.prev`/`value`, `HeldWrite.prev`/`value`, `ChangeOrigin.target` (and so `InteractionEvent.target`, `HoldEvent.interaction.target`), and every sentence built from them (`formatRerun`, `formatOrigin`, `SILENT_HOLD`/`LONG_HOLD`, `OPTIMISTIC_REVERTED`). `"full"` is today's dev output; `"labels"` drops value previews and keeps element text only on a `button` or an `a`; `"none"` drops both. **The default is the build tier's: `"full"` in dev builds, `"none"` in observe builds** (folded at build time — the observe engine ships `"none"` only). Across holds the **least permissive** level wins; a holder naming no level asks for the tier's default, so in an observe build it tightens to `"none"` beside anyone, while a single holder passing `"full"` there gets `"full"`; an explicit `"full"` never loosens what another holder demanded. Observe-tier consumers that export records should pass their level explicitly and treat it as their export contract.
+
+  **Removed:** `PerformanceTracksOptions.scrub` and the adapter's scrub helpers. `@solidjs/web/performance-tracks` paints what the engine put on the record: an observe build's tracks inherit `"none"` (tighter than the old scrub — no element text on buttons/links either); the old observe posture is `enablePerformanceTracks({ attribution: { values: "labels" } })`. **Behavior change:** a finding's marker always carries `event.message`.
+
+  Internal: `solid-js`'s server render context seam `_timing` became `_recordBoundary(event: BoundaryEvent)` — the boundary files its record, the web runtime projects the header from it.
+
+- 6d6f03f: `<Repeat>` with element (non-function) children no longer builds each row twice. It read the `children` getter once to check for a function and again for the value, so every row's JSX ran twice and its refs fired twice (#4296).
+- 41fdf96: `reportRequestFailure(error, event)` (`@solidjs/web`, server) reports a failure that fails a request outside any render or server function the runtime reports, such as a middleware throw that a framework's request handler catches. The ambient server error hook hears it as `kind: "request"`, `handling: "failed"`, with the request event, once per error object, and its return is ignored. With no hook registered the failure goes to `console.error`, as a render that fails before its shell does. `ServerErrorSite.kind` (`solid-js`) gains `"request"`. On the client the function is a no-op.
+
+  A synchronous throw out of `renderToString`, or out of `renderToStream`'s first pass (and so `renderToFrameStream` and `serverComponentResponse`), is now reported to the server error hook as `kind: "render"`, `handling: "failed"` before it is rethrown, where it previously reached the caller without the hook hearing it. A request handler that catches it and calls `reportRequestFailure` adds nothing; the hook hears it once, as the render's.
+
+- 9b4dd76: Raise the seroval / seroval-plugins dependency floor to `~1.5.4`: seroval 1.5.3 and earlier are affected by a security issue fixed in 1.5.4.
+- 8cfa272: Require `seroval` and `seroval-plugins` `~1.6.7` (minor-locked, as before). Seroval 1.6 ships bundled declarations with no extensionless relative imports, so the `@solidjs/web` `server-functions`, `serialization` and `frames` type surfaces now type-check under `module: NodeNext` from a CommonJS project without `skipLibCheck` — the packaged-types check covers every public `@solidjs/web` specifier.
+- ac0067a: Replace `Reveal`'s boolean `together` prop with an `order` string union
+  (`"sequential" | "together" | "natural"`) and add the new `"natural"` mode.
+  - `order="sequential"` is the default and matches the previous default behavior.
+  - `order="together"` replaces `<Reveal together>`; existing `together` props must be migrated to `order="together"`.
+  - `order="natural"` is new. A nested `<Reveal order="natural">` group opts its own
+    children out of the outer frontier (each child reveals as its own data resolves),
+    while the group as a whole still acts as a single composite slot to the enclosing
+    `<Reveal>`. This closes the gap where a nested subtree needed to respect its parent's
+    broader ordering while returning to natural, independent reveal behavior internally.
+  - `collapsed` is only consulted when `order="sequential"` (the default). It is
+    silently ignored under `order="together"` or `order="natural"` — no type error,
+    so dynamic `order` bindings don't need a discriminated-union workaround.
+  - `RevealOrder` (the `"sequential" | "together" | "natural"` string union) is
+    exported from `solid-js` for use in consumer code that types the prop directly.
+  - `renderToString` now supports `order="natural"` out of the box (no streaming required).
+  - `createRevealOrder` options changed from `{ together?, collapsed? }` to
+    `{ order?, collapsed? }` with the same accessor shape.
+
+  See `documentation/solid-2.0/03-control-flow.md` for the full outer/inner nesting
+  matrix and SSR caveats.
+
+- 6a87fb2: Support Reveal collapsed mode in string (non-async) SSR by providing RevealGroupContext and collapsing non-frontier fallbacks server-side. Warn for nested Reveal in renderToString where client coordination is limited.
+- ac0067a: Fix nested `<Reveal>` coordination: a nested group is now held on its fallbacks
+  until its parent releases the slot it occupies, in both the client runtime and
+  SSR streaming. Previously, an inner `Reveal` inside an outer `order="together"`
+  (or past the frontier of an outer `sequential` without `collapsed`) could reveal
+  its own children independently, breaking the outer group's "reveal as one unit"
+  guarantee.
+
+  Key behavior changes:
+  - `order="together"` now releases when every direct slot is "minimally ready"
+    under its own order (a nested `sequential` is minimally ready at frontier-0,
+    a nested `natural` when any child is ready, a nested `together` when all its
+    children are ready) rather than waiting for every descendant to fully resolve.
+    This keeps `together` composable without sacrificing the cohesive group reveal.
+  - When an outer `sequential` advances to a nested `Reveal` as its frontier, or
+    an outer `natural` surfaces a nested `Reveal` slot, the nested group is now
+    released to run its own order locally. Previously the nested group inherited
+    the outer's hold, which forced its children to reveal together once released;
+    they now reveal per the nested group's own policy (e.g., inner `natural`
+    children reveal independently as their data lands). This applies to both the
+    client runtime and SSR streaming.
+  - SSR fix: when an outer `sequential+collapsed` frontier advances to a nested
+    `Reveal`, the inner group now emits `revealFallbacks` for its leaf children so
+    their collapsed fallback templates become visible under the inner's own order.
+    Previously the inner fallbacks remained hidden until they resolved. Requires a
+    matching `dom-expressions` update: `$dflj(ids)` now materializes every id in
+    the list instead of stopping at the first, so bulk uncollapse reveals all of
+    its listed fallbacks in one call. Solid's `advanceFrontier` now passes the
+    single new frontier key to `revealFallbacks` for sequential cascading, which
+    preserves the prior incremental behavior.
+  - Nested `<Reveal>` groups cannot opt out of an outer group's hold while it is
+    still held. Wrapping a subtree in a `<Loading>` does not bypass this — the
+    `<Loading>` is itself a slot the parent holds. Subtrees that need independent
+    reveal should not be nested under an outer ordering.
+  - On the server, HTML for resolved fragments still streams immediately into
+    templates; only the `revealFragments` swap calls are stashed and drained in
+    resolution order when the enclosing `Reveal` releases the slot.
+
+  See `documentation/solid-2.0/03-control-flow.md` for the updated nesting matrix
+  and the "minimally ready" definition per order.
+
+- eb4e019: Hydration no longer hydrates a streamed `<Loading>` fallback when the fragment was already revealed but its `_fr` record hasn't settled yet (an async entry running between the two scripts). The boundary renders nothing and adopts the revealed content once the record settles (#4074).
+- de1c8b5: Revert the complete-seed requirement on derived store forms (#3258). Derived `createStore`, `createProjection`, and derived `createOptimisticStore` accept `Partial<T>` seeds again, on maintainer review: requiring a full `T` forces callers to fabricate a throwaway complete object in the common async case — any object store reconciling on a non-`id` key needs the options slot, hence the seed slot — while the seed is never observable there (reads pend until the first resolution). The type-honesty concern it addressed is real only for sync draft-reading callbacks and is better served by the seedless-callback direction discussed in #3194. Since #3258 never shipped in a release, its pending changeset is dropped rather than superseded; the API is unchanged from 2.0.0-rc.6. The #3260 overload alignment (slot order, `shallow` in options, `Refreshable` derived returns) is unaffected.
+- 8d249c7: Patch-mode list admission moves entirely to compile time: driveList engages only for row functions carrying the compiler's `rowProof` stamp (exported from @solidjs/web), and the runtime purity probe is deleted — no speculative execution of user row code, no probeMark/probeGate seams, no ownerIsBlank, no tentative empty-list engagement with late decline. Unstamped rows take the classic mapArray path before any DOM work; `lateClassic` remains only for engaged lists whose subject later leaves the contract (identity swap to a derived array, shallow/deep kind switch).
+- c74106f: fix multi insert/removal, ssr wip, async signal render
+- dfb31ed: Derived stores no longer need a seed (#3194). `createStore(fn)`, `createProjection(fn)` and `createOptimisticStore(fn)` accept a derive that takes no draft and answers a complete value — sync, a promise, or an async iterable whose every yield is a complete snapshot. The root is a plain object (an array keeps its `[]` seed); pass `undefined` for the seed to reach the options, e.g. `createStore(fetchUser, undefined, { key: "email" })`. Until the first answer lands the store is unreadable, as with any seed (A25); `seedLoadingValue` needs a seed and is not offered on the seedless form.
+
+  With the seedless form available, a seed is a complete `T` again (#3258's requirement, reverted then because async stores that needed the options slot had to invent one). A `{}` seed on a return-form derive is now a type error: drop it. A mutating derive that builds its object from an empty seed needs `{} as T`.
+
+- b749474: Pin `seroval` and `seroval-plugins` to exactly `1.6.7`: 1.6.8 changed the stream representation in a patch release and grew bundles. Stream detection now requires a real stream — the JSON decoder (server functions, frames) treats a value as a stream only when seroval's `isStream` holds and it has a callable `.on`, so decoded plain data that happens to carry a `__SEROVAL_STREAM__` key stays data. The frames container-trace check, the client container-trace materializer and the render stream's channel guard also recognize seroval's untagged stream class, and the frames border walk tests for an async iterator first.
+- 4645cff: Bump `seroval` and `seroval-plugins` to 1.7.0 (faster serialization: about 20–35% on hydration and JSON writes). A serialized write now ends at its first failing value, so later siblings in the same write are no longer sent after one fails; the keyed serializer settles that write instead of waiting for a `done` that seroval no longer sends. The JSON decoder's end-of-body open-stream count handles 1.7's single-consumer streams (from `ReadableStream` values).
+- 0f6a978: `seroval` and `seroval-plugins` now depend on `^1.8.0` instead of the exact `1.7.0` pin, so apps can share one seroval copy with other packages on 1.8.
+- e0e4224: A served answer's arrival during hydration no longer swallows a client write made in the same flush. Writes made before the arrival flush first, outside hydration's own pass, and a write made during it (an effect's, a later round of the flush) makes a node it reaches compute, so the node shows the written value instead of re-serving the server's answer. `@solidjs/signals` exports its internal flush-round counter (`clock`) for this.
+- bd95616: A hydrating client never asks again for an async memo the server answered with an error, when a boundary that resumes mid-stream reads it only through another memo (#4375). The resume created a reader (`isPending(m1)` of a memo `m1` over the rejected `m0`) on a later flush round than the one the rejection landed in, so the read retried the errored memo (PJ-R35); `m0` sat in the shell, outside the boundary being claimed, and hydration took the retry for a client write and ran its compute — a real request, with nothing changed. A served rejection now re-serves in a claim window's own round, as it already does in the round a served answer lands in; a write still recomputes it.
+- 87a3862: Server `createMemo` over an async iterable now keeps by-slot flight memory like thenables do: a `<Loading>` retry that re-creates the node adopts the slot's settled first value (or joins its pending flight) instead of opening a fresh iterable every pass, so sources that hand back a new iterable per call (subscribers, `liveQuery()`) converge instead of reporting "did not converge".
+- 61a114c: Server boundary records on `OBSERVE.server.records` (observe/dev tiers)
+  - New `"boundary"` record: one per `<Loading>` boundary that waited during a server render, delivered when it settles — `{ id, at, durationMs, heldMs, passes, outcome: "settled" | "fallback" | "client" | "error", streamed, revealGroup?, ownerPath? }`, with the thrown error beside it. `id` pairs it with `SSR_RENDER_ERROR_CONTAINED`; `passes` counts render passes (a sequential chain reads as `3+`); under a `<Reveal>` group the record waits for the group's swap so `heldMs` measures how long finished content was held for its siblings. No clock is read without a listener, and the emitter folds out of prod.
+  - The server records channel is `OBSERVE.server.records.subscribe(type, listener)` — the server twin of `OBSERVE.attribution.subscribe(type, …)`. `OBSERVE.server.invocations` (unreleased) is renamed onto it: `subscribe("invocation", …)`. The `InvocationChannel` type is gone; `ServerRecords` is the channel's interface.
+  - Types now layer one augmenter per interface: `@solidjs/signals` declares `ServerObserve` empty; `solid-js` augments it with `records: ServerRecords` and `trace: ServerTrace`, declaring both; `@solidjs/web` augments those two through `"solid-js"`. `TraceSlot` in `@solidjs/web` is now an alias of `solid-js`'s `ServerTrace`. (Two augmentations of one re-exported interface through different module aliases merge order-dependently in TypeScript — one set was silently lost.)
+  - `@solidjs/signals` exports `ownerPath(subject)` — the root-first component-label walk its diagnostics already make — so a record's `ownerPath` and the finding it pairs with come from the one walk.
+
+- 11beaf4: Context barrier at server-component render roots. A server component renders inline in the document at t=0 but standalone on every refetch and mutation region, so an app-context read that resolved a provider at t=0 would silently break on the next response. `runInServerComponentScope` rebuilds the scope owner's context record so both renders agree by construction: user context is severed (default-less `useContext` throws an error explaining the boundary; defaulted contexts read their default), providers rendered inside the server component work normally, and boundary plumbing (`ErrorContext`, `RevealGroupContext`, `NoHydrateContext`) still crosses — Loading/Errored/reveal coordination between server-component content and enclosing boundaries is intentional. Client slot positions are unaffected: they re-enter the zone owner captured outside the barrier, keeping full app context during document SSR.
+- 234cfc9: The server-component half of hydration installs from `@solidjs/web/frames`' `installServerComponents()`, not from `hydrate()`: `sharedConfig.holdBoundary` (the client hold on adopted markup counted as a pending boundary), `sharedConfig.hydrateWindow` (the claim window an adopted occurrence re-enters hydration through), fragment ownership by rendering (the `_$HY.fa` term of the reveal policy) and the ledger's published answer `_$HY.fr` on the solid side; the declared claim roots (`sharedConfig.claimRoots`) and the frame-region exclusion of the root sweep on the DOM runtime's side. A hydrating page without server components carries none of it — −686 B minified / ≈ −205…−243 B brotli on the hydrating apps (this returns the bytes the frames A0 correctness pass added to every hydrating page); a server-component page pays the two installers' glue (≈ +220 B minified).
+
+  Public surface (`@internal`): `enableServerComponentHydration()` on `solid-js` (runtime) and `solid-js/internal` (typed), a no-op on the server entry; `installServerComponentHydration()` on `@solidjs/web`, which installs both halves — the frames client calls it where it installs its reveal hook.
+
+- 80ff52e: Add development server builds — `dist/server.dev.*` for `solid-js` and `@solidjs/web`, and `frames/dist/server.dev.*` — selected by the `development` export condition nested under `node`/`worker`/`deno` (nesting is required: those conditions precede the top-level `development` key, so a top-level entry never matched on a server). Until now SSR had no dev build: the only server artifact was built with `_SOLID_DEV_` stripped, so the server runtime's dev checks (head/preload descriptor validation, `useHead` warnings, the committed-response header guard) never ran outside the test suite.
+
+  The server entries now gate their public dev flags on the same `_SOLID_DEV_` replace as their internals instead of hard-coding them: `solid-js`'s server `DEV` is `@solidjs/signals`' `DEV` object in the dev artifact (so `DEV.diagnostics.subscribe`/`capture` work server-side) and `undefined` in prod; `@solidjs/web`'s server `isDev` is `true` in the dev artifact and `false` in prod.
+
+  Behavior change for dev SSR hosts that pass the `development` condition (Vite dev does by default): a header write after the response has committed now **throws** with the offending header named, where the production artifact continues to `console.error` and drop the write.
+
+  Also runs `replaceDev(false)` on `solid-js`'s production server build so a future `_SOLID_DEV_` gate in `src/server/` cannot constant-fold into the dev branch in production.
+
+- 0d8347a: Server records reach the diagnostics artifact and the dev checks (server-dev-build-plan P4)
+  - `@solidjs/diagnostics` artifact format **v5**: `artifact.server: { boundaries, invocations } | null` folds `OBSERVE.server.records` when the scenario runs under the server runtime — `captureArtifact(() => renderToStream(…))` — one row per `<Loading>` boundary that waited and per server-function execution; `null` for client captures and the browser bridge. New exported types `ArtifactServer`, `ServerBoundaryRecord`, `ServerInvocationRecord` (mirrors of the runtime's `BoundaryEvent`/`InvocationEvent`; the package still depends on `@solidjs/signals` alone). JSONL egress adds `boundary` and `invocation` lines and the header counts.
+  - `InvocationEvent.boundary`: a direct server-function call made during a `<Loading>` boundary's render pass carries that boundary's hydration id, the `"boundary"` record's `id` — the join between a boundary's wait and the calls under it.
+  - Two dev checks derived from the boundary facts in `ssrLoadingBoundary`: `ASYNC_WATERFALL` with `data.side: "server"` (`passes - 1` sequential flights; 2 → `info`, structured only; 3+ → console `warn`) and a new code `SSR_CLIENT_CONTENT_MASKED` (`warn`, `ssr`) for client-only content that surfaced only after a real server wait — the server's work discarded, the fallback shown for the wait. Dev tier only; the boundary clock now runs in dev without a listener.
+  - `solid-js`'s server `emitFinding` keeps `info` findings off the console (structured channel only), matching the core.
+
+- 7623ce1: Server diagnostics on `OBSERVE.diagnostics`; `OBSERVE.server` owned by `solid-js`'s server entry
+
+  The server runtime now reports on the same structured channel as the client. **Findings** — facts about a render, present in observe and dev builds — `SSR_RENDER_ERROR_CONTAINED` (a render error a boundary routed; `data.handling` is `fallback`, `client`, or `failed` — the structured face of what `renderToStream`'s `onError` receives, on the process-wide channel), `SSR_SUBTREE_ABANDONED` (a failed fragment's pending descendants discarded), `SSR_STREAM_ABANDONED` (consumer cancelled or sink failed mid-render), `LATE_HEADER_WRITE` (recorded beside the existing dev throw / prod log), `SERVER_FN_ERROR_SANITIZED` (the original error the production wire replaced), and `FRAME_MARKER_CORRUPTED` from the frames client. **Checks** — dev-only guidance — convert every server `console.warn` to a code: `SERVER_WRITE`, `REVEAL_IN_RENDER_TO_STRING`, `LAZY_ASSET_UNMAPPED`, `PRELOAD_DESCRIPTOR_INVALID`, `HEAD_TAG_INVALID`, `BEHAVIOR_CLAIM_DROPPED`, and `UNRECOGNIZED_INSERT_VALUE` (now one code and a `render` kind on both platforms); `ASYNC_OUTSIDE_LOADING_BOUNDARY` on the server records with `data.side: "server"` before it throws. Server components are labelled for `ownerPath` (`createComponent` runs the body under a transparent `<Name>` owner in observe/dev — no hydration id consumed), so `in <App> › <Page>` reads the same on both sides, and the server entry installs the same repair-guide console footer as the client. Prod artifacts carry none of it; `DiagnosticKind` gains `ssr`, `head`, `render`.
+
+  `OBSERVE.server`'s objects (the invocation listener set, the trace-provider slot) are now created by `solid-js`'s server entry, once per process under `Symbol.for("solid-js/observe/server")` on `globalThis`, rather than by `@solidjs/web`'s module init: an observer's `init()` that imports only `solid-js` can subscribe and `provide` before the web runtime has loaded, and a host that bundles the runtime into its server build and instruments through a `--import`ed module finds one listener set and one provider across both copies. The core keeps `server: {}`; the client pays nothing.
+
+- 9ac1481: The server error hook (`configureServerErrors`, a render's `onError`) now hears each error object once per request — once per render when no request is in scope — instead of once per process (#4125). Reusing one `Error` object across requests (a module-level constant, a cached rejection) used to notify only the first request's hook and hand later requests the first request's mapped wire value; each request now gets its own report and its own answer. Within a request the hook hears an error once per `kind`: a direct server-function call that throws during SSR is heard as `server-function`, and the `<Errored>` or `<Loading>` that contains it is heard as `render`, so a render's `onError` alone tells you the render failed. Every road still carries the first mapped value.
+- 56858e7: The server error hook — `configureServerErrors({ onError })` from `@solidjs/web`, `onServerError` on `renderToStream`/`renderToString` and on `handleServerFunctionRequest`: the prod-tier seam through which a server integration hears every failure the runtime handles and may say what the client receives instead (sentry-integration-plan C6, #3468 part 3).
+
+  Until now a production build reported only the failure that fails a request (`renderToStream`'s `onError`); an `<Errored>` fallback rendered, a `<Loading>` fragment rejected and re-rendered by the client, and a server-function throw sanitized onto the wire were observe-tier findings only. The hook is called **once per error object, at first sight**, with where the failure was met — `kind: "render"` (`fallback` / `client` / `failed`, with the boundary's hydration id and the component labels when compiled in) or `kind: "server-function"` (`thrown` / `channel`, with `functionId` and `direct` for an in-process call during SSR) — and the request event. Its return is the **wire value**: rendered into the fallback, serialized for hydration, sent as the RPC error; `undefined` keeps the default policy (generic outside dev, fidelity in dev); ignored for `failed`. A direct server-function call that throws during SSR is reported once as the function's failure, and the boundary that contains it reuses the verdict. Two tiers as `wrapInvocation` has: ambient (registered on `globalThis` under `Symbol.for("solid-js/server/errors")`, shared by a bundled build and an `--import`ed module) and per request, the latter winning. A throwing hook is reported and treated as silent. The hook fires in every tier; `onError` keeps its meaning.
+
+  Internals: `solid-js`'s server entry owns the verdict engine (`reportServerError` / `ssrSanitizeError` through `solid-js/internal`, one cache per error object); the SSR context gains `errorPolicy` and `flushed`; the `_fr` rejection reads its verdict at delivery. A rejected async source's own serialized rejection is encoded in the rejection's microtask, ahead of the boundary, and carries the default policy's value — the mapping reaches the boundary's record, which the hydrating client renders from; no tick is added to the error path. `SSR_ERROR_SANITIZED` carries `data.wire`.
+
+- f4b0956: fix(ssr): lock server-side comp.value to first async iterable value
+
+  During SSR, async-iterable-backed computations (createMemo, createProjection) now lock their readable value to the first yield. Subsequent iterations still stream to the client via seroval, but SSR reads always return V1. This prevents hydration mismatches when Loading boundaries retry after the iterator has advanced.
+
+  For projections, the SSR-visible store state is deep-cloned at first value resolution, isolating it from subsequent generator mutations (including nested object changes).
+
+- 3fd0499: Server memos participate in the frame sink's binding ledger (DR-2 case 1, watched slot args). Frame renders install two hooks on the SSR context and the server reactive core now honors them; both are absent outside frame renders, where nothing changes:
+  - `ctx.commit` — settle sites poke it: a promise memo resolving or rejecting, an iterator memo's first value, mutations those settles made. A server-owned render (noHydrate — the HTML is the data) serializes nothing, so without the hook these settles were invisible to the sink's commit funnel and watched slot args latched at first success.
+  - `ctx.commitEpoch` — per-epoch memo caching: sync-valued memos (the sync fast path and full memos whose last result was plain) cache within one sweep and recompute when pulled after a later commit, so a watched arg's re-evaluation reads current derivations instead of the first render's cache. Async results are exempt — their values advance through their own settle machinery, and re-running them would mint new promises/iterators.
+  - Iterator memos get a ledger-gated pump: in a server-owned render nothing consumes the iterator past the first value (there is no serialization tap), so when `ctx.commit` exists the core keeps pulling — each yield advances the memo's value and commits. The pump never holds the response open; completion latches the last yield. The document-SSR tapped path deliberately keeps the first-value lock: markup rendered from V1 must keep reading V1 or a mid-stream boundary retry desyncs the HTML from hydration's replay.
+
+- ccf2cb5: Defer the server memo's async scaffolding to first async engagement. The disposal-flag cleanup closure registered eagerly on every async-path memo creation now arms only when a compute produces an async-shaped result or throws NotReady (the only cases the flag guards — stale in-flight serialization), and the rerun closure is hoisted out of update(). Async-path memo creation drops 39% (251ns to 154ns); news-page SSR throughput +8.5% end-to-end. Hydration id allocation is untouched — the deferred arming only appends to the creation owner's disposal list.
+- af94f67: Server observe surface: `OBSERVE.server` and the invocation channel
+
+  `OBSERVE` gains a `server` slot — an augmentable `ServerObserve` interface declared empty in `@solidjs/signals` (re-exported by `solid-js`), typed and emitted into by `@solidjs/web`'s server runtime, so server-side observability consumers subscribe on the one `OBSERVE` object they already know from the client. The first channel is `OBSERVE.server.invocations`: `subscribe("invocation", (event, live) => …)` delivers one `{ id, direct, at, durationMs, outcome, deferred? }` record per server-function execution — HTTP dispatch and direct SSR calls alike — when it settles, with the request event, `request`, `args`, and the result or the error as thrown beside it. Observers, not policy: any number of listeners, none able to alter the call; `wrapInvocation` remains the single policy hook.
+
+  `@solidjs/web` now publishes observe-tier server artifacts (`dist/server.observe.js`, `server-functions/dist/server.observe.js`, `frames/dist/server.observe.js`) under the `observe` export condition, alongside the existing dev/prod pairs. The surface and every emit site fold out of the prod artifacts.
+
+- da1f7bf: Keep ordinary property reads on rejected server projections throwing the original error instead
+  of exposing seed values, while preserving existing reflection and symbol behavior.
+- 8a380d0: Server async plumbing allocation trims: the settled-slot flight memory (#3003) moves from a WeakMap-of-Maps to a symbol-keyed plain object on the render context with in-place record transitions (recordSlot was the top allocation site in shell profiles), and ssrLoadingBoundary reads its parent contexts without owner switches and only pays the reveal-group severing setContext clone when a group is actually in scope.
+- 0205756: Server store setters now apply returned replacements (#3064): a setter returning a wrappable value adopts it into the same root as a plain data operation, matching the client contract — previously the return value was silently dropped while draft mutations landed. Array replacements truncate correctly (also fixes an array-shrink hole in projection sync replacement). Optimistic writes are now true no-ops on the server: `createOptimistic` setters and `createOptimisticStore` setters neither run nor land, since optimistic writes are masks that revert at settle and server output represents settled state — the old aliasing serialized optimistic masks as authoritative state. Server-side writes remain data-only: they update state for subsequent reads and serialization; nothing re-renders.
+- a61c929: A server component in a document marks its live holes only once the render has served something a later commit can replace: an async iterable it pumps, or a loading value or seed shown ahead of its landing. Until then a hole that resolves synchronously ships without `lh` markers, `data-lha` addresses or a ledger binding, because no channel op can ever address it. On a request/response page that is every hole: the 1,406-comment hackernews thread drops from 948 KB to 787 KB and renders in about half the server time.
+- 1561c7e: Sever reveal-group membership at boundaries during SSR (#2871, #2872)
+
+  Only direct `<Loading>` children of a `<Reveal>` now join its group, matching
+  client semantics where `createCollectionBoundary` clears the reveal controller
+  context for the subtree of both boundary types:
+  - A `<Loading>` nested inside another slot's content no longer enrolls in the
+    ancestor group, so a slow nested boundary can't stall `order="together"` or
+    park a `sequential` frontier. It is covered by its own fallback inside the
+    held slot and activates independently — the streamed runtime (from
+    `@dom-expressions/runtime` 0.50.0-next.20, whose deferred-activation queue
+    this change depends on) queues its swap until the enclosing slot goes live.
+  - An `<Errored>`-wrapped `<Loading>` likewise no longer holds the group
+    hostage; error fallbacks can appear without blocking group progression.
+
+  `RevealGroupContext` moved from `server/hydration.ts` to `server/signals.ts`
+  so `createErrorBoundary` can sever it without a circular import.
+
+- e87d694: `{ shallow: true }` computed stores keep their leaves raw on every path (#3498). The projection draft no longer wraps a nested value in a draft proxy — leaf identity holds and a frozen leaf can no longer trip a Proxy invariant — and the loading shadow, its commit copy, the SSR draft and snapshots, and the hydration replay shadow copy only the root container instead of JSON-cloning the tree, which turned `Date` into a string, `NaN` into `null`, dropped `undefined` properties, and could not represent BigInt or cycles. Deep stores are unchanged.
+- 38e0c49: `<For>` / `mapArray` over a shallow store diffs the store's backing array instead of reading every slot through the proxy. A one-row write on a 1,000-row shallow store spent ~1.3 ms in per-slot trap reads; the list's diff now costs what it does over a plain array (~0.05 ms). Optimistic shallow stores, accessor slots and reads inside a setter keep the per-slot path.
+- 1f558e5: Non-keyed Show's narrowed accessor no longer throws a stale-value error when an on-screen branch re-runs during a hold that is closing it: the guard reads the condition as the reading binding sees it (the screen), as Match already does
+- 84353de: A non-keyed `<Show>`'s or `<Match>`'s narrowed accessor read inside an `isPending()` thunk no longer throws the stale-value error for a branch that mounted in the flush its condition landed in, so the thunk's later reads link and the verdict flips (#4648). The exemption holds only inside a verdict window (`isPending` / `latest`): a plain read of the accessor while its branch's opening is held still throws, rather than hand out the committed falsy.
+- aece1d4: `from(source)` turns a callback subscription (`(next, error, complete) => unsubscribe`), an Observable (`subscribe(observer)`, with `Symbol.observable` / `"@@observable"` interop) or an AsyncIterable into an AsyncIterable for a computation: `createMemo(() => from(source))`. A subscription keeps only the latest value, and a value emitted during `subscribe` lands with no loading frame; an AsyncIterable streams through. Errors reach the nearest error boundary. The source closes when the computation re-runs or its owner is disposed, without waiting for the replacement's first value, including a `for await` over `from` that starts before an async generator memo's first `await`: an internal supersede hook chains onto the node's iterator teardown slot (#3122). On the server, `from` streams like the client, and `ssrSource` decides how much of it the server consumes. Subscriptions and Observables carry the live-source brand, so the server serializes their first value and unsubscribes, and the hydrated client subscribes again. The server releases the source on `return()` or owner disposal.
+- 01e3a57: Attribution: transition holds and the `SILENT_HOLD` diagnostic.
+
+  When a write lands on async work the runtime holds it until the data settles — correct, but from the user's side the click did nothing until then. The attribution engine now records every such hold that staged a root write (`DEV.attribution.holds()`: duration, parked flushes, the held writes with their values, the async blockers, and which affordances answered it), and emits `SILENT_HOLD` when the screen provably rendered no acknowledgment: no `isPending()`/`latest()` reader anywhere downstream of the held writes or their blockers, no optimistic value, no `affects()` mark, and no effect ran inside the parked flushes. The verdict is tiered by `holds: { infoMs, warnMs }` (default 300/500ms): advisory on the structured channel, then a console `warn` naming the write, the blocker, and the concrete repair — `isPending(() => blocker())`, `latest(source)`, or `createOptimistic` for actions. Holds with no root write (initial loads, bare `refresh()`) are never judged.
+
+  New dev hook points on the core (`effectRun`, `holdStart`/`holdEnd`, `transitionSettled`, `transitionMerged`) sit outside every `try` and fold out of prod — verified byte-identical against the size scenarios. `DiagnosticKind` gains `"responsiveness"`; `solid-js`'s console footer teaches the attribution surface for it, and the reactivity-diagnostics skill documents the repair.
+
+- 3e3c875: remove runWithObserver, add back createReaction, createTrackedEffect
+- 254daf8: Serialize a boundary's lazy-module map (`<id>_assets`) as a snapshot (`{ ...modules }`) instead of the live object in `commitBoundaryState`. The map can gain entries after the boundary's first serialization (a nested lazy registering post-flush), and the streaming serializer's reference dedup would re-emit the same mutated object as a back-reference to the stale first snapshot, dropping the later entries and halting lazy hydration on the client. Defense-in-depth alongside the same fix in dom-expressions' `serializeFragmentAssets`; server-only, no client bundle impact.
+- 3d8a8a9: Ship the Solid 2.0 primer for coding agents as the `solid-2.0` skill, emit `CHEATSHEET.md` as the `solid-2.0-cheatsheet` skill on build, give every shipped skill the `name`/`description` frontmatter the Agent Skills format requires, and add the `tanstack-intent` keyword so skill registries discover them in `node_modules`.
+- b8c4534: Use Solid-native names for internal development markers and experimental frame protocol identifiers.
+- 3d8a8a9: `solid-js` now ships `diagnostics.json` next to `CHEATSHEET.md`: the machine-readable catalog of every dev diagnostic code — `code`, `kind`, `severity`, `category`, `trigger`, `repair` (the first sentence of the code's section in the `reactivity-diagnostics` skill) and `guideUrl` (that section on GitHub). It is generated from the `DiagnosticCode` union, the RFC's quick-reference table and the skill by `pnpm diagnostics:json`, and a test fails when any of the three (or the committed file) names a different set of codes. The quick-reference table gains its missing `PRIMITIVE_IN_EFFECT_CALLBACK` row.
+- 4e730a9: `spread()` reads a `merge()` proxy through its sources instead of through the proxy. A spread mixed with other attributes compiles to `spread(el, merge(statics, () => rest))`; going through the proxy cost merge's `keys()` (a `Set` plus an own-enumerable scan of every source) and then, per key, a right-to-left `in` walk of the sources, on every run. The spread now iterates the flattened sources directly — the union of own string keys, later sources overriding earlier, `children`/`ref` excluded — and enumerates each source through the same single-trap path as `readShallow()`. `omit()` is not a merge and stays opaque: it is enumerated through its own filtering trap. Own keys only, per source: a key an earlier source owns and a later source merely inherits resolves to the earlier source's value (the proxy's `in` walk saw the inherited one) — spread has always applied own properties only. `@solidjs/signals` gains an `@internal` `mergeSources()`. Guarded by the Tier-1 `spread-enumerate` bench (`merge(static, reactive)` row). `readShallow()` re-maps a class array element-wise instead of copy-on-write (−58 B brotli on `web.js`; `className` allocates for an array anyway, measured at parity).
+- 5426ffb: Fix a server-rendered `<Errored>` fallback hydrating dead (#3414). When the boundary's children threw synchronously on the server and the fallback was a zero-arg thunk (`fallback={() => <Fallback />}`), the thunk was handed back unresolved and unwrapped by the enclosing boundary — the client does that inside the boundary's flatten computed, the server did it inline under the boundary owner — so the fallback's hydration keys disagreed, its root element failed to claim the server node, and its event handlers and effects never attached. The server `Errored` and `Loading` boundaries now resolve their children's result in a virtual id scope mirroring the client's second computed; the error record stays at the boundary id.
+- 63560a1: `componentNames` now applies to SSR output. Under the option both compilers keep the `createComponent` call they otherwise inline to `Comp(props)` and pass the source tag name — `createComponent(Comp, props, "Comp")` — so the server runtime's observe/dev `createComponent` labels the owner and a server finding's `ownerPath` reads `<App> › <Page>` like the client's. Without the option (prod builds) SSR output is unchanged. `@solidjs/vite-plugin` already passes the option for its dev and observe postures, so app server builds pick this up with no config change.
+
+  Fixes `ssrScope` under transparent owners: the virtual hole scope swapped the current owner's id counter, but content inside a hole resolves ids by walking past transparent owners, so with one in between (the server-component scope owner; now the labelled component owner) the hole's content took ids from the enclosing counter and disagreed with the client. The scope now swaps the nearest id-bearing owner.
+
+- 34287d8: SSR render failures reach the client sanitized (#3468): the wire policy the server-function handler has applied since #3113/#3116 now covers every SSR road a failure takes — the error an `<Errored>` serializes for hydration, a rejected async source serialized into the stream, a `<Loading>` fragment's `_fr` rejection, a frame stream's error chunks (the fragment's, a live hole's, the root's). Outside the dev build a plain thrown value is replaced with a generic `Error` (`"Internal Server Error"`); `message`, `cause` and own properties stay on the server. A `"use server"` function called in-process during SSR never touches the RPC wire, so before this the production page load shipped what that wire withholds.
+  - **`solid-js`** (server): `<Errored>` sanitizes _before_ rendering its fallback and serializes the same replacement, so fallback markup and the hydration record agree. A fallback printing `err().message` shows the generic message in production, as for a server-function failure. `markSafeError` (`Symbol.for("solid.SafeError")`) passes through with own properties; an Error reached as a _value_ is data and passes as written (#3113's ruling). One replacement per original, however many roads it takes. New finding `SSR_ERROR_SANITIZED` (`info`, observe + dev; `data.error` the original), beside `SSR_RENDER_ERROR_CONTAINED` which carries the failure itself. `ssrSanitizeError` is exposed to the runtimes through `solid-js/internal`. Server findings now carry their `ownerPath` in the **observe** artifact too — the core's walk reads `_parent` under its own build's property mangling and found nothing on a server owner there, so the server entry locates its findings itself.
+  - **`@solidjs/web`** (server): the hydration serialize funnel guards every channel it writes (a promise's rejection, an async iterable's thrown step); a fragment's terminal error reaches the `_fr` rejection and a transport sink's error chunk sanitized while the abandonment ledger keeps the original; the frame sink's root error chunk and the live-hole/live-attribute error chunks carry the replacement's message.
+  - **`@solidjs/signals`**: the `SSR_ERROR_SANITIZED` code.
+
+  The dev/prod line is the build variant: the `development` server artifacts keep full fidelity; production and observe sanitize.
+
+- 9b883e0: Fixed two SSR async-source regressions from 1.x (#2857, #2858):
+  - A rejection with a falsy value (`undefined`, `null`, `""`, `0`, `false`) was treated as resolved by the server memo read path — the HTML rendered the success branch while the hydration payload serialized the same source as rejected. Error presence on server computations is now tracked as a flag instead of a truthiness test on the error value, so falsy rejections render the `Errored` fallback exactly like truthy ones.
+  - Server async detection only recognized native `Promise` instances, so a non-Promise thenable (PromiseLike) returned from a memo was stored as a sync render value and skipped by the renderer with "Unrecognized value". SSR now uses the same object-thenable detection as the client async runtime (async-iterable takes precedence, matching client order): thenables under `<Loading>` are awaited and rendered, and without a boundary they surface the same missing-boundary diagnostic as a native `Promise`.
+
+- 098876d: Fix hydration key mismatches when async holes defer past eager siblings
+  (#2801 bug 2). New `ssrScope` (server): reserves one hydration id slot at
+  registration and evaluates the hole — including async retries — under the
+  reserved id with a zeroed child counter (a virtual scope in the style of
+  mapArray's row-owner elision, so no owner allocation on the hot path). On
+  the client, `@solidjs/web`'s `effect` wrapper now honors a `scope: true`
+  option (set by the dom-expressions `insert` for compiler-tagged hole
+  accessors) that makes the outer insert render effect non-transparent, giving
+  the same hole its own id scope. Hole content ids gain one nesting level
+  identically on both sides, so deferral timing can no longer shift sibling
+  hydration keys.
+- c8c5eb1: Server rendering only treats nodes the runtime made as finished markup. `ssr()`, `ssrElement()` and the frames sink now stamp their nodes with the `Symbol.for("solid.ssrNode")` symbol (as `$`, a value no data can hold), and every insert position checks it instead of the object's shape. A plain object with a `t` key (or `t`, `h` and `p`), such as one parsed from JSON, is data: it renders nothing and gets the dev warning UNRECOGNIZED_INSERT_VALUE, like any other plain object. The async-memo landing check (ASYNC_MEMO_ELEMENT) uses the same brand, so such data now serializes like other data instead of being refused. Server only; no client bytes.
+- 231a3d8: server: a disposed owner returned to the SSR owner pool drops its `_context`, so a finished render's provided values (and anything they reach) can be collected once its stream ends, even when concurrent renders fill the pool (#4890).
+- d966729: On the server, a render effect's retry and a projection's re-derive (`createProjection`, `createStore(fn)`, `createOptimisticStore(fn)`) run under their own render's context once a pending source settles, as an async memo's retry already does (#3972). Under concurrent requests they ran under whichever render set the context last, so anything the pass created took the other request's hydration ids.
+- a405039: On the server, an async memo's retry (when its source settles) runs under its own render's context instead of whichever concurrent render set it last (#3972). Under concurrent requests, slot content created by the retry took the other request's hydration ids, which could leave the server spinning or fail hydration with "Hydration key miss".
+- af1c71e: SSR robustness against pathological retry loops (SSR stack-overflow diagnosis amplifiers). `lazy()` now memoizes `resolveAssets(moduleUrl)` per request via an internal `HydrationContext` map — component bodies re-run on every suspended render pass, and dev-server manifest resolvers do real work per call, so re-asking multiplied that work by the retry count times every lazy() on the page (only the resolution is cached; per-boundary asset attribution is unchanged). And real errors surfacing during boundary/root-hole retries are now contained instead of escaping as unhandled rejections that kill the process: `finalizeError` routes handler-less errors through the renderer's new `failRender` seam (report via the render's `onError`, wind the render down), and `ssrHandleError` no longer masks the original error with a `NoOwnerError` when a retry pass re-pulls a hole from an ownerless flush microtask.
+- 20204ec: Server `scope` reserves the hydration slot without formatting an id string until a child needs one; recovers most of the renderToString cost added by #3599.
+- 7742b28: SSR: one async source, every reader. A generator yields to one reader, so under a server render the serializer pumping a memo's answer `{ meta, progress: gen }` and a memo reading `answer().progress` split the generator's yields between them (the client received half the sequence; the reading memo could miss V1). Every async iterable the runtime reads on the server now goes through a seat on a shared multicast of the source (`shareAsyncIterable`, `solid-js/internal`): one pump, the whole sequence for every seat, a log trimmed to the slowest open seat, the last seat out closes the source. The serializer takes its seat through the border walk (`toBorderForm`, formerly `envelopeContainerTraces`) at `context.serialize` — for iterables nested anywhere in a memo's resolved value on the document face, and for frame slot args — and the frame sink's first-yield tap for document-face slot args uses the same seats, so a server component reading a source it also passes across no longer splits it.
+- 7addcc6: Fix two SSR failures when the shell suspends above an `<Errored>` (a lazy memo throwing `NotReadyError`, the router's flash-decode shape). A `<Loading>` below the boundary whose content settled before the shell's suspension did lost its content: the fallback shipped and nothing swapped it, because the fragment inlined into a shell that did not yet hold its placeholder. And a hole that reached a suspension through a returned accessor (`{props.children}` resolving to an `<Errored>` whose subtree is pending — a `lazy()` route with no `<Loading>` between, for one) re-read its expression on every retry, re-creating every component above the boundary — state and pending sources included, so a component owning its pending source never converged. The retry now resumes the accessor that suspended.
+- 4ff6580: Server rendering: a suspended read unwinds to its boundary through fewer handler frames. `runWithOwner`, the sync memo's pull, `ssrScope` and `runWithBoundaryErrorContext` restore their state in one catch (and inline on the normal path) instead of a catch plus a finally, and a sync memo whose eager pull met a `NotReadyError` re-raises it for a read in the same synchronous turn instead of running the compute a second time. No behavior change; streaming pages with many pending boundaries flush their shell sooner.
+- 568ed6f: Add ssrSource support for createEffect and createRenderEffect; fix server createEffect to run compute function
+- 4e67d45: Fix nested `Reveal` readiness across the client and streaming SSR.
+
+  Empty or synchronously resolved composites now count as minimally ready, so an
+  enclosing `order="together"` group cannot deadlock. Nested `order="natural"`
+  groups also report readiness as soon as one direct child is minimally ready,
+  and nested client `order="together"` groups propagate the same direct-slot
+  readiness they use for their own release. Readiness and completion on the server
+  are held until all synchronous child slots have registered, preventing an early
+  child from making a partially constructed group release prematurely.
+
+- 56a982c: The first draft write to a plain store array clones it with `slice()` instead of copying one property descriptor per element. A push into a 10,000-row store drops from ~10.7 ms to ~0.15 ms per write. Arrays with accessors, named keys or a non-Array prototype keep the descriptor copy.
+- 234cfc9: The store hydration adapters (`createStore(fn)` / `createProjection` / `createOptimisticStore(fn)` under hydration: snapshot adoption, the parked patch backlog, the hybrid handoff) move to their own source module, and `solid-js/internal/container-trace` — the frames traces tier's materializer, a lazy chunk — bundles its own copy of it instead of reading the eager slot `enableHydration()` fills through `withStoreHydration`. Reading the slot from the lazy chunk pinned every adapter into the entry chunk of a server-component page that never creates a client store (an app bundler keeps a module eager whenever an eager module imports it); the copy is inert by construction — the adapters declare no module-level state, and every piece of shared state is read back from the one `solid-js` instance. −2,550 B minified / ≈ −575 B brotli on the compiled server-component page; 0 on pages whose root pass creates a derived store (they keep the eager install); the lazy `trace.js` chunk grows ≈ 0.5 KB brotli.
+
+  Public surface (`@internal`, stripped from the declarations): `withStoreHydration` is removed from the `solid-js` client and server entries (its only consumer was the trace entry); the client entry gains the runtime exports the adapter copy reads — `readSerializedOrCompute`, `subFetch`, `readHydratedValue`, `wrapFirstYield`, `adoptedAnswerStream`, `withHydrationGate`, `onHydrationEnd`, `noHydrationId`, `markTopLevelSnapshotScope`, `hasLoadingWindow`, `isAsyncIterable`, `syncThenable`, `UNASKED` — mirrored on the server entry as inert stubs for export parity.
+
+- 8a6de0f: Dev builds now warn with `STRICT_READ_UNTRACKED` (#1742) when an element's event handler expression reads reactive state, e.g. `onClick={selected() ? a : b}` or a `props.onClick` the parent passed a reactive expression. A handler is bound once, where its element is created, so such a read is not meant to be reactive; the warning says to read the value inside the handler function instead. A pending async read there throws `PENDING_ASYNC_UNTRACKED_READ`, as in a component body. The read still tracks, so dev re-mounts on a change exactly as production does.
+
+  Production output is unchanged byte for byte. In dev DOM output both compilers wrap each handler expression that can read reactive state (anything but an identifier, an inline function or a literal), including the `[handler, data]` form's bound values on delegated events, in a new `strictHandler(() => expr)` helper from `@solidjs/web`. It reads `expr` through `strictReadTracked`, a dev-only strict-read window that keeps tracking (internal, from `@solidjs/signals` via `solid-js`). No production-compiled module imports either, so they tree-shake away.
+
+- d1e6e29: Add dev-mode warning for untracked reactive reads in component bodies and control flow callbacks. Signals, memos, and store properties read outside a reactive scope now emit a console warning with the component or flow control name. Integrated into devComponent, Show, Match, For, and Repeat. Zero production overhead.
+- 8187065: Use untrack(fn, strictReadLabel) for strict-read warnings instead of separate setStrictRead API
+- 8511fc1: Support async callbacks in createMemo and createProjection on the server by retrying when a NotReadyError-rejected promise is detected, instead of treating it as a terminal error
+- 26ea296: Suppress dev-mode "owned scope" warnings for internal hydration-gating signals by marking them as pureWrite, and bump @solidjs/signals to 0.13.3 which decouples snapshot exclusion from pureWrite via a new \_noSnapshot flag
+- 80b4e8d: Mark internal control-flow memos as `sync: true` on both client and server runtimes (`Show`, `Switch`, `mapArray`'s outer body, `repeat`'s outer body, `children`'s outer flatten memo, `lazy`'s outer render memo, plus `Show` / `Switch` non-keyed condition wrappers). The user-input-facing memos (`when={…}`, `each={…}`, `props.children` getter, `lazy()`'s pending promise) stay async-shape aware. This skips the per-recompute Promise/AsyncIterable probe in `recompute` (client) and the corresponding `ServerComputation` / `processResult` / `$REFRESH` scaffolding (server) for memos statically guaranteed to return synchronously, reducing per-render overhead in SSR and client renders without affecting async behavior.
+- d037842: Tighten Show and Match JSX typings to reject ambiguous zero-argument function children.
+- 84c80f9: Make devComponent use transparent owner so dev-mode IDs match production for hydration parity. Bump @solidjs/signals to 0.10.3 for transparent owner support.
+- ab5f83c: Promote the `transparent` option on effects to typed, documented public API. The runtime has always honored it on `createEffect`/`createRenderEffect` — a transparent node is invisible to the hydration id scheme (it inherits its parent's id instead of consuming a child slot) and its compute runs live during hydration instead of adopting the serialized server value — but the flag was absent from the published `EffectOptions` type (typed only on `MemoOptions`) and documented nowhere, forcing integrations to cast on faith (`@solidjs/router` ships `{ transparent: true } as {}` on its client-only link-state and scroll-restoration effects). It exists for client-only reactive nodes created while hydrating, which have no server-rendered counterpart and would otherwise shift every later sibling's hydration id, and it is the supported alternative to branching on hydration state, which freezes whatever the first run decided. SSR ignores the option (server-side nodes always allocate their id slot), so it is documented for nodes the server does not create. Types, JSDoc, and RFC 05 docs only — no runtime change; every size scenario is byte-identical.
+- 87934c1: Smaller bundles: builds without the optimistic-store, reveal-order or lane hook modules drop their dead branches, and the #4273/#4275 fixes share existing paths.
+- 5d57e12: A `<Loading>` whose fragment was cut off by a truncated stream renders fresh on the client and adopts the records the server sent. The records the stream never settled were still in the registry at that point, so the fresh render adopted their promises, which never settle: the boundary stayed on its fallback and its reads never ran. Truncation now removes those records before any boundary resumes. Reads the server never answered compute on the client, and the values and errors it sent before the cut are still adopted.
+- d7f95bb: Truncation sweep covers every pending registry ref, not just `_fr` boundary declarations. The #2958 sweep released hanging boundaries, but a dropped stream also strands the registry's plain serialized promises — owner-id computation values and library-keyed data refs (e.g. @solidjs/router's query channel) — as never-settling: a keyed consumer that adopted one (the router consumes one-shot and deletes the key) awaited it forever with no rejection to recover through, and a late reader adopted a promise that could never settle. At DOMContentLoaded every still-pending seroval resolver is dead (the settle scripts execute during parse), so the sweep now walks the cross-reference scope (`self.$R`) and answers per consumption state: promises already claimed out of the registry reject through their resolver (the bare promise is the only channel left to that consumer, and its `.then` chain handles errors), while entries still registered are deleted so future presence checks fall through to a fresh compute/fetch instead — rejecting those raw would land an unhandled error inside live owner-id adopters that no boundary can route (the fragment pass has already released the boundaries) and halt the reactive system, which is also why the sweep runs a macrotask after the fragment pass: boundary teardown must dispose its hydration-time adopters before the rejections land.
+- 99d9821: A stream cut short no longer hangs hydration when the client runtime starts after the parser finished (#2958). The truncation sweep only armed when `hydrate()` ran while `document.readyState` was still `"loading"`. An entry that ran later, such as one waiting on a route module that arrives after `DOMContentLoaded`, or a deferred module entry, left every unsettled `_fr` declaration pending, so its `<Loading>` kept the fallback and hydration never ended. When the document carries the in-render bootstrap (`<HydrationScript />`, which declares `_$HY.s`), a runtime that boots after parsing now runs the same sweep at boot: the records that can no longer settle leave the registry, the cut fragments are rejected, and a macrotask later the refs a keyed consumer already took are rejected. Documents with a host-placed bootstrap (`generateHydrationScript()`) are unchanged.
+- 381d895: update signals to store/projections with returns
+- 07471da: Add typed preload links to the server asset pipeline.
+
+  Static manifests can attach `preloads: PreloadLink[]`, resolver results can carry the same shape for framework integrations, and any integration can register a link with `registerAsset("preload", link)`. The runtime preserves `as`, MIME type, CORS mode, integrity, referrer policy, fetch priority, and media attributes across string, streaming, embedded-head, custom-sink, and frame renders.
+
+  `lazy()` and `clientOnly()` forward resolver-provided preload links alongside their JS and CSS.
+
+  `JSX.HTMLPreloadAs` and `JSX.HTMLFetchPriority` are now exported for reuse.
+
+  Preload links are explicit: manifest `assets` are not preloaded automatically. Existing stylesheet and modulepreload APIs are unchanged.
+
+  Development builds warn when font or fetch preloads omit `crossorigin`, because a different eventual request mode cannot reuse that preload.
+
+  Frame clients also retain and consume every late root asset record instead of dropping earlier records that reuse the same transport key.
+
+- 6cca8b5: Dev builds now warn with `UNCOMMITTED_INPUT_OVERWRITTEN` (#4186) when a stateful DOM property binding (`value`/`checked` on an input, `value` on a textarea, `value`/`selected` on an option, `muted` on media) is about to re-write the value it wrote last time over an edit the user never committed to the bound signal — e.g. `value={props.name} onChange={commit}` with no draft signal, when another dynamic attribute in the same template changes. Runtime behavior is unchanged: the write still happens, once per element and property the warning names the fix (write the signal from `onInput`, use `defaultValue`/`defaultChecked` for an uncontrolled element, or write a rejected edit back with `e.currentTarget.value = next`).
+
+  Production output is unchanged byte for byte. In dev DOM output both compilers write stateful properties through a new `setStatefulProperty(el, name, value)` helper instead of the inline `el.name = value`; hydratable output keeps `setProperty`, and `spread`/`assign` check in the runtime. The check lives only in `@solidjs/web`'s dev build; the production entry carries a plain `node[name] = value` stub that no production-compiled module imports, so it tree-shakes away.
+
+  The "Form inputs" section of the DOM RFC, the cheatsheet and the solid-2.0 skill now say that a change to any other dynamic attribute in the same template re-runs a stateful binding, link the new code, and drop `equals: false` as a way to reject input (it is what the warning reports); write the accepted value back with `e.currentTarget.value = next` instead.
+
+- 2c9fdd9: Hydration never asks again for what the server sent, even when a streamed boundary's fragment rejects with no outcome (no `<Errored>` on the server could draw the failure). The client still renders that fragment fresh, so its graph is created, but every read in it now claims its serialized record: reads the server resolved take their values, and a read whose record is an error throws that error to the nearest client boundary, or is an uncaught error when there is none. Only reads with no record, such as those cut off by a truncated stream, compute. Recovery comes from a real input change or a boundary's `reset()`, as for any hydrated failure.
+- 6c8c956: Attribution: `UNSTABLE_LIST_IDENTITY` diagnostic. When a `mapArray`/`<For>` update disposes and recreates most rows while the entering items are field-for-field equivalent to the ones they replaced (a re-fetch handed back fresh objects for the same records under identity keying, or a key function returned unstable keys), every row's DOM and state was thrown away and rebuilt for data that did not change. `mapArray` now hands the exited and entered items to the attribution engine after a churning commit (`AttributionHooks.listChurn`); the engine pairs them (by `id`/`key`/`_id` when present, else by position), samples shallow equivalence, and warns once per list naming the repair — key by a stable field or merge with `reconcile(data, "id")`, or, when a key function is already in use, return a stable field from it. `mapArray` nodes now carry the `name` option as their node name in dev so the list is named in the report.
+- 0c02d42: Add `until(fn, options?)` — the acknowledgment primitive for mutations confirmed on a live data channel (sockets, subscriptions, live queries) rather than by the mutation's own response. Resolves the first time the reactive predicate settles truthy (falsy and pending both mean "not yet"); `yield until(...)` from an action holds the transaction — and its optimistic state — open until the world confirms, with `{ timeout }` (`TimeoutError`) and `{ signal }` rejections throwing back at the yield point so failed holds revert like any failed action.
+
+  The predicate reads the AUTHORITATIVE view, and the carve-out is exactly one layer deep: the caller's own optimistic overrides (values and structure) are invisible, so a tentative write can never satisfy its own ack — including on the single-primitive shape where the optimistic store is the live-fed store. Everything else reads normally, including uncommitted transition-staged data: truth landing into the open transaction (e.g. a `refresh()` the action issued) stages and cannot commit until the hold releases, so refusing staged reads would deadlock the hold on its own data plane. The A17-silent "landing equals the override" paths wake authoritative readers only (`CONFIG_AUTHORITATIVE_OBSERVED`); the wakeup machinery is hook-installed at first `until()` call so unused apps tree-shake it.
+
+  Also fixes `resolve()` (and `until()`) delivering stale values when their source settles into a held transaction: promise-delivery effects apply on a microtask (#2930) but their computed value staged with the transition, so the immediate apply read stale mainline state — `resolve` could report pre-refresh data and `until` could deadlock. Such effects now commit their value directly (`CONFIG_DIRECT_COMMIT`), keeping value and delivery on the same schedule; safe because effects are private leaves (no subscriber reads an effect's value).
+
+- eb3d699: Dev: warn with `UNTRACKED_READ_AFTER_AWAIT` when an async computation first reads a signal, memo, or store property after an `await`. Such reads are not dependencies, so the computation silently keeps its old result when they change. The check attributes the read to its computation through V8 async stack traces (Chromium browsers, Node, Deno, Bun; silent on other engines), runs only in dev builds, keeps dev settle timing identical to production, warns once per computation per signal/memo and once per store, and does not blame a continuation for reads made by effect callbacks, cleanups, or `action()` bodies it triggered.
+- fbbd7e3: Update dependencies (signals 0.10.5, dom-expressions 0.41.0-next.5) and fix build compatibility with Turbo 2.x and TypeScript 5.9
+- f6a3540: Update dom-expressions to 0.50.0-next.16. Pulls in: per-slot insertion markers so adjacent expression slots no longer destroy nodes migrating between them (#2830), delegated events reaching outer roots across nested render roots (#2832), recovery from module preload failures during hydration plus manifest asset URL normalization (#2817), non-destructive style object diffing with explicit-undefined removal (#2828), preserved JS value semantics for wrapped `&&` conditions, and the hole id scope hydration fixes (#2801).
+- 8ca127d: Update dom-expressions to 0.50.0-next.19. Pulls in resolver manifests: the
+  `manifest` option of `renderToString`/`renderToStream` now also accepts
+  `{ resolve(key), resolveSync?(key) }` (or a bare function) as an alternative
+  to a static manifest object, so dev servers can answer asset lookups from
+  their live module graph. `resolve` may return a promise and may resolve CSS
+  entries to inline-style descriptors (`{ id, content, attrs }`) for HMR
+  adoption; `resolveSync` is exposed on the render context as
+  `resolveAssetsSync` for sync consumers like `lazy()`'s `moduleUrl` getter.
+  Also picks up an internal perf refactor of root-level insert cleanup
+  (foreign-sibling detection via O(1) pointer checks).
+- 93ea8a1: Update dom-expressions to 0.50.0-next.34. Pulls in: single-flight for frames (`frameTransformFlightResult`, flight codec, per-frame versioning and outcome chunks), per-args boundary identity with host retention so cached server-component calls re-materialize instantly and never collide across argument sets, the server-component context barrier hook, keyed slot ranges relocating correctly across parents during morphs, a frame-client size pass, and the typed `transformFlightResult` seam.
+- c3fa949: Update dom-expressions to 0.50.0-next.35. Pulls in: live slot props (args changes rebind the mounted slot instead of re-creating it), call-site handoff for dynamic's live mount when a server component changes arguments, streamed-fragment reveals routed through the runtime reveal policy (`_$HY.f`) so late-arriving fragments are held for their claimant instead of discarded, and the morph fix that restores displaced slot ranges into wholesale-inserted parents (regrown list rows no longer render blank after clearing a search).
+- 6b4af47: Update to `@solidjs/signals` 0.13.8 and drop redundant hydrated async-iterable cleanup now handled by the signals core.
+- 2922dbb: Update the bundled `@solidjs/signals` baseline to pick up the recent beta bug fixes from #2628, #2631, #2633, #2634, #2635, #2636, #2619, #2637, #2638, and #2639, covering loading and error boundaries, pending state propagation, tracked effect semantics, `resolve()` behavior, and async generator projection and optimistic-store fixes.
+- 53dcb14: expose new transition methods
+- dea16f3: Add server-side rendering implementation: pull-based server signals, streaming Loading component, SSR-aware flow controls, and hydration context infrastructure
+- 93fa11a: fix: `csstype` is declared by the packages whose published JSX types import it (#4922). `@solidjs/web` (#4923) and `@solidjs/h` now depend on it, and `solid-js`, whose types no longer use it, drops it.
+- 6b317b2: `@solidjs/web`'s published declarations no longer import `heldRead` from `solid-js`, which strips it from its own declarations. Any project with `skipLibCheck: false` got a type error from rc.22's `client.d.ts`. The seam now comes from `solid-js/internal`, which declares it. A new `skipLibCheck: false` type check over every `@solidjs/web` entry's published declarations catches a stripped import before release.
+- Updated dependencies [8ff4803]
+- Updated dependencies [7b8fd28]
+- Updated dependencies [e9c464b]
+- Updated dependencies [82d61b4]
+- Updated dependencies [ef4d53e]
+- Updated dependencies [c9d1eeb]
+- Updated dependencies [615bb17]
+- Updated dependencies [0c550fd]
+- Updated dependencies [4f8daa2]
+- Updated dependencies [500d484]
+- Updated dependencies [213c0af]
+- Updated dependencies [500d484]
+- Updated dependencies [3d8a8a9]
+- Updated dependencies [59dd11f]
+- Updated dependencies [215de3b]
+- Updated dependencies [34c65b8]
+- Updated dependencies [c04931b]
+- Updated dependencies [aa39752]
+- Updated dependencies [ad973ed]
+- Updated dependencies [0da94f9]
+- Updated dependencies [2a0da2f]
+- Updated dependencies [5755ddd]
+- Updated dependencies [a9b9f9e]
+- Updated dependencies [8bf04ea]
+- Updated dependencies [e13ca05]
+- Updated dependencies [f509fe3]
+- Updated dependencies [fd36d37]
+- Updated dependencies [6c8c956]
+- Updated dependencies [1a1e2f2]
+- Updated dependencies [eaa7e33]
+- Updated dependencies [21c5460]
+- Updated dependencies [ebedb44]
+- Updated dependencies [fd36d37]
+- Updated dependencies [ddf8281]
+- Updated dependencies [fd36d37]
+- Updated dependencies [c383795]
+- Updated dependencies [c4a2f2f]
+- Updated dependencies [7c14e23]
+- Updated dependencies [8d249c7]
+- Updated dependencies [0564da2]
+- Updated dependencies [51ffcb9]
+- Updated dependencies [ecb68a1]
+- Updated dependencies [a8a8949]
+- Updated dependencies [b07fed5]
+- Updated dependencies [b2bec73]
+- Updated dependencies [d80cd1f]
+- Updated dependencies [f2aba67]
+- Updated dependencies [4b5272f]
+- Updated dependencies [49a765c]
+- Updated dependencies [a7fe050]
+- Updated dependencies [0847122]
+- Updated dependencies [e141459]
+- Updated dependencies [52008d9]
+- Updated dependencies [46ab2dd]
+- Updated dependencies [cf32a50]
+- Updated dependencies [0090fe3]
+- Updated dependencies [db8241c]
+- Updated dependencies [43fae6e]
+- Updated dependencies [ef2b02c]
+- Updated dependencies [0b6765f]
+- Updated dependencies [a2743fa]
+- Updated dependencies [d826cd3]
+- Updated dependencies [ce7b4bb]
+- Updated dependencies [97b4111]
+- Updated dependencies [7bde47f]
+- Updated dependencies [28a1eaf]
+- Updated dependencies [a2c9de1]
+- Updated dependencies [7de51be]
+- Updated dependencies [fd36d37]
+- Updated dependencies [21ff8f8]
+- Updated dependencies [690228a]
+- Updated dependencies [88a856d]
+- Updated dependencies [b8617ec]
+- Updated dependencies [3643c5e]
+- Updated dependencies [c74365d]
+- Updated dependencies [cc0396b]
+- Updated dependencies [aaf528d]
+- Updated dependencies [d476295]
+- Updated dependencies [10f23dc]
+- Updated dependencies [ee1fd14]
+- Updated dependencies [432b089]
+- Updated dependencies [a224f2d]
+- Updated dependencies [9379257]
+- Updated dependencies [f17cd09]
+- Updated dependencies [cdf4542]
+- Updated dependencies [65da5de]
+- Updated dependencies [689347f]
+- Updated dependencies [0dd40b2]
+- Updated dependencies [c7f2d36]
+- Updated dependencies [0e668d8]
+- Updated dependencies [c6c415b]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [fa371c3]
+- Updated dependencies [20c115c]
+- Updated dependencies [5315127]
+- Updated dependencies [178605c]
+- Updated dependencies [ecf3011]
+- Updated dependencies [f811097]
+- Updated dependencies [bb7f9b5]
+- Updated dependencies [17ec571]
+- Updated dependencies [64fedc7]
+- Updated dependencies [e49b0c7]
+- Updated dependencies [178605c]
+- Updated dependencies [96c5e19]
+- Updated dependencies [9a213bb]
+- Updated dependencies [721eb06]
+- Updated dependencies [cf62254]
+- Updated dependencies [b37d19a]
+- Updated dependencies [711b557]
+- Updated dependencies [822a5a6]
+- Updated dependencies [f6b6737]
+- Updated dependencies [7599885]
+- Updated dependencies [6717d35]
+- Updated dependencies [f0c3692]
+- Updated dependencies [6c8c956]
+- Updated dependencies [d5aba4b]
+- Updated dependencies [3ae0ca0]
+- Updated dependencies [4a99c84]
+- Updated dependencies [2789ca9]
+- Updated dependencies [db3d13d]
+- Updated dependencies [bc423eb]
+- Updated dependencies [83aa07c]
+- Updated dependencies [ae46c92]
+- Updated dependencies [f6dce8a]
+- Updated dependencies [99b2b8e]
+- Updated dependencies [0a7c278]
+- Updated dependencies [f884589]
+- Updated dependencies [58e47eb]
+- Updated dependencies [1d3ec5d]
+- Updated dependencies [d2a36f5]
+- Updated dependencies [1c0ff9f]
+- Updated dependencies [c45b6f7]
+- Updated dependencies [f373683]
+- Updated dependencies [c2b7aed]
+- Updated dependencies [57b92a1]
+- Updated dependencies [50323b4]
+- Updated dependencies [a7780c7]
+- Updated dependencies [6c8c956]
+- Updated dependencies [82581e4]
+- Updated dependencies [1a1e2f2]
+- Updated dependencies [b51bbcc]
+- Updated dependencies [3373ae1]
+- Updated dependencies [b7bb676]
+- Updated dependencies [6af149e]
+- Updated dependencies [2172a37]
+- Updated dependencies [8b34f22]
+- Updated dependencies [19e0951]
+- Updated dependencies [53280e7]
+- Updated dependencies [dd5f9d1]
+- Updated dependencies [957f065]
+- Updated dependencies [ecf3011]
+- Updated dependencies [39f951b]
+- Updated dependencies [3a73a36]
+- Updated dependencies [4ed5b48]
+- Updated dependencies [ceb7896]
+- Updated dependencies [b07fed5]
+- Updated dependencies [4235019]
+- Updated dependencies [a56b10b]
+- Updated dependencies [3b7ea81]
+- Updated dependencies [2861ab8]
+- Updated dependencies [0c70907]
+- Updated dependencies [55f2f88]
+- Updated dependencies [b773146]
+- Updated dependencies [fd36d37]
+- Updated dependencies [6c7f186]
+- Updated dependencies [873187b]
+- Updated dependencies [bc51ada]
+- Updated dependencies [343f007]
+- Updated dependencies [bcb0ca6]
+- Updated dependencies [5efe089]
+- Updated dependencies [f0bdfad]
+- Updated dependencies [655b614]
+- Updated dependencies [442ad9a]
+- Updated dependencies [1dc0b45]
+- Updated dependencies [fda28a9]
+- Updated dependencies [8d249c7]
+- Updated dependencies [d7cb456]
+- Updated dependencies [0e81199]
+- Updated dependencies [286fa3f]
+- Updated dependencies [e41186c]
+- Updated dependencies [bb750d1]
+- Updated dependencies [656f0df]
+- Updated dependencies [5a26ebe]
+- Updated dependencies [a124577]
+- Updated dependencies [f98bd77]
+- Updated dependencies [1354a53]
+- Updated dependencies [f658824]
+- Updated dependencies [ca16891]
+- Updated dependencies [ae0ec3f]
+- Updated dependencies [0eb7f4e]
+- Updated dependencies [aa03f76]
+- Updated dependencies [910b0ee]
+- Updated dependencies [dfcd7bd]
+- Updated dependencies [f97643c]
+- Updated dependencies [c189013]
+- Updated dependencies [ab3e844]
+- Updated dependencies [a963ec1]
+- Updated dependencies [3995787]
+- Updated dependencies [3af4696]
+- Updated dependencies [751f991]
+- Updated dependencies [e2ebc11]
+- Updated dependencies [55e2682]
+- Updated dependencies [0c70907]
+- Updated dependencies [1c9e9e7]
+- Updated dependencies [ed2fb43]
+- Updated dependencies [fb5061c]
+- Updated dependencies [f0bdfad]
+- Updated dependencies [fc7e626]
+- Updated dependencies [d50e855]
+- Updated dependencies [eaddda4]
+- Updated dependencies [24bca49]
+- Updated dependencies [a0d6dd2]
+- Updated dependencies [c3ae310]
+- Updated dependencies [6095955]
+- Updated dependencies [e80f241]
+- Updated dependencies [70e89ba]
+- Updated dependencies [26f443f]
+- Updated dependencies [505c73d]
+- Updated dependencies [aace71e]
+- Updated dependencies [e156386]
+- Updated dependencies [0cd35f0]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [ad973ed]
+- Updated dependencies [5ab7d17]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [3613c3a]
+- Updated dependencies [536bea5]
+- Updated dependencies [8f9f369]
+- Updated dependencies [16c861e]
+- Updated dependencies [893b8f9]
+- Updated dependencies [57cc98b]
+- Updated dependencies [e8fb215]
+- Updated dependencies [2023daa]
+- Updated dependencies [79e246e]
+- Updated dependencies [84adf0b]
+- Updated dependencies [0c206fd]
+- Updated dependencies [5c1f01f]
+- Updated dependencies [ba7560f]
+- Updated dependencies [e17a31f]
+- Updated dependencies [58b9582]
+- Updated dependencies [66a6c13]
+- Updated dependencies [c3c18d9]
+- Updated dependencies [a5d8eae]
+- Updated dependencies [14ded24]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [cb37a7c]
+- Updated dependencies [b26bc04]
+- Updated dependencies [219e30c]
+- Updated dependencies [03369dd]
+- Updated dependencies [fcfaf0f]
+- Updated dependencies [ed60f05]
+- Updated dependencies [45df105]
+- Updated dependencies [25c5064]
+- Updated dependencies [739404d]
+- Updated dependencies [2d07c8d]
+- Updated dependencies [6958367]
+- Updated dependencies [d231b99]
+- Updated dependencies [99d829e]
+- Updated dependencies [1ce0f85]
+- Updated dependencies [d57d2c9]
+- Updated dependencies [e9e6a78]
+- Updated dependencies [8c864ea]
+- Updated dependencies [05c7e21]
+- Updated dependencies [45c831f]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [3e3676b]
+- Updated dependencies [c5cf84f]
+- Updated dependencies [9da7f0a]
+- Updated dependencies [6717398]
+- Updated dependencies [833efeb]
+- Updated dependencies [47fbc0d]
+- Updated dependencies [e5761bd]
+- Updated dependencies [bbcce0a]
+- Updated dependencies [5acf0ee]
+- Updated dependencies [1847868]
+- Updated dependencies [5466a3b]
+- Updated dependencies [de9e3cb]
+- Updated dependencies [b32c105]
+- Updated dependencies [0e37f90]
+- Updated dependencies [6b743c6]
+- Updated dependencies [db88de1]
+- Updated dependencies [9a55a4d]
+- Updated dependencies [6cef1c1]
+- Updated dependencies [d2f83c0]
+- Updated dependencies [37dc307]
+- Updated dependencies [bc92d00]
+- Updated dependencies [cfe6c8f]
+- Updated dependencies [54b2175]
+- Updated dependencies [c531e2a]
+- Updated dependencies [02ec407]
+- Updated dependencies [09bbe24]
+- Updated dependencies [d8921ac]
+- Updated dependencies [e141b64]
+- Updated dependencies [157dfe2]
+- Updated dependencies [901152f]
+- Updated dependencies [c4ba526]
+- Updated dependencies [d7e382a]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [b5bd6fb]
+- Updated dependencies [ab254b0]
+- Updated dependencies [09d2540]
+- Updated dependencies [6b95ce3]
+- Updated dependencies [0208ff2]
+- Updated dependencies [8d249c7]
+- Updated dependencies [baa47d2]
+- Updated dependencies [a5fe9fb]
+- Updated dependencies [461b242]
+- Updated dependencies [39051bf]
+- Updated dependencies [aed21ac]
+- Updated dependencies [d281b4f]
+- Updated dependencies [ef1c297]
+- Updated dependencies [b96d7ce]
+- Updated dependencies [3e18b8d]
+- Updated dependencies [d21c2be]
+- Updated dependencies [5894f2a]
+- Updated dependencies [bc92d00]
+- Updated dependencies [f1b0776]
+- Updated dependencies [d0e487b]
+- Updated dependencies [2dc2c8f]
+- Updated dependencies [989579e]
+- Updated dependencies [5efe089]
+- Updated dependencies [c38bc24]
+- Updated dependencies [90238e7]
+- Updated dependencies [b3c94be]
+- Updated dependencies [71ba988]
+- Updated dependencies [88fa9d6]
+- Updated dependencies [3086f1b]
+- Updated dependencies [87f3446]
+- Updated dependencies [ebc1b03]
+- Updated dependencies [66accfb]
+- Updated dependencies [0f5b150]
+- Updated dependencies [62745f6]
+- Updated dependencies [8858189]
+- Updated dependencies [4a4803c]
+- Updated dependencies [ad1ecc5]
+- Updated dependencies [1bcee91]
+- Updated dependencies [47a217f]
+- Updated dependencies [1d3ec5d]
+- Updated dependencies [3c7631a]
+- Updated dependencies [61c4436]
+- Updated dependencies [09eadfe]
+- Updated dependencies [b9b6f33]
+- Updated dependencies [debc22b]
+- Updated dependencies [936b098]
+- Updated dependencies [62b0a22]
+- Updated dependencies [05725e8]
+- Updated dependencies [ade4c46]
+- Updated dependencies [eae6e03]
+- Updated dependencies [a39acdd]
+- Updated dependencies [886850b]
+- Updated dependencies [3d2c21f]
+- Updated dependencies [5208944]
+- Updated dependencies [6751472]
+- Updated dependencies [6ec1613]
+- Updated dependencies [5ecd72f]
+- Updated dependencies [4de85c2]
+- Updated dependencies [d9aa8f7]
+- Updated dependencies [411f73b]
+- Updated dependencies [90238e7]
+- Updated dependencies [e82efb0]
+- Updated dependencies [0653673]
+- Updated dependencies [c927463]
+- Updated dependencies [27aee36]
+- Updated dependencies [c9027a9]
+- Updated dependencies [667dcff]
+- Updated dependencies [3218b7a]
+- Updated dependencies [0bda987]
+- Updated dependencies [60d6307]
+- Updated dependencies [4ba1731]
+- Updated dependencies [2ba8a02]
+- Updated dependencies [fb6006e]
+- Updated dependencies [d2d7bd4]
+- Updated dependencies [ccd9948]
+- Updated dependencies [27b24aa]
+- Updated dependencies [1012859]
+- Updated dependencies [549f482]
+- Updated dependencies [7742b28]
+- Updated dependencies [2d9c9aa]
+- Updated dependencies [6c8c956]
+- Updated dependencies [fe1eb68]
+- Updated dependencies [be82cf3]
+- Updated dependencies [fb4e637]
+- Updated dependencies [cdbe95d]
+- Updated dependencies [803d269]
+- Updated dependencies [6b7474b]
+- Updated dependencies [d80cd1f]
+- Updated dependencies [76230f9]
+- Updated dependencies [4404f9f]
+- Updated dependencies [7135a77]
+- Updated dependencies [347a5ca]
+- Updated dependencies [910abc1]
+- Updated dependencies [addef22]
+- Updated dependencies [1313447]
+- Updated dependencies [fa13761]
+- Updated dependencies [18f0135]
+- Updated dependencies [592a43b]
+- Updated dependencies [ee4963a]
+- Updated dependencies [fd9f381]
+- Updated dependencies [dc33de6]
+- Updated dependencies [b07fed5]
+- Updated dependencies [cdd9561]
+- Updated dependencies [9e02d02]
+- Updated dependencies [54a5d1b]
+- Updated dependencies [f00ce6f]
+- Updated dependencies [da402ca]
+- Updated dependencies [2ba429b]
+- Updated dependencies [94fe5b4]
+- Updated dependencies [40c65cd]
+- Updated dependencies [1b2406d]
+- Updated dependencies [c8d6fd2]
+- Updated dependencies [23477ae]
+- Updated dependencies [e90c209]
+- Updated dependencies [fff1615]
+- Updated dependencies [14b7cc6]
+- Updated dependencies [11e9fb6]
+- Updated dependencies [11e9fb6]
+- Updated dependencies [64625bc]
+- Updated dependencies [b0bad02]
+- Updated dependencies [2ba10bd]
+- Updated dependencies [d9df504]
+- Updated dependencies [dba2aad]
+- Updated dependencies [e20b4e7]
+- Updated dependencies [2801faf]
+- Updated dependencies [8cac5f0]
+- Updated dependencies [b4647d5]
+- Updated dependencies [0c550fd]
+- Updated dependencies [2317623]
+- Updated dependencies [cddc7c3]
+- Updated dependencies [79b6541]
+- Updated dependencies [81a12d8]
+- Updated dependencies [7093b07]
+- Updated dependencies [45498e3]
+- Updated dependencies [c1009e5]
+- Updated dependencies [81a12d8]
+- Updated dependencies [5f22701]
+- Updated dependencies [42924f4]
+- Updated dependencies [9c4e4a8]
+- Updated dependencies [3585866]
+- Updated dependencies [90603c5]
+- Updated dependencies [edd3c44]
+- Updated dependencies [a8a8949]
+- Updated dependencies [632e45c]
+- Updated dependencies [9c6c5cd]
+- Updated dependencies [77be406]
+- Updated dependencies [061b013]
+- Updated dependencies [6ca7e8d]
+- Updated dependencies [81a12d8]
+- Updated dependencies [9baaba3]
+- Updated dependencies [75c5113]
+- Updated dependencies [dbc5d00]
+- Updated dependencies [fe3ab92]
+- Updated dependencies [6371b91]
+- Updated dependencies [5f28e7d]
+- Updated dependencies [eb31c86]
+- Updated dependencies [d9a97d0]
+- Updated dependencies [347f242]
+- Updated dependencies [08b88fb]
+- Updated dependencies [20db6a2]
+- Updated dependencies [ffe0c1c]
+- Updated dependencies [6e569c7]
+- Updated dependencies [f53d927]
+- Updated dependencies [c9e1954]
+- Updated dependencies [b68942c]
+- Updated dependencies [55779c0]
+- Updated dependencies [84562fc]
+- Updated dependencies [7cacef2]
+- Updated dependencies [28fcc9b]
+- Updated dependencies [3b6f839]
+- Updated dependencies [97e1826]
+- Updated dependencies [521b73d]
+- Updated dependencies [913913a]
+- Updated dependencies [f4d3c87]
+- Updated dependencies [4f67697]
+- Updated dependencies [e0f31bc]
+- Updated dependencies [f3973ea]
+- Updated dependencies [eed4469]
+- Updated dependencies [1bdd973]
+- Updated dependencies [51c201f]
+- Updated dependencies [a7d42f6]
+- Updated dependencies [0895916]
+- Updated dependencies [4ea2f49]
+- Updated dependencies [899c2c4]
+- Updated dependencies [71a6a75]
+- Updated dependencies [12f15a2]
+- Updated dependencies [c12c420]
+- Updated dependencies [edeb5db]
+- Updated dependencies [2abf27d]
+- Updated dependencies [b5077ea]
+- Updated dependencies [588a572]
+- Updated dependencies [235173e]
+- Updated dependencies [ca05917]
+- Updated dependencies [0bf5758]
+- Updated dependencies [2fa7539]
+- Updated dependencies [3ae9e92]
+- Updated dependencies [0961d97]
+- Updated dependencies [f2bd662]
+- Updated dependencies [1807f7f]
+- Updated dependencies [756b1b3]
+- Updated dependencies [328580f]
+- Updated dependencies [1d6c40f]
+- Updated dependencies [384a631]
+- Updated dependencies [0bffee2]
+- Updated dependencies [a01fd92]
+- Updated dependencies [3dd86e8]
+- Updated dependencies [d00f055]
+- Updated dependencies [38b6f85]
+- Updated dependencies [658eecd]
+- Updated dependencies [4fe7532]
+- Updated dependencies [b08afe5]
+- Updated dependencies [5315127]
+- Updated dependencies [067e3bc]
+- Updated dependencies [1a7d14f]
+- Updated dependencies [a2d5669]
+- Updated dependencies [ac28157]
+- Updated dependencies [a536e29]
+- Updated dependencies [4f9768f]
+- Updated dependencies [eafe671]
+- Updated dependencies [227a01d]
+- Updated dependencies [8d249c7]
+- Updated dependencies [1c14992]
+- Updated dependencies [233e7b0]
+- Updated dependencies [77f6d18]
+- Updated dependencies [2317623]
+- Updated dependencies [ccb438d]
+- Updated dependencies [5f07d04]
+- Updated dependencies [ecf3011]
+- Updated dependencies [d8ba741]
+- Updated dependencies [1e115b8]
+- Updated dependencies [d1309ad]
+- Updated dependencies [02ed8fb]
+- Updated dependencies [2d7869d]
+- Updated dependencies [16353ab]
+- Updated dependencies [5351a3e]
+- Updated dependencies [885b99b]
+- Updated dependencies [ab5b5cb]
+- Updated dependencies [8a65e5e]
+- Updated dependencies [78eaf88]
+- Updated dependencies [cd4de28]
+- Updated dependencies [cb2fa7b]
+- Updated dependencies [53498dd]
+- Updated dependencies [e76279f]
+- Updated dependencies [e16371f]
+- Updated dependencies [7d4d0c3]
+- Updated dependencies [005c9fb]
+- Updated dependencies [6b7e34a]
+- Updated dependencies [c8a9d23]
+- Updated dependencies [822fa01]
+- Updated dependencies [5c8ec96]
+- Updated dependencies [ab3fc44]
+- Updated dependencies [f329a26]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [587cf48]
+- Updated dependencies [d94d5c3]
+- Updated dependencies [d0b9c91]
+- Updated dependencies [a6d83f1]
+- Updated dependencies [4bc7969]
+- Updated dependencies [b923fd7]
+- Updated dependencies [b7c03a7]
+- Updated dependencies [fd36d37]
+- Updated dependencies [fd36d37]
+- Updated dependencies [fd36d37]
+- Updated dependencies [e73ccae]
+- Updated dependencies [8b7254a]
+- Updated dependencies
+- Updated dependencies [d07a9af]
+- Updated dependencies [9034647]
+- Updated dependencies [46a72c0]
+- Updated dependencies [310116a]
+- Updated dependencies [efd7f7d]
+- Updated dependencies [abbb806]
+- Updated dependencies [c827758]
+- Updated dependencies [645ec0d]
+- Updated dependencies [8d249c7]
+- Updated dependencies [1212b77]
+- Updated dependencies [d3cddff]
+- Updated dependencies [2c63f41]
+- Updated dependencies [6681c1b]
+- Updated dependencies [2c442c4]
+- Updated dependencies [640841d]
+- Updated dependencies [e89a479]
+- Updated dependencies [12c3be9]
+- Updated dependencies [e509ad1]
+- Updated dependencies [25b94f0]
+- Updated dependencies [e9d549f]
+- Updated dependencies [5f60713]
+- Updated dependencies [46d7d32]
+- Updated dependencies [e704cfc]
+- Updated dependencies [1b94264]
+- Updated dependencies [7014aca]
+- Updated dependencies [b2d9ed0]
+- Updated dependencies [f7f30b9]
+- Updated dependencies [40d13a9]
+- Updated dependencies [e56a4a0]
+- Updated dependencies [e56a4a0]
+- Updated dependencies [c2513e3]
+- Updated dependencies [57a7f42]
+- Updated dependencies [a8b8b67]
+- Updated dependencies [c3e48a5]
+- Updated dependencies [d739d6f]
+- Updated dependencies [8a8e950]
+- Updated dependencies [4b62bc2]
+- Updated dependencies [b19d23a]
+- Updated dependencies [09e7d64]
+- Updated dependencies [b9f2737]
+- Updated dependencies [924d909]
+- Updated dependencies [8d249c7]
+- Updated dependencies [d2529e3]
+- Updated dependencies [9c917ea]
+- Updated dependencies [7230c08]
+- Updated dependencies [bf97b8a]
+- Updated dependencies [f24e53d]
+- Updated dependencies [8890092]
+- Updated dependencies [974506c]
+- Updated dependencies [c689a9a]
+- Updated dependencies [3a5fe8c]
+- Updated dependencies [71acf62]
+- Updated dependencies [9d4f077]
+- Updated dependencies [253561e]
+- Updated dependencies [a0520f6]
+- Updated dependencies [32652bb]
+- Updated dependencies [74126b1]
+- Updated dependencies [6e9243c]
+- Updated dependencies [fa568d3]
+- Updated dependencies [3f36f77]
+- Updated dependencies [a39415c]
+- Updated dependencies [32bc013]
+- Updated dependencies [6be6c51]
+- Updated dependencies [52255dc]
+- Updated dependencies [b9cefee]
+- Updated dependencies [d601119]
+- Updated dependencies [ac5159a]
+- Updated dependencies [425a713]
+- Updated dependencies [dd53561]
+- Updated dependencies [2c9a1e3]
+- Updated dependencies [4e81e9c]
+- Updated dependencies [d64d1a0]
+- Updated dependencies [7acc039]
+- Updated dependencies [718ec9c]
+- Updated dependencies [fab8bd9]
+- Updated dependencies [de1c8b5]
+- Updated dependencies [8d249c7]
+- Updated dependencies [643a7a7]
+- Updated dependencies [dfb31ed]
+- Updated dependencies [7a09cd9]
+- Updated dependencies [e0e4224]
+- Updated dependencies [f57cc89]
+- Updated dependencies [61a114c]
+- Updated dependencies [0d8347a]
+- Updated dependencies [7623ce1]
+- Updated dependencies [af94f67]
+- Updated dependencies [8d249c7]
+- Updated dependencies [fda83a3]
+- Updated dependencies [bde4299]
+- Updated dependencies [4ee9e3b]
+- Updated dependencies [dd1d4ed]
+- Updated dependencies [3e36d6d]
+- Updated dependencies [202ee53]
+- Updated dependencies [e767ebd]
+- Updated dependencies [8d249c7]
+- Updated dependencies [fb672ca]
+- Updated dependencies [8d249c7]
+- Updated dependencies [e87d694]
+- Updated dependencies [38e0c49]
+- Updated dependencies [82581e4]
+- Updated dependencies [ba6c0b6]
+- Updated dependencies [dd19e9e]
+- Updated dependencies [84353de]
+- Updated dependencies [e76279f]
+- Updated dependencies [c07a044]
+- Updated dependencies [aa5b96e]
+- Updated dependencies [aece1d4]
+- Updated dependencies [01e3a57]
+- Updated dependencies [76fc7e6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [7d4d0c3]
+- Updated dependencies [e346e61]
+- Updated dependencies [b050983]
+- Updated dependencies [faf78eb]
+- Updated dependencies [f0471e8]
+- Updated dependencies [c245532]
+- Updated dependencies [4e730a9]
+- Updated dependencies [e10a4ba]
+- Updated dependencies [34287d8]
+- Updated dependencies [66c6f56]
+- Updated dependencies [9de15ba]
+- Updated dependencies [749b0d7]
+- Updated dependencies [404d06a]
+- Updated dependencies [64f9266]
+- Updated dependencies [50dec1b]
+- Updated dependencies [54ecdb4]
+- Updated dependencies [6f4f693]
+- Updated dependencies [4e67d45]
+- Updated dependencies [d42f112]
+- Updated dependencies [56a982c]
+- Updated dependencies [0148d58]
+- Updated dependencies [a2dff39]
+- Updated dependencies [713a910]
+- Updated dependencies [d06e7a7]
+- Updated dependencies [0797215]
+- Updated dependencies [f420740]
+- Updated dependencies [c165ec2]
+- Updated dependencies [765a656]
+- Updated dependencies [456e6d5]
+- Updated dependencies [1f40560]
+- Updated dependencies [e44f824]
+- Updated dependencies [e346e61]
+- Updated dependencies [7f03a4f]
+- Updated dependencies [1a3f87f]
+- Updated dependencies [c981680]
+- Updated dependencies [9db33cf]
+- Updated dependencies [635182a]
+- Updated dependencies [d5cf231]
+- Updated dependencies [b3e9fb8]
+- Updated dependencies [0797215]
+- Updated dependencies [bfd6f6c]
+- Updated dependencies [2054045]
+- Updated dependencies [ecf3011]
+- Updated dependencies [4935c7d]
+- Updated dependencies [a1b8958]
+- Updated dependencies [ef01b13]
+- Updated dependencies [c410709]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [0797215]
+- Updated dependencies [f555ec2]
+- Updated dependencies [c225400]
+- Updated dependencies [82581e4]
+- Updated dependencies [0255729]
+- Updated dependencies [0797215]
+- Updated dependencies [d8e35a3]
+- Updated dependencies [0f14430]
+- Updated dependencies [a99550e]
+- Updated dependencies [8a6de0f]
+- Updated dependencies [1b32ff2]
+- Updated dependencies [5f7da9d]
+- Updated dependencies [f6905dc]
+- Updated dependencies [bcef104]
+- Updated dependencies [e16371f]
+- Updated dependencies [745e807]
+- Updated dependencies [eef34fd]
+- Updated dependencies [23c9563]
+- Updated dependencies [7ea8706]
+- Updated dependencies [aeca8da]
+- Updated dependencies [ab5f83c]
+- Updated dependencies [87934c1]
+- Updated dependencies [ef0aadd]
+- Updated dependencies [6cca8b5]
+- Updated dependencies [4d8195d]
+- Updated dependencies [d0fc285]
+- Updated dependencies [62bf4c4]
+- Updated dependencies [6c8c956]
+- Updated dependencies [5622be8]
+- Updated dependencies [e0a7548]
+- Updated dependencies [1ece086]
+- Updated dependencies [0c02d42]
+- Updated dependencies [3fc5551]
+- Updated dependencies [f8080f3]
+- Updated dependencies [c1b68d9]
+- Updated dependencies [eb3d699]
+- Updated dependencies [a24e911]
+- Updated dependencies [c3b8314]
+- Updated dependencies [663ecb0]
+- Updated dependencies [2e05808]
+- Updated dependencies [7ebd4a3]
+- Updated dependencies [f94dcd5]
+- Updated dependencies [42c2568]
+- Updated dependencies [11e9fb6]
+- Updated dependencies [dc063a6]
+- Updated dependencies [409f893]
+- Updated dependencies [0117658]
+- Updated dependencies [1445197]
+- Updated dependencies [b07fed5]
+- Updated dependencies [ab3d2ad]
+- Updated dependencies [85ad399]
+- Updated dependencies [b0bad02]
+- Updated dependencies [b07fed5]
+- Updated dependencies [131ceb8]
+- Updated dependencies [7f5f902]
+- Updated dependencies [709c02b]
+- Updated dependencies [b0c8489]
+- Updated dependencies [c25d69f]
+- Updated dependencies [3d2c21f]
+- Updated dependencies [d0ad11c]
+- Updated dependencies [71153bf]
+- Updated dependencies [31adfce]
+- Updated dependencies [2888642]
+- Updated dependencies [27bb3fa]
+- Updated dependencies [ebd6283]
+- Updated dependencies [97d7a27]
+- Updated dependencies [9e65de2]
+  - @solidjs/signals@2.0.0
+
+## 2.0.0-rc.23
+
+### Patch Changes
+
+- cdf4542: fix(web): only a server function call made inside an action gets the default revalidation (#4913)
+
+  A non-GET call made while an action body runs (a core `action`, or a router `formAction`) is a mutation: it asks for single-flight collection, and its response reaches the flight consumers even with nothing folded, so a router revalidates every query. A call made anywhere else, such as a query's fetcher, no longer does, which stops the refetch loop that started in rc.22. Explicit `X-Revalidate` keys and redirects still reach the consumers wherever the call was made.
+
+- eb31c86: Fix the reactivity bugs in Milo's `lean.test.ts` repros (21 of 25; the other four stay pinned as open questions or as rulings not built yet):
+  - Sync glitches: a stale CHECK no longer stops the next flush's marking (S0). A memo that reads its own child sees the updated value (S1). A queued child moves with its owner and no longer runs before the owner that disposes it (S3). Height adjustment no longer requeues an owner that reads its child (S2). A pass's owned write to a signal it just read is a missed wake (S4, F-10).
+  - A tick that nets back to its starting value (D-8) no longer asks async readers a new question. A pass that read only committed values asks the committed question again, which is a quiet re-ask (F-9, K1/K1b). `refresh()` no longer launders a held new question (K4).
+  - `latest()` keeps showing a held error, or a held first answer, while the next question is in flight (D-22, D-41; T2, K3).
+  - A write lands while an `<Errored>` shows its fallback over a pending read (F-3, F-12; E1).
+  - A hold's commit lands each async node on the answer to its own question, and a user effect waits for the end of the hold: a run owed for a superseded pass is dropped (F-1, F-2; T1).
+
+  Size offsets: `solid-js` exports `createRoot`, `createSignal` and `createRenderEffect` as live bindings that `enableHydration()` reassigns, instead of wrappers that spread their arguments into the hydrated or core function. A client-only app calls the core function directly.
+
+- 0f6a978: `seroval` and `seroval-plugins` now depend on `^1.8.0` instead of the exact `1.7.0` pin, so apps can share one seroval copy with other packages on 1.8.
+- 93fa11a: fix: `csstype` is declared by the packages whose published JSX types import it (#4922). `@solidjs/web` (#4923) and `@solidjs/h` now depend on it, and `solid-js`, whose types no longer use it, drops it.
+- 6b317b2: `@solidjs/web`'s published declarations no longer import `heldRead` from `solid-js`, which strips it from its own declarations. Any project with `skipLibCheck: false` got a type error from rc.22's `client.d.ts`. The seam now comes from `solid-js/internal`, which declares it. A new `skipLibCheck: false` type check over every `@solidjs/web` entry's published declarations catches a stripped import before release.
+- Updated dependencies [213c0af]
+- Updated dependencies [f2aba67]
+- Updated dependencies [cdf4542]
+- Updated dependencies [55f2f88]
+- Updated dependencies [6c7f186]
+- Updated dependencies [d9df504]
+- Updated dependencies [eb31c86]
+- Updated dependencies [02ed8fb]
+- Updated dependencies [2d7869d]
+- Updated dependencies [16353ab]
+- Updated dependencies [f57cc89]
+- Updated dependencies [6f4f693]
+  - @solidjs/signals@2.0.0-rc.23
+
 ## 2.0.0-rc.22
 
 ### Patch Changes

@@ -447,3 +447,64 @@ export function traceMetaMarkup(record: TraceRecord): string {
   }
   return markup;
 }
+
+// --- Shared caches ---------------------------------------------------------
+
+// Whether a shared cache may store a response under its `Cache-Control` and
+// `CDN-Cache-Control` (#3985). `Cache-Control` lets one when the author asked
+// for it with `public` or `s-maxage`; a CDN that honours `CDN-Cache-Control`
+// (RFC 9213) reads that in its place, so a present field it may store under
+// lets it keep the response whatever `Cache-Control` tells browsers. What
+// forbids storing wins over what asks for it: `no-store` (no cache may keep
+// it), and an unqualified `private` (RFC 9111 §5.2.2.7: a shared cache MUST
+// NOT store it, whatever `s-maxage` says — the response stays one viewer's,
+// so its trace stays too). A qualified `private="…"` keeps only the named
+// fields out of a shared cache, so the rest of the response —
+// `Server-Timing` included — may still be stored.
+export function sharedCacheMayStore(
+  cacheControl: string | null,
+  cdnCacheControl: string | null
+): boolean {
+  return mayStore(cacheControl, true) || mayStore(cdnCacheControl, false);
+}
+
+// One directive: a name matched whole and case-insensitively (RFC 9111
+// §5.2), never as a substring, and its argument, whose quoted form may carry
+// commas.
+const DIRECTIVE = /([^\s=,]+)\s*(=\s*(?:"(?:[^"\\]|\\.)*"?|[^,]*))?/g;
+
+function mayStore(value: string | null, asks: boolean): boolean {
+  if (value === null) return false;
+  let shared = !asks;
+  for (const [, directive, argument] of value.matchAll(DIRECTIVE)) {
+    const name = directive.toLowerCase();
+    if (name === "no-store" || (name === "private" && !argument)) return false;
+    if (name === "public" || name === "s-maxage") shared = true;
+  }
+  return shared;
+}
+
+/**
+ * #4938: a document a shared cache may store, by the head it will leave with
+ * (the request event's response stub), tells no viewer the request's trace —
+ * neither `<meta>` nor `Server-Timing`. The cache replays that one response
+ * to every viewer, so each would parent its browser spans to the request
+ * that filled the cache, and per-request bytes in the body defeat ETag
+ * revalidation. Decided where the shell head is written, which reads the
+ * stub after the shell rendered (an `httpHeader("Cache-Control", …)` in the
+ * shell is there); the commit then reads the same record. The server-function
+ * road decides the same at its own commit (#4022). `getTraceContext()` is
+ * untouched.
+ */
+export function withholdForSharedCache(
+  record: TraceRecord,
+  event: { response?: { headers?: Headers } } | undefined
+): void {
+  const headers = event && event.response && event.response.headers;
+  if (
+    record.emit &&
+    headers &&
+    sharedCacheMayStore(headers.get("Cache-Control"), headers.get("CDN-Cache-Control"))
+  )
+    record.emit = false;
+}

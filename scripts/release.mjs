@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { distTagFor, releasePackages } from "./release-packages.mjs";
 
 const repository = process.env.GITHUB_REPOSITORY;
 const branch = process.env.GITHUB_REF_NAME;
@@ -60,6 +61,11 @@ function localTagExists(tag) {
   );
 }
 
+// Each package publishes to the channel its own version picks: a prerelease
+// goes to `next`, a stable version to `latest`. Trusted publishing (OIDC)
+// can't run `npm dist-tag`, so pointing `next` at a stable release is a
+// manual step.
+
 async function findDispatchedRun(startedAt) {
   for (let attempt = 0; attempt < 30; attempt++) {
     const runs = JSON.parse(
@@ -115,7 +121,7 @@ if (!packageIsPublished(compiler.name, compiler.version)) {
     "-f",
     "publish=true",
     "-f",
-    "npm-tag=next",
+    `npm-tag=${distTagFor(compiler.version)}`,
     "-f",
     `source-ref=${releaseSha}`
   ]);
@@ -130,23 +136,9 @@ if (!packageIsPublished(compiler.name, compiler.version)) {
 
 // Changesets forbids a custom dist-tag while pre mode is active: `publish`
 // would use the semver prerelease name (`rc`) instead of the channel (`next`).
-// Publish the fixed group directly, with internal dependencies first.
-const changesetConfig = JSON.parse(fs.readFileSync(".changeset/config.json", "utf8"));
-const releaseNames = new Set(changesetConfig.fixed.flat());
-const packages = new Map();
-
-for (const entry of fs.readdirSync("packages", { withFileTypes: true })) {
-  if (!entry.isDirectory()) continue;
-  const directory = `packages/${entry.name}`;
-  const manifest = `${directory}/package.json`;
-  if (!fs.existsSync(manifest)) continue;
-  const pkg = JSON.parse(fs.readFileSync(manifest, "utf8"));
-  if (releaseNames.has(pkg.name)) packages.set(pkg.name, { directory, pkg });
-}
-
-for (const name of releaseNames) {
-  if (!packages.has(name)) throw new Error(`Fixed package ${name} was not found in packages/.`);
-}
+// Publish every public package directly, with internal dependencies first, to
+// the channel picked from its version.
+const packages = releasePackages();
 
 const packageDirectories = [];
 const visited = new Set();
@@ -167,14 +159,16 @@ function visit(name) {
   visited.add(name);
   packageDirectories.push(directory);
 }
-for (const name of releaseNames) visit(name);
+for (const name of packages.keys()) visit(name);
 
 const released = [];
 
 for (const directory of packageDirectories) {
   const pkg = JSON.parse(fs.readFileSync(`${directory}/package.json`, "utf8"));
   if (!packageIsPublished(pkg.name, pkg.version)) {
-    run("npm", ["publish", `./${directory}`, "--access", "public", "--tag", "next"]);
+    const distTag = distTagFor(pkg.version);
+    console.log(`Publishing ${pkg.name}@${pkg.version} to the '${distTag}' dist-tag.`);
+    run("npm", ["publish", `./${directory}`, "--access", "public", "--tag", distTag]);
   } else {
     console.log(`${pkg.name}@${pkg.version} is already published; skipping.`);
   }

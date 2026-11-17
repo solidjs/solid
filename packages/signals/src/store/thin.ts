@@ -709,6 +709,17 @@ export function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
   return false;
 }
 
+/** Does `n` read `c`, through any chain of computations? Only a chain of
+ * nodes above `c` can reach it, so the walk stops at `c`'s height (a signal
+ * has no height and ends it too). */
+function feeds(n: Computed<any>, c: Computed<any>): boolean {
+  for (let l = n._deps; l; l = l._nextDep) {
+    const d: any = l._dep;
+    if (d === c || (d._height > c._height && feeds(d, c))) return true;
+  }
+  return false;
+}
+
 /** store.ts `pullFamily`: bring the derive up to date before serving. */
 /** The optimistic engine's judgement (thinOptimistic.ts): the family's
  * guesses stand in for its flight (A17). */
@@ -733,6 +744,12 @@ export function installThinStands(fn: typeof stands): void {
 function pullFamily(t: Target): void {
   const fw = t._fam!.node;
   if (fw === null || inDraft(t)) return;
+  // A reader the derive itself reads through (its row handed back into its
+  // own source, #4970 / #4972) is the derive's input, not its reader: it
+  // reads the leaves as the derive last wrote them, like any signal. Pulling
+  // or linking the derive from it would be a cycle.
+  const c: any = context;
+  if (c?._subs && feeds(fw, c)) return;
   if (fw._statusFlags & (STATUS_PENDING | STATUS_ERROR) || fw._config & CONFIG_STAGED_ERROR) {
     // Guesses that stand in for the flight (A17) are the display: a reader
     // is served the leaves and does not suspend on the derive.
@@ -740,7 +757,6 @@ function pullFamily(t: Target): void {
       const st = stands(t);
       if (st) return void (st === 2 ? (serving = context) : st === 3 && (standing = context));
     }
-    const c: any = context;
     if (
       c !== null &&
       c._type === EFFECT_RENDER &&

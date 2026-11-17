@@ -1,6 +1,6 @@
 # Solid Diagnostics
 
-> **Solid 2.0 (Release Candidate).** This package consumes the unstable `DEV` surface of `@solidjs/signals` and versions in lockstep with the rest of the fixed group. Every release may be breaking.
+> **Solid 2.0.** This package consumes the unstable `DEV` surface of `@solidjs/signals` and versions in lockstep with the rest of the fixed group.
 
 Agent-consumable diagnostics harness for Solid. Development builds of `@solidjs/signals` expose two channels: **diagnostics** (structured events for reactive anti-patterns — untracked reads, writes in owned scopes, lifecycle leaks, each with a stable code) and **attribution** (why every scope re-ran, what changed to cause it, and what it cost). This package captures both into a single serializable artifact and layers assertions, budgets, test matchers, and a browser bridge on top — so correctness, update granularity, and wasted recomputes become things a test suite or an AI agent can check mechanically instead of eyeballing.
 

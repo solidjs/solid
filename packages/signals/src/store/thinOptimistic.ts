@@ -393,7 +393,18 @@ installThinStands(t => {
   const own = (n: any) => n !== null && n !== undefined && n._config & CONFIG_OVERRIDE;
   const has = () =>
     own(t.k) || (t.n !== null && Reflect.ownKeys(t.n).some(k => own(t.n![k as any])));
-  if ((a === clock + 1 && passLane === null && !has()) || a === ~clock) return false;
+  // Over a new question: only a target carrying a guess stands in — whoever
+  // asked. A reader that joined another action's lane (it reads that
+  // action's guess elsewhere) waits for the answer too, so a `Loading on`
+  // region remounted under it shows its fallback (F-2, F-6, #4929).
+  if (
+    (a === clock + 1 &&
+      (passLane === null
+        ? !has()
+        : !live(f).some(n => n._config & CONFIG_OVERRIDE && sameAction(txOf(n), passLane!)))) ||
+    a === ~clock
+  )
+    return false;
   const c: any = context;
   const d = f.node;
   // Linked by this pass's hold (below): its other reads keep the guess.

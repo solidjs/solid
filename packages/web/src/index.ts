@@ -129,7 +129,7 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
  * </Portal>
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-web/components/portal
+ * @description https://docs.solidjs.com/reference/solid-web/components/portal
  */
 export function Portal(props: { mount?: Element; children: JSX.Element }): JSX.Element {
   // Everything the portal allocates (content memo, effects, anchor memo)
@@ -141,7 +141,16 @@ export function Portal(props: { mount?: Element; children: JSX.Element }): JSX.E
   return runWithOwner(createOwner(), () => portalImpl(props)) as unknown as JSX.Element;
 }
 
+// Nested portals (#4963): an inner portal's insert effect runs before its
+// parent's (it is queued while the parent's content computes), so appending
+// to the mount would put the inner content first. While a portal's content
+// computes, `claimPortal` collects the start markers of the portals created
+// under it; the parent then places its region before the first of them
+// already in its mount.
+let claimPortal: ((start: Node) => void) | undefined;
+
 function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Element {
+  let kids: Node[] = [];
   const treeMarker = document.createTextNode(""),
     startMarker = document.createTextNode(""),
     endMarker = document.createTextNode(""),
@@ -156,13 +165,23 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
     // nothing for portals, so "nothing" is exactly what the pre-compute
     // window shows (#2981).
     content = createMemo<JSX.Element>(
-      () => [startMarker, props.children] as unknown as JSX.Element,
+      () => {
+        const prev = claimPortal;
+        kids = [];
+        claimPortal = n => kids.push(n);
+        try {
+          return [startMarker, props.children] as unknown as JSX.Element;
+        } finally {
+          claimPortal = prev;
+        }
+      },
       {
         ssrSource: "client",
         loadingValue: undefined
       }
     );
 
+  claimPortal && claimPortal(startMarker);
   createRenderEffect<[Element, JSX.Element, Owner | null]>(
     // `getOwner()` is captured in the compute-half: the effect-half runs from
     // the queue with no ambient owner, so the insert effect must be parented
@@ -170,7 +189,7 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
     () => [mount(), content(), getOwner()],
     ([, c, owner]) => {
       const m = untrack(mount);
-      m.appendChild(endMarker);
+      m.insertBefore(endMarker, kids.find(k => k.parentNode === m) || null);
       // The insert effect lives in its own root scoped to this run: it is
       // disposed when the mount changes or the Portal is disposed — not
       // left attached to the component where previous mounts' effects
@@ -290,7 +309,7 @@ export { dynamicComponent } from "solid-js";
  * }
  * ```
  *
- * @description https://v2.solidjs.com/reference/solid-web/components/dynamic
+ * @description https://docs.solidjs.com/reference/solid-web/components/dynamic
  */
 /**
  * A component from a reactive source. The source may answer with the

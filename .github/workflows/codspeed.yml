@@ -3,17 +3,17 @@ name: CodSpeed
 on:
   pull_request:
     branches:
-      - next
+      - main
   push:
     branches:
-      - next
+      - main
   workflow_dispatch:
 
 permissions:
   contents: read
   id-token: write
 
-# A push gets its own group, so every commit on next keeps its run.
+# A push gets its own group, so every commit on main keeps its run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true

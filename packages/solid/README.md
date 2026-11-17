@@ -1,23 +1,16 @@
 <p>
-  <img src="https://assets.solidjs.com/banner?project=Library&type=core" alt="SolidJS" />
+  <img src="https://assets.solidjs.com/banner?project=Library&type=core&version=2.0" alt="SolidJS" />
 </p>
 
 [![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=for-the-badge)](https://www.npmjs.com/package/solid-js)
 [![](https://img.shields.io/npm/dm/solid-js.svg?style=for-the-badge)](https://www.npmjs.com/package/solid-js)
 [![Discord](https://img.shields.io/discord/722131463138705510?style=for-the-badge)](https://discord.com/invite/solidjs)
 
-**[Website](https://www.solidjs.com/) • [API Docs](https://v2.solidjs.com/) • [Tutorial](https://www.solidjs.com/tutorial/introduction_basics) • [GitHub](https://github.com/solidjs/solid) • [Discord](https://discord.com/invite/solidjs)**
-
-> **You are looking at Solid 2.0 (Release Candidate).**
-> Public surface differs from 1.x — split-phase `createEffect`, microtask batching, `Loading`/`Errored` boundaries, draft-first store setters, async-in-computations, removed `solid-js/web` and `solid-js/store` subpaths, and more.
->
-> - **Migrating from 1.x?** Read [MIGRATION.md](https://github.com/solidjs/solid/blob/next/documentation/solid-2.0/MIGRATION.md) (full guide).
-> - **Need a quick API reference?** See [CHEATSHEET.md](./CHEATSHEET.md) (one page, every public export — ships with this package).
-> - **Looking for stable Solid 1.x?** Use the default [`main` branch](https://github.com/solidjs/solid).
+**[Website](https://www.solidjs.com/) • [Docs](https://docs.solidjs.com/) • [Tutorial](https://docs.solidjs.com/tutorial) • [Playground](https://playground.solidjs.com/) • [GitHub](https://github.com/solidjs/solid) • [Discord](https://discord.com/invite/solidjs)**
 
 Solid is a declarative JavaScript library for building user interfaces. Instead of a Virtual DOM, it compiles templates to real DOM nodes and updates them with fine-grained reactivity. Declare your state and use it throughout your app — when a piece of state changes, only the code that depends on it re-runs.
 
-## At a glance (Solid 2.0)
+## At a glance
 
 ```tsx
 import { createSignal } from "solid-js";
@@ -33,18 +26,30 @@ function Counter() {
 render(() => <Counter />, document.getElementById("app")!);
 ```
 
-Try it in our [Playground](https://playground.solidjs.com/). _(The hosted Playground currently runs Solid 1.x — a 2.0 build is on the way.)_
+Try it in our [Playground](https://playground.solidjs.com/).
 
 The component body runs **once**. The `{doubled()}` expression is the only thing that re-renders when `count` changes — Solid compiles JSX to real DOM nodes and tracks the `count()` read at that one DOM position.
 
 ## Install
 
+Start from a [template](https://github.com/solidjs/templates), or add Solid to a Vite project:
+
 ```sh
 npm i solid-js @solidjs/web
-npm i -D @solidjs/babel-plugin
+npm i -D vite @solidjs/vite-plugin
 ```
 
-Add `@solidjs/babel-plugin` to your Babel config (or use Vite's Solid plugin), and set `tsconfig.json`:
+```js
+// vite.config.ts
+import { defineConfig } from "vite";
+import solid from "@solidjs/vite-plugin";
+
+export default defineConfig({
+  plugins: [solid()]
+});
+```
+
+Set `tsconfig.json`:
 
 ```json
 {
@@ -55,21 +60,24 @@ Add `@solidjs/babel-plugin` to your Babel config (or use Vite's Solid plugin), a
 }
 ```
 
-For web projects, `jsxImportSource` points at `@solidjs/web`. In 2.0, `solid-js` owns renderer-neutral component types, while renderer packages such as `@solidjs/web` and `@solidjs/h` own their JSX namespaces and `jsx-runtime` type entries.
+For web projects, `jsxImportSource` points at `@solidjs/web`. `solid-js` owns renderer-neutral component types, while renderer packages such as `@solidjs/web` and `@solidjs/h` own their JSX namespaces and `jsx-runtime` type entries.
 
-Existing 1.x starter templates target 1.x — 2.0 starter templates are tracked at [solidjs/templates](https://github.com/solidjs/templates).
+### Coming from Solid 1.x?
+
+Read the [migration guide](https://github.com/solidjs/solid/blob/main/documentation/solid-2.0/MIGRATION.md). Solid 1.x is maintained on the [`1.x` branch](https://github.com/solidjs/solid/tree/1.x), installs with `npm i solid-js@v1-latest`, and its docs are at [v1.solidjs.com](https://v1.solidjs.com).
 
 ## For LLMs / AI assistants
 
-If you're an AI tool or model generating Solid 2.0 code: the public API differs from any Solid examples that predate 2.0. Start with the primer skill, [`skills/solid-2.0/SKILL.md`](./skills/solid-2.0/SKILL.md) (`node_modules/solid-js/skills/solid-2.0/SKILL.md`): the three rules that matter most, the 1.x → 2.0 corrections, and the primitives to reach for. Then read [`CHEATSHEET.md`](./CHEATSHEET.md) (`node_modules/solid-js/CHEATSHEET.md`, also shipped as the `solid-2.0-cheatsheet` skill) — the bottom enumerates the specific patterns that changed from 1.x. The Solid 2.0 docs are at [v2.solidjs.com](https://v2.solidjs.com) (`/llms.txt`, `/llms-full.txt`).
+If you're an AI tool or model generating Solid 2.0 code: the public API differs from any Solid examples that predate 2.0. Start with the primer skill, [`skills/solid-2.0/SKILL.md`](./skills/solid-2.0/SKILL.md) (`node_modules/solid-js/skills/solid-2.0/SKILL.md`): the three rules that matter most, the 1.x → 2.0 corrections, and the primitives to reach for. Then read [`CHEATSHEET.md`](./CHEATSHEET.md) (`node_modules/solid-js/CHEATSHEET.md`, also shipped as the `solid-2.0-cheatsheet` skill) — the bottom enumerates the specific patterns that changed from 1.x. The docs are at [docs.solidjs.com](https://docs.solidjs.com) (`/llms.txt`, `/llms-full.txt`).
 
-The full migration guide is [`MIGRATION.md`](https://github.com/solidjs/solid/blob/next/documentation/solid-2.0/MIGRATION.md). The 2.0 RFCs covering each subsystem live alongside it under [`documentation/solid-2.0/`](https://github.com/solidjs/solid/tree/next/documentation/solid-2.0).
+The full migration guide is [`MIGRATION.md`](https://github.com/solidjs/solid/blob/main/documentation/solid-2.0/MIGRATION.md). The 2.0 RFCs covering each subsystem live alongside it under [`documentation/solid-2.0/`](https://github.com/solidjs/solid/tree/main/documentation/solid-2.0).
 
 ## Learn more
 
 - **Why Solid, key features, browser support, community, sponsors** — see the [repository README](https://github.com/solidjs/solid#readme).
-- **Full documentation** — [v2.solidjs.com](https://v2.solidjs.com).
-- **Examples** — the [`examples/`](https://github.com/solidjs/solid/tree/next/examples) folder (see [`documentation/plans/examples-grid-plan.md`](https://github.com/solidjs/solid/blob/next/documentation/plans/examples-grid-plan.md) for the grid they cover).
+- **Full documentation** — [docs.solidjs.com](https://docs.solidjs.com).
+- **Interactive tutorial** — [docs.solidjs.com/tutorial](https://docs.solidjs.com/tutorial).
+- **Examples** — the [`examples/`](https://github.com/solidjs/solid/tree/main/examples) folder (see [`documentation/plans/examples-grid-plan.md`](https://github.com/solidjs/solid/blob/main/documentation/plans/examples-grid-plan.md) for the grid they cover).
 - **Discord** — [discord.com/invite/solidjs](https://discord.com/invite/solidjs).
 
 ---

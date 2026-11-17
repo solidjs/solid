@@ -8,10 +8,12 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { distTagFor, releasePackages } from "./release-packages.mjs";
 
-const version = JSON.parse(fs.readFileSync("packages/solid/package.json", "utf8")).version;
-const changesetConfig = JSON.parse(fs.readFileSync(".changeset/config.json", "utf8"));
-const fixedPackages = changesetConfig.fixed.flat();
+// Packages version independently, so each one is checked against its own
+// version and the dist-tag that version picks (matching scripts/release.mjs).
+const packages = releasePackages();
+const versionOf = name => packages.get(name).pkg.version;
 
 function npm(args, options = {}) {
   const stdout = execFileSync("npm", args, { encoding: "utf8", ...options });
@@ -36,14 +38,15 @@ async function withRetries(label, attempts, action) {
 // 5m11s and the old 80s window ran out, failing the job on a good release.
 // 30 × 20s = 10 minutes, well past anything observed.
 await withRetries("dist-tag check", 30, () => {
-  for (const name of fixedPackages) {
-    const tagged = npm(["view", name, "dist-tags.next"]);
-    if (tagged !== version) {
-      throw new Error(`${name} dist-tag 'next' is ${tagged}, expected ${version}.`);
+  for (const [name, { pkg }] of packages) {
+    const distTag = distTagFor(pkg.version);
+    const tagged = npm(["view", name, `dist-tags.${distTag}`]);
+    if (tagged !== pkg.version) {
+      throw new Error(`${name} dist-tag '${distTag}' is ${tagged}, expected ${pkg.version}.`);
     }
   }
 });
-console.log(`dist-tag 'next' points at ${version} for all ${fixedPackages.length} packages.`);
+console.log(`dist-tags point at the repo versions for all ${packages.size} packages.`);
 
 const project = fs.mkdtempSync(path.join(os.tmpdir(), "solid-smoke-"));
 fs.writeFileSync(
@@ -58,9 +61,9 @@ await withRetries("install", 6, () => {
       "install",
       "--no-audit",
       "--no-fund",
-      `solid-js@${version}`,
-      `@solidjs/web@${version}`,
-      `@solidjs/compiler@${version}`
+      `solid-js@${versionOf("solid-js")}`,
+      `@solidjs/web@${versionOf("@solidjs/web")}`,
+      `@solidjs/compiler@${versionOf("@solidjs/compiler")}`
     ],
     { cwd: project, stdio: ["ignore", "inherit", "inherit"] }
   );
@@ -92,4 +95,4 @@ console.log("smoke: compiler transform + runtime OK");
 );
 execFileSync("node", ["smoke.mjs"], { cwd: project, stdio: "inherit" });
 
-console.log(`Smoke test passed for ${version}.`);
+console.log(`Smoke test passed for solid-js@${versionOf("solid-js")}.`);

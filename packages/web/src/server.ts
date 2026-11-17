@@ -44,6 +44,7 @@ import {
   hasServerTiming,
   mergeServerTiming,
   traceMetaMarkup,
+  withholdForSharedCache,
   type TraceContext
 } from "./trace.js";
 import { observeRender, timesServerWork } from "./server-observe.js";
@@ -1902,6 +1903,7 @@ export function renderToString(code, options = {}) {
     serializeFragmentAssets("", tracking.boundaryModules, sharedConfig.context, renderId);
     closed = true;
     serializer.close();
+    withholdForSharedCache(context.trace, requestEvent);
     const head = renderShellHead(
       headRegistry,
       nonce,
@@ -3440,6 +3442,7 @@ export function renderToStream(code, options = {}) {
     flushStubBatch();
     // Shell head flush: commits every registration not owned by a
     // still-pending fragment (those flush with their fragment later).
+    withholdForSharedCache(context.trace, requestEvent);
     const head = renderShellHead(
       headRegistry,
       nonce,
@@ -5317,7 +5320,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
     let i = 0;
     for (; i < props.length; i++) {
       const s = props[i];
-      if (s == null || typeof s === "function" || $PROXY in s) break;
+      if (!s || typeof s === "function" || $PROXY in s) break;
     }
     if (i === props.length) sources = props;
     else {
@@ -5325,8 +5328,9 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
       owners = [];
       collectSpreadSources(props, viewKeys, owners);
     }
-  } else if (props == null) {
-    // A nullish source (static or resolved) is an empty spread (#3297).
+  } else if (!props) {
+    // A nullish or falsy source (static or resolved) is an empty spread
+    // (#3297; `{...(c() && x)}`, #4937).
     props = {};
   } else if ($PROXY in props) {
     if (viewOf(props) !== undefined) {
@@ -5544,7 +5548,7 @@ function collectSpreadSources(props, viewKeys, owners) {
   for (let i = 0; i < props.length; i++) {
     let s = props[i];
     if (typeof s === "function") s = s();
-    if (s != null) sourceOwners(s, viewKeys, owners);
+    if (s) sourceOwners(s, viewKeys, owners);
   }
 }
 

@@ -35,15 +35,13 @@ function _P$() {
 _P$.prototype = Object.prototype;
 var _d$2 = {
 	get() {
-		const props = this[_m$];
-		return (props.user?.profile).name;
+		return (state.user?.profile).name;
 	},
 	enumerable: true,
 	configurable: true
 };
-function _P$2(_p, _p2) {
-	this[_m$] = _p;
-	this.profile = _p2;
+function _P$2(_p) {
+	this.profile = _p;
 	Object.defineProperty(this, "name", _d$2);
 }
 _P$2.prototype = Object.prototype;
@@ -54,10 +52,10 @@ var _d$3 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$3(_p3, _p4) {
+function _P$3(_p2, _p3) {
 	Object.defineProperty(this, "when", _d$3);
-	this.keyed = _p3;
-	this.children = _p4;
+	this.keyed = _p2;
+	this.children = _p3;
 }
 _P$3.prototype = Object.prototype;
 var _d$4 = {
@@ -67,10 +65,10 @@ var _d$4 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$4(_p5, _p6) {
+function _P$4(_p4, _p5) {
 	Object.defineProperty(this, "when", _d$4);
-	this.name = _p5;
-	this.children = _p6;
+	this.name = _p4;
+	this.children = _p5;
 }
 _P$4.prototype = Object.prototype;
 var _d$5 = {
@@ -80,9 +78,9 @@ var _d$5 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$5(_p7) {
+function _P$5(_p6) {
 	Object.defineProperty(this, "when", _d$5);
-	this.children = _p7;
+	this.children = _p6;
 }
 _P$5.prototype = Object.prototype;
 var _d$6 = {
@@ -92,33 +90,37 @@ var _d$6 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$6(_p8) {
+function _P$6(_p7) {
 	Object.defineProperty(this, "when", _d$6);
-	this.children = _p8;
+	this.children = _p7;
 }
 _P$6.prototype = Object.prototype;
 var _d$7 = {
 	get() {
-		return user();
+		const props = this[_m$];
+		return props.children;
 	},
 	enumerable: true,
 	configurable: true
 };
-function _P$7(_p9) {
+function _P$7(_p8, _p9) {
+	this[_m$] = _p8;
 	Object.defineProperty(this, "when", _d$7);
 	this.children = _p9;
 }
 _P$7.prototype = Object.prototype;
 var _d$8 = {
 	get() {
-		return user();
+		const props = this[_m$];
+		return props.user?.profile;
 	},
 	enumerable: true,
 	configurable: true
 };
-function _P$8(_p0) {
+function _P$8(_p0, _p1) {
+	this[_m$] = _p0;
 	Object.defineProperty(this, "when", _d$8);
-	this.children = _p0;
+	this.children = _p1;
 }
 _P$8.prototype = Object.prototype;
 var _d$9 = {
@@ -127,7 +129,31 @@ var _d$9 = {
 	},
 	enumerable: true,
 	configurable: true
-}, _d$10 = {
+};
+function _P$9(_p10) {
+	Object.defineProperty(this, "when", _d$9);
+	this.children = _p10;
+}
+_P$9.prototype = Object.prototype;
+var _d$10 = {
+	get() {
+		return user();
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$10(_p11) {
+	Object.defineProperty(this, "when", _d$10);
+	this.children = _p11;
+}
+_P$10.prototype = Object.prototype;
+var _d$11 = {
+	get() {
+		return user();
+	},
+	enumerable: true,
+	configurable: true
+}, _d$12 = {
 	get() {
 		const props = this[_m$];
 		return props.render;
@@ -135,32 +161,9 @@ var _d$9 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$9(_p1) {
-	this[_m$] = _p1;
-	Object.defineProperty(this, "when", _d$9);
-	Object.defineProperty(this, "children", _d$10);
-}
-_P$9.prototype = Object.prototype;
-var _d$11 = {
-	get() {
-		return user();
-	},
-	enumerable: true,
-	configurable: true
-};
-function _P$10(_p10) {
+function _P$11(_p12) {
+	this[_m$] = _p12;
 	Object.defineProperty(this, "when", _d$11);
-	this.children = _p10;
-}
-_P$10.prototype = Object.prototype;
-var _d$12 = {
-	get() {
-		return [Show(new _P$10("x")), _$ssr(_tmpl$9)];
-	},
-	enumerable: true,
-	configurable: true
-};
-function _P$11() {
 	Object.defineProperty(this, "children", _d$12);
 }
 _P$11.prototype = Object.prototype;
@@ -171,20 +174,20 @@ var _d$13 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$12(_p11) {
+function _P$12(_p13) {
 	Object.defineProperty(this, "when", _d$13);
-	this.children = _p11;
+	this.children = _p13;
 }
 _P$12.prototype = Object.prototype;
 var _d$14 = {
 	get() {
-		return Show(new _P$12("x"));
+		return [Show(new _P$12("x")), _$ssr(_tmpl$9)];
 	},
 	enumerable: true,
 	configurable: true
 };
 function _P$13() {
-	Object.defineProperty(this, "fallback", _d$14);
+	Object.defineProperty(this, "children", _d$14);
 }
 _P$13.prototype = Object.prototype;
 var _d$15 = {
@@ -194,28 +197,52 @@ var _d$15 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$14(_p12) {
+function _P$14(_p14) {
 	Object.defineProperty(this, "when", _d$15);
-	this.children = _p12;
+	this.children = _p14;
 }
 _P$14.prototype = Object.prototype;
 var _d$16 = {
+	get() {
+		return Show(new _P$14("x"));
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$15() {
+	Object.defineProperty(this, "fallback", _d$16);
+}
+_P$15.prototype = Object.prototype;
+var _d$17 = {
 	get() {
 		return user();
 	},
 	enumerable: true,
 	configurable: true
 };
-function _P$15(_p13) {
-	Object.defineProperty(this, "when", _d$16);
-	this.children = _p13;
+function _P$16(_p15) {
+	Object.defineProperty(this, "when", _d$17);
+	this.children = _p15;
 }
-_P$15.prototype = Object.prototype;
-import { Show, createSignal, createMemo } from "solid-js";
+_P$16.prototype = Object.prototype;
+var _d$18 = {
+	get() {
+		return user();
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$17(_p16) {
+	Object.defineProperty(this, "when", _d$18);
+	this.children = _p16;
+}
+_P$17.prototype = Object.prototype;
+import { Show, createSignal, createMemo, createStore } from "solid-js";
 import { Show as Visible } from "@solidjs/web";
 const [user, setUser] = createSignal();
 const total = createMemo(() => 1);
 let mutable = createSignal(0)[0];
+const [state] = createStore({ user: { profile: { name: "" } } });
 // Lowered: JSX children, with and without a fallback.
 const Root = () => _$memo(() => {
 	return _$memo(() => {
@@ -260,22 +287,22 @@ const Callback = () => _$memo(() => {
 		return _$escape(user().name);
 	}, _$ssr(_tmpl$5, _v$2, _v$3)) : void 0;
 });
-const CallbackMember = (props) => _$memo(() => {
+const CallbackMember = () => _$memo(() => {
 	return _$memo(() => {
-		return !!props.user?.profile;
-	})() ? Card(new _P$2(props, () => {
-		return props.user?.profile;
+		return !!state.user?.profile;
+	})() ? Card(new _P$2(() => {
+		return state.user?.profile;
 	})) : _$ssr(_tmpl$6);
 });
-const Nested = (props) => _$memo(() => {
+const Nested = () => _$memo(() => {
 	return _$memo(() => {
-		return !!props.a;
+		return !!user();
 	})() ? _$memo(() => {
 		var _v$4;
 		return _$memo(() => {
-			return !!props.b;
+			return !!state.user;
 		})() ? (_v$4 = () => {
-			return _$escape(props.b.c);
+			return _$escape(state.user.profile.name);
 		}, _$ssr(_tmpl$7, _v$4)) : void 0;
 	}) : void 0;
 });
@@ -305,36 +332,49 @@ const Mutable = () => Show(new _P$6((u) => {
 		return _$escape(u());
 	}, _$ssr(_tmpl$8, _v$7);
 }));
-const Block = () => Show(new _P$7((u) => {
-	var _v$8 = () => {
-		return _$escape(u().name);
-	};
-	return _$ssr(_tmpl$8, _v$8);
+// Kept: a prop's getter can make its JSX again on each read (#4936).
+const PropChild = (props) => Show(new _P$7(props, (child) => {
+	var _v$8;
+	return _v$8 = () => {
+		return _$escape(child());
+	}, _$ssr(_tmpl$7, _v$8);
 }));
-const Shadowed = () => Show(new _P$8((u) => {
+const PropMember = (props) => Show(new _P$8(props, (p) => {
 	var _v$9;
 	return _v$9 = () => {
-		return _$escape([1].map((user) => u().name + user));
+		return _$escape(p().name);
 	}, _$ssr(_tmpl$8, _v$9);
+}));
+const Block = () => Show(new _P$9((u) => {
+	var _v$10 = () => {
+		return _$escape(u().name);
+	};
+	return _$ssr(_tmpl$8, _v$10);
+}));
+const Shadowed = () => Show(new _P$10((u) => {
+	var _v$11;
+	return _v$11 = () => {
+		return _$escape([1].map((user) => u().name + user));
+	}, _$ssr(_tmpl$8, _v$11);
 }));
 // Kept: a child that could be a function, a non-sole component child, an
 // attribute, or inside a JSX expression.
-const Render = (props) => Show(new _P$9(props));
-const Siblings = () => Panel(new _P$11());
-const Attribute = () => Panel(new _P$13());
+const Render = (props) => Show(new _P$11(props));
+const Siblings = () => Panel(new _P$13());
+const Attribute = () => Panel(new _P$15());
 const InExpression = (props) => {
-	var _v$10;
-	return _v$10 = (() => {
+	var _v$12;
+	return _v$12 = (() => {
 		var _c$2 = _$memo(() => {
 			return !!props.ok;
 		});
 		return () => {
-			return _c$2() ? _$escape(Show(new _P$14("x"))) : _$escape(props.ok);
+			return _c$2() ? _$escape(Show(new _P$16("x"))) : _$escape(props.ok);
 		};
-	})(), _$ssr(_tmpl$10, _v$10);
+	})(), _$ssr(_tmpl$10, _v$12);
 };
 // Kept: not Solid's `<Show>`.
 const Local = () => {
 	const Show = (props) => props.children;
-	return Show(new _P$15("x"));
+	return Show(new _P$17("x"));
 };

@@ -99,7 +99,7 @@ const template = props => {
         {
           name: "Jason"
         },
-        dynamicSpread,
+        () => dynamicSpread(),
         {
           ref(r$) {
             var _ref$3 = props.ref;

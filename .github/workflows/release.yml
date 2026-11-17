@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     branches:
-      - next
+      - main
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
@@ -55,7 +55,7 @@ jobs:
         with:
           version: pnpm run version-packages
           publish: pnpm run release
-          title: Release RC packages
+          title: Release packages
           commit: Version packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
