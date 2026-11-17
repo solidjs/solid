@@ -1,5 +1,5 @@
 <p>
-  <img src="https://assets.solidjs.com/banner?project=Library&type=core" alt="SolidJS" />
+  <img src="https://assets.solidjs.com/banner?project=Library&type=core&version=2.0" alt="SolidJS" />
 </p>
 
 [![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=for-the-badge)](https://www.npmjs.com/package/solid-js)
