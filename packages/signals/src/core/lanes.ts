@@ -578,9 +578,7 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
         // The runs below are released, and its readers show the void
         // staging: they re-derive, as its own re-derivation may land on what
         // the screen shows and notify nobody (F-1, D-34, #4971).
-        const v = n._pendingValue;
-        if (l._shown && !l._held && v !== NOT_PENDING && !(n._equals && n._equals(v, shown)))
-          insertSubs(n);
+        if (l._shown && !l._held && n._pendingValue !== NOT_PENDING) insertSubs(n);
         // A staged error is a staging too: void with it, or the commit below
         // would publish the empty slot as the node's error (#4748).
         n._pendingValue = NOT_PENDING;
