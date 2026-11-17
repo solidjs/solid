@@ -1835,6 +1835,16 @@ export function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
   return false;
 }
 
+/** Does `n` read `c`, through any chain of computations? Only a chain of
+ * nodes above `c` can reach it, so the walk stops at `c`'s height. */
+function feeds(n: Computed<any>, c: Computed<any>): boolean {
+  for (let l = n._deps; l; l = l._nextDep) {
+    const d: any = l._dep;
+    if (d === c || (d._fn && d._height > c._height && feeds(d, c))) return true;
+  }
+  return false;
+}
+
 /** The projection's obligation (plan sec. 31.7 Q-B): before any value is served
  * through a family target, the derive — the firewall — is brought up to
  * date WITHOUT the reader subscribing to it. Core's `read()` of the
@@ -1846,6 +1856,13 @@ export function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
 function pullFamily(target: StoreTarget): void {
   const fw = target._fam!.node;
   if (fw === null || writeOverride || inDraft(target)) return;
+  // A reader the derive itself reads through (its row handed back into its
+  // own source, #4970 / #4972) is the derive's input, not its reader: it
+  // reads the leaves as the derive last wrote them, like any signal. Pulling
+  // or linking the derive from it would be a cycle: each pass lifted it
+  // above the derive that sits above it, without bound.
+  const c: any = context;
+  if (c?._subs && feeds(fw, c)) return;
   // A settled derive: the pull alone, no link (the barrier). A derive with a
   // flight up (or errored): the reader observes the flight exactly as a
   // reader of a memo would — linked, so it re-runs at the landing (the
@@ -1872,7 +1889,6 @@ function pullFamily(target: StoreTarget): void {
     // another reason (a guess it read, the seam) that dropped the link would
     // release the hold with the flight still up. An errored derive has no
     // landing to learn of: the error is what the frame shows.
-    const c: any = context;
     if (
       c !== null &&
       c._type === EFFECT_RENDER &&
