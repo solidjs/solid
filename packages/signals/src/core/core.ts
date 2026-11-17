@@ -62,7 +62,7 @@ import {
   REACTIVE_MISSED_WAKE,
   REACTIVE_PROBED,
   REACTIVE_WINDOW,
-  REACTIVE_LATEST_WINDOW,
+  WINDOW_KINDS,
   REACTIVE_AHEAD,
   CONFIG_OWN_PROBE,
   CONFIG_FRAME,
@@ -2911,13 +2911,7 @@ export function stagedScreen(c: Computed<any>, el?: Signal<any> | Computed<any>)
   // under a gate that is only the pass's own `isPending` window — what a
   // verdict gates shows while the question is open, and a read's place
   // after the probe or before it never changes what shows.
-  if (
-    laneStageHook &&
-    el &&
-    fresh &&
-    passLane &&
-    (c._flags & (REACTIVE_WINDOW | REACTIVE_LATEST_WINDOW)) !== REACTIVE_WINDOW
-  )
+  if (laneStageHook && el && fresh && passLane && c._flags >> WINDOW_KINDS != 1)
     passLane._opened = 1;
   staleReader(c, flushTransaction);
   return true;

@@ -44,7 +44,7 @@ import {
   REACTIVE_PROBE_UNANSWERED,
   REACTIVE_STAGED_READ,
   REACTIVE_WINDOW,
-  REACTIVE_LATEST_WINDOW,
+  WINDOW_KINDS,
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
@@ -393,7 +393,7 @@ function markVerdictReader(window: number): unknown {
     c._flags |=
       REACTIVE_PROBED |
       REACTIVE_WINDOW |
-      (window & 2 && REACTIVE_LATEST_WINDOW) |
+      (window << WINDOW_KINDS) |
       (creatorReads(c, 0) || ((c._config |= CONFIG_VERDICT), 0));
     if (restart && c._config & CONFIG_VERDICT) {
       // Thrown as a loading window's unready read: the pass parks for this
