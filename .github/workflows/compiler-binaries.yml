@@ -15,10 +15,10 @@ on:
       npm-tag:
         description: "npm dist-tag for published platform packages"
         type: string
-        default: "next"
+        default: "latest"
   push:
     branches:
-      - next
+      - main
     paths:
       - "packages/compiler/**"
       - ".github/workflows/compiler-binaries.yml"
@@ -26,7 +26,7 @@ on:
   # used to surface first in a release's publish job.
   pull_request:
     branches:
-      - next
+      - main
     paths:
       - "packages/compiler/**"
       - ".github/workflows/compiler-binaries.yml"
