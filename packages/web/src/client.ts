@@ -2599,14 +2599,17 @@ export function hydrate(code, element, options = {}) {
   // in-place-rewrite stash) sitting ahead of the shell's authored children
   // shift every read by one. Move that leading run — inert metas in an
   // unrendered element — to the end of head before any claiming. For apps
-  // without a prelude the loop exits on its first check.
+  // without a prelude the loop exits on its first check. When the run is the
+  // whole head (no authored children), stop after moving the original last
+  // child: one full pass keeps the order, another would rotate forever.
   const head = (element.nodeType === 9 ? element : element.ownerDocument).head;
   if (head && element.contains(head)) {
     let n = head.firstChild;
+    const last = head.lastChild;
     while (n && n.nodeType === 1 && n.hasAttribute("data-dh") && !n.hasAttribute("data-dhf")) {
       const next = n.nextSibling;
       head.appendChild(n);
-      n = next;
+      n = n === last ? null : next;
     }
   }
   options.renderId ||= "";

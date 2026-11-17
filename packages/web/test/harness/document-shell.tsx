@@ -120,6 +120,34 @@ export function HeadShellApp() {
 }
 
 /**
+ * Whole-document hydration where the shell authors NO head children and
+ * useHead registers every tag in it: the head holds only registry-inserted
+ * tags, so the #3081 leading-run move covers the whole head and must stop
+ * after one pass instead of rotating it forever.
+ */
+function RegistryOnlyHead() {
+  useHead([
+    { tag: "title", props: { children: "registry title" } },
+    { tag: "meta", props: { name: "description", content: "registry only" } }
+  ]);
+  return null;
+}
+
+export function RegistryOnlyHeadApp() {
+  return (
+    <html lang="en">
+      <head></head>
+      <body>
+        <RegistryOnlyHead />
+        <main>
+          <p id="status">{headShellStarted() ? "started" : "waiting"}</p>
+        </main>
+      </body>
+    </html>
+  );
+}
+
+/**
  * Stylesheets from useHead under the document shell. The shell sheet is
  * still loading when hydrate() runs (the default with an async entry
  * script), and the late boundary's sheet holds its streamed swap through the

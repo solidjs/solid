@@ -12,6 +12,7 @@ import {
   AsyncApp,
   Shell,
   HeadShellApp,
+  RegistryOnlyHeadApp,
   StyledIsland,
   APP_ROOT_MARKUP,
   STYLED_SHELL_CSS,
@@ -81,6 +82,16 @@ describe("document-shell pattern — server render (#3000)", () => {
 
     // The client half hydrates against exactly these bytes.
     writeArtifact("document-shell-usehead", { html });
+  });
+
+  test("useHead with no shell-authored head children: head holds only registry tags", async () => {
+    const html = (await collectChunks(() => <RegistryOnlyHeadApp />)).join("");
+
+    expect(html).toMatch(
+      /<head><title data-dh="title">registry title<\/title><meta [^>]*data-dh="[^"]*"><\/head>/
+    );
+
+    writeArtifact("document-shell-registry-only-head", { html });
   });
 
   test("useHead stylesheets: shell sheet in the head, late sheet gates its fragment swap", async () => {

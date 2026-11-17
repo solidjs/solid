@@ -21,6 +21,7 @@ import {
   App,
   AsyncApp,
   HeadShellApp,
+  RegistryOnlyHeadApp,
   StyledIsland,
   computeRuns,
   setHeadShellStarted,
@@ -160,6 +161,40 @@ describe("document-shell pattern — client hydrate (#3000)", () => {
     expect(warn.mock.calls.map(c => c.join(" "))).toEqual([
       "useHead: <meta> (charset) is shell-only and ignored on the client"
     ]);
+    warn.mockRestore();
+    dispose();
+    setHeadShellStarted(false);
+  });
+
+  test("head of only registry-inserted tags: the prelude move stops after one pass", async () => {
+    (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { html } = JSON.parse(
+      readFileSync(resolve(artifactsDir, "document-shell-registry-only-head.json"), "utf-8")
+    ) as { html: string };
+
+    document.open();
+    document.write(html);
+    document.close();
+
+    const before = [...document.head.children];
+    expect(before.map(n => n.tagName)).toEqual(["TITLE", "META"]);
+
+    // Every head child is a leading registry tag: moving the run to the end
+    // used to rotate the head forever and hang hydrate().
+    const dispose = hydrate(() => <RegistryOnlyHeadApp />, document);
+    flush();
+    await sleep(20);
+    flush();
+
+    expect([...document.head.children]).toEqual(before);
+    expect(document.title).toBe("registry title");
+
+    setHeadShellStarted(true);
+    flush();
+    expect(document.getElementById("status")!.textContent).toBe("started");
+
+    expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
     dispose();
     setHeadShellStarted(false);
