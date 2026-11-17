@@ -195,11 +195,8 @@ function guessView(
         // The writer composes on the screen with the tick's own guesses: the
         // unflushed guess, the lane's value, a corrected guess's screen until
         // its hold lands (D-34, D-37 — never the truth beneath it).
-        if (g._config & CONFIG_OVERRIDE || pendingGuessOf(g) !== NOT_PENDING) {
-          const v = guessedValueOf(g);
-          if (v !== NOT_PENDING) return v as Record<PropertyKey, any>;
-        }
-        if (g._config & CONFIG_HELD) return g._value as Record<PropertyKey, any>;
+        const v = writerFrame(g);
+        if (v !== NOT_PENDING) return ownedKeys(t, g, kg, v);
       } else if (g._config & (CONFIG_OVERRIDE | CONFIG_HELD)) {
         // A snapshot, `deep()`, a reconcile's key matching: the carrier as
         // core reads it for this reader (the lane's world, the screen, the
@@ -209,6 +206,34 @@ function guessView(
       }
     }
   return src;
+}
+
+/** A carrier's frame as the writer sees it: the unflushed guess or the
+ * lane's value, a corrected guess's screen until its hold lands (D-34). */
+function writerFrame(g: any): any {
+  if (g._config & CONFIG_OVERRIDE || pendingGuessOf(g) !== NOT_PENDING) {
+    const v = guessedValueOf(g);
+    if (v !== NOT_PENDING) return v;
+  }
+  return g._config & CONFIG_HELD ? g._value : NOT_PENDING;
+}
+/** The newest carrier's frame with each key another carrier owns taken from
+ * that carrier, as a read of the key finds it (`guessFor`): the newest frame
+ * only copied those keys when it was written, and an older carrier a later
+ * guess on the same key went to has moved on since (#4988). A list's frame
+ * is its arrangement, taken whole. */
+function ownedKeys(t: StoreTarget, g: any, kg: Signal<any>[], v: any): Record<PropertyKey, any> {
+  let out = v;
+  if (!Array.isArray(v))
+    for (const o of kg as any[])
+      if (o !== g && o.wk !== null)
+        for (const key of o.wk)
+          if (guessFor(t, key, false, false) === o) {
+            const f = writerFrame(o);
+            if (f !== NOT_PENDING && f[key] !== out[key])
+              (out === v ? (out = { ...v }) : out)[key] = f[key];
+          }
+  return out;
 }
 
 /** The user's draft on an optimistic family: a clone of the view the user
