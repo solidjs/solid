@@ -1836,11 +1836,12 @@ export function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
 }
 
 /** Does `n` read `c`, through any chain of computations? Only a chain of
- * nodes above `c` can reach it, so the walk stops at `c`'s height. */
+ * nodes above `c` can reach it, so the walk stops at `c`'s height (a signal
+ * has no height and ends it too). */
 function feeds(n: Computed<any>, c: Computed<any>): boolean {
   for (let l = n._deps; l; l = l._nextDep) {
     const d: any = l._dep;
-    if (d === c || (d._fn && d._height > c._height && feeds(d, c))) return true;
+    if (d === c || (d._height > c._height && feeds(d, c))) return true;
   }
   return false;
 }
