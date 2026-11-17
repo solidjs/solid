@@ -6,7 +6,7 @@
 [![](https://img.shields.io/npm/dm/solid-js.svg?style=for-the-badge)](https://www.npmjs.com/package/solid-js)
 [![Discord](https://img.shields.io/discord/722131463138705510?style=for-the-badge)](https://discord.com/invite/solidjs)
 
-**[Website](https://www.solidjs.com/) • [Docs](https://docs.solidjs.com/) • [Playground](https://playground.solidjs.com/) • [GitHub](https://github.com/solidjs/solid) • [Discord](https://discord.com/invite/solidjs)**
+**[Website](https://www.solidjs.com/) • [Docs](https://docs.solidjs.com/) • [Tutorial](https://docs.solidjs.com/tutorial) • [Playground](https://playground.solidjs.com/) • [GitHub](https://github.com/solidjs/solid) • [Discord](https://discord.com/invite/solidjs)**
 
 Solid is a declarative JavaScript library for building user interfaces. Instead of a Virtual DOM, it compiles templates to real DOM nodes and updates them with fine-grained reactivity. Declare your state and use it throughout your app — when a piece of state changes, only the code that depends on it re-runs.
 
@@ -76,6 +76,7 @@ The full migration guide is [`MIGRATION.md`](https://github.com/solidjs/solid/bl
 
 - **Why Solid, key features, browser support, community, sponsors** — see the [repository README](https://github.com/solidjs/solid#readme).
 - **Full documentation** — [docs.solidjs.com](https://docs.solidjs.com).
+- **Interactive tutorial** — [docs.solidjs.com/tutorial](https://docs.solidjs.com/tutorial).
 - **Examples** — the [`examples/`](https://github.com/solidjs/solid/tree/main/examples) folder (see [`documentation/plans/examples-grid-plan.md`](https://github.com/solidjs/solid/blob/main/documentation/plans/examples-grid-plan.md) for the grid they cover).
 - **Discord** — [discord.com/invite/solidjs](https://discord.com/invite/solidjs).
 
