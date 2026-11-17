@@ -17,20 +17,20 @@ name: Size
 # the base. The decision needs the base's minified numbers, so the base
 # measurement moved from the old informational `compare` job (which ran after
 # `check`) into a job `check` waits on; `head` and `base` run in parallel.
-# Pushes to next are gated too, against the commit before the push —
+# Pushes to main are gated too, against the commit before the push —
 # PR-only triggering let the +createStore scenario sit failing at a release
 # commit unnoticed.
 on:
   push:
-    branches: [next]
+    branches: [main]
   pull_request:
-    branches: [main, next]
+    branches: [main]
 
 permissions:
   contents: read
   pull-requests: write
 
-# A push gets its own group, so every commit on next keeps its run.
+# A push gets its own group, so every commit on main keeps its run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
@@ -59,7 +59,7 @@ jobs:
       # size.mjs prints the lazy chunks and per-package minified bytes for
       # each scenario, so a bump is attributed in the same log that reports
       # it. --no-gate: the decision is check's. Uploaded on pushes too — a
-      # push to next's size-head is what `npm run ratchet -- --from` reads.
+      # push to main's size-head is what `npm run ratchet -- --from` reads.
       - run: npm run size -- --json size-head.json --no-gate
         working-directory: scripts/size
       - uses: actions/upload-artifact@v4
@@ -72,7 +72,7 @@ jobs:
   # same Rolldown. On a PR the head is the merge commit with base.sha, so the
   # difference is the PR's own change; on a push it is the pushed range
   # (`before`), so a merge that passed with a noise warning does not turn
-  # next red on the absolute cap. continue-on-error: a base the head's
+  # main red on the absolute cap. continue-on-error: a base the head's
   # harness cannot build or measure leaves check on absolute caps instead of
   # blocking.
   base:

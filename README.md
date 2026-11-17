@@ -1,5 +1,5 @@
 <p>
-  <img src="https://assets.solidjs.com/banner?project=Library&type=core" alt="SolidJS" />
+  <img src="https://assets.solidjs.com/banner?project=Library&type=core&version=2.0" alt="SolidJS" />
 </p>
 
 [![Build Status](https://img.shields.io/github/actions/workflow/status/solidjs/solid/main-ci.yml?branch=main&logo=github&style=for-the-badge)](https://github.com/solidjs/solid/actions/workflows/main-ci.yml)
