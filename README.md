@@ -178,11 +178,9 @@ Built on JSX and TypeScript, integrates with the Vite ecosystem. Bare-metal abst
 
 SolidJS Core supports the last 2 years of modern Firefox, Safari, Chrome, and Edge (desktop and mobile). IE and similar sunset browsers are not supported. For server environments, Node LTS, the latest Deno, and Cloudflare Worker runtimes are supported.
 
-<img src="https://saucelabs.github.io/images/opensauce/powered-by-saucelabs-badge-gray.svg?sanitize=true" alt="Testing Powered By SauceLabs" width="300"/>
-
 ## Community
 
-Come chat on [Discord](https://discord.com/invite/solidjs). Solid's creator and the rest of the core team are active there, and we're always looking for contributions.
+Come chat on [Discord](https://discord.com/invite/solidjs). Solid's maintainers are active there, and we're always looking for contributions.
 
 ### Contributors
 
