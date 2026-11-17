@@ -575,10 +575,11 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
       // it: an input's truth equal to its committed value is silent).
       x._transaction = null;
       if (!effect) {
-        // The runs below are released, and its readers show the void
-        // staging: they re-derive, as its own re-derivation may land on what
-        // the screen shows and notify nobody (F-1, D-34, #4971).
-        if (l._shown && !l._held && n._pendingValue !== NOT_PENDING) insertSubs(n);
+        // Its readers re-derive unless the lane was held: a shown lane's runs,
+        // released below, show the void staging, and its own re-derivation
+        // may land on what the screen shows and notify nobody (F-1, D-34,
+        // #4971).
+        if (!l._held && n._pendingValue !== NOT_PENDING) insertSubs(n);
         // A staged error is a staging too: void with it, or the commit below
         // would publish the empty slot as the node's error (#4748).
         n._pendingValue = NOT_PENDING;
