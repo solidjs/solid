@@ -1,0 +1,4 @@
+{
+  "shell": "<main _hk=6><p id=\"hydrated\">no</p><!--$--><section _hk=90 id=\"block\">free</section><!--/--></main><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"4\"]=$R[3]=($R[4]=$R[2]()).p;($R[6]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[1],$R[5]=[\"a\"]);$R[6]($R[4],\"free\");</script>",
+  "chunks": []
+}
