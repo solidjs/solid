@@ -1259,9 +1259,14 @@ function unwake(n: Signal<any>): void {
     let same: unknown = true;
     for (let d = sub._deps; d !== null && same; d = d._nextDep) {
       const dep = d._dep as Computed<any>;
-      same = (dep as Partial<Computed<any>>)._fn
-        ? !(dep._flags & (REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK))
-        : dep._pendingValue === NOT_PENDING || isSame(dep, tickBase(dep), dep._pendingValue);
+      const fn = (dep as Partial<Computed<any>>)._fn !== undefined;
+      // A derivation's own staging is its answer; a user write staged on one
+      // (`createSignal(fn)`'s setter) is a written source like a signal's (#4991).
+      same =
+        !(fn && dep._flags & (REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK)) &&
+        (dep._pendingValue === NOT_PENDING ||
+          (fn && !(dep._flags & REACTIVE_MANUAL_WRITE)) ||
+          isSame(dep, tickBase(dep), dep._pendingValue));
     }
     if (same) {
       deleteFromHeap(sub, dirtyQueue);
