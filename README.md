@@ -133,7 +133,7 @@ The primer and the cheatsheet ship inside the `solid-js` npm package (`node_modu
 
 ## Repository
 
-This is a PNPM workspaces monorepo. The packages here version together as one fixed group:
+This is a PNPM workspaces monorepo. The core runtime (`solid-js`, `@solidjs/signals`, `@solidjs/web`, `@solidjs/universal`, `@solidjs/diagnostics`) always shares one version. The two compilers share a version when they release together, and `@solidjs/h`, `@solidjs/html` and `@solidjs/element` version on their own.
 
 | Package                 | Path                    | Purpose                                                               |
 | ----------------------- | ----------------------- | --------------------------------------------------------------------- |
