@@ -88,6 +88,11 @@ export const REACTIVE_RELEASE_AFTER = 1 << 22;
  * owner sits below it (heights put owners first), so a wake of it wakes the
  * owner too — the owner's pass re-creates it and is what its readers see. */
 export const REACTIVE_OWNER_READS = 1 << 23;
+/** The pass opened a `latest` window of its own: it read a value ahead,
+ * not only a verdict (`isPending`). Per pass. #4966: a first plain read
+ * an `isPending` window alone gates is not a mount (core.ts
+ * `stagedScreen`). */
+export const REACTIVE_LATEST_WINDOW = 1 << 24;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.
 export const CONFIG_OWNED_WRITE = 1 << 0;
