@@ -119,12 +119,10 @@ export default function transformComponent(
           isDynamic(attribute.get("argument"), {
             checkMember: true
           }) && (dynamicSpread = true)
-            ? t.isCallExpression(node.argument) &&
-              !node.argument.arguments.length &&
-              !t.isCallExpression(node.argument.callee) &&
-              !t.isMemberExpression(node.argument.callee)
-              ? (node.argument.callee as t.Expression)
-              : t.arrowFunctionExpression([], node.argument)
+            ? // Always a thunk, never the bare callee of `{...fn()}`:
+              // mergeProps memoizes a function source and a memo passes its
+              // previous value, so `fn` would be called with it (#4964).
+              t.arrowFunctionExpression([], node.argument)
             : (node.argument as t.Expression)
         );
       } else if (t.isJSXAttribute(node)) {

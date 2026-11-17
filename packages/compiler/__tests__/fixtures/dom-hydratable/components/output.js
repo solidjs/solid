@@ -66,7 +66,9 @@ const template = (props) => {
 			return _$getNextElement(_tmpl$3);
 		}
 	})), _el$10, _el$11);
-	_$insert(_el$7, _$createComponent(Child, _$mergeProps({ name: "Jason" }, dynamicSpread, {
+	_$insert(_el$7, _$createComponent(Child, _$mergeProps({ name: "Jason" }, () => {
+		return dynamicSpread();
+	}, {
 		ref(r$) {
 			var _ref$3 = props.ref;
 			typeof _ref$3 === "function" || Array.isArray(_ref$3) ? _$applyRef(_ref$3, r$) : props.ref = r$;
