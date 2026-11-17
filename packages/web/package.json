@@ -386,7 +386,8 @@
     "@codspeed/vitest-plugin": "^5.4.0",
     "@solidjs/signals": "workspace:*",
     "fast-check": "3.23.2",
-    "solid-js": "workspace:*"
+    "solid-js": "workspace:*",
+    "vitest": "^4.1.6"
   },
   "keywords": [
     "solid",
