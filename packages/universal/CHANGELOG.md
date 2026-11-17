@@ -1,5 +1,614 @@
 # @solidjs/universal
 
+## 2.0.0
+
+### Major Changes
+
+- 2645436: Update to R3 based signals
+- a4c833d: Update to new package layout, signals implementation, compiler
+
+### Minor Changes
+
+- 89a0531: Absorb the 0.50 expressions snapshot into this repo: lift compilers as `@solidjs/babel-plugin` and `@solidjs/compiler`, dump runtimes into `@solidjs/web` / `h` / `html` / `universal`. Origin: ryansolid/dom-expressions@e97e4290 (0.50.0-next.44).
+- 89a0531: Collapse the expressions dump: drop the rxcore seam, flatten runtimes into package `src/`, delete `babel-preset-solid`, and publish compiler natives as `@solidjs/compiler-*`.
+
+### Patch Changes
+
+- bd22ac8: Rename the three legacy client dev artifacts to the `<entry>.dev.{js,cjs}` convention every other dev build already uses: `solid-js/dist/dev.*` → `dist/solid.dev.*`, `@solidjs/web/dist/dev.*` → `dist/web.dev.*`, `@solidjs/universal/dist/dev.*` → `dist/universal.dev.*`. With server dev builds now shipping as `dist/server.dev.*`, a bare `dev.js` no longer says which entry it is the dev build of. The `exports` maps are updated; only code deep-importing `dist/dev.js` directly (bypassing `exports`) is affected.
+- 5dd2949: Update dom-expressions to 0.50.0-next.15 under the new `@dom-expressions` npm scope (`@dom-expressions/runtime`, `@dom-expressions/babel-plugin-jsx`, `@dom-expressions/hyperscript`, `@dom-expressions/tagged-jsx`). Includes the upstream fix where awaited `renderToStream` now waits out blocked root holes (#2779) and the server `mergeProps` sourcing fix (#2815). `@solidjs/html`'s runtime shim follows the upstream SLD → Tagged JSX rename (`createTaggedJSXRuntime` / `TaggedJSXInstance`).
+- 4fba79d: Fold render/hydrate policy into the runtime implementations, drop the duplicate `mergeProps` re-export, keep JSX type sources in `packages/web/jsx/`, and colocate the SSR package entry at `src/index.server.ts`.
+- b298154: Move the runtimes' seams off the `solid-js` surface and behind `solid-js/internal`
+
+  `merge()`/`omit()` returning lazy views (#3454) gave `spread()` and
+  `ssrElement()` a protocol for reading props leaf by leaf instead of trapping
+  through the proxy per key. Because `@solidjs/web` and `@solidjs/universal`
+  depend on `solid-js` alone — never on `@solidjs/signals` directly, so an app
+  holds exactly one reactive engine — every piece of that protocol went out
+  through `solid-js`'s main export: eleven names, `mergeSources` before them in
+  #3325, on the public surface with no marking. None of it is API.
+
+  The protocol (`viewOf`, `mergeView`/`omitView`, `MergeView`/`OmitView`,
+  `sourceKeys`/`sourceHas`/`sourceGet`, `hasStaticKeys`, `resolvedTable`, the
+  `SOURCE_*` kinds, `SourceKind`) now lives on a `solid-js/internal` subpath,
+  along with the server-scope seams that were already `@internal` in JSDoc and
+  consumed only by `@solidjs/web` (`ssrHandleError`, `ssrScope`,
+  `runInServerComponentScope`, `inServerComponentScope`, `creationStamp`,
+  `getProjectionTrace`, `materializeContainerTrace`). The names stay exported
+  from the main entries at runtime, so the subpath shares one module state and
+  the single-engine guarantee is untouched; `stripInternal` keeps them out of
+  the generated declarations, so TypeScript no longer offers or types them.
+  `internal-surface.spec.ts` pins the boundary in both directions.
+
+  Also dropped from the entries: `storeIsShallow`, `storeHasFamily`,
+  `storeHasOptimisticFamily` (leftovers of the gutted patch channel),
+  `storePath` and `$REFRESH` (referenced only by `@solidjs/signals`'s own
+  internals), and `NoHydrateContext` (`@internal`, used only by `solid-js`'s
+  server code). Nothing in the repo consumed them.
+
+  No runtime behavior change. `merge`, `omit`, and the rest of the reactive
+  surface are unaffected.
+
+- b1646a5: update signals
+- 899c2c4: `merge()` and `omit()` are always lazy views, and props consumers read their leaves
+
+  `omit(props, ...keys)` returns a live view of `props` for every input — a plain object included — instead of copying it with a `getOwnPropertyDescriptor` + `defineProperty` per prop. A predicate form hides keys by rule without enumerating first: `omit(props, k => k[0] === "$")`. `merge()` no longer builds an eager copy when its sources are plain objects: under `Proxy` it always returns an O(1) view over the flattened sources (a single non-function source is returned as is).
+
+  The two compose flat. An `omit()` over a `merge()` carries one filtered view per flattened merge source, a `merge()` over an `omit()` takes the view record as a leaf, and nested omits fold their filters into one record. A component chain of `merge(defaults) → omit(consumed) → merge(statics) → omit("as")` — the shape headless-UI libraries render every element through — collapses to leaf views over the original objects, each with its accumulated filter, with no proxy layer left between the outermost spread and the author's props. `merge()` keeps the omitted keys hidden by construction (#3014) rather than by treating the omit as opaque. Construction cost drops 3–7× at depth 1–7; the SSR polymorphic-chain bench (#3448) runs ~2.4× faster.
+
+  Reads stay cheap: a view over plain objects resolves a key → owning-leaf table once, on first read, and every `get`/`has`/descriptor is one lookup after that. `spread()` (DOM and universal) and `ssrElement()` read the leaves directly — never through the proxies' traps — and walk that table when there is one, so an effect rerun costs one read per key, as it did over the copy. Both proxies use a class target and one shared handler (no per-instance closures).
+
+  A view over a store asks the store nothing but the read. Each source's kind (plain object, omit record, proxy, memo) is decided once, when the view is built, and carried beside it — every brand check on a Proxy is a trap (`instanceof` is a `getPrototypeOf` trap, as expensive as a store read), and store detection goes through `$TARGET`, a symbol the store's `get` trap answers on its fast path, never its generic tracked-read path. `merge(defaults, store)` constructs ~30% faster than the copy did and reads ~15% faster; `omit(store)` reads at parity.
+
+  The views tell the truth: `Object.getOwnPropertyDescriptor(view, key)` reports a data descriptor only when the key is a data property of a plain leaf (the compiler's encoding of a static prop) and an accessor for a getter, a store key, or a memo source. Together with the new internal `hasStaticKeys()`, `spread()` now skips the children effect for static children behind `omit`/`merge` layers (#3388 through views).
+
+  Behavior changes:
+  - Writes to a `merge()` or `omit()` result are no-ops (they already were for the proxy forms). A caller that needs its own object copies it (`{ ...merged }`), and the copy carries no sources (#3384). `@solidjs/html` now collects its own props and spreads into one `merge()` at the end instead of assigning onto the result.
+  - A data property on a source is read live through the view rather than snapshotted at `merge()`/`omit()` time.
+  - Key order of a merged view is the merged order — every key at the position of the last source that carries it — matching `ssrElement`'s array form.
+  - Sources are treated as own-keyed; a key added to a plain source after merging is not seen (the copy did not see it either).
+  - Enumerating a view through its traps (`for…in`, `Object.keys`, `{ ...view }`) costs a trap per key, as any proxy does; the internal consumers avoid it. Environments without `Proxy` keep the copy paths.
+
+  Internal helpers for consumers, exported from `solid-js`: `viewOf(o)`, `mergeView(o)`, `omitView(o)`, `sourceKeys(entry, kind)`, `sourceHas(entry, kind, key)`, `sourceGet(entry, kind, key)`, `hasStaticKeys(o)`, `resolvedTable(o)`, the `SOURCE_*` kinds.
+
+- 7182195: Migrate the dumped DOM runtime from JavaScript plus colocated `.d.ts` files to TypeScript sources, so published types come from `tsc`.
+- 1807f7f: Observe tier: split dev-only checks from production-legal observability wiring.
+
+  **Breaking (pre-release):** `DEV.diagnostics` moved to a new `OBSERVE` export
+  — `OBSERVE.diagnostics.{subscribe,capture,emit}`, `OBSERVE.subjectOf(event)`.
+  `DEV` keeps the devtools surface (`hooks`, `getChildren`/`getSignals`/
+  `getParent`/`getSources`/`getObservers`) and gains the console face
+  (`DEV.report`, `DEV.setConsoleFooter` — formerly
+  `DEV.diagnostics.setConsoleFooter`). Both are exported from `@solidjs/signals`
+  and `solid-js` (client and server).
+
+  **Breaking (pre-release):** the attribution engine is its own entry.
+  `DEV.attribution.enable()` and friends are now
+  `import { attribution } from "solid-js/attribution"` (or
+  `@solidjs/signals/attribution`) — `enable/disable/subscribe/history/why/
+subscriptions/costs/waterfalls/holds/feedback/markFlight/format/formatOrigin`,
+  plus the record types (`RerunEvent`, `ChangeRecord`, `ChangeOrigin`,
+  `HoldEvent`, …) which were previously unexported. The runtime keeps only the
+  core's side as `OBSERVE.attribution`: `install(hooks)`/`installed` (the hook
+  slot an engine — built-in or a devtools' own — installs into) and
+  `withInteraction(ref, fn)` (the frame the web runtime opens around every event
+  dispatch; `fn()` when no engine is installed). A build that never imports the
+  engine never ships it: the observe tier costs ~1.3 KB brotli over prod on the
+  CSR scenario, the engine 9.7 KB more when enabled. The import is legal in
+  every tier — prod resolves an inert engine with the same surface.
+  `@solidjs/diagnostics` requires `OBSERVE` and imports the engine itself; it now
+  works against observe builds.
+
+  **New build tier.** Every package with wiring ships `<entry>.observe.{js,cjs}`
+  beside its prod and dev artifacts, selected by a new `observe` export condition
+  (listed after `development`, so dev still wins when both are set): signals
+  `dist/observe/` + `dist/node.observe.cjs` (each with an `attribution` entry
+  beside `index`; the flat dev/CJS builds are code-split so both entries share
+  one module instance), solid-js `solid.observe.*` and
+  `server.observe.*`, web `web.observe.*`, universal `universal.observe.*`.
+  Observe builds keep attribution hook sites, owner labels (`_name`, flow-control
+  memo names, component roots), graph edge counters and the diagnostics channel;
+  they fold out strict-read checks, invariants, forbidden-scope guards, devtools
+  brands and all console output. Entries without wiring (frames, server-functions,
+  storage, h, html, element) fall through to prod under `observe`. Signals gates
+  on `__OBSERVE__` (dev implies observe; asserted at init), solid-js/web/universal
+  on the `"_SOLID_OBSERVE_"` literal. Default prod artifacts are unchanged apart
+  from the new `OBSERVE = undefined` export; `_name` is reserved from property
+  mangling so the cross-package label survives in the observe tree.
+  `OBSERVE.diagnostics.emit` accepts an explicit `ownerPath` for hosts whose
+  owners are not signals' owners (the SSR runtime).
+
+- 9c917ea: A ref callback that reads a sync memo on a row mounted while an async memo is in flight no longer leaves that update held forever (#4767). Refs run in the attribute effect's commit half with no owner; a memo born into the hold has only a staged value, and an ownerless read of it threw `NotReadyError` (A19 exception 1), which errored the effect mid-hold so the transaction never landed. `runRefCallback` now marks the read, and `serve` returns the staged value only when the ref's creating pass was born into that memo's hold (F-7); production `ref()` always goes through `runRefCallback` so the mark is present outside dev too.
+- 7230c08: A ref callback (`ref={el => …}`) now runs the way a render effect's callback runs at creation (#4761). It is untracked and runs in the context of the pass that creates the element, so its reads see what that pass is building. Before, it ran with no owner, so its reads were outside reads that saw the screen before the pass committed. A non-keyed `<Show>`/`<Match>` branch that an optimistic write had hidden could not come back: its ref read the narrowed accessor, got the old falsy condition, and threw a stale read that halted the app.
+
+  A ref still owns nothing. In dev, creating a memo, effect or root inside it throws `PRIMITIVE_IN_EFFECT_CALLBACK`, and `onCleanup` inside it throws `CLEANUP_IN_FORBIDDEN_SCOPE`. Set those up in the factory that returns the ref, which runs in the component body. Writes, `refresh`, action calls and `onFlush` stay allowed in a ref, as in an effect callback.
+
+- a39415c: **Breaking:** all runtime packages are ESM only and declare `engines.node >= 22.12`.
+
+  Every `.cjs` artifact, every `require` branch in the exports maps, and the `types-cjs/` declaration mirrors are gone. Node 22.12+ loads ESM through `require()` natively, so a CommonJS host resolves the same files through the same export conditions it always did (`browser`, `node`, `development`, `observe`, …) — there is one module graph per tier rather than two to keep in step. `main` now points at the ESM server entry.
+
+  For consumers:
+  - ESM apps, Vite, Vitest, Bun, Deno, workers: no change.
+  - CommonJS Node apps: require Node 22.12 or later. `require("solid-js")` keeps working.
+  - TypeScript CommonJS projects: use `module: "NodeNext"` (TS 5.8+), which type-checks `require()` of ESM packages; `module: "Node16"` will report TS1479.
+  - Jest: needs Node 22.12+ for `require(esm)`; any preset that maps specifiers to `.cjs` paths (as `solid-jest` does for Solid 1.x) has nothing to map to and must be updated.
+
+  `@solidjs/signals` drops its flat `dist/node*.cjs` builds; its ESM entries (`dist/prod/`, `dist/observe/`, `dist/dev.js`) are the only ones. `@solidjs/babel-plugin` and `@solidjs/compiler` (build-time tooling loaded by Babel/Node) are unchanged.
+
+- d601119: Remove the experimental patch channel and patch-mode list driver (always opt-in, never default). Graph-native regions own value delivery and the unified-For design owns list structure, so the channel's parallel delivery machinery is retired: `patch.ts`/`patch-driver.ts` deleted, the compiler-contract exports (`registerPatch`/`registerRowOps`/`registerSlotPatch`/`patchableRaw`, `patchDriver`/`rowProof`/`driveList`) removed, the `patchDriver` compiler option dropped from both compilers, the insert `$ll` seam stripped, and the write-side channel struct dieted to the single written-keys bound (`t.wk`) the core fold/notify paths actually use. Store-family app bundles reclaim up to ~900 B brotli; every measured tier shrinks.
+- c74106f: fix multi insert/removal, ssr wip, async signal render
+- d31b3c6: Simplify `render` wrappers and give custom universal renderers deferred top-level mount.
+
+  `@solidjs/web`'s `render()` is now a thin wrapper around `dom-expressions`' `render` — it threads `{ insertOptions: { schedule: true } }` through the new `insertOptions` seam (added in `dom-expressions@0.50.0-next.2`), scopes the `ASYNC_OUTSIDE_LOADING_BOUNDARY` dev window, and tail-flushes the queue. No behavioral change for end users; the local `createRoot` / `flatten` / `insert` plumbing that was inlined in the previous commit has moved back into `dom-expressions`.
+
+  `@solidjs/universal` is no longer a pure re-export of `dom-expressions/src/universal.js`. It wraps `createRenderer` so the returned `render(code, element)` does `createRoot` + `insert(..., { schedule: true })` + tail `flush()`. Every custom universal renderer now inherits the same permissive top-level async semantics as `@solidjs/web`, without having to rewrite its own `render`.
+
+- bae59bd: A dynamic child region of a universal-renderer element that renders an empty fragment (for example a `<Show>` with `fallback={<></>}`) no longer loses its place among its siblings: the region now keeps its sentinel while empty, so the content that later replaces it is inserted where the region sits instead of being appended after the following siblings (#4274).
+- 3a6836d: Expose diagnostic names for renderer-owned effects (#3063). The public `Renderer` interface now accepts a trailing `RendererEffectOptions` (`{ name?: string }`) on `effect`, `insert`, and `spread` — `spread` forwards one shared name to its child insertion and internal ref/props effects — so dev attribution can correlate signal write → application computation → renderer effect → output mutation end-to-end. Renderer-created effects without a caller-supplied name get stable dev-only fallbacks ("renderer insert", "renderer spread props/ref/children", "renderer render", "renderer patch"); production builds tree-shake all of it via the `_SOLID_DEV_` constant.
+- 1643d2a: The universal renderer's `spread()` follows the `@solidjs/web` contract (#3388): `ref` folds into the props effect and is re-applied only when its identity changes (refs run with no owner, so nothing they create is disposed by the fold); children keep their own owned `insert` — that effect owns the child subtree — but a plain object whose `children` is a data property inserts the value with no effect at all. Three reactive nodes become two when children flow through the spread, one when they don't. `spread` also resolves a lone function source inside its own tracking scopes and accepts an array of sources — `spread(node, [a, b], skipChildren)` — the union of their keys with later sources winning, only the winning source read, function sources called inline with no merge and no memo. Both compilers' universal output uses it: a lone spread passes straight through (reactive included, no more `mergeProps(() => …)`), and several sources compile to the array instead of a `mergeProps()` call.
+- f6a3540: Update dom-expressions to 0.50.0-next.16. Pulls in: per-slot insertion markers so adjacent expression slots no longer destroy nodes migrating between them (#2830), delegated events reaching outer roots across nested render roots (#2832), recovery from module preload failures during hydration plus manifest asset URL normalization (#2817), non-destructive style object diffing with explicit-undefined removal (#2828), preserved JS value semantics for wrapped `&&` conditions, and the hole id scope hydration fixes (#2801).
+- 8ca127d: Update dom-expressions to 0.50.0-next.19. Pulls in resolver manifests: the
+  `manifest` option of `renderToString`/`renderToStream` now also accepts
+  `{ resolve(key), resolveSync?(key) }` (or a bare function) as an alternative
+  to a static manifest object, so dev servers can answer asset lookups from
+  their live module graph. `resolve` may return a promise and may resolve CSS
+  entries to inline-style descriptors (`{ id, content, attrs }`) for HMR
+  adoption; `resolveSync` is exposed on the render context as
+  `resolveAssetsSync` for sync consumers like `lazy()`'s `moduleUrl` getter.
+  Also picks up an internal perf refactor of root-level insert cleanup
+  (foreign-sibling detection via O(1) pointer checks).
+- 93ea8a1: Update dom-expressions to 0.50.0-next.34. Pulls in: single-flight for frames (`frameTransformFlightResult`, flight codec, per-frame versioning and outcome chunks), per-args boundary identity with host retention so cached server-component calls re-materialize instantly and never collide across argument sets, the server-component context barrier hook, keyed slot ranges relocating correctly across parents during morphs, a frame-client size pass, and the typed `transformFlightResult` seam.
+- c3fa949: Update dom-expressions to 0.50.0-next.35. Pulls in: live slot props (args changes rebind the mounted slot instead of re-creating it), call-site handoff for dynamic's live mount when a server component changes arguments, streamed-fragment reveals routed through the runtime reveal policy (`_$HY.f`) so late-arriving fragments are held for their claimant instead of discarded, and the morph fix that restores displaced slot ranges into wholesale-inserted parents (regrown list rows no longer render blank after clearing a search).
+- Updated dependencies [4b4c2cb]
+- Updated dependencies [7b8fd28]
+- Updated dependencies [a85c889]
+- Updated dependencies [729a5e1]
+- Updated dependencies [500d484]
+- Updated dependencies [512fd5e]
+- Updated dependencies [3d8a8a9]
+- Updated dependencies [59dd11f]
+- Updated dependencies [9015b12]
+- Updated dependencies [fb2e43b]
+- Updated dependencies [845b6bb]
+- Updated dependencies [215de3b]
+- Updated dependencies [df3f514]
+- Updated dependencies [34c65b8]
+- Updated dependencies [2a0da2f]
+- Updated dependencies [8bf04ea]
+- Updated dependencies [fd36d37]
+- Updated dependencies [1a1e2f2]
+- Updated dependencies [fd36d37]
+- Updated dependencies [7c14e23]
+- Updated dependencies [8d249c7]
+- Updated dependencies [51ffcb9]
+- Updated dependencies [427dc18]
+- Updated dependencies [4b5272f]
+- Updated dependencies [928ba28]
+- Updated dependencies [5bef430]
+- Updated dependencies [dea16f3]
+- Updated dependencies [15dc3c6]
+- Updated dependencies [b964dc7]
+- Updated dependencies [76b11b2]
+- Updated dependencies [23f7550]
+- Updated dependencies [8b9c5bf]
+- Updated dependencies [e841f8c]
+- Updated dependencies [95ca987]
+- Updated dependencies [46ab2dd]
+- Updated dependencies [cf839ea]
+- Updated dependencies [1b81476]
+- Updated dependencies [0090fe3]
+- Updated dependencies [c3e5e78]
+- Updated dependencies [db8241c]
+- Updated dependencies [43fae6e]
+- Updated dependencies [d826cd3]
+- Updated dependencies [ee94440]
+- Updated dependencies [21b9784]
+- Updated dependencies [a7c6b8e]
+- Updated dependencies [56918c6]
+- Updated dependencies [01ac18c]
+- Updated dependencies [fd36d37]
+- Updated dependencies [21ff8f8]
+- Updated dependencies [f3accb3]
+- Updated dependencies [3c1d512]
+- Updated dependencies [9015b12]
+- Updated dependencies [690228a]
+- Updated dependencies [b8617ec]
+- Updated dependencies [61bb177]
+- Updated dependencies [c74365d]
+- Updated dependencies [cc0396b]
+- Updated dependencies [8923ac6]
+- Updated dependencies [874c256]
+- Updated dependencies [667a020]
+- Updated dependencies [cdf4542]
+- Updated dependencies [8402421]
+- Updated dependencies [c6c415b]
+- Updated dependencies [28d5289]
+- Updated dependencies [178605c]
+- Updated dependencies [17ec571]
+- Updated dependencies [178605c]
+- Updated dependencies [9a213bb]
+- Updated dependencies [bd22ac8]
+- Updated dependencies [db1fed6]
+- Updated dependencies [711b557]
+- Updated dependencies [74ea248]
+- Updated dependencies [7599885]
+- Updated dependencies [8187065]
+- Updated dependencies [6717d35]
+- Updated dependencies [c324d2c]
+- Updated dependencies [f0c3692]
+- Updated dependencies [b0c6e6a]
+- Updated dependencies [6c8c956]
+- Updated dependencies [d5aba4b]
+- Updated dependencies [3ae0ca0]
+- Updated dependencies [1a1e2f2]
+- Updated dependencies [4a99c84]
+- Updated dependencies [a2a5b6f]
+- Updated dependencies [83aa07c]
+- Updated dependencies [50a810b]
+- Updated dependencies [0a7c278]
+- Updated dependencies [3bcce84]
+- Updated dependencies [df2ba6c]
+- Updated dependencies [4afc662]
+- Updated dependencies [f373683]
+- Updated dependencies [6c8c956]
+- Updated dependencies [1a1e2f2]
+- Updated dependencies [0771dc8]
+- Updated dependencies [53280e7]
+- Updated dependencies [f5cf675]
+- Updated dependencies [0f64d82]
+- Updated dependencies [8f1d9d2]
+- Updated dependencies [8f1d9d2]
+- Updated dependencies [75ed5e9]
+- Updated dependencies [c7f4403]
+- Updated dependencies [0856fee]
+- Updated dependencies [25fb7be]
+- Updated dependencies [542ff6f]
+- Updated dependencies [b460640]
+- Updated dependencies [cb04b8e]
+- Updated dependencies [284738e]
+- Updated dependencies [3dbf12b]
+- Updated dependencies [af97611]
+- Updated dependencies [f8f992d]
+- Updated dependencies [5869c94]
+- Updated dependencies [8187065]
+- Updated dependencies [03e2cca]
+- Updated dependencies [8187065]
+- Updated dependencies [23657d2]
+- Updated dependencies [a37611e]
+- Updated dependencies [a360ad0]
+- Updated dependencies [2d64742]
+- Updated dependencies [f658824]
+- Updated dependencies [b0db6c9]
+- Updated dependencies [47c0e6f]
+- Updated dependencies [4cab248]
+- Updated dependencies [3af4696]
+- Updated dependencies [76cb1aa]
+- Updated dependencies [39450e5]
+- Updated dependencies [f083220]
+- Updated dependencies [dc7b5c2]
+- Updated dependencies [1122d74]
+- Updated dependencies [cbd66e5]
+- Updated dependencies [d9050a8]
+- Updated dependencies [a10d33b]
+- Updated dependencies [ae2bc9f]
+- Updated dependencies [cf61b8e]
+- Updated dependencies [ff5c321]
+- Updated dependencies [681d6a5]
+- Updated dependencies [f3da41e]
+- Updated dependencies [7742b28]
+- Updated dependencies [da84bd9]
+- Updated dependencies [1c5cc7c]
+- Updated dependencies [51f971b]
+- Updated dependencies [b6a90f9]
+- Updated dependencies [3242e50]
+- Updated dependencies [3c68ab2]
+- Updated dependencies [bbc5ac8]
+- Updated dependencies [7f9bd7a]
+- Updated dependencies [3424f9a]
+- Updated dependencies [8ef7ece]
+- Updated dependencies [98a7385]
+- Updated dependencies [7742b28]
+- Updated dependencies [8db4de8]
+- Updated dependencies [f18780e]
+- Updated dependencies [ed2079f]
+- Updated dependencies [ba7560f]
+- Updated dependencies [088f97e]
+- Updated dependencies [ed60f05]
+- Updated dependencies [4620612]
+- Updated dependencies [ea7f892]
+- Updated dependencies [62e7883]
+- Updated dependencies [bbcce0a]
+- Updated dependencies [2597a4a]
+- Updated dependencies [5c961fa]
+- Updated dependencies [a10cf1a]
+- Updated dependencies [4a954e7]
+- Updated dependencies [00c3f78]
+- Updated dependencies [263be3f]
+- Updated dependencies [b1b2f82]
+- Updated dependencies [a79f974]
+- Updated dependencies [8187065]
+- Updated dependencies [a24a4de]
+- Updated dependencies [157dfe2]
+- Updated dependencies [51a1a49]
+- Updated dependencies [4608539]
+- Updated dependencies [c943c5c]
+- Updated dependencies [f14e3e3]
+- Updated dependencies [8b6c298]
+- Updated dependencies [35b30a1]
+- Updated dependencies [4f84cd5]
+- Updated dependencies [5bc9080]
+- Updated dependencies [b083833]
+- Updated dependencies [c78ec9f]
+- Updated dependencies [9788bad]
+- Updated dependencies [59d84ba]
+- Updated dependencies [0e8672a]
+- Updated dependencies [7d985b6]
+- Updated dependencies [e6177b4]
+- Updated dependencies [8ef7ece]
+- Updated dependencies [1833f14]
+- Updated dependencies [25a5685]
+- Updated dependencies [f41c6a4]
+- Updated dependencies [17b0afb]
+- Updated dependencies [4f14a34]
+- Updated dependencies [c7bb2c8]
+- Updated dependencies [8366208]
+- Updated dependencies [bff4c21]
+- Updated dependencies [f41c6a4]
+- Updated dependencies [1458907]
+- Updated dependencies [284738e]
+- Updated dependencies [d46928f]
+- Updated dependencies [a93a216]
+- Updated dependencies [a60b288]
+- Updated dependencies [cf92b55]
+- Updated dependencies [d0e487b]
+- Updated dependencies [9f27cdf]
+- Updated dependencies [21fff6f]
+- Updated dependencies [fd8b3df]
+- Updated dependencies [66accfb]
+- Updated dependencies [2645436]
+- Updated dependencies [8858189]
+- Updated dependencies [91e300a]
+- Updated dependencies [d682022]
+- Updated dependencies [009d3de]
+- Updated dependencies [467ac97]
+- Updated dependencies [40b05e1]
+- Updated dependencies [40af691]
+- Updated dependencies [1d3ec5d]
+- Updated dependencies [1d3ec5d]
+- Updated dependencies [3c1d512]
+- Updated dependencies [3c1d512]
+- Updated dependencies [3c1d512]
+- Updated dependencies [1bcee91]
+- Updated dependencies [47a217f]
+- Updated dependencies [9d89df7]
+- Updated dependencies [1d3ec5d]
+- Updated dependencies [7233451]
+- Updated dependencies [2c9fdd9]
+- Updated dependencies [15b512f]
+- Updated dependencies [c927463]
+- Updated dependencies [b6071ba]
+- Updated dependencies [3218b7a]
+- Updated dependencies [4ba1731]
+- Updated dependencies [00d1d5d]
+- Updated dependencies [e0e4224]
+- Updated dependencies [e0e4224]
+- Updated dependencies [3154ed6]
+- Updated dependencies [28f7bec]
+- Updated dependencies [b68a907]
+- Updated dependencies [b149cd2]
+- Updated dependencies [60f2922]
+- Updated dependencies [6c8c956]
+- Updated dependencies [beb419e]
+- Updated dependencies [fe1eb68]
+- Updated dependencies [fb4e637]
+- Updated dependencies [b298154]
+- Updated dependencies [4404f9f]
+- Updated dependencies [759a9b6]
+- Updated dependencies [f14e4ec]
+- Updated dependencies [7d21226]
+- Updated dependencies [6c95f60]
+- Updated dependencies [433eae5]
+- Updated dependencies [56ca647]
+- Updated dependencies [dbc5d00]
+- Updated dependencies [fe3ab92]
+- Updated dependencies [fe9ed90]
+- Updated dependencies [5413c06]
+- Updated dependencies [0c4bff7]
+- Updated dependencies [4cc6113]
+- Updated dependencies [6692a2c]
+- Updated dependencies [eb31c86]
+- Updated dependencies [80b4e8d]
+- Updated dependencies [b1646a5]
+- Updated dependencies [7c36f2b]
+- Updated dependencies [0a49dd8]
+- Updated dependencies [51d005a]
+- Updated dependencies [c5da908]
+- Updated dependencies [09e2d3b]
+- Updated dependencies [7742b28]
+- Updated dependencies [c50abb6]
+- Updated dependencies [ec4483d]
+- Updated dependencies [366da09]
+- Updated dependencies [e345dc7]
+- Updated dependencies [ffe0c1c]
+- Updated dependencies [c9e1954]
+- Updated dependencies [55779c0]
+- Updated dependencies [84562fc]
+- Updated dependencies [28fcc9b]
+- Updated dependencies [913913a]
+- Updated dependencies [ce8e46b]
+- Updated dependencies [c320429]
+- Updated dependencies [766ea30]
+- Updated dependencies [f4d3c87]
+- Updated dependencies [f7d5af6]
+- Updated dependencies [e8d8403]
+- Updated dependencies [899c2c4]
+- Updated dependencies [c324d2c]
+- Updated dependencies [12f15a2]
+- Updated dependencies [3bd00d2]
+- Updated dependencies [ad7d1f5]
+- Updated dependencies [e3d5fed]
+- Updated dependencies [dadeeeb]
+- Updated dependencies [c324d2c]
+- Updated dependencies [235173e]
+- Updated dependencies [0bf5758]
+- Updated dependencies [3ae9e92]
+- Updated dependencies [0961d97]
+- Updated dependencies [1807f7f]
+- Updated dependencies [328580f]
+- Updated dependencies [1d6c40f]
+- Updated dependencies [384a631]
+- Updated dependencies [e76279f]
+- Updated dependencies [3ee92f3]
+- Updated dependencies [0ef177e]
+- Updated dependencies [8f1d9d2]
+- Updated dependencies [8d249c7]
+- Updated dependencies [8d249c7]
+- Updated dependencies [d94d5c3]
+- Updated dependencies [d0b9c91]
+- Updated dependencies [8d1ba82]
+- Updated dependencies [c4fad7a]
+- Updated dependencies [3e48a75]
+- Updated dependencies [1a1a5d4]
+- Updated dependencies [fd36d37]
+- Updated dependencies [fd36d37]
+- Updated dependencies [fd36d37]
+- Updated dependencies [757d1eb]
+- Updated dependencies
+- Updated dependencies [32b4294]
+- Updated dependencies [8d249c7]
+- Updated dependencies [1f9d41a]
+- Updated dependencies [25935fe]
+- Updated dependencies [5f29f14]
+- Updated dependencies [1b94264]
+- Updated dependencies [da59aea]
+- Updated dependencies [d2529e3]
+- Updated dependencies [04b5b7f]
+- Updated dependencies [9c917ea]
+- Updated dependencies [7230c08]
+- Updated dependencies [85aa54f]
+- Updated dependencies [000da61]
+- Updated dependencies [3eed9c1]
+- Updated dependencies [0d4c5e0]
+- Updated dependencies [974506c]
+- Updated dependencies [e77087a]
+- Updated dependencies [9015b12]
+- Updated dependencies [3f36f77]
+- Updated dependencies [a39415c]
+- Updated dependencies [bd563d0]
+- Updated dependencies [e855fcb]
+- Updated dependencies [2e4a924]
+- Updated dependencies [52255dc]
+- Updated dependencies [6fec663]
+- Updated dependencies [d601119]
+- Updated dependencies [80b4e8d]
+- Updated dependencies [ac5159a]
+- Updated dependencies [284738e]
+- Updated dependencies [433eae5]
+- Updated dependencies [5086c21]
+- Updated dependencies [dd53561]
+- Updated dependencies [2a7c6a5]
+- Updated dependencies [6d6f03f]
+- Updated dependencies [41fdf96]
+- Updated dependencies [536dec5]
+- Updated dependencies [9b4dd76]
+- Updated dependencies [8cfa272]
+- Updated dependencies [ac0067a]
+- Updated dependencies [159d204]
+- Updated dependencies [6a87fb2]
+- Updated dependencies [ac0067a]
+- Updated dependencies [eb4e019]
+- Updated dependencies [de1c8b5]
+- Updated dependencies [8d249c7]
+- Updated dependencies [c74106f]
+- Updated dependencies [dfb31ed]
+- Updated dependencies [b749474]
+- Updated dependencies [4645cff]
+- Updated dependencies [0f6a978]
+- Updated dependencies [e0e4224]
+- Updated dependencies [bd95616]
+- Updated dependencies [87a3862]
+- Updated dependencies [61a114c]
+- Updated dependencies [11beaf4]
+- Updated dependencies [234cfc9]
+- Updated dependencies [80ff52e]
+- Updated dependencies [0d8347a]
+- Updated dependencies [7623ce1]
+- Updated dependencies [9ac1481]
+- Updated dependencies [56858e7]
+- Updated dependencies [f4b0956]
+- Updated dependencies [3fd0499]
+- Updated dependencies [ccf2cb5]
+- Updated dependencies [af94f67]
+- Updated dependencies [da1f7bf]
+- Updated dependencies [8a380d0]
+- Updated dependencies [0205756]
+- Updated dependencies [a61c929]
+- Updated dependencies [1561c7e]
+- Updated dependencies [e87d694]
+- Updated dependencies [38e0c49]
+- Updated dependencies [1f558e5]
+- Updated dependencies [84353de]
+- Updated dependencies [aece1d4]
+- Updated dependencies [01e3a57]
+- Updated dependencies [3e3c875]
+- Updated dependencies [254daf8]
+- Updated dependencies [75eebc2]
+- Updated dependencies [3d8a8a9]
+- Updated dependencies [b8c4534]
+- Updated dependencies [3d8a8a9]
+- Updated dependencies [4e730a9]
+- Updated dependencies [5426ffb]
+- Updated dependencies [63560a1]
+- Updated dependencies [34287d8]
+- Updated dependencies [9b883e0]
+- Updated dependencies [098876d]
+- Updated dependencies [c8c5eb1]
+- Updated dependencies [231a3d8]
+- Updated dependencies [d966729]
+- Updated dependencies [a405039]
+- Updated dependencies [af1c71e]
+- Updated dependencies [20204ec]
+- Updated dependencies [7742b28]
+- Updated dependencies [7addcc6]
+- Updated dependencies [4ff6580]
+- Updated dependencies [568ed6f]
+- Updated dependencies [75eebc2]
+- Updated dependencies [4e67d45]
+- Updated dependencies [56a982c]
+- Updated dependencies [234cfc9]
+- Updated dependencies [8a6de0f]
+- Updated dependencies [d1e6e29]
+- Updated dependencies [8187065]
+- Updated dependencies [8511fc1]
+- Updated dependencies [26ea296]
+- Updated dependencies [80b4e8d]
+- Updated dependencies [d037842]
+- Updated dependencies [a4c833d]
+- Updated dependencies [84c80f9]
+- Updated dependencies [ab5f83c]
+- Updated dependencies [87934c1]
+- Updated dependencies [5d57e12]
+- Updated dependencies [d7f95bb]
+- Updated dependencies [99d9821]
+- Updated dependencies [381d895]
+- Updated dependencies [07471da]
+- Updated dependencies [6cca8b5]
+- Updated dependencies [2c9fdd9]
+- Updated dependencies [6c8c956]
+- Updated dependencies [0c02d42]
+- Updated dependencies [eb3d699]
+- Updated dependencies [fbbd7e3]
+- Updated dependencies [f6a3540]
+- Updated dependencies [8ca127d]
+- Updated dependencies [93ea8a1]
+- Updated dependencies [c3fa949]
+- Updated dependencies [6b4af47]
+- Updated dependencies [2922dbb]
+- Updated dependencies [53dcb14]
+- Updated dependencies [dea16f3]
+- Updated dependencies [93fa11a]
+- Updated dependencies [6b317b2]
+  - solid-js@2.0.0
+
 ## 2.0.0-rc.23
 
 ### Patch Changes
