@@ -376,7 +376,11 @@ function hiddenBy(r: Computed<any>, seen?: Set<Computed<any>>): Boundary | undef
  * still showing its fallback holds it again then. */
 function heldRun(node: Computed<any>): boolean {
   const b = hiddenBy(node);
-  if (b === undefined) return false;
+  // A swap to the fallback still staged in a hold (an `on` re-arm the
+  // frame holds) has not reached the screen: the content is still the
+  // display, and a run there — a guess written over it — applies now
+  // (D-17, F-1, #4987).
+  if (b === undefined || b._output!._config & CONFIG_HELD) return false;
   (b._runs ??= new Set()).add(node);
   return true;
 }
