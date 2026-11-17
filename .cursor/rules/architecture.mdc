@@ -9,7 +9,7 @@ SolidJS core monorepo — a declarative JavaScript UI library that compiles temp
 
 ## Monorepo Structure
 
-PNPM workspaces + Turborepo. All packages version together as one changesets fixed group.
+PNPM workspaces + Turborepo. Changesets versioning: the core runtime (`solid-js`, `@solidjs/signals`, `@solidjs/web`, `@solidjs/universal`, `@solidjs/diagnostics`) is one fixed group and always shares a version; `@solidjs/compiler` and `@solidjs/babel-plugin` are linked (they share a version when both release); `@solidjs/h`, `@solidjs/html` and `@solidjs/element` version on their own.
 
 - **`@solidjs/signals`** (`packages/signals/`): The reactive engine — signals, memos, effects, async, stores, optimistic lanes, scheduler. Internal to this repo; everything else builds on it (see `signals.mdc`).
 - **`solid-js`** (`packages/solid/`): Core runtime — component model, flow controls, context, hydration. Wraps `@solidjs/signals` with a UI layer.
