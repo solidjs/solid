@@ -2,7 +2,7 @@
  * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  */
-import { createSignal, flush } from "solid-js";
+import { Loading, createMemo, createSignal, flush } from "solid-js";
 import { describe, expect, test } from "vitest";
 import { Portal, render } from "../src/index.js";
 
@@ -114,5 +114,33 @@ describe("nested Portal order (#4963)", () => {
     expect(order(m2).sort()).toEqual(["other", "outer"]);
     dispose();
     expect(order(document.body)).toEqual([]);
+  });
+
+  test("nested portals behind a fallback keep tree order at the reveal (D-19)", async () => {
+    document.body.innerHTML = '<div id="app"></div>';
+    let resolve!: (v: string) => void;
+    const dispose = render(() => {
+      const data = createMemo(() => new Promise<string>(r => (resolve = r)));
+      return (
+        <Loading fallback={<p>loading</p>}>
+          <Portal>
+            <div data-p="outer">
+              {data()}
+              <Portal>
+                <div data-p="inner" />
+              </Portal>
+            </div>
+          </Portal>
+        </Loading>
+      );
+    }, document.getElementById("app")!);
+    flush();
+    expect(order(document.body)).toEqual([]);
+    resolve("x");
+    await Promise.resolve();
+    await new Promise(r => setTimeout(r, 0));
+    flush();
+    expect(order(document.body)).toEqual(["outer", "inner"]);
+    dispose();
   });
 });
