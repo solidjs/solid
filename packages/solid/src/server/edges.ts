@@ -76,7 +76,7 @@ function reportReads(reads: Set<string>): void {
 // direct readers the holder's name does not reach.
 const RAW = Symbol();
 function viewable(v: any): boolean {
-  if (v === null || typeof v !== "object" || Object.isFrozen(v)) return false;
+  if (v === null || typeof v !== "object") return false;
   const p = Object.getPrototypeOf(v);
   return p === Object.prototype || p === null || Array.isArray(v);
 }

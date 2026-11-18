@@ -159,11 +159,12 @@ export function markRawIngest(container: any): void {
 const OBJECT_PROTO = Object.prototype;
 const wrappableProtos = new WeakMap<object, boolean>();
 
-/** Plain objects and arrays wrap; class instances, DOM nodes, frozen objects
- * and markRaw'd values are leaves. Per-prototype verdict cached. */
+/** Plain objects and arrays wrap, frozen or not (stores never write to their
+ * sources); DOM nodes, platform objects and markRaw'd values are leaves.
+ * Per-prototype verdict cached. */
 export function isWrappable<T>(obj: T | NotWrappable): obj is T;
 export function isWrappable(obj: any) {
-  if (obj == null || typeof obj !== "object" || Object.isFrozen(obj)) return false;
+  if (obj == null || typeof obj !== "object") return false;
   const proto = Object.getPrototypeOf(obj);
   if (proto === OBJECT_PROTO || proto === null) return true;
   if (Array.isArray(obj)) return true;

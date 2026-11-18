@@ -146,7 +146,8 @@ export function sweepDormant(): void {
 }
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L52
-export function link(dep: Signal<any> | Computed<any>, sub: Computed<any>) {
+/** Truthy when it reuses the link `sub`'s last pass made: a re-read. */
+export function link(dep: Signal<any> | Computed<any>, sub: Computed<any>): unknown {
   const prevDep = sub._depsTail;
   if (prevDep !== null && prevDep._dep === dep) return;
 
@@ -156,8 +157,7 @@ export function link(dep: Signal<any> | Computed<any>, sub: Computed<any>) {
     nextDep = prevDep !== null ? prevDep._nextDep : sub._deps;
     if (nextDep !== null && nextDep._dep === dep) {
       nextDep._gen = sub._depGen;
-      sub._depsTail = nextDep;
-      return;
+      return (sub._depsTail = nextDep);
     }
   }
 
