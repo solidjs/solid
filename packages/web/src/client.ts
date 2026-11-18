@@ -553,14 +553,14 @@ export function delegateEvents(eventNames) {
 export function registerDelegatedRoot(root: MountableElement): void;
 
 export function registerDelegatedRoot(root) {
-  const state = registerDelegatedContainer(root, root);
-  if (state) state.roots = (state.roots || 0) + 1;
+  // A root is a container that owns itself: `getDelegatedRoot` reads that
+  // off `owners` (which already counts the registrations), so a mount pays
+  // for no second counter.
+  registerDelegatedContainer(root, root);
 } /** Event-delegation plumbing (Portal/custom-root wiring). Integration plumbing. @internal */
 export function unregisterDelegatedRoot(root: MountableElement): void;
 
 export function unregisterDelegatedRoot(root) {
-  const state = delegatedContainers.get(root);
-  if (state) state.roots > 1 ? state.roots-- : delete state.roots;
   unregisterDelegatedContainer(root, root);
 } /** Event-delegation plumbing (Portal/custom-root wiring). Integration plumbing. @internal */
 export function registerDelegatedContainer(
@@ -581,7 +581,6 @@ export function registerDelegatedContainer(container, owner = container) {
     );
   state.owners.set(owner, (state.owners.get(owner) || 0) + 1);
   delegatedEvents.forEach(name => attachDelegatedEvent(name, container, state));
-  return state;
 } /** Event-delegation plumbing (Portal/custom-root wiring). Integration plumbing. @internal */
 export function unregisterDelegatedContainer(
   container: MountableElement,
@@ -687,7 +686,7 @@ export function getDelegatedRoot(node: MountableElement): MountableElement | und
 
 export function getDelegatedRoot(node) {
   while (node) {
-    if (delegatedContainers.get(node)?.roots) return node;
+    if (delegatedContainers.get(node)?.owners.has(node)) return node;
     node = parentOf(node);
   }
 }

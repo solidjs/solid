@@ -30,6 +30,7 @@ import {
   addPendingSource,
   forEachDependent,
   handleAsync,
+  landBySetter,
   propagateStatus,
   settlePendingSource
 } from "../core/async.js";
@@ -349,7 +350,9 @@ export function runProjectionComputed<T extends object>(
           // every pass, a reader feeding a key the pass peeks at looped (#4342).
           if (wake) insertSubs(owner);
         };
-        const sync = handleAsync(owner, result, commit, (error, pending) => {
+        const land = (value: void | T, uninitialized: number, fail: (e: unknown) => void) =>
+          landBySetter(owner, value, commit, uninitialized, fail);
+        const sync = handleAsync(owner, result, land, (error, pending) => {
           // The flight rejected: the leaves' readers learn it from here —
           // they do not subscribe to the derive. Pending again (a NotReady
           // rejection): the wake, as for the pass. Errored: every live
