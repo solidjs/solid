@@ -582,6 +582,14 @@ function isOwnAccessor(src: Record<PropertyKey, any>, key: PropertyKey): boolean
   );
 }
 
+// Own accessors, and a class's prototype getters (they run on the proxy).
+function isAccessorKey(src: Record<PropertyKey, any>, key: PropertyKey): boolean {
+  return (
+    isOwnAccessor(src, key) ||
+    (key !== "__proto__" && !hasOwn.call(src, key) && lookupGetter.call(src, key) !== undefined)
+  );
+}
+
 /** Shallow clone into store ownership. Plain data (grade 2) spreads; anything
  * else copies descriptors (accessors kept, everything made configurable). */
 export function cloneRaw(
@@ -1159,7 +1167,7 @@ function notifyWrites(t: StoreTarget): void {
         // falls through so the cleared-acc hot read serves it (#3949);
         // an own getter's descriptor has no `value`, so the compare below
         // would otherwise keep the getter's result (or FORCE) for `undefined`.
-        (node as any).acc = isOwnAccessor(pb, key);
+        (node as any).acc = isAccessorKey(pb, key);
         const od = Object.getOwnPropertyDescriptor(old, key);
         const nd = Object.getOwnPropertyDescriptor(pb, key);
         if (!nd || nd.get || nd.set) {
@@ -1325,7 +1333,7 @@ export function notifyKeyDiff(
     (node as any).acc === true ||
     (probe && hasOwn.call(neu, key) && lookupGetter.call(neu, key) !== undefined)
   ) {
-    (node as any).acc = isOwnAccessor(neu, key);
+    (node as any).acc = isAccessorKey(neu, key);
     const od = Object.getOwnPropertyDescriptor(old, key);
     const nd = Object.getOwnPropertyDescriptor(neu, key);
     // Data descriptors fall through, as in notifyWrites (#3949).
@@ -1444,6 +1452,14 @@ function scopeKey(target: StoreTarget): any {
   let t = target;
   while (t.u !== null) t = t.u;
   return t;
+}
+const boundMethods = new WeakMap<object, Map<Function, Function>>();
+function rawMethod(src: object, v: Function): Function {
+  let m = boundMethods.get(src);
+  if (!m) boundMethods.set(src, (m = new Map()));
+  let f = m.get(v);
+  if (!f) m.set(v, (f = v.bind(src)));
+  return f!;
 }
 function inDraft(target: StoreTarget): boolean {
   return writeScopes !== null && writeScopes.has(scopeKey(target));
@@ -2275,7 +2291,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       let acc: boolean;
       if (node0 !== undefined) acc = (node0 as any).acc === true;
       else if (!inDraft(target) && getObserver() !== null) {
-        acc = isOwnAccessor(src, key);
+        acc = isAccessorKey(src, key);
         if (src === (target.pb ?? target.v)) accProbe = acc ? 1 : 0;
       } else acc = false;
       if (acc) {
@@ -2333,7 +2349,14 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       !hasOwn.call(src, key) &&
       !(viewOvl && hasOwn.call(target.v, key))
     )
-      return v; // proto method
+      // A class instance's methods outside a draft run on the raw instance.
+      return key === "constructor" ||
+        writeOverride ||
+        inDraft(target) ||
+        protoOf(src) === Object.prototype ||
+        Array.isArray(src)
+        ? v
+        : rawMethod(src, v);
     return serveDataKey(target, key, v, src, node0, accProbe);
   },
 
