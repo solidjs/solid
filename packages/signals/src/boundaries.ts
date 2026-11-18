@@ -380,7 +380,8 @@ function heldRun(node: Computed<any>): boolean {
   // frame holds) has not reached the screen: the content is still the
   // display, and a run there — a guess written over it — applies now
   // (D-17, F-1, #4987).
-  if (b === undefined || b._output!._config & CONFIG_HELD) return false;
+  // So is one whose content a guess lane carries beside it (#4999).
+  if (b === undefined || b._output!._config & (CONFIG_HELD | CONFIG_OVERRIDE)) return false;
   (b._runs ??= new Set()).add(node);
   return true;
 }
@@ -866,6 +867,10 @@ function createBoundary<T>(
       // display-ahead `on` causes is the lane's, and must still be the
       // fallback. Linked, so its recovery re-derives this pass; read again
       // once clean.
+      // A swap to the fallback staged in a hold, the content still on
+      // screen (D-17): a lane pass derives that content with its guesses
+      // (D-33, F-1), the swap left staged (#4999).
+      const shown = self._config & CONFIG_HELD && b._fb !== null && self._value !== b._fb._value;
       const status = tree._statusFlags & (STATUS_PENDING | STATUS_ERROR);
       if (status !== 0) {
         link(tree, self);
@@ -910,7 +915,7 @@ function createBoundary<T>(
           return fallback(b);
         // Readers under it still unready: the fallback, the tree untouched.
         // The seam re-derives this pass when they settle.
-        if (prune(b, true) !== 0) return fallback(b);
+        if (prune(b, true) !== 0 && !shown) return fallback(b);
       }
       let value: T;
       try {
@@ -939,7 +944,7 @@ function createBoundary<T>(
       // its lane waited on the pending behind it (#4856).
       if (isCollecting(b)) {
         if (tree._statusFlags & type & STATUS_PENDING) caught(b, tree);
-        if (b._readers.size !== 0) return fallback(b);
+        if (b._readers.size !== 0) return shown && passLane ? value : fallback(b);
       }
       b._initialized = true;
       // Observe: the fallback stops showing (a hide before its commit means
