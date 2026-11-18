@@ -2417,7 +2417,10 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     let desc: PropertyDescriptor | undefined;
     desc ??= visibleDescriptor(target, src, key);
     if (desc === undefined) return undefined;
-    if (!(key === "length" && Array.isArray(shell))) desc.configurable = true;
+    // The shell's `length` is writable and non-configurable, and a proxy must
+    // report it that way (a frozen source array's is non-writable).
+    if (key === "length" && Array.isArray(shell)) desc.writable = true;
+    else desc.configurable = true;
     return desc;
   },
 
