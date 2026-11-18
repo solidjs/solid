@@ -385,7 +385,7 @@ export function getNode(
       slotNodeEquals,
       target,
       key,
-      accKnown === -1 ? isOwnAccessor(pb ?? target.v, key) : accKnown === 1
+      accKnown === -1 ? isAccessorKey(pb ?? target.v, key) : accKnown === 1
     ));
     if (pb !== null && !(created as any).acc)
       bornStaged(target, created, target.del?.has(key) ? undefined : pb[key as any], key);
@@ -578,6 +578,14 @@ function isOwnAccessor(src: Record<PropertyKey, any>, key: PropertyKey): boolean
   return (
     hasOwn.call(src, key) &&
     (lookupGetter.call(src, key) !== undefined || lookupSetter.call(src, key) !== undefined)
+  );
+}
+
+// Own accessors, and a class's prototype getters (they run on the proxy).
+function isAccessorKey(src: Record<PropertyKey, any>, key: PropertyKey): boolean {
+  return (
+    isOwnAccessor(src, key) ||
+    (key !== "__proto__" && !hasOwn.call(src, key) && lookupGetter.call(src, key) !== undefined)
   );
 }
 
@@ -1158,7 +1166,7 @@ function notifyWrites(t: StoreTarget): void {
         // falls through so the cleared-acc hot read serves it (#3949);
         // an own getter's descriptor has no `value`, so the compare below
         // would otherwise keep the getter's result (or FORCE) for `undefined`.
-        (node as any).acc = isOwnAccessor(pb, key);
+        (node as any).acc = isAccessorKey(pb, key);
         const od = Object.getOwnPropertyDescriptor(old, key);
         const nd = Object.getOwnPropertyDescriptor(pb, key);
         if (!nd || nd.get || nd.set) {
@@ -1324,7 +1332,7 @@ export function notifyKeyDiff(
     (node as any).acc === true ||
     (probe && hasOwn.call(neu, key) && lookupGetter.call(neu, key) !== undefined)
   ) {
-    (node as any).acc = isOwnAccessor(neu, key);
+    (node as any).acc = isAccessorKey(neu, key);
     const od = Object.getOwnPropertyDescriptor(old, key);
     const nd = Object.getOwnPropertyDescriptor(neu, key);
     // Data descriptors fall through, as in notifyWrites (#3949).
@@ -2274,7 +2282,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       let acc: boolean;
       if (node0 !== undefined) acc = (node0 as any).acc === true;
       else if (!inDraft(target) && getObserver() !== null) {
-        acc = isOwnAccessor(src, key);
+        acc = isAccessorKey(src, key);
         if (src === (target.pb ?? target.v)) accProbe = acc ? 1 : 0;
       } else acc = false;
       if (acc) {
