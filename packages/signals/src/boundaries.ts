@@ -380,8 +380,13 @@ function heldRun(node: Computed<any>): boolean {
   // frame holds) has not reached the screen: the content is still the
   // display, and a run there — a guess written over it — applies now
   // (D-17, F-1, #4987).
-  // So is one whose content a guess lane carries beside it (#4999).
-  if (b === undefined || b._output!._config & (CONFIG_HELD | CONFIG_OVERRIDE)) return false;
+  // So is one whose content a guess lane carries beside it (#4999; lanes
+  // only, `laneStageHook`).
+  if (
+    b === undefined ||
+    b._output!._config & (laneStageHook ? CONFIG_HELD | CONFIG_OVERRIDE : CONFIG_HELD)
+  )
+    return false;
   (b._runs ??= new Set()).add(node);
   return true;
 }
@@ -869,8 +874,9 @@ function createBoundary<T>(
       // once clean.
       // A swap to the fallback staged in a hold, the content still on
       // screen (D-17): a lane pass derives that content with its guesses
-      // (D-33, F-1), the swap left staged (#4999).
-      const shown = self._config & CONFIG_HELD && b._fb !== null && self._value !== b._fb._value;
+      // (D-33, F-1), the swap left staged (#4999). Lanes only: folded away
+      // without the engine (`laneStageHook`).
+      const shown = laneStageHook && self._config & CONFIG_HELD && self._value !== b._fb?._value;
       const status = tree._statusFlags & (STATUS_PENDING | STATUS_ERROR);
       if (status !== 0) {
         link(tree, self);
