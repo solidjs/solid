@@ -876,7 +876,11 @@ function createBoundary<T>(
       // screen (D-17): a lane pass derives that content with its guesses
       // (D-33, F-1), the swap left staged (#4999). Lanes only: folded away
       // without the engine (`laneStageHook`).
-      const shown = laneStageHook && self._config & CONFIG_HELD && self._value !== b._fb?._value;
+      const shown =
+        laneStageHook &&
+        !b._initialized &&
+        self._config & CONFIG_HELD &&
+        self._value !== b._fb?._value;
       const status = tree._statusFlags & (STATUS_PENDING | STATUS_ERROR);
       if (status !== 0) {
         link(tree, self);
