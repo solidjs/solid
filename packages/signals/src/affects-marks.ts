@@ -60,7 +60,7 @@ export function repoll(
  * its current dependencies — from one that does. A store slot derives from
  * its family's derive (a derived store's leaves are not the derive's
  * dependents, store/projection.ts), so coverage hops there. A real error
- * outranks an inherited mark (A24 (c)): coverage does not flow through an
+ * outranks an inherited mark (D-23): coverage does not flow through an
  * errored node (a direct mark on one still reads pending). Mid-recompute,
  * only the validated prefix of the dependency list is this pass's. */
 function marked(el: Marked, seen: Set<Marked>): boolean {
