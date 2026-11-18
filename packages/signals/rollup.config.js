@@ -39,7 +39,7 @@ import prettier from "rollup-plugin-prettier";
 // `__TEST__` is false in every shipped build. `SIGNALS_TEST_DEFINE=true`
 // builds a dev dist with it on — the reader-seat shadow's differential
 // across solid/web/the generator consumes it
-// (documentation/plans/reader-seat-rebuild.md §3.4); never for measuring
+// (documentation/archive/plans/reader-seat-rebuild.md §3.4); never for measuring
 // or publishing.
 const testDefine = process.env.SIGNALS_TEST_DEFINE === "true";
 const flags = (dev, observe) =>

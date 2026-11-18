@@ -1,6 +1,6 @@
 # Async rules — scenarios, as screens
 
-**Status: DRAFT (2026-10-07), paired with [`RULES-DERIVED.md`](./RULES-DERIVED.md).** One or two worked scenarios per derived rule: the action, then what is on screen, `latest`/`isPending`, and which effects ran — frame by frame. These are the judge for the docs, the tests and the fuzzer alike: a test pins a scenario's table; a fuzzer oracle case is a scenario with the setup generated. Open questions are laid out the same way in [`OPEN-QUESTIONS.md`](./OPEN-QUESTIONS.md).
+**Status: standing (drafted 2026-10-07), paired with [`RULES-DERIVED.md`](./RULES-DERIVED.md).** One or two worked scenarios per derived rule: the action, then what is on screen, `latest`/`isPending`, and which effects ran — frame by frame. These are the judge for the docs, the tests and the fuzzer alike: a test pins a scenario's table; a fuzzer oracle case is a scenario with the setup generated. Open questions are laid out the same way in [`OPEN-QUESTIONS.md`](./OPEN-QUESTIONS.md).
 
 **Conventions.**
 

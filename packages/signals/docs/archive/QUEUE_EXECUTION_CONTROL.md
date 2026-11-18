@@ -130,4 +130,4 @@ When the transition completes, the stashed queues are restored and flushed.
 ## Related Documentation
 
 - See [QUEUE_NOTIFICATION_SYSTEM.md](./QUEUE_NOTIFICATION_SYSTEM.md) for how status changes move through queue parents and boundary queues.
-- See [BITWISE_OPERATIONS.md](./BITWISE_OPERATIONS.md) for the `STATUS_*` and `REACTIVE_*` masks used by the scheduler.
+- See [BITWISE_OPERATIONS.md](../BITWISE_OPERATIONS.md) for the `STATUS_*` and `REACTIVE_*` masks used by the scheduler.

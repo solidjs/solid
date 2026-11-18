@@ -1,5 +1,5 @@
 // The server facade's findings, on the one structured channel — see
-// documentation/plans/server-dev-build-plan.md (P1/P2) and RFC 08.
+// documentation/archive/plans/server-dev-build-plan.md (P1/P2) and RFC 08.
 //
 // Two tiers, two gates. `IS_OBSERVE` gates the WIRING: a fact the runtime
 // reports whichever tier is running — a render error it contained, a

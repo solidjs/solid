@@ -1,5 +1,7 @@
 # RFC: Reactivity, batching, and effects
 
+> **Frozen design record (2.0.0, 2026-11-17).** This RFC is history: it records why 2.0 is shaped this way, and later changes are not folded back in. Current behavior is on the docs site (https://docs.solidjs.com), in [`MIGRATION.md`](MIGRATION.md) and, for async semantics, in `packages/signals/docs/RULES-FUNDAMENTALS.md` / `RULES-DERIVED.md`.
+
 **Start here:** If you’re migrating an app, read the migration guide first: [MIGRATION.md](MIGRATION.md)
 
 ## Summary

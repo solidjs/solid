@@ -1,5 +1,7 @@
 # RFC: Stores
 
+> **Frozen design record (2.0.0, 2026-11-17).** This RFC is history: it records why 2.0 is shaped this way, and later changes are not folded back in. Current behavior is on the docs site (https://docs.solidjs.com), in [`MIGRATION.md`](MIGRATION.md) and, for async semantics, in `packages/signals/docs/RULES-FUNDAMENTALS.md` / `RULES-DERIVED.md`.
+
 **Start here:** If you’re migrating an app, read the migration guide first: [MIGRATION.md](MIGRATION.md)
 
 ## Summary
@@ -199,6 +201,8 @@ The contract, stated once: **records are replaced, never edited.**
 Unchanged slots skip by reference equality (a partial payload that reuses row objects re-renders nothing), same-key replacements update through the row accessor without touching the DOM row, and new/removed keys create and dispose as usual.
 
 `shallow` is also accepted by `createProjection` and `createOptimisticStore`. Optimistic writes compose cleanly with the replacement contract: a tentative record replacement stages in the overlay, shows immediately, and reverts to the untouched original — the base records are never mutated.
+
+It is also how to keep a value out of tracking. `Object.freeze` does not do that: stores never write to their sources, so a frozen plain object or array wraps and tracks like any other (writes go through the setter and leave the frozen source untouched). Libraries that freeze their state, such as XState in development, stay fine-grained.
 
 When *not* to use it: state you edit field-by-field (forms, editors, sparse in-place mutation). That is exactly what the default deep store is optimal for — shallow trades leaf granularity for record-granularity throughput, and re-runs all of a record's bindings when the record is replaced.
 

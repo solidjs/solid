@@ -34,7 +34,7 @@ property harness (C18, C19), and pinned nineteen against `next`: eleven red,
 hand pins across C2, C3, C4, C5, C6, C7, C12, C13 and C17, seven harness
 replays (C18 ×3, C19 ×2, and C2/C3 rediscovered once each) — each diagnosed to
 a mechanism (its §Red R1–R10). The server-components size audit
-(`documentation/plans/sc-layer-audit.md` §4, branch `size/sc-audit`)
+(`documentation/archive/plans/sc-layer-audit.md` §4, branch `size/sc-audit`)
 separately listed the layer's duplicated seams: two dedupes, two gates, two
 late-boundary waiters, two `_$SC` bootstraps, two version spaces, two asset
 loaders, three region-rename sites, two reveal engines, and `preview`
@@ -66,7 +66,7 @@ The form is the signals core's L2 section (`packages/signals/docs/SPEC-ASYNC-SEM
 each today (`file:function`), the state it currently lives in twice, the reds
 it decides. Where two readings are possible, both are stated with
 consequences and one is recommended, as that section did. The method for
-turning rulings into fixes is the carve's (`documentation/plans/size-reduction-carve-step1.md`
+turning rulings into fixes is the carve's (`documentation/archive/plans/size-reduction-carve-step1.md`
 §40–§42): fix under the ruling, collapse the duplicated carrier into one, state
 the bytes, flip the pins — not twenty-two patches.
 
@@ -1913,7 +1913,7 @@ each flagged in its PR — all `@experimental`/`@internal`, none wire:**
   `materializeContainerTrace(marker, claiming)`'s park (`limit`,
   `afterHydration`), the `claiming` thread through `revive` →
   `reviveContainerTraces` → `materialize`.
-- `documentation/plans/sc-layer-audit.md` (`size/sc-audit` @ `0bb67ff38`): §3
+- `documentation/archive/plans/sc-layer-audit.md` (`size/sc-audit` @ `0bb67ff38`): §3
   rulings 1–75 (cited "§3 n"), §4 structural vs incidental, §6.3 the
   compatibility surface, §6.5 S7–S10, §7 open questions, Appendix A function
   sizes.
@@ -1931,7 +1931,7 @@ each flagged in its PR — all `@experimental`/`@internal`, none wire:**
   hydration: `ssrSource`" at 3.5/3.6); `packages/solid/src/client/hydration.ts`
   (`checkHydrationComplete`, `initBoundaryResume`, `fragmentPolicy`,
   `claimFragment`) at 3.1–3.3;
-  `documentation/plans/size-reduction-carve-step1.md` §38 (the two-readings
+  `documentation/archive/plans/size-reduction-carve-step1.md` §38 (the two-readings
   memo form), §40–§42 (rulings → fixes → re-pins → numbers).
 - `documentation/server-components/server-components-principles.md` A0
   (equivalence, 2026-10-05 — this document's Principle in axiom form), A1–A7,

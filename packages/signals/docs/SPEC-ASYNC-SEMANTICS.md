@@ -1,6 +1,36 @@
 # Async/Pending/Transition Semantics — Spec Propositions
 
-> **Archive (2026-10-07).** This file is the ruling log: every A-rule, amendment and dated re-ruling stays here as written, append-only. The standing statement of the rules is in three tiers — [`RULES-FUNDAMENTALS.md`](./RULES-FUNDAMENTALS.md) (immutable basics, `F-<n>`), [`RULES-DERIVED.md`](./RULES-DERIVED.md) (how each applies to a shape, `D-<n>`; each derived rule links the entries here it collapses) and [`SCENARIOS.md`](./SCENARIOS.md) (the screens, `S-<n>`) — with the unresolved disagreements in [`OPEN-QUESTIONS.md`](./OPEN-QUESTIONS.md). A fundamental beats a derived rule; a derived rule beats this archive. Cite A-ids from code as before; they resolve through `RULES-INDEX.md`.
+> **Frozen archive (2026-10-07; frozen 2026-11-18).** This file is the old ruling log. It is kept as written for its reasoning record and is no longer the statement of any rule. The rules are [`RULES-FUNDAMENTALS.md`](./RULES-FUNDAMENTALS.md) (`F-<n>`) and [`RULES-DERIVED.md`](./RULES-DERIVED.md) (`D-<n>`), with the screens in [`SCENARIOS.md`](./SCENARIOS.md) (`S-<n>`) and the open disagreements in [`OPEN-QUESTIONS.md`](./OPEN-QUESTIONS.md). A fundamental beats a derived rule, and a derived rule beats this archive. **Do not cite A/B/C/V ids in new code, tests, PRs or reviews; cite the F-/D- successor below.** Existing citations still resolve through `RULES-INDEX.md` until they are rewritten.
+>
+> **Successors** (from each F-/D-rule's _Collapses_ line):
+>
+> | archive id | cite instead |
+> |---|---|
+> | A1, A2, A3, A5, A6 | D-38 (A1, A6 also F-12) |
+> | A4 | none: an API contract about comparators, outside the async rules (the `createMemo` options docs) |
+> | A7, A9, A14, A19, A22 | F-9 (A19 also F-6) |
+> | A8 | D-23 |
+> | A10 | D-25, F-1 |
+> | A11 | D-22, D-23 |
+> | A12, A13 | D-36 (pins only; D-36 is retired as a rule) |
+> | A15 | D-9 (entanglement), D-3 (render effects), D-7 (an action body that reads another hold's value entangles) |
+> | A16 | D-42 |
+> | A17 | F-11, D-31 |
+> | A18 | F-11 (lifetime D-33, correction D-34, provenance and body end D-35) |
+> | A20, A21 | D-23 (superseded by A24) |
+> | A23, A24 | D-23, F-9 |
+> | A25 | D-30 |
+> | A26 | D-7 |
+> | A27 | D-6, F-9 |
+> | A28 | F-10, D-32 |
+> | A29 | D-1, F-2, F-7 |
+> | A30 | D-10 |
+> | A31 | D-25 |
+> | A32 | D-29 |
+> | A33 | F-3, F-5 |
+> | A34 | D-8 |
+> | A35 | D-12 (the draft was dropped 2026-10-07) |
+> | B, C, V ids | the A-rule each was promoted into or violated (see its row in `RULES-INDEX.md`) |
 
 > **Index:** every rule ID cited from `src/` or `tests/` — this file's A/B/C/V ids, the INV/RUL/R/§ vocabularies of the internals and rules-mining docs — is listed with status, definition and citations in [`RULES-INDEX.md`](./RULES-INDEX.md) (generated; `node scripts/rules-index.mjs`). IDs are never renumbered.
 
@@ -30,7 +60,7 @@ The former Tier A table is these sections. Tier B/C, the fixed violations, and t
 
 ## The hold model — L2 (2026-10-04)
 
-**Status:** **ruled** 2026-09-30 → 2026-10-03 (the size-reduction carve; `documentation/plans/size-reduction-carve-step1.md` is the dated record — sections 8, 10, 16–21, 27–29, 31–35, 38–41). The rulings below are the spec's; the plan keeps the reasoning and the measurements.
+**Status:** **ruled** 2026-09-30 → 2026-10-03 (the size-reduction carve; `documentation/archive/plans/size-reduction-carve-step1.md` is the dated record — sections 8, 10, 16–21, 27–29, 31–35, 38–41). The rulings below are the spec's; the plan keeps the reasoning and the measurements.
 
 **Mechanism note (2026-10-04).** Every rule's **Mechanism** paragraph below is the L2 one (`Mechanism (L2, 2026-10-04)`), written against the running code; the paragraphs indexed 2026-09-14/15 against the pre-L2 implementation — transitions, `_overrideValue`, companions, `_asyncReporters`, `endOptimism`, the store's `_firewall` chain — are under History ("Pre-L2 mechanism index"), verbatim. The module map: `core/scheduler.ts` (`Transaction`, `holdNode`, `blocked`, the park at `settle`, `land`), `core/core.ts` (`read`'s hold rules — `frameRead`, `joinPass`, `stagedRead`; `recompute` deciding its frame after the pass), `core/lanes.ts` (lanes, guesses, `laneWrite`'s provenance gate, `dissolveLane`), `core/verdict.ts` (`isPending`/`latest` — one cold read path off `read`), `core/action.ts`, `boundaries.ts`, and `store/*` (the container node, `readSource`, `pullFamily`, `holdWithDerive`, `optimistic.ts`'s guesses on lanes, `affects.ts`). The statements stand; where a statement changed, the dated amendment is on the rule.
 
@@ -52,7 +82,7 @@ The former Tier A table is these sections. Tier B/C, the fixed violations, and t
 
 **A hold never waits on work that has never committed — the direction rule (2026-10-06, maintainer ruling; amendment — the rulings quoted above and below are unchanged).** Membership in a hold has a direction. Committed work that reads a hold joins it (A15, A29): the two derive from each other and land as one, as the tick ruling above says. Work that has never committed — a node created while the hold is live, and its first load — derives from the hold one way: it lands no earlier than the hold, and the hold never waits for it. The rule names what several fixes each implement locally by checking whether a node has committed yet (`STATUS_UNINITIALIZED`); it adds no mechanism of its own:
 
-- **The first-commit frame is decided when the node is created.** A later re-ask never adopts it into a hold: a loading source created before the hold is not the hold's work (the `#2937` loading-source rule — `documentation/plans/size-reduction-carve-step1.md` §15.2, "A loading source is not held"). On `next`.
+- **The first-commit frame is decided when the node is created.** A later re-ask never adopts it into a hold: a loading source created before the hold is not the hold's work (the `#2937` loading-source rule — `documentation/archive/plans/size-reduction-carve-step1.md` §15.2, "A loading source is not held"). On `next`.
 - **A render effect born held owes no run before the commit that lands it** (#3802): a re-staging pass of an effect that still carries a staged value is not queued, because the commit replays it — lane-reached effects included. [#3814](https://github.com/solidjs/solid/pull/3814), merging.
 - **A first load derived from a hold lands into it** (#3800): a first load born pending in a frame that read a hold lands into that hold if the hold is still live, else as its own commit; the hold commits without it. The first pass's conditions are the born-held arm's (it read a held node, or — a verdict lane's mount — a staging of the flush, #3851); its transaction is recorded on the node (`_bornIn`) and the landing stages into it if it is still live (`handleAsync` → `liveTx`, `holdNode`). Pinned: `tests/issue-3800-repro.test.ts`, `tests/verdict-mount-first-pass-3851.test.ts` ("an async content memo").
 - **A first pass under a loading boundary that has not shown content is the boundary's, not the tick's** — in a flush as outside one (A29's boundary exemption, #3540). The out-of-flush form is on `next`; the in-flush form (a fresh `Loading` over a held value shows its fallback in a flush) is **pending** — `fix/create-time-holds` (`ca71e5d9d`).

@@ -379,7 +379,7 @@ Some gaps are not optimization targets. From the 2026-05 investigation:
   behavioral coverage before it's trusted. `pnpm test` must pass.
 - **Document changesets per package.** Source change under
   `packages/<pkg>/src/` ⇒ a changeset entry naming that package. See
-  [`.cursor/rules/engineering-standards.mdc`](../.cursor/rules/engineering-standards.mdc).
+  [`AGENTS.md` (Engineering Standards)](../AGENTS.md).
 - **One change at a time.** Multi-change probes can't be attributed.
 - **σ-band, not point estimates.** Single-run "improvements" that fall
   inside the σ band of the baseline are not improvements.
@@ -548,6 +548,6 @@ template; they lived in `/tmp` and are gone.
 - Running journal of probes, findings, and reverts:
   [`performance-experiments.md`](./performance-experiments.md).
 - Engineering standards (changesets, communication, correctness-first
-  approach): [`.cursor/rules/engineering-standards.mdc`](../.cursor/rules/engineering-standards.mdc).
+  approach): [`AGENTS.md` (Engineering Standards)](../AGENTS.md).
 - Async-registration invariants for transitions:
   [`.cursor/rules/async-registration-invariants.mdc`](../.cursor/rules/async-registration-invariants.mdc).

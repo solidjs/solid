@@ -8,7 +8,7 @@ to it — instead of destroying and re-creating it.
 This example sits off the examples grid. The idiomatic case would be a
 mini-player with a `<video>`, and that waits on whether playback survives
 the move (V5 in
-[`examples-grid-plan.md`](../../documentation/plans/examples-grid-plan.md)).
+[`examples-grid-plan.md`](../../documentation/archive/plans/examples-grid-plan.md)).
 Until then the example is this canvas.
 
 ## What you'll see
