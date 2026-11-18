@@ -281,6 +281,20 @@ function sameLogicalSlot(target: StoreTarget, a: any, b: any): boolean {
 /** Slot nodes whose last subscriber left while they still held a staging:
  * released at the commit that resolves it (`drainFolds`). */
 const deferredReleases = new Set<Signal<any>>();
+const pendingNodeCleanup = new Set<StoreTarget>();
+let nodeWalkDepth = 0;
+
+function cleanupNodeDictionary(t: StoreTarget): void {
+  if (t.nc !== 0) return;
+  if (nodeWalkDepth !== 0) pendingNodeCleanup.add(t);
+  else t.n = null;
+}
+
+function finishNodeWalk(): void {
+  if (--nodeWalkDepth !== 0) return;
+  for (const t of pendingNodeCleanup) cleanupNodeDictionary(t);
+  pendingNodeCleanup.clear();
+}
 
 function releaseSlot(node: any): void {
   const t: StoreTarget = node._host;
@@ -294,6 +308,7 @@ function releaseSlot(node: any): void {
   } else if (t.n?.[key as any] === node) {
     delete t.n![key as any];
     t.nc--;
+    cleanupNodeDictionary(t);
   } else if (t.h?.[key as any] === node) delete t.h![key as any];
   // The family's index keeps only targets that still carry a node.
   if (
@@ -1120,131 +1135,136 @@ function notifyWrites(t: StoreTarget): void {
     }
   }
   const nodes = t.n;
-  // Written-keys bound: trap writes record their keys, so the notify visits
-  // O(written) nodes instead of every subscription on the record (a selection
-  // map with thousands of per-key subscribers pays two visits per select,
-  // not a full scan). Falls back to the full node scan when the bound can't
-  // hold: no trap granularity (wk null), an array length write (WK_ALL —
-  // implicit index deletes), accessors on the record (t.a — a getter node's
-  // value can change when ANY key is written), or a non-plain prototype
-  // (class instances: prototype getters derive from arbitrary fields).
-  // Overlay pbs chain to the COMMITTED object (#3044) — plainness is the
-  // committed container's prototype, not the overlay's. THIS setter's keys
-  // only (D-8, #3743): a key an earlier setter of the batch wrote and this
-  // one did not is no second proposal — its node was told then, and telling
-  // a held node its unchanged value again would join this tick to the hold.
-  const wk0 = t.wk;
-  const writtenKeys =
-    wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
-  if (__OBSERVE__ && attrHooks !== null) attrHooks.storeWrite(t, old, pb, writtenKeys);
-  if (t._fam !== null && !heldDerivationHit && writtenKeys !== null)
-    for (const key of writtenKeys)
-      if (heldDerivation(t, nodes?.[key as any], key)) {
-        heldDerivationHit = true;
-        break;
-      }
-  if (nodes !== null) {
-    const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(nodes);
-    for (const key of keys) {
-      const node = nodes[key as any];
-      if (node === undefined) continue;
-      let own = false;
-      if (
-        (node as any).acc === true ||
-        ((own = hasOwn.call(pb, key)) && lookupGetter.call(pb, key) !== undefined)
-      ) {
-        // Accessor keys: the node is linked for shape-change notification,
-        // its value is never served (the getter runs with the proxy
-        // receiver on read) — FORCE wakes the readers. A data descriptor
-        // falls through so the cleared-acc hot read serves it (#3949);
-        // an own getter's descriptor has no `value`, so the compare below
-        // would otherwise keep the getter's result (or FORCE) for `undefined`.
-        (node as any).acc = isOwnAccessor(pb, key);
-        const od = Object.getOwnPropertyDescriptor(old, key);
-        const nd = Object.getOwnPropertyDescriptor(pb, key);
-        if (!nd || nd.get || nd.set) {
-          if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
-            setSignal(node, () => FORCE as any);
-          continue;
-        }
-        if (od?.get || od?.set || !isEqual(od?.value, nd.value)) setSignal(node, () => nd.value);
-        continue;
-      }
-      // A removed `__proto__` is told `undefined`, never the prototype (core
-      // R30, #4672); an own key pays nothing. (An overlay's written keys are
-      // own on it or in `del`.)
-      const nv = own || !(t.del?.has(key) || key === "__proto__") ? pb[key as any] : undefined;
-      // A key a live guess covers: its readers read the carrier, and the
-      // carrier's judgement of this landing tells them — a correction through
-      // the carrier, a confirmation silently (A17). The leaf records the
-      // value and says nothing (S2).
-      if (optHooks !== null && t.o && optHooks.covers(t, key, false)) {
-        coveredSet(node, nv);
-        continue;
-      }
-      setSignal(node, () => nv);
-      if (t._fam !== null) {
-        // The derive's write is a derivation; a user setter's is a proposal
-        // (A34 (3)'s discriminator).
-        if (!userWrite) {
-          node._config &= ~CONFIG_MANUAL_WRITE;
-          holdWithDerive(t, node);
-        } else node._config |= CONFIG_MANUAL_WRITE;
-      }
-    }
-  }
-  const has = t.h;
-  if (has !== null) {
-    const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(has);
-    for (const key of keys) {
-      const node = has[key as any];
-      if (node !== undefined) {
-        if (optHooks !== null && t.o && optHooks.covers(t, key, true)) {
-          coveredSet(node, key in pb && !t.del?.has(key));
-          continue;
-        }
-        setSignal(node, key in pb && !t.del?.has(key));
-        if (t._fam !== null && !userWrite) holdWithDerive(t, node);
-      }
-    }
-  }
-  if (deepUsed && t.dk !== null) {
-    if (t.del?.size) bumpDeep(t);
-    else
-      for (const key of writtenKeys ?? Reflect.ownKeys(pb)) {
-        if (key === $OWNER) continue;
-        const nv = pb[key as any];
-        const ov = old[key as any];
-        if (nv !== null && typeof nv === "object" ? !targetsEqual(ov, nv) : !isEqual(ov, nv)) {
-          bumpDeep(t);
+  nodeWalkDepth++;
+  try {
+    // Written-keys bound: trap writes record their keys, so the notify visits
+    // O(written) nodes instead of every subscription on the record (a selection
+    // map with thousands of per-key subscribers pays two visits per select,
+    // not a full scan). Falls back to the full node scan when the bound can't
+    // hold: no trap granularity (wk null), an array length write (WK_ALL —
+    // implicit index deletes), accessors on the record (t.a — a getter node's
+    // value can change when ANY key is written), or a non-plain prototype
+    // (class instances: prototype getters derive from arbitrary fields).
+    // Overlay pbs chain to the COMMITTED object (#3044) — plainness is the
+    // committed container's prototype, not the overlay's. THIS setter's keys
+    // only (D-8, #3743): a key an earlier setter of the batch wrote and this
+    // one did not is no second proposal — its node was told then, and telling
+    // a held node its unchanged value again would join this tick to the hold.
+    const wk0 = t.wk;
+    const writtenKeys =
+      wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
+    if (__OBSERVE__ && attrHooks !== null) attrHooks.storeWrite(t, old, pb, writtenKeys);
+    if (t._fam !== null && !heldDerivationHit && writtenKeys !== null)
+      for (const key of writtenKeys)
+        if (heldDerivation(t, nodes?.[key as any], key)) {
+          heldDerivationHit = true;
           break;
         }
+    if (nodes !== null) {
+      const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(nodes);
+      for (const key of keys) {
+        const node = nodes[key as any];
+        if (node === undefined) continue;
+        let own = false;
+        if (
+          (node as any).acc === true ||
+          ((own = hasOwn.call(pb, key)) && lookupGetter.call(pb, key) !== undefined)
+        ) {
+          // Accessor keys: the node is linked for shape-change notification,
+          // its value is never served (the getter runs with the proxy
+          // receiver on read) — FORCE wakes the readers. A data descriptor
+          // falls through so the cleared-acc hot read serves it (#3949);
+          // an own getter's descriptor has no `value`, so the compare below
+          // would otherwise keep the getter's result (or FORCE) for `undefined`.
+          (node as any).acc = isOwnAccessor(pb, key);
+          const od = Object.getOwnPropertyDescriptor(old, key);
+          const nd = Object.getOwnPropertyDescriptor(pb, key);
+          if (!nd || nd.get || nd.set) {
+            if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
+              setSignal(node, () => FORCE as any);
+            continue;
+          }
+          if (od?.get || od?.set || !isEqual(od?.value, nd.value)) setSignal(node, () => nd.value);
+          continue;
+        }
+        // A removed `__proto__` is told `undefined`, never the prototype (core
+        // R30, #4672); an own key pays nothing. (An overlay's written keys are
+        // own on it or in `del`.)
+        const nv = own || !(t.del?.has(key) || key === "__proto__") ? pb[key as any] : undefined;
+        // A key a live guess covers: its readers read the carrier, and the
+        // carrier's judgement of this landing tells them — a correction through
+        // the carrier, a confirmation silently (A17). The leaf records the
+        // value and says nothing (S2).
+        if (optHooks !== null && t.o && optHooks.covers(t, key, false)) {
+          coveredSet(node, nv);
+          continue;
+        }
+        setSignal(node, () => nv);
+        if (t._fam !== null) {
+          // The derive's write is a derivation; a user setter's is a proposal
+          // (A34 (3)'s discriminator).
+          if (!userWrite) {
+            node._config &= ~CONFIG_MANUAL_WRITE;
+            holdWithDerive(t, node);
+          } else node._config |= CONFIG_MANUAL_WRITE;
+        }
       }
-  }
-  // The container: structural readers hear membership/arrangement changes
-  // only (R9) — the compare is the store's, against the committed frame. A
-  // container carrying an arrangement guess is told whether or not anyone
-  // subscribes: the write is a landing on the guess (`notifyContainer`).
-  const k = t.k;
-  if (k !== null && (k._subs !== null || k._config & CONFIG_OVERRIDE)) {
-    let changed: boolean;
-    if (t.ovl) {
-      changed = !!t.del?.size;
-      if (!changed) {
-        for (const key of Reflect.ownKeys(pb)) {
-          if (!hasOwn.call(old, key)) {
-            changed = true;
+    }
+    const has = t.h;
+    if (has !== null) {
+      const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(has);
+      for (const key of keys) {
+        const node = has[key as any];
+        if (node !== undefined) {
+          if (optHooks !== null && t.o && optHooks.covers(t, key, true)) {
+            coveredSet(node, key in pb && !t.del?.has(key));
+            continue;
+          }
+          setSignal(node, key in pb && !t.del?.has(key));
+          if (t._fam !== null && !userWrite) holdWithDerive(t, node);
+        }
+      }
+    }
+    if (deepUsed && t.dk !== null) {
+      if (t.del?.size) bumpDeep(t);
+      else
+        for (const key of writtenKeys ?? Reflect.ownKeys(pb)) {
+          if (key === $OWNER) continue;
+          const nv = pb[key as any];
+          const ov = old[key as any];
+          if (nv !== null && typeof nv === "object" ? !targetsEqual(ov, nv) : !isEqual(ov, nv)) {
+            bumpDeep(t);
             break;
           }
         }
-      }
-    } else {
-      changed =
-        Array.isArray(pb) && Array.isArray(old)
-          ? arrayStructureChanged(old as any[], pb as any[])
-          : membershipChanged(old, pb);
     }
-    if (changed) notifyContainer(k, pb);
+    // The container: structural readers hear membership/arrangement changes
+    // only (R9) — the compare is the store's, against the committed frame. A
+    // container carrying an arrangement guess is told whether or not anyone
+    // subscribes: the write is a landing on the guess (`notifyContainer`).
+    const k = t.k;
+    if (k !== null && (k._subs !== null || k._config & CONFIG_OVERRIDE)) {
+      let changed: boolean;
+      if (t.ovl) {
+        changed = !!t.del?.size;
+        if (!changed) {
+          for (const key of Reflect.ownKeys(pb)) {
+            if (!hasOwn.call(old, key)) {
+              changed = true;
+              break;
+            }
+          }
+        }
+      } else {
+        changed =
+          Array.isArray(pb) && Array.isArray(old)
+            ? arrayStructureChanged(old as any[], pb as any[])
+            : membershipChanged(old, pb);
+      }
+      if (changed) notifyContainer(k, pb);
+    }
+  } finally {
+    finishNodeWalk();
   }
 }
 
@@ -1423,10 +1443,15 @@ export function notifyFold(
 ): void {
   if (deepUsed && t.dk !== null && old !== neu) bumpDeep(t);
   const nodes = t.n;
-  if (nodes !== null) {
-    for (const key of Reflect.ownKeys(nodes)) notifyKeyDiff(nodes[key as any], key, old, neu);
+  nodeWalkDepth++;
+  try {
+    if (nodes !== null) {
+      for (const key of Reflect.ownKeys(nodes)) notifyKeyDiff(nodes[key as any], key, old, neu);
+    }
+    notifyFoldTail(t, old, neu);
+  } finally {
+    finishNodeWalk();
   }
-  notifyFoldTail(t, old, neu);
 }
 
 // ---------------------------------------------------------------------------
