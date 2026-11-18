@@ -293,7 +293,7 @@ function releaseSlot(node: any): void {
     if (t.dk === node) t.dk = null;
   } else if (t.n?.[key as any] === node) {
     delete t.n![key as any];
-    t.nc--;
+    if (--t.nc === 0) t.n = null;
   } else if (t.h?.[key as any] === node) delete t.h![key as any];
   // The family's index keeps only targets that still carry a node.
   if (
