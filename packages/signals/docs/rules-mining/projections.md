@@ -104,7 +104,7 @@ Source suites: `sync` = `tests/store/createProjection.test.ts`, `async` = `tests
 **R34 — Errored derives follow async memo rules**: after rejection ALL readers (settle-time, late tracked, untracked) throw the error (StatusError-wrapped; boundaries unwrap). Seed never served uninitialized; last-good never served after failed refetch.
 - CONFLICT: same store-wide-status problem as R23.
 
-**R35 — A genuine tracked read on a later cycle retries an errored derive** (memo parity: never untracked, never inside isPending probe, at most once per cycle); successful retry serves fresh value.
+**R35 — A genuine tracked re-read on a later cycle retries an errored derive** (memo parity: never untracked, never inside isPending probe, never a reader's first read — a fresh boundary or mount reads the error and asks nothing, #5002 — at most once per cycle); successful retry serves fresh value.
 
 ## Lifecycle
 

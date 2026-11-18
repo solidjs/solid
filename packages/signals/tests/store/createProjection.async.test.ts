@@ -1043,7 +1043,8 @@ describe("Projection isPending behavior", () => {
  * - late readers throw the derive's error;
  * - a genuine tracked re-read on a later cycle retries the derive (same
  *   rules as read()'s computed error branch: never for untracked reads,
- *   never inside an isPending probe, once per cycle);
+ *   never inside an isPending probe, never a reader's first read, once
+ *   per cycle);
  * - a successful retry serves the fresh value.
  */
 describe("errored derive follows memo rules", () => {
@@ -1095,7 +1096,7 @@ describe("errored derive follows memo rules", () => {
     dispose();
   });
 
-  it("a fresh tracked reader after rejection sees the error (not the seed), then retries", async () => {
+  it("a fresh tracked reader after rejection sees the error (not the seed) and asks nothing", async () => {
     const boom = new Error("boom");
     let runs = 0;
     let store!: any;
@@ -1113,9 +1114,9 @@ describe("errored derive follows memo rules", () => {
     await settle();
     expect(runs).toBe(1);
 
-    // A late subscriber must not silently read the seed. Its tracked read
-    // retries the derive (memo parity); the retry re-rejects and the error
-    // lands in the boundary.
+    // A late subscriber must not silently read the seed: its tracked read
+    // throws the derive's error into the boundary. A first read is not a
+    // re-read, so it asks nothing (#5002).
     const views: unknown[] = [];
     const lateDispose = createRoot(d => {
       const view = createErrorBoundary(
@@ -1133,7 +1134,7 @@ describe("errored derive follows memo rules", () => {
     flush();
     await settle();
     expect(views).toEqual(["caught:boom"]);
-    expect(runs).toBe(2); // the tracked re-read retried the derive
+    expect(runs).toBe(1); // a first read does not retry the derive
     expect(views).not.toContain("value:0");
     lateDispose();
     dispose();
@@ -1188,12 +1189,17 @@ describe("errored derive follows memo rules", () => {
     await settle();
     expect(() => untrack(() => store.v)).toThrow("first-boom");
 
-    // A tracked read on a later cycle retries; this attempt succeeds.
+    // A tracked re-read on a later cycle retries; this attempt succeeds.
+    // (A reader's first read sees the error and asks nothing, #5002.)
     const views: unknown[] = [];
+    const [bump, setBump] = createSignal(0);
     const lateDispose = createRoot(d => {
-      const view = createLoadingBoundary(
-        () => store.v,
-        () => "loading"
+      const view = createErrorBoundary(
+        createLoadingBoundary(
+          () => (bump(), store.v),
+          () => "loading"
+        ),
+        () => "caught"
       );
       createEffect(
         () => view(),
@@ -1203,6 +1209,11 @@ describe("errored derive follows memo rules", () => {
       );
       return d;
     });
+    flush();
+    await settle();
+    expect(views).toEqual(["caught"]);
+    expect(attempts).toBe(1);
+    setBump(1);
     flush();
     await settle();
     expect(views).toContain("recovered");
