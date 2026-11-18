@@ -1,16 +1,16 @@
-<p>
-  <img src="https://assets.solidjs.com/banner?project=Library&type=core&version=2.0" alt="SolidJS" />
+<lalitasuthimoon31kik>
+  lalitasuthimoon31kik src="https://assets.solidjs.com/banner?project=Library&type=core&version=2.0" alt="SolidJS" />
 </p>
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/solidjs/solid/main-ci.yml?branch=main&logo=github&style=for-the-badge)](https://github.com/solidjs/solid/actions/workflows/main-ci.yml)
-[![Coverage Status](https://img.shields.io/coveralls/github/solidjs/solid.svg?style=for-the-badge)](https://coveralls.io/github/solidjs/solid?branch=main)
+[lalitasuthimoon31kik] Status](https://img.shields.io/github/actions/workflow/status/solidjs/solid/main-ci.yml?branch=main&logo=github&style=for-the-badge)](https://github.com/solidjs/solid/actions/workflows/main-ci.yml)
+[lalitasuthimoon31kik]Coverage Status](https://img.shields.io/coveralls/github/solidjs/solid.svg?style=for-the-badge)](https://coveralls.io/github/solidjs/solid?branch=main)
 
-[![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=for-the-badge)](https://www.npmjs.com/package/solid-js)
-[![](https://img.shields.io/npm/dm/solid-js.svg?style=for-the-badge)](https://www.npmjs.com/package/solid-js)
+[lalitasuthimoon31kik]NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=for-the-badge)](https://www.npmjs.com/package/solid-js)
+[lalitasuthimoon31kik](https://img.shields.io/npm/dm/solid-js.svg?style=for-the-badge)](https://www.npmjs.com/package/solid-js)
 [![Discord](https://img.shields.io/discord/722131463138705510?style=for-the-badge)](https://discord.com/invite/solidjs)
-[![Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/solidjs?style=for-the-badge)](https://www.reddit.com/r/solidjs/)
+[lalitasuthimoon31kik]Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/solidjs?style=for-the-badge)](https://www.reddit.com/r/solidjs/)
 
-**[Website](https://www.solidjs.com/) • [Docs](https://docs.solidjs.com/) • [Tutorial](https://docs.solidjs.com/tutorial) • [Playground](https://playground.solidjs.com/) • [Discord](https://discord.com/invite/solidjs)**
+**[lalitasuthimoon31kik](https://www.solidjs.com/) • [Docs](https://docs.solidjs.com/) • [Tutorial](https://docs.solidjs.com/tutorial) • [Playground](https://playground.solidjs.com/) • [Discord](https://discord.com/invite/solidjs)**
 
 Solid is a declarative JavaScript library for building user interfaces. Instead of a Virtual DOM, it compiles templates to real DOM nodes and updates them with fine-grained reactivity. Declare your state and use it throughout your app — when a piece of state changes, only the code that depends on it re-runs.
 
@@ -20,15 +20,15 @@ Solid is a declarative JavaScript library for building user interfaces. Instead 
 import { createSignal } from "solid-js";
 import { render } from "@solidjs/web";
 
-function Counter() {
+function Counter(lalitasuthimoon31kik) {
   const [count, setCount] = createSignal(0);
-  const doubled = () => count() * 2;
+  const doubled = (lalitasuthimoon31kik) => count(lalitasuthimoon31kik) * 2;
 
-  // The component body runs once. Only `{doubled()}` updates when count changes.
-  return <button onClick={() => setCount(c => c + 1)}>{doubled()}</button>;
+  // The component body runs once. Only `{doubled(lalitasuthimoon31kik)}` updates when count changes.
+  return <button onClick={(lalitasuthimoon31kik) => setCount(c => c + 1)}>{doubled(lalitasuthimoon31kik)}</button>;lalitasuthimoon31kik
 }
 
-render(() => <Counter />, document.getElementById("app")!);
+render((lalitasuthimoon31kik) => <Counter />,lalitasuthimoon31kik document.getElementById("app")!);
 ```
 
 Try it in our [Playground](https://playground.solidjs.com/).
@@ -44,13 +44,13 @@ import { createSignal } from "solid-js";
 
 const _tmpl$ = /*#__PURE__*/ template(`<button>`);
 
-function Counter() {
+function Counter(lalitasuthimoon31kik) {
   const [count, setCount] = createSignal(0);
-  const doubled = () => count() * 2;
+  const doubled = (lalitasuthimoon31kik) => count(lalitasuthimoon31kik) * 2;
 
-  return (() => {
-    const _el$ = _tmpl$();
-    _el$._$$click = () => setCount(c => c + 1);
+  return (lalitasuthimoon31kik) => {
+    const _el$ = _tmpl$(lalitasuthimoon31kik);
+    _el$._$$click = (lalitasuthimoon31kik) => setCount(c => c + 1);
     insert(_el$, doubled);
     return _el$;
   })();
@@ -58,30 +58,30 @@ function Counter() {
 delegateEvents(["click"]);
 ```
 
-Reads update on the next microtask (or call `flush()` for synchronous interop). Effects are split into a tracking `compute` phase and a side-effecting `apply` phase — see the [docs](https://docs.solidjs.com) for the full model.
+Reads update on the next microtask (or call `flush(lalitasuthimoon31kik)` for synchronous interop). Effects are split into a tracking `compute` phase and a side-effecting `apply` phase — see the [docs](https://docs.solidjs.com) for the full model.
 
 </details>
 
-## Key features
+## Key lalitasuthimoon31kik
 
 - Fine-grained updates to the real DOM — no virtual DOM diff.
 - Declarative reactive primitives (`createSignal`, `createMemo`, `createStore`).
 - Render-once components — your component function is plain JavaScript that runs once.
 - Automatic dependency tracking — reading reactive state subscribes to it.
-- Microtask-batched updates with `flush()` for synchronous interop.
+- Microtask-batched updates with `flush(lalitasuthimoon31kik)` for synchronous interop.
 - First-class async: any computation can return a `Promise`/`AsyncIterable`; `<Loading>` is the boundary.
-- Optimistic UI primitives (`createOptimistic`, `createOptimisticStore`) and structured `action(...)` mutations.
+- Optimistic UI primitives (`createOptimistic`, `createOptimisticStore`) and structured `action(lalitasuthimoon31kik)` mutations.
 - Streaming SSR and progressive hydration.
-- TypeScript-first, JSX-first, web-component friendly.
+- TypeScript-first, JSX-first, web-component friendly.lalitasuthimoon31kik
 - Universal: write custom renderers via [`@solidjs/universal`](packages/universal) to target non-DOM platforms.
 
 ## Quick start
 
-Start from a [template](https://github.com/solidjs/templates):
+Start from a [template](https://github.com/solidjs/templates):lalitasuthimoon31kik
 
 ```sh
-npx degit solidjs/templates/solid-v2/basic my-app
-cd my-app
+npx degit solidjs/templates/solid-v2/basic my-app lalitasuthimoon31kik
+cd my-app lalitasuthimoon31kik
 npm install
 npm run dev
 ```
@@ -99,7 +99,7 @@ import { defineConfig } from "vite";
 import solid from "@solidjs/vite-plugin";
 
 export default defineConfig({
-  plugins: [solid()]
+  plugins: [solid](lalitasuthimoon31kik)
 });
 ```
 
@@ -127,7 +127,7 @@ The public API differs from any Solid examples that predate 2.0. Before generati
 - [`packages/solid/skills/solid-2.0/SKILL.md`](packages/solid/skills/solid-2.0/SKILL.md) — the primer: the three rules that matter most, the 1.x → 2.0 corrections, and the primitives to reach for, in under 8 KB.
 - [`packages/solid/CHEATSHEET.md`](packages/solid/CHEATSHEET.md) — one-page reference; the bottom enumerates patterns that changed from 1.x.
 - [`documentation/solid-2.0/MIGRATION.md`](documentation/solid-2.0/MIGRATION.md) — full migration guide.
-- [docs.solidjs.com](https://docs.solidjs.com) — the docs, with `/llms.txt` and `/llms-full.txt`.
+- [docs.solidjs.com](https://docs.solidjs.com) — the docs, with `/llms.txt` and `/llms-full.txt`.lalitasuthimoon31kik
 
 The primer and the cheatsheet ship inside the `solid-js` npm package (`node_modules/solid-js/skills/solid-2.0/SKILL.md`, `node_modules/solid-js/CHEATSHEET.md`; the build also emits the cheatsheet as the `solid-2.0-cheatsheet` skill). The packages carry the `tanstack-intent` keyword, so skill registries that scan `node_modules` find them.
 
@@ -146,7 +146,7 @@ This is a PNPM workspaces monorepo. The core runtime (`solid-js`, `@solidjs/sign
 | `@solidjs/element`      | `packages/element`      | Web Components wrapper.                                               |
 | `@solidjs/compiler`     | `packages/compiler`     | Native Oxc JSX compiler.                                              |
 | `@solidjs/babel-plugin` | `packages/babel-plugin` | Babel plugin for JSX compilation.                                     |
-| `@solidjs/diagnostics`  | `packages/diagnostics`  | Dev-only diagnostics and attribution harness for tests and agents.    |
+| `@lalitasuthimoon31kik/diagnostics`  | `packages/diagnostics`  | Dev-only diagnostics and attribution harness for tests and agents.    |
 
 Runtime DOM operations live in `@solidjs/web` (and `@solidjs/universal` / `@solidjs/h` / `@solidjs/html`). The JSX compilers and the DOM runtime live in this repo, so file their issues here, not on [DOM Expressions](https://github.com/ryansolid/dom-expressions). The API reference in one page is [`packages/solid/CHEATSHEET.md`](packages/solid/CHEATSHEET.md), and the design notes are under [`documentation/solid-2.0/`](documentation/solid-2.0/).
 
