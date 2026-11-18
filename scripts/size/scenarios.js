@@ -1135,9 +1135,8 @@ module.exports = [
     // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
     // #4689): measured 15,114 B / 43,914 B minified; the cap raised in
     // its PR with the growth accepted (the rulings' cost on this chunk).
-    // 2026-11-18 (class instances in stores: prototype getters run on the proxy and track, methods outside a draft run on the raw instance, CS-R48; store bundles only, measured locally over main @ 82f71fd): cap 15.13 KB -> 15.19 KB, recorded minified 43,914 -> 44,056 B, measured at 15,176 B brotli. Growth accepted by the maintainer (2026-11-18). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "15.19 KB",
-    capMinified: 44056,
+    limit: "15.13 KB",
+    capMinified: 43914,
     alias
   },
   {
@@ -2876,12 +2875,11 @@ module.exports = [
     // Re-record (2026-11-17, over main @ cfae0c2, Size run 44197017360 check job): 35.16 KB -> 35.29 KB, recorded minified 105,962 -> 106,241 B (+279 B: +255 B #4993, +24 B from #4992/#4994/#4995 on main), measured in CI at 35,275 B brotli. #4993 (#4988: an optimistic setter composes each key from the guess that owns it, `writerFrame`/`ownedKeys` in store/optimistic.ts), only in bundles with optimistic stores; growth accepted by the maintainer (2026-11-17). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // 2026-11-18 (#4999, #5004: a held Loading `on`'s top-level children show a later guess beside a For (D-33, F-1); lane engine and boundary output only, gated on the lane hook so non-lane bundles pay 0 B; CI Size run 44247054761, over main @ ac2f97c): cap 35.29 KB unchanged, recorded minified 106,241 -> 106,327 B, measured at 35,242 B brotli.
     // 2026-11-18 (#5011, #5017 from #5013: a delegated container's capture listener clears the event-owner mark so a re-dispatched Event runs its handlers again; +89 B minified on every bundle with delegation; CI Size run 44281451857, over main @ e57fc3f): cap 35.29 KB unchanged, recorded minified 106,327 -> 106,453 B, measured at 35,245 B brotli. Growth accepted by the maintainer (2026-11-18: "We shouldn't block a good pr on size").
-    // 2026-11-18 (class instances in stores: prototype getters run on the proxy and track, methods outside a draft run on the raw instance, CS-R48; store bundles only, measured locally over main @ 82f71fd): cap 35.29 KB -> 35.37 KB, recorded minified 106,453 -> 106,768 B, measured at 35,352 B brotli. Growth accepted by the maintainer (2026-11-18). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "35.37 KB",
+    limit: "35.29 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 96,989 -> 97,047 B (+58 B minified over next's record), measured locally (linux) at 31,811 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 97,024 -> 97,045 B (+21 B minified over next's record), measured locally (linux) at 31,798 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 97,045 -> 97,426 B (+240 B minified over next), measured locally (linux) at 31,976 B brotli (+109 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 106768,
+    capMinified: 106453,
     alias
   },
   {
@@ -4335,8 +4333,7 @@ module.exports = [
     // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
     // #4689): measured 26,734 B / 80,605 B minified; the cap raised in
     // its PR with the growth accepted (the rulings' cost on this chunk).
-    // 2026-11-18 (class instances in stores: prototype getters run on the proxy and track, methods outside a draft run on the raw instance, CS-R48; store bundles only, measured locally over main @ 82f71fd): cap 26.75 KB -> 26.78 KB, recorded minified unchanged, measured at 26,762 B brotli. Growth accepted by the maintainer (2026-11-18). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "26.78 KB",
+    limit: "26.75 KB",
     capMinified: 80605,
     alias
   },

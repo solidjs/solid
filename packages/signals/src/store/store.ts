@@ -386,7 +386,7 @@ export function getNode(
       slotNodeEquals,
       target,
       key,
-      accKnown === -1 ? isOwnAccessor(pb ?? target.v, key) : accKnown === 1
+      accKnown === -1 ? isAccessorKey(pb ?? target.v, key) : accKnown === 1
     ));
     if (pb !== null && !(created as any).acc)
       bornStaged(target, created, target.del?.has(key) ? undefined : pb[key as any], key);
@@ -1453,14 +1453,6 @@ function scopeKey(target: StoreTarget): any {
   while (t.u !== null) t = t.u;
   return t;
 }
-const boundMethods = new WeakMap<object, Map<Function, Function>>();
-function rawMethod(src: object, v: Function): Function {
-  let m = boundMethods.get(src);
-  if (!m) boundMethods.set(src, (m = new Map()));
-  let f = m.get(v);
-  if (!f) m.set(v, (f = v.bind(src)));
-  return f!;
-}
 function inDraft(target: StoreTarget): boolean {
   return writeScopes !== null && writeScopes.has(scopeKey(target));
 }
@@ -2349,14 +2341,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       !hasOwn.call(src, key) &&
       !(viewOvl && hasOwn.call(target.v, key))
     )
-      // A class instance's methods outside a draft run on the raw instance.
-      return key === "constructor" ||
-        writeOverride ||
-        inDraft(target) ||
-        protoOf(src) === Object.prototype ||
-        Array.isArray(src)
-        ? v
-        : rawMethod(src, v);
+      return v; // proto method
     return serveDataKey(target, key, v, src, node0, accProbe);
   },
 

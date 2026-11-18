@@ -2,4 +2,4 @@
 "@solidjs/signals": patch
 ---
 
-A class instance in a store: prototype getters now run on the store proxy, so they track the fields they read (a getter on a nested instance went stale before), and methods called outside a setter run on the raw instance, so objects that manage their own state (actors, clients) keep working when held in a store. Methods called on a draft still write reactively. For derived values read in effects or JSX, use a getter rather than a method (documented in the stores guide).
+A prototype getter on a class instance in a store now runs on the store proxy, so it tracks the fields it reads (CS-R48). Before, a getter read with no store node yet ran on the raw instance and never updated.

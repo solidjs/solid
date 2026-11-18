@@ -218,7 +218,7 @@ _Amended 2026-10-01 (#3733, rule B)._ This reverses #2692's "write trumps deriva
 - NC "#2952" describe; CS "does not wrap Node instances".
 - Note: draft collection mutations ARE raw mutation of a user object — a deliberate carve-out from R6 the ownership WeakSet oracle must exempt.
 
-**R48. User class instances (custom prototypes) DO wrap: prototype getters run on the proxy and track; methods on the draft receive the proxy as `this` (reactive writes); methods called outside a draft run on the raw instance (untracked, their writes land on it), so derived reads belong in getters.**
+**R48. User class instances (custom prototypes) DO wrap: prototype getters track; methods on the draft receive the proxy as `this` (reactive writes).**
 
 - CS "wrapped nested class", "not wrapped nested class" (historical name); NC ×2; class-instance-members.test.ts.
 

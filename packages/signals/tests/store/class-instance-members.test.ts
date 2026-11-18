@@ -14,19 +14,6 @@ class Cart {
   }
 }
 
-class Actor {
-  observers: Set<() => void> | null = null;
-  status = "idle";
-  subscribe(fn: () => void) {
-    (this.observers ??= new Set()).add(fn);
-    return () => this.observers!.delete(fn);
-  }
-  start() {
-    this.status = "running";
-    return this;
-  }
-}
-
 describe("class instance members in a store (CS-R48)", () => {
   test("a prototype getter tracks the fields it reads", () => {
     const [s, set] = createStore({ cart: new Cart() });
@@ -45,21 +32,49 @@ describe("class instance members in a store (CS-R48)", () => {
     expect(seen).toEqual([3, 6]);
   });
 
-  test("a method outside a draft runs on the raw instance, so its writes land", () => {
-    const actor = new Actor();
-    const [s] = createStore({ actor });
-    let calls = 0;
-    s.actor.subscribe(() => calls++);
-    expect(actor.observers?.size).toBe(1);
-    actor.observers!.forEach(fn => fn());
-    expect(calls).toBe(1);
-    expect(s.actor.start()).toBe(actor);
-    expect(actor.status).toBe("running");
+  test("a getter on a nested class instance updates after a write", () => {
+    const [s, set] = createStore({ outer: { cart: new Cart() } });
+    const seen: number[] = [];
+    createRoot(() => {
+      createEffect(
+        () => s.outer.cart.total,
+        v => void seen.push(v)
+      );
+    });
+    flush();
+    set(d => {
+      d.outer.cart.items = [5];
+    });
+    flush();
+    expect(seen).toEqual([3, 5]);
+    expect(s.outer.cart.total).toBe(5);
   });
 
-  test("the bound method is stable across reads", () => {
-    const [s] = createStore({ actor: new Actor() });
-    expect(s.actor.subscribe).toBe(s.actor.subscribe);
+  test("a method outside a draft runs on the proxy and tracks", () => {
+    const [s, set] = createStore({ cart: new Cart() });
+    const seen: number[] = [];
+    createRoot(() => {
+      createEffect(
+        () => s.cart.sum(),
+        v => void seen.push(v)
+      );
+    });
+    flush();
+    set(d => {
+      d.cart.items.push(3);
+    });
+    flush();
+    expect(seen).toEqual([3, 6]);
+  });
+
+  test("a method outside a draft cannot write the store or its source", () => {
+    const cart = new Cart();
+    const [s] = createStore({ cart });
+    try {
+      s.cart.add(9);
+    } catch {}
+    expect(s.cart.items.length).toBe(2);
+    expect(cart.items).toEqual([1, 2]);
   });
 
   test("a method called in a draft writes reactively", () => {

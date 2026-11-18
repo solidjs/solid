@@ -210,8 +210,8 @@ When *not* to use it: state you edit field-by-field (forms, editors, sparse in-p
 
 A class instance inside a store is wrapped like a plain object: its fields are tracked, and `instanceof` and `constructor` still answer the class.
 
-- **Getters are reactive reads.** A getter on the class runs on the store, so it tracks the fields it reads. Write derived values as getters.
-- **Methods are actions.** A method called outside a setter runs on the instance itself. It reads without tracking, and its writes land on the instance without notifying anyone, so objects that manage their own state (actors, clients, emitters) keep working. A method called on the draft inside a setter writes through the store and notifies as usual.
+- **Getters and methods run on the store.** `this` is the store proxy, so a getter or method tracks the fields it reads.
+- **Writes go through a setter.** A method called on the draft inside a setter writes through the store and notifies as usual. Called outside a setter, its writes are ignored, like any other write to a store.
 
 ```js
 class Cart {
@@ -230,7 +230,7 @@ const [store, setStore] = createStore({ cart: new Cart() });
 setStore(s => s.cart.add({ price: 3 })); // reactive write through the draft
 ```
 
-Calling a method in JSX or an effect (`store.cart.sum()`) does not track. Use a getter for anything you read reactively.
+An object that manages its own state (an actor, a client, an emitter) needs its own writes to land on it. Keep it out of the store, or hold it in a `shallow` store, which keeps its values raw.
 
 ### `snapshot(store)` (replaces `unwrap`)
 
