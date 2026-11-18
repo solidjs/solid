@@ -105,10 +105,18 @@ function clearPendingSources(el: Computed<any>): void {
 // edge: a dep that IS the source, or one whose own pending chain carries it
 // (pending sources propagate the origin node, so this covers any depth).
 // Also guards branch-local recovery: another dependency may still need the source.
+// A disposed dep carries nothing (#5003): it is unlinked, so no settle walk
+// reaches it — a boundary a memo's last pass replaced, left on the kept tail
+// of a held pass, would park the memo on it for good (F-3: a reader re-run
+// without the read, or disposed, holds nothing).
 export function retryReaches(el: Computed<any>, source: any): boolean {
   for (let d = el._deps; d; d = d._nextDep) {
     const dep = d._dep as Computed<any>;
-    if (dep === source || dep._x?._pendingSources?.has(source)) return true;
+    if (
+      !(dep._flags & REACTIVE_DISPOSED) &&
+      (dep === source || dep._x?._pendingSources?.has(source))
+    )
+      return true;
   }
   return false;
 }
