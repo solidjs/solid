@@ -15,11 +15,12 @@ import {
   createMemo,
   createSignal,
   createOptimisticStore,
-  createErrorBoundary,
   flush,
   untrack
 } from "solid-js";
+import * as Solid from "solid-js";
 import { render } from "../src/index.js";
+const createErrorBoundary = (Solid as any).createErrorBoundary;
 const tick = async () => {
   for (let i = 0; i < 4; i++) {
     await new Promise(r => setTimeout(r, 0));
