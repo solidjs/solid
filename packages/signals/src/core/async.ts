@@ -347,10 +347,48 @@ export function onSupersede(fn: () => void): void {
         };
 }
 
+/** A flight's landing through a setter (bound by store/projection.ts). A throw
+ * from `commit` is the flight's error (`fail`, false returned). */
+export function landBySetter<T>(
+  el: Computed<T>,
+  value: T,
+  commit: (value: T) => void,
+  wasUninitialized: number,
+  fail: (error: unknown) => void
+): boolean {
+  // Observe: what a setter landing moves on the node, to say whether it committed.
+  const observed = __OBSERVE__ && attrHooks !== null;
+  const before = observed ? el._value : undefined;
+  const beforeTime = observed ? el._time : 0;
+  try {
+    commit(value);
+  } catch (error) {
+    fail(error);
+    return false;
+  }
+  // Unheld, a store derive's landing clears the shown error and published-inputs
+  // mark now (#4269); held, at the commit.
+  if (!(el._config & CONFIG_HELD)) {
+    el._x!._shownError = null;
+    el._config &= ~CONFIG_INPUTS_PUBLISHED;
+  }
+  if (wasUninitialized) landStatus(el, true);
+  // Observe: a setter landing bypasses `setSignal`, so the flight closes here
+  // (#3947). Outside the try (attribution-hooks.ts).
+  if (observed)
+    attrHooks!.asyncLanded(
+      el,
+      value,
+      el._value !== before || el._time !== beforeTime || el._pendingValue === value
+    );
+  return true;
+}
 export function handleAsync<T>(
   el: Computed<T>,
   result: T | PromiseLike<T> | AsyncIterable<T>,
-  setter?: (value: T) => void,
+  // A store derive's landing (`landBySetter`); a callback, so a build
+  // without stores retains none of the arm (bundle size).
+  setter?: (value: T, wasUninitialized: number, fail: (error: unknown) => void) => boolean,
   // `pending`: a NotReady rejection, not an error. A projection tells its leaves' readers.
   onError?: (error: unknown, pending: boolean) => void
 ): T {
@@ -456,30 +494,9 @@ export function handleAsync<T>(
     const wasUninitialized = el._statusFlags & STATUS_UNINITIALIZED;
     landStatus(el);
     const observed = __OBSERVE__ && attrHooks !== null;
-    const before = observed ? el._value : undefined;
-    const beforeTime = observed ? el._time : 0;
     if (setter) {
-      try {
-        setter(value);
-      } catch (error) {
-        handleError(error);
-        return;
-      }
-      // Unheld, a store derive's landing clears the shown error and published-inputs
-      // mark now (#4269); held, at the commit.
-      if (!(el._config & CONFIG_HELD)) {
-        el._x!._shownError = null;
-        el._config &= ~CONFIG_INPUTS_PUBLISHED;
-      }
-      if (wasUninitialized) landStatus(el, true);
-      // Observe: a setter landing bypasses `setSignal`, so the flight closes here
-      // (#3947). Outside the try (attribution-hooks.ts).
-      if (observed)
-        attrHooks!.asyncLanded(
-          el,
-          value,
-          el._value !== before || el._time !== beforeTime || el._pendingValue === value
-        );
+      // False: the derive's commit threw, taken as the flight's error.
+      if (!setter(value, wasUninitialized, handleError)) return;
     } else if (observed) {
       const changed = landThroughSetSignal(el, value);
       attrHooks!.asyncLanded(el, value, changed);
