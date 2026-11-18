@@ -26,6 +26,19 @@ Commits and pushes always require an explicit ask in the user's latest message. 
 
 Any change to the public surface — a new or removed export, prop, option, or parameter; a changed signature, default, or documented behavior of an existing one; a new diagnostic code — must be called out explicitly to the maintainer *before* it is made (or, when discovered mid-task, before it is committed), stated as its own item, not folded into a summary of the fix. This applies to changes made for "parity", "symmetry", or "while I was there" exactly as much as to changes the task asked for; those are the ones most likely to slip through. The same applies to instructions given to subagents: a brief that would add or remove public surface must say so, and the agent must report the surface it touched. The PR body must list every public API change under its own heading.
 
+## Code comments
+
+The rules live in `packages/signals/docs/` (`RULES-FUNDAMENTALS.md`, `RULES-DERIVED.md`, `SCENARIOS.md`), and behavior is pinned by tests. A comment is a third place that can disagree with both, and nothing tests it. So:
+
+- **No narration.** Do not describe what the code does or restate a rule. If a reader needs the behavior spelled out, it belongs in a rule or a test.
+- **A short "why" on a non-obvious line only.** One or two lines saying why this line exists, ending with the rule id it serves: `// A guess over a held slot entangles the frames (D-8, D-33).` Cite the rule; do not quote it.
+- **Cite the rule that stands.** F/D/S ids over archive ids (A, B, V, mined R-ids). Never a folded, retired, superseded or withdrawn rule: cite the one that replaced it. Mined R-ids carry their namespace (`OL-R5`, never a bare `R5`).
+- **No history.** No "before, it…", dates, narrated rulings, fuzzer traces or which PR changed what. That is git's job.
+- **An issue number only when no rule covers the line.** It names the regression test that pins the line. A why that can only cite an issue is a missing rule: say so in the PR.
+- **Keep:** public API JSDoc (it is user documentation), performance and bundle-size reasons (no rule covers them), and short pointers to where a hook is installed.
+- **A comment that disagrees with the code is a finding.** Raise it with the maintainer. Do not change the comment to match the code, or the code to match the comment, without a ruling (on #5008 the comment was right and the code and its pins were wrong).
+- **CI.** `packages/signals/scripts/rules-index.mjs --check` (run by the signals `pnpm test`) fails on a citation that resolves to no rule and, for files listed in its `POLICY`, on a citation of a rule that no longer stands, a bare R-id, or a reference to a document the repo does not have. Add a file to `POLICY` when you bring it under this policy. `--comments` prints the census for every file.
+
 ## When Comparing Approaches
 
 - Each approach must be architecturally distinct, not a rename of the other.
