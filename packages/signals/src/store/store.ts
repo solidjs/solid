@@ -2158,6 +2158,10 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
         if (target._fam !== null) pullFamily(target);
         if (!inDraft(target) && getObserver() !== null) {
           readNode(getContainerNode(target));
+          // Link the optimistic carrier the same way ownKeys/`enumerationSource`
+          // does. Without this, a $TRACK-only reader never sees structural
+          // guesses (push/splice/reorder) and is not re-run on revert (#5007).
+          if (optHooks !== null && target.o && !writeOverride) optHooks.frame(target);
           // Structural chaining (§7b): a chained backing's $TRACK reads
           // through to the INNER store's container — structural
           // notifications land on the source's own node.
