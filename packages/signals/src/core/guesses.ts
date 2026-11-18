@@ -68,6 +68,8 @@ import type { Computed, Signal } from "./types.js";
  * applied). The lane's passes run in the next round of the same flush, so
  * the guess is visible at flush like any write (A28). */
 const pendingGuesses: any[] = [];
+/** How many guesses wait for the seam (a setter that wrote none: store/thinOptimistic.ts). */
+export const guessesWaiting = (): number => pendingGuesses.length;
 /** #4788: the lanes this seam's guesses derive from (`optimisticWrite`). */
 const readFrom: Transaction[] = [];
 /** What the writer sees of a node: an unflushed guess to it, else the

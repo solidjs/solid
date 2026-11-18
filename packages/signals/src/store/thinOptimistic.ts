@@ -1,6 +1,12 @@
-import { guessedValueOf, optimisticWrite, pendingGuessOf, take } from "../core/guesses.js";
+import {
+  guessedValueOf,
+  guessesWaiting,
+  optimisticWrite,
+  pendingGuessOf,
+  take
+} from "../core/guesses.js";
 import { covered, underOf } from "../core/truth.js";
-import { lanes, setLaneValue } from "../core/lanes.js";
+import { lanes, readGuesses, setLaneValue } from "../core/lanes.js";
 import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
@@ -12,8 +18,9 @@ import {
 } from "../core/constants.js";
 import { link } from "../core/graph.js";
 import { devGuardOptimisticBeforeLoad, devWarnOptimisticWhileLoading } from "../core/dev.js";
-import { context, joinPassAt, read } from "../core/core.js";
+import { context, joinPassAt, read, signal } from "../core/core.js";
 import {
+  actionDepth,
   clock,
   GlobalQueue,
   insertSubs,
@@ -78,6 +85,19 @@ const echo = (a: unknown, b: unknown): boolean => {
 GlobalQueue._echoes = echo;
 installThinGuesses(optimisticWrite as any, guessedValueOf, underOf, echo);
 
+/** A setter that read another action's live guess and wrote nothing (the
+ * row it would remove is already gone) still depends on that guess landing:
+ * its action guesses the family's touch node, so the two entangle as a
+ * write beside the read does (D-33, ruled 2026-11-18). */
+function settle(store: any, fn: (draft: any) => any): void {
+  const r = readGuesses.length;
+  const w = guessesWaiting();
+  storeSetter(store, fn);
+  if (actionDepth && readGuesses.length > r && guessesWaiting() === w) {
+    const fam = store[$THIN]._fam;
+    optimisticWrite((fam.tn ??= signal(0)), (x: number) => x + 1);
+  }
+}
 /** The family's guesses still in a lane. */
 function live(fam: any): Signal<any>[] {
   const out: Signal<any>[] = [];
@@ -458,7 +478,7 @@ export function createThinOptimisticStore<T extends object = {}>(
         derived &&
         (devGuardOptimisticBeforeLoad((store as any)[$THIN]._fam.node),
         devWarnOptimisticWhileLoading((store as any)[$THIN]._fam.node)),
-      storeSetter(store, fn)
+      settle(store, fn)
     )
   ];
 }

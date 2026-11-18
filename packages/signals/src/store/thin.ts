@@ -678,7 +678,13 @@ function write(t: Target, key: PropertyKey, v: any, cur: any = write): void {
   // A derive's landing on a guess is its truth even when the truth beneath
   // was already this (A18): the guess is judged with the rest of the
   // landing, not left over a key set the landing moved.
-  if (Object.is(prev, v) && (userWrite || !(node._config & CONFIG_GUESS))) return;
+  if (Object.is(prev, v) && (userWrite || !(node._config & CONFIG_GUESS))) {
+    // A user write another action's guess already made is a read of that
+    // guess: the setter depends on it landing (D-33).
+    if (userWrite && guessed !== null && node._config & CONFIG_GUESS && context === null)
+      read(node);
+    return;
+  }
   if (__DEV__ && DEV.hooks.onStoreNodeUpdate && !(t.r && key === "length"))
     DEV.hooks.onStoreNodeUpdate(
       t.p,
