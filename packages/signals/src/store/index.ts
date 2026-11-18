@@ -178,7 +178,8 @@ export function reconcile<T extends U, U>(
       );
       return undefined as any;
     }
-    return value;
+    if (state == null) throw new Error(__DEV__ ? "Cannot reconcile null or undefined state" : "");
+    throw new Error(__DEV__ ? "reconcile target is not a store proxy" : "");
   };
 }
 

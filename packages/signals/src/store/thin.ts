@@ -265,7 +265,13 @@ export function thinWrap(v: any, fam: StoreFamily | null = null, u: Target | nul
   if (t === undefined) {
     // A store a plain store holds is that store: one identity everywhere
     // (CS-R2; a derived store's view of it is its own, `chainSlot`).
-    if (fam === null && isThin(v)) return v;
+    if (isThin(v)) {
+      // A proxy inside a written value: this family's own row is itself;
+      // another store's is this family's chained view of it (CS-R3).
+      const vf = v[$THIN]._fam;
+      if (fam === null || vf === fam || u === null) return v;
+      return (fam.map.get(chainSlot(u, v)) as any).p;
+    }
     const r = Array.isArray(v);
     t = {
       v,
@@ -308,7 +314,15 @@ const wrap = thinWrap;
  * (the raw resolves to that one proxy again); a derived store's proxy in a
  * plain store stays the proxy. */
 const held = (t: Target, v: any): any =>
-  isThin(v) && (t._fam !== null || v[$THIN]._fam === null) ? v[$THIN].v : v;
+  !isThin(v)
+    ? v
+    : t._fam === null
+      ? v[$THIN]._fam === null
+        ? v[$THIN].v
+        : v
+      : v[$THIN]._fam === t._fam
+        ? v[$THIN].v
+        : chainSlot(t, v);
 /** Dev: each target's root (the first store it was reached from), the
  * holder the post-await read warning reports once per (store.ts `storeRoot`). */
 const devRoot: WeakMap<Target, Target> | null = __DEV__ ? new WeakMap() : null;
@@ -1187,15 +1201,12 @@ const BASE: ProxyHandler<any> = {
     if (t.s) return (rawThin(value), writeSlot(t, key, value), true);
     // #4845: a derive's draft write of another store's proxy chains the
     // key to it, as the return form does (CS-R3/CS-R5).
-    if (
-      t._fam !== null &&
-      !userWrite &&
-      isThin(value) &&
-      value[$THIN]._fam !== t._fam &&
-      !inDraft(value[$THIN])
-    )
-      return (writeSlot(t, key, chainSlot(t, value)), true);
-    const v = held(t, value);
+    // The chain's own child put back at its key is the value the chain
+    // shows there (#3672: a guess equal to the truth).
+    const v =
+      t.c !== null && isThin(value) && unwrapThin(value) === valueOf(t.c[$THIN], key)
+        ? value[$THIN].v
+        : held(t, value);
     // A derive's new child over a child carrying guesses: the truth lands
     // into it, so the guesses re-base over it (D-34, #4336).
     if (t._fam?.opt && !userWrite && guessed !== null && isWrappable(v)) {
@@ -1868,6 +1879,8 @@ export function thinSnapshot(
   seen = new Map<object, any>(),
   fam: StoreFamily | null = isThin(value) ? value[$THIN]._fam : null
 ): any {
+  // A store held inside another's value is read as its own family's.
+  if (isThin(value)) fam = value[$THIN]._fam;
   const raw = unwrapThin(value);
   if (raw === null || typeof raw !== "object") return raw;
   const t: Target | undefined = ((fam?.map as any) ?? targets).get(raw);
