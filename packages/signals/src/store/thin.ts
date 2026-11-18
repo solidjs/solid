@@ -270,7 +270,7 @@ export function thinWrap(v: any, fam: StoreFamily | null = null, u: Target | nul
       // another store's is this family's chained view of it (CS-R3).
       const vf = v[$THIN]._fam;
       if (fam === null || vf === fam || u === null) return v;
-      return (fam.map.get(chainSlot(u, v)) as any).p;
+      return (fam.map.get(chainSlot(u, v, false)) as any).p;
     }
     const r = Array.isArray(v);
     t = {
@@ -662,6 +662,10 @@ let bumpFor: Target | null = null;
 let bumped = false;
 // `cur`: the caller's draft read of the key (`curOf`), on a plain store.
 function write(t: Target, key: PropertyKey, v: any, cur: any = write): void {
+  // A user's write on a view of another store: remembered for the
+  // derive's next answer; a list becomes the view's own.
+  if (userWrite && t.c !== null && t._fam !== null && !t._fam.opt)
+    t.r ? privatize(t) : overlays(t._fam).has(t) || overlays(t._fam).set(t, null);
   // No write has moved this target off its raw: every node holds the seed.
   const n0 = t.n?.[key];
   if ((!t.w || n0 === undefined) && Object.is(seed(t, key), v)) return;
@@ -1338,6 +1342,7 @@ const CHAIN: ProxyHandler<any> = {
  * proxy, chained to the inner child: a write through it stays in this store
  * (#2932, each level its own proxies). */
 const subChains = new WeakMap<Target, Map<PropertyKey, Target>>();
+const rowChains = new WeakMap<Target, WeakMap<object, Target>>();
 /** The raws a chain reads through: no data of their own (an echo compares
  * them by identity, thinOptimistic.ts). */
 const chainRaws = new WeakSet<object>();
@@ -1364,16 +1369,23 @@ function subChain(t: Target, key: PropertyKey, iv: any): any {
   let m = subChains.get(t);
   if (m === undefined) subChains.set(t, (m = new Map()));
   const r = iv[$THIN].r;
-  let e = m.get(key);
+  // A list's row is the source row's view wherever it sits: identity
+  // follows the row (CS-R2), so a reorder moves it. A record's child is
+  // the key's.
+  let rows: WeakMap<object, Target> | undefined;
+  if (t.r && (rows = rowChains.get(t)) === undefined) rowChains.set(t, (rows = new WeakMap()));
+  let e = rows !== undefined ? rows.get(iv) : m.get(key);
   if (e === undefined || e.r !== r) {
     const raw = r ? [] : {};
     chainRaws.add(raw);
     thinWrap(raw, t._fam, t);
     e = t._fam!.map.get(raw) as unknown as Target;
-    m.set(key, e);
+    if (rows !== undefined) rows.set(iv, e);
     if (__DEV__) subKeys!.set(e, key);
   }
-  chainTo(e, iv);
+  if (m.get(key) !== e) m.set(key, e);
+  // A list a user's write made a private copy stays one (`privatize`).
+  if (e.c !== null || !e.w) chainTo(e, iv);
   return e.p;
 }
 /** A derived store seeded with another store reads it through live. */
@@ -1382,14 +1394,47 @@ function chainTo(t: Target, next: any): void {
   if (t.c === next) return;
   const was = t.c;
   t.c = next;
-  // Own values give way to the chain's (a guess or a pending write too).
+  giveWay(t, was === null);
+}
+/** Own values give way to the chain's (a guess or a pending write too). */
+function giveWay(t: Target, keys: boolean): void {
   if (t.n !== null) for (const key of Reflect.ownKeys(t.n)) put(t, t.n[key as any], () => DELEGATE);
-  if (was === null && t.k !== null) put(t, t.k, (x: number) => x + 1);
+  if (keys && t.k !== null) put(t, t.k, (x: number) => x + 1);
   if (t.cv !== null) put(t, t.cv, (x: number) => x + 1);
+}
+/** A user's writes on a derived store's view of another store, by target:
+ * the chain a list left to take them (`privatize`), else null. */
+const overlays = (fam: any): Map<Target, any> => (fam.ov ??= new Map());
+/** The derive answered with the store again: the answer replaces what a
+ * user wrote on its view, under `e` (CS-R4). */
+function answered(e: Target): void {
+  const ov: Map<Target, any> | undefined = (e._fam as any).ov;
+  if (ov === undefined || userWrite) return;
+  for (const [o, was] of ov) {
+    let p: Target | null = o;
+    while (p !== null && p !== e) p = p.u;
+    if (p === null) continue;
+    ov.delete(o);
+    if (o.c === null) was !== null && chainTo(o, was);
+    else giveWay(o, true);
+  }
+}
+/** A user's write to a list read through a chain: the list is the view's
+ * own from here (its rows still the source rows' views), so the source's
+ * later inserts and removals leave no hole in it. */
+function privatize(t: Target): void {
+  const it = t.c[$THIN] as Target;
+  overlays(t._fam).set(t, t.c);
+  unchain(t, key => {
+    const iv = valueOf(it, key);
+    return isWrappable(iv) && !it.s && !isRawValue(iv)
+      ? unwrapThin(subChain(t, key, child(it, iv)))
+      : iv;
+  });
 }
 /** A family slot holding another store: a raw of this family's, chained
  * to it (#2864, #4845). */
-function chainSlot(t: Target, nv: any): any {
+function chainSlot(t: Target, nv: any, write = true): any {
   // One raw per chained store in a family: two slots holding one store
   // are one row (an alias stays an alias).
   const m: WeakMap<object, any> = ((t._fam as any).cm ??= new WeakMap());
@@ -1399,18 +1444,26 @@ function chainSlot(t: Target, nv: any): any {
     chainRaws.add(raw);
     thinWrap(raw, t._fam, t);
     chainTo(t._fam!.map.get(raw) as any, nv);
+  } else if (write) {
+    // Written again: the store's view anew (a private list re-chains).
+    const e: Target = t._fam!.map.get(raw) as any;
+    chainTo(e, nv);
+    answered(e);
   }
   return raw;
 }
 /** Leave the chain: every key takes the value it showed as its own. */
-function unchain(t: Target): void {
+function unchain(
+  t: Target,
+  own: (key: PropertyKey) => any = key => valueOf(t.c[$THIN], key)
+): void {
   const it = t.c[$THIN] as Target;
   const fix = (node: Signal<any>, key: PropertyKey) => {
-    if (node._value === DELEGATE) node._value = valueOf(it, key);
-    if (node._pendingValue === DELEGATE) node._pendingValue = valueOf(it, key);
+    if (node._value === DELEGATE) node._value = own(key);
+    if (node._pendingValue === DELEGATE) node._pendingValue = own(key);
   };
   if (t.n !== null) for (const key of Reflect.ownKeys(t.n)) fix(t.n[key as any], key);
-  for (const key of keysOf(it)) if (t.n?.[key] === undefined) nodeOf(t, key, valueOf(it, key));
+  for (const key of keysOf(it)) if (t.n?.[key] === undefined) nodeOf(t, key, own(key));
   // A seed key the chain lacks reads absent too.
   for (const key of ownOf(t.v)) if (t.n?.[key as any] === undefined) nodeOf(t, key, ABSENT);
   t.c = null;
@@ -1722,7 +1775,7 @@ function reconcileTarget(
   const proxy = t.p;
   // A derive returned a store: chain to it (#2941); a plain value ends a chain.
   if (root === 1 && t._fam !== null) {
-    if (isThin(next) && next[$THIN]._fam !== t._fam) return chainTo(t, next);
+    if (isThin(next) && next[$THIN]._fam !== t._fam) return (chainTo(t, next), answered(t));
     if (t.c !== null) unchain(t);
   }
   next = unwrapThin(next);
@@ -1904,7 +1957,11 @@ export function thinSnapshot(
       const iv = own ? undefined : valueOf(it, k);
       // A child read through the chain is this family's sub-chain: its
       // guesses are part of the frame (#2932).
-      const sc = own ? undefined : subChains.get(t)?.get(k);
+      const sc = own
+        ? undefined
+        : t.r && isObj(iv)
+          ? rowChains.get(t)?.get((((it._fam?.map as any) ?? targets).get(iv) as Target)?.p)
+          : subChains.get(t)?.get(k);
       copy[k] = own
         ? thinSnapshot(valueOf(t, k), seen, fam)
         : sc !== undefined && unwrapThin(sc.c) === iv
