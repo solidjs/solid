@@ -206,6 +206,32 @@ It is also how to keep a value out of tracking. `Object.freeze` does not do that
 
 When *not* to use it: state you edit field-by-field (forms, editors, sparse in-place mutation). That is exactly what the default deep store is optimal for — shallow trades leaf granularity for record-granularity throughput, and re-runs all of a record's bindings when the record is replaced.
 
+### Class instances in stores
+
+A class instance inside a store is wrapped like a plain object: its fields are tracked, and `instanceof` and `constructor` still answer the class.
+
+- **Getters are reactive reads.** A getter on the class runs on the store, so it tracks the fields it reads. Write derived values as getters.
+- **Methods are actions.** A method called outside a setter runs on the instance itself. It reads without tracking, and its writes land on the instance without notifying anyone, so objects that manage their own state (actors, clients, emitters) keep working. A method called on the draft inside a setter writes through the store and notifies as usual.
+
+```js
+class Cart {
+  items = [];
+  get total() {
+    return this.items.reduce((sum, item) => sum + item.price, 0);
+  }
+  add(item) {
+    this.items.push(item);
+  }
+}
+
+const [store, setStore] = createStore({ cart: new Cart() });
+
+<p>{store.cart.total}</p>; // updates when items change
+setStore(s => s.cart.add({ price: 3 })); // reactive write through the draft
+```
+
+Calling a method in JSX or an effect (`store.cart.sum()`) does not track. Use a getter for anything you read reactively.
+
 ### `snapshot(store)` (replaces `unwrap`)
 
 `snapshot(store)` produces a **non-reactive plain value** suitable for serialization or interop with libraries that expect plain objects/arrays.
