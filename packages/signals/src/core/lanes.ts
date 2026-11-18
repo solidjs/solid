@@ -782,10 +782,14 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
   // A render effect of the lane reading a member that waits on `refresh()`
   // re-asks only reads what it shows: a re-ask holds nothing new (D-34 ¶3,
   // `blockedBy` lets such a member's lane reveal), so a row the lane builds
-  // binds beside the reader that shows it (F-1, #4864).
+  // binds beside the reader that shows it (F-1, #4864). A boundary's tree
+  // (CONFIG_FRAME, not an effect) flattens what its insert effects would show: a shown
+  // member reads as it shows, the lane's guesses on the screen (D-33, #4999).
   enterLane(l, c);
   if (__TEST__ && !pending) shadowActual(SLOT_LV);
-  return pending && !(guessed && (c as any)._type === EFFECT_RENDER && reasks(el as Computed<any>))
+  return pending &&
+    !(guessed && (c as any)._type === EFFECT_RENDER && reasks(el as Computed<any>)) &&
+    !(c._config & CONFIG_FRAME && !(c as any)._type && el._x!._shown)
     ? NOT_PENDING
     : latestOf(el);
 }
