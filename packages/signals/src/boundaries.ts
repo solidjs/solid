@@ -44,10 +44,19 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./core/constants.js";
-import { computed, read, recompute, runWithOwner, setSignal, signal } from "./core/core.js";
+import {
+  computed,
+  read,
+  recompute,
+  runWithOwner,
+  setSignal,
+  signal,
+  untrack
+} from "./core/core.js";
 import { emitDiagnostic, forgetThrownRead, reportDiagnostic } from "./core/dev.js";
 import { shadowSeatRestore, shadowSeatSave, shadowSwapSeat } from "./core/seat.js";
 import { NotReadyError, unwrapStatusError } from "./core/error.js";
+import { isThenable } from "./core/async.js";
 import { reportClientError } from "./core/error-hooks.js";
 import { link } from "./core/graph.js";
 import { enqueueSub } from "./core/heap.js";
@@ -866,6 +875,10 @@ function createBoundary<T>(
       let value: T;
       try {
         value = read(tree);
+        // Returned content that is a store carries its family's error: the
+        // probe reads it here, where the boundary catches it (F-12, D-41).
+        // Left to `handleAsync`'s probe, it is the output's own error.
+        if (b._error) untrack(() => isThenable(value));
       } catch (e) {
         if (e instanceof NotReadyError ? type === STATUS_PENDING : type === STATUS_ERROR) {
           if (isCollecting(b)) {
