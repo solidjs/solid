@@ -53,12 +53,12 @@ function resolveThunks(value: any): any {
 function wrapCallback(orig: any): any {
   let w: any;
   if (orig.length === 1) {
-    w = function (this: any, a: any) {
-      return resolveThunks(orig.call(this, a));
+    w = function (this: unknown, _a: unknown) {
+      return resolveThunks(orig.apply(this, arguments));
     };
   } else if (orig.length === 2) {
-    w = function (this: any, a: any, b: any) {
-      return resolveThunks(orig.call(this, a, b));
+    w = function (this: unknown, _a: unknown, _b: unknown) {
+      return resolveThunks(orig.apply(this, arguments));
     };
   } else {
     w = function (this: any, ...args: any[]) {
