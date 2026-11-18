@@ -33,3 +33,4 @@ overrides:
   '@solidjs/compiler-linux-arm64-gnu': 'link:packages/compiler/npm/linux-arm64-gnu'
   '@solidjs/compiler-win32-x64-msvc': 'link:packages/compiler/npm/win32-x64-msvc'
   '@solidjs/compiler-wasm32-wasi': 'link:packages/compiler/npm/wasm32-wasi'
+  'browserslist': '4.28.7'
