@@ -827,6 +827,12 @@ export function adoptPB(
     if (target.ovl) materializePB(target);
     base = target.pb!;
   } else base = target.v;
+  // #4146 for an adoption (#5005): before a user's adoption swaps a HELD
+  // container's staging, its keys get their leaves, born from the two frames,
+  // so a change stages on its key as a trap write's would (an array's keys
+  // stage as its setter's do).
+  if (userWrite && (target.k as any)?._config & CONFIG_HELD && !Array.isArray(base))
+    for (const key in { ...base, ...incoming }) deferredReleases.add(getNode(target, key));
   if (directCommit) {
     target.pb = null;
     if (target.k !== null) target.k._value = incoming;
@@ -1057,15 +1063,6 @@ let heldDerivationHit = false;
 let userWrite = false;
 /** Is the open setter a user's? (reconcile.ts: a user's reconcile on an
  * optimistic family writes the draft.) */
-/** #4146 for an adoption (#5005): before a user's reconcile swaps a HELD
- * container's staging, each key it changes gets its leaf, born from the two
- * frames, so the change stages on the key as a trap write's would (an
- * array's keys stage as its setter's do). */
-export function keepHeldLeaves(target: StoreTarget, old: any, incoming: any): void {
-  if (userWrite && (target.k as any)?._config & CONFIG_HELD && !Array.isArray(old))
-    for (const key in { ...old, ...incoming })
-      if (old[key] !== incoming[key]) deferredReleases.add(getNode(target, key));
-}
 export function userWriting(): boolean {
   return userWrite;
 }
