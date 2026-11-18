@@ -27,8 +27,8 @@ const settle = async () => {
   }
 };
 
-describe("a plain store holding another store (CS-R3, CS-R4, CS-R5)", () => {
-  test("every read of the holder agrees; the source and a sibling holder are untouched", () => {
+describe("a plain store holding another store: one identity, shared state (CS-R2)", () => {
+  test("every read agrees, through the holder, a sibling holder and the source", () => {
     const [person] = createStore({ name: "Alice" });
     const [a, editA] = createStore({ row: person });
     const [b] = createStore({ row: person });
@@ -36,31 +36,17 @@ describe("a plain store holding another store (CS-R3, CS-R4, CS-R5)", () => {
       d.row.name = "Bob";
     });
     flush();
+    expect(a.row).toBe(person);
     expect(a.row.name).toBe("Bob");
     expect(snapshot(a).row.name).toBe("Bob");
     expect(deep(a).row.name).toBe("Bob");
-    expect(b.row.name).toBe("Alice");
-    expect(person.name).toBe("Alice");
+    expect(b.row.name).toBe("Bob");
+    expect(person.name).toBe("Bob");
   });
 
-  test("a store pushed in later is held the same way", () => {
-    const [person] = createStore({ name: "Alice" });
-    const [people, edit] = createStore<{ name: string }[]>([]);
-    edit(d => {
-      d.push(person);
-    });
-    flush();
-    edit(d => {
-      d[0].name = "Bob";
-    });
-    flush();
-    expect(people[0].name).toBe("Bob");
-    expect(person.name).toBe("Alice");
-  });
-
-  test("a tracked reader of the held row follows the source until the holder writes the key", () => {
+  test("a tracked reader through the holder follows the source's setter", () => {
     const [person, setPerson] = createStore({ name: "Alice", tags: ["a"] });
-    const [list, setList] = createStore({ people: [person] });
+    const [list] = createStore({ people: [person] });
     const seen: string[] = [];
     createRoot(() => {
       createRenderEffect(
@@ -74,28 +60,8 @@ describe("a plain store holding another store (CS-R3, CS-R4, CS-R5)", () => {
       d.tags.push("b");
     });
     flush();
-    setList(d => {
-      d.people[0].name = "Bob";
-    });
-    flush();
-    setPerson(d => {
-      d.name = "Dave";
-      d.tags.push("c");
-    });
-    flush();
-    expect(seen).toEqual(["Alice/1", "Carol/2", "Bob/2", "Bob/3"]);
-    expect(snapshot(list)).toEqual({ people: [{ name: "Bob", tags: ["a", "b", "c"] }] });
-    expect(snapshot(person)).toEqual({ name: "Dave", tags: ["a", "b", "c"] });
-  });
-
-  test("the holder's own row of it stays one row when aliased", () => {
-    const [person] = createStore({ name: "Alice" });
-    const [list, setList] = createStore({ people: [person] });
-    setList(d => {
-      d.people.push(d.people[0]);
-    });
-    flush();
-    expect(list.people[1]).toBe(list.people[0]);
+    expect(seen).toEqual(["Alice/1", "Carol/2"]);
+    expect(snapshot(list)).toEqual({ people: [{ name: "Carol", tags: ["a", "b"] }] });
   });
 
   test("a shallow store's keyed rows and its index agree", () => {
@@ -120,6 +86,7 @@ describe("a plain store holding another store (CS-R3, CS-R4, CS-R5)", () => {
     flush();
     edit(() => [person]);
     flush();
+    expect(rows[0]).toBe(person);
     expect(screen).toEqual(["Alice"]);
     edit(d => {
       d[0].name = "Bob";
@@ -127,10 +94,10 @@ describe("a plain store holding another store (CS-R3, CS-R4, CS-R5)", () => {
     flush();
     expect(rows[0].name).toBe("Bob");
     expect(screen).toEqual(["Bob"]);
-    expect(person.name).toBe("Alice");
+    expect(person.name).toBe("Bob");
   });
 
-  test("affects(list) marks the list's row of it, not the source or a sibling holder", async () => {
+  test("affects(list) marks the store it holds, through every holder", async () => {
     let run!: () => Promise<void>;
     const flags: boolean[][] = [];
     createRoot(() => {
@@ -155,14 +122,14 @@ describe("a plain store holding another store (CS-R3, CS-R4, CS-R5)", () => {
     flush();
     const p = run();
     await settle();
-    expect(flags.at(-1)).toEqual([false, true, false]);
+    expect(flags.at(-1)).toEqual([true, true, true]);
     await p;
     await settle();
     expect(flags.at(-1)).toEqual([false, false, false]);
   });
 });
 
-test("a function-initialized store keeps two references to one store as one row", () => {
+test("a derived store holds its own view of a store, and two references to it are one row", () => {
   const [person] = createStore({ name: "Alice" });
   const [view, edit] = createStore<any>(() => ({ left: person, right: person }));
   flush();

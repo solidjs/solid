@@ -263,9 +263,9 @@ export function thinWrap(v: any, fam: StoreFamily | null = null, u: Target | nul
   const map: WeakMap<object, any> = fam?.map ?? targets;
   let t: Target | undefined = map.get(v);
   if (t === undefined) {
-    // Another store's proxy a plain store holds: the holder's own row,
-    // chained to it (CS-R3; a write through it stays in the holder, CS-R4).
-    if (fam === null && u !== null && isThin(v)) return wrap(chainSlot(u, v), fam, u);
+    // A store a plain store holds is that store: one identity everywhere
+    // (CS-R2; a derived store's view of it is its own, `chainSlot`).
+    if (fam === null && isThin(v)) return v;
     const r = Array.isArray(v);
     t = {
       v,
@@ -304,20 +304,11 @@ export function thinWrap(v: any, fam: StoreFamily | null = null, u: Target | nul
   return t.p;
 }
 const wrap = thinWrap;
-/** The store a plain target was first reached from. */
-function top(t: Target): Target {
-  while (t.u !== null) t = t.u;
-  return t;
-}
-/** A plain store's own row of a store it holds (the store's proxy is what
- * its slot keeps). */
-const own = (t: Target, v: any): any => (t._fam === null && isThin(v) ? child(t, v) : v);
-/** What a slot of `t` holds for `v`: the raw of a proxy of this store's (or
- * of a derived store's own family), another store's proxy as it is. */
+/** What a slot of `t` holds for `v`: a plain store's proxy as its raw
+ * (the raw resolves to that one proxy again); a derived store's proxy in a
+ * plain store stays the proxy. */
 const held = (t: Target, v: any): any =>
-  isThin(v) && (t._fam !== null || (v[$THIN]._fam === null && top(v[$THIN]) === top(t)))
-    ? v[$THIN].v
-    : v;
+  isThin(v) && (t._fam !== null || v[$THIN]._fam === null) ? v[$THIN].v : v;
 /** Dev: each target's root (the first store it was reached from), the
  * holder the post-await read warning reports once per (store.ts `storeRoot`). */
 const devRoot: WeakMap<Target, Target> | null = __DEV__ ? new WeakMap() : null;
@@ -327,9 +318,9 @@ function child(t: Target, v: any): any {
     // through the slot's chain to it (#2932: each level its own proxies).
     const ct: Target | undefined =
       t._fam !== null && isWrappable(v) ? (t._fam.map.get(v) as any) : undefined;
-    if (ct !== undefined && ct.c !== null) return ct.p;
-    if (t._fam !== null || !isThin(v)) return v;
-  } else if (!isWrappable(v) || isRawValue(v)) return v;
+    return ct !== undefined && ct.c !== null ? ct.p : v;
+  }
+  if (!isWrappable(v) || isRawValue(v)) return v;
   const p = wrap(v, t._fam, t);
   if (__DEV__) {
     const ct: Target = p[$THIN];
@@ -522,8 +513,7 @@ GlobalQueue._storeEngine = {
   target: (v: any, fam: StoreFamily | null): Target | undefined =>
     isThin(v) ? v[$THIN] : isWrappable(v) ? ((fam?.map as any) ?? targets).get(v) : undefined,
   keys: keysOf,
-  // A plain store's view of a store it holds is its own row of it.
-  value: (t: Target, key: PropertyKey): any => own(t, valueOf(t, key)),
+  value: valueOf,
   sub: (t: Target) => subChains.get(t)?.values() ?? [],
   view: (on: boolean) => void (writerView = on)
 };
@@ -1306,7 +1296,7 @@ function chainGet(t: Target, key: PropertyKey, receiver: any): any {
   if (tr && v !== DELEGATE && node!._config & CONFIG_GUESS) inner(t, () => t.c[key]);
   if (v === DELEGATE) {
     const iv = inner(t, () => t.c[key]);
-    return isThin(iv) && (t._fam === null || iv[$THIN]._fam !== t._fam) ? subChain(t, key, iv) : iv;
+    return t._fam !== null && isThin(iv) && iv[$THIN]._fam !== t._fam ? subChain(t, key, iv) : iv;
   }
   return v === ABSENT ? undefined : child(t, v);
 }
@@ -1362,7 +1352,7 @@ function subChain(t: Target, key: PropertyKey, iv: any): any {
     const raw = r ? [] : {};
     chainRaws.add(raw);
     thinWrap(raw, t._fam, t);
-    e = (t._fam?.map ?? targets).get(raw) as unknown as Target;
+    e = t._fam!.map.get(raw) as unknown as Target;
     m.set(key, e);
     if (__DEV__) subKeys!.set(e, key);
   }
@@ -1383,15 +1373,15 @@ function chainTo(t: Target, next: any): void {
 /** A family slot holding another store: a raw of this family's, chained
  * to it (#2864, #4845). */
 function chainSlot(t: Target, nv: any): any {
-  // One raw per chained store in a family (a plain store: its root): two
-  // slots holding one store are one row (an alias stays an alias).
-  const m: WeakMap<object, any> = ((t._fam ?? (top(t) as any)).cm ??= new WeakMap());
+  // One raw per chained store in a family: two slots holding one store
+  // are one row (an alias stays an alias).
+  const m: WeakMap<object, any> = ((t._fam as any).cm ??= new WeakMap());
   let raw = m.get(nv);
   if (raw === undefined) {
     m.set(nv, (raw = Array.isArray(nv) ? [] : {}));
     chainRaws.add(raw);
     thinWrap(raw, t._fam, t);
-    chainTo((t._fam?.map ?? targets).get(raw) as any, nv);
+    chainTo(t._fam!.map.get(raw) as any, nv);
   }
   return raw;
 }
@@ -1414,7 +1404,7 @@ function unchain(t: Target): void {
 function replace(t: Target, next: any): void {
   if (next === t.v && t.n === null) return;
   for (const key of keysOf(t)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
-  for (const key of ownOf(next)) write(t, key, held(t, next[key]));
+  for (const key of ownOf(next)) write(t, key, t.s ? next[key] : held(t, next[key]));
 }
 
 const ASYNC_SETTER =
@@ -1920,7 +1910,7 @@ export function thinSnapshot(
         setProp(copy, raw, k, v);
         continue;
       }
-      const c = v !== null && typeof v === "object" ? thinSnapshot(own(t, v), seen, fam) : v;
+      const c = v !== null && typeof v === "object" ? thinSnapshot(v, seen, fam) : v;
       if (copy === null && c !== v) copy = copyOf(t, raw, keys, seen, i);
       if (copy !== null) copy[k] = c;
     }
@@ -1940,7 +1930,7 @@ export function thinSnapshot(
     const d = Object.getOwnPropertyDescriptor(copy ?? raw, k);
     if (d === undefined || d.get || d.set) continue;
     const v = d.value;
-    const s = thinSnapshot(own(t, v), seen, fam);
+    const s = thinSnapshot(v, seen, fam);
     if (s !== v) (start(), Object.defineProperty(copy, k, { ...d, value: s }));
   }
   return copy ?? raw;
