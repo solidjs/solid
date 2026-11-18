@@ -1169,9 +1169,8 @@ function ownFlight(o: Set<StoreTarget>, f: Transaction): boolean {
   return false;
 }
 
-/** Two lanes of one action (their parents resolved through merges). */
 function sameAction(a: Transaction, b: Transaction): boolean {
-  return resolveTx(a._parent!) === resolveTx(b._parent!);
+  return resolveTx(a._parent ?? a) === resolveTx(b._parent ?? b);
 }
 
 /** Families with a target carrying a lane value — swept at the flush's
