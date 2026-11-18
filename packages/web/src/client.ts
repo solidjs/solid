@@ -2906,16 +2906,13 @@ export function runHydrationEvents() {
         // Once native dispatch ends, a shadow event's target is retargeted to
         // its host and composedPath() is empty. The bootstrap captured the
         // original target while the event was still in flight.
+        // eventHandler deletes `target` when it finishes, so each replay
+        // defines it again.
         const target = origin || e.target;
-        const replay = (container, state) => {
-          const retargeted = target !== e.target;
-          if (retargeted) Object.defineProperty(e, "target", { configurable: true, value: target });
-          try {
-            eventHandler(e, container, state);
-          } finally {
-            if (retargeted) delete e.target;
-          }
-        };
+        const replay = (container, state) => (
+          Object.defineProperty(e, "target", { configurable: true, value: target }),
+          eventHandler(e, container, state)
+        );
         let matchContainer, matchState, matchDistance, matches;
         for (const [container, state] of delegatedContainers) {
           if (!state.handlers.has(e.type)) continue;
@@ -2943,6 +2940,8 @@ export function runHydrationEvents() {
           matches.sort((a, b) => a.distance - b.distance);
           for (let i = 0; i < matches.length; i++) replay(matches[i].container, matches[i].state);
         } else if (matchContainer) replay(matchContainer, matchState);
+        // A replay that stopped early leaves the defined target behind.
+        delete e.target;
         // Each replayed event is its own instant, as live (#4285).
         flush();
       }
