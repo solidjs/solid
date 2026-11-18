@@ -150,7 +150,7 @@ describe.skipIf(!existsSync(OBSERVE) || !existsSync(ENGINE))("attribution engine
       // allocation by more; both stay under this until they compound. This
       // is the ratchet the #3613 cap (14, against the old ~10) asked for
       // once the lean-posture work landed (#3644; see the Lean posture
-      // section of documentation/plans/responsiveness-findings-plan.md).
+      // section of documentation/archive/plans/responsiveness-findings-plan.md).
       for (const fold of FOLDS) await import(fold);
       const CAP = 4;
       let best = Infinity;

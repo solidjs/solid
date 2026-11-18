@@ -1,5 +1,5 @@
 /**
- * Reader-seat shadow reporter (S0, documentation/plans/reader-seat-rebuild.md
+ * Reader-seat shadow reporter (S0, documentation/archive/plans/reader-seat-rebuild.md
  * §3–§4). Loaded as a vitest setup file when `SEAT_SHADOW_REPORT=<file>` is
  * set: after each test file, the shadow's record (`globalThis.__SEAT_SHADOW__`,
  * installed by `src/core/seat.ts` under `__TEST__`) is appended to the file

@@ -1,5 +1,5 @@
 /**
- * Executable rulings (documentation/plans/optimism-seam-spike-brief.md §8;
+ * Executable rulings (documentation/archive/plans/optimism-seam-spike-brief.md §8;
  * packages/signals/docs/SCENARIOS.md). A ruling is a scenario in the async
  * generator's grammar plus the screen it must show after given steps and the
  * screens it rules out. `rulings.spec.ts` runs every case; the matching
