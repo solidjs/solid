@@ -222,6 +222,7 @@ const POLICY = [
   "src/core/async.ts",
   "src/core/core.ts",
   "src/core/guesses.ts",
+  "src/core/seat.ts",
   "src/core/types.ts",
   "src/core/verdict.ts"
 ];
