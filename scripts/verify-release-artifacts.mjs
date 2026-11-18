@@ -1,12 +1,14 @@
 // Dry-run-publishes every release package and asserts the tarball would
 // contain the manifest's entry points (main/module/types/browser/bin/exports).
 // Catches broken `files` globs, missing dist output, and manifest mistakes
-// BEFORE release.mjs publishes anything. Requires a completed build
+// BEFORE release.mjs publishes anything. A package whose version is already
+// on npm is skipped, as release.mjs skips it: npm refuses even a dry run
+// over a published version. Requires a completed build
 // (`pnpm run build && pnpm run types`); runs npm with --ignore-scripts so
 // prepublish hooks do not re-build.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import { releasePackages } from "./release-packages.mjs";
+import { packageIsPublished, releasePackages } from "./release-packages.mjs";
 
 const directories = releasePackages();
 
@@ -35,6 +37,10 @@ function collectEntryFiles(pkg) {
 const failures = [];
 
 for (const [name, { directory, pkg }] of directories) {
+  if (packageIsPublished(name, pkg.version)) {
+    console.log(`${name}@${pkg.version} is already published; skipping.`);
+    continue;
+  }
   let report;
   try {
     const stdout = execFileSync(

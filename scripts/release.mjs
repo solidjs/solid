@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { distTagFor, releasePackages } from "./release-packages.mjs";
+import { distTagFor, packageIsPublished, releasePackages } from "./release-packages.mjs";
 
 const repository = process.env.GITHUB_REPOSITORY;
 const branch = process.env.GITHUB_REF_NAME;
@@ -29,16 +29,6 @@ function output(command, args) {
     env: process.env,
     encoding: "utf8"
   }).trim();
-}
-
-function packageIsPublished(name, version) {
-  return (
-    spawnSync("npm", ["view", `${name}@${version}`, "version"], {
-      cwd: process.cwd(),
-      env: process.env,
-      stdio: "ignore"
-    }).status === 0
-  );
 }
 
 function remoteTagExists(tag) {
