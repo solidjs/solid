@@ -2158,6 +2158,10 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
         if (target._fam !== null) pullFamily(target);
         if (!inDraft(target) && getObserver() !== null) {
           readNode(getContainerNode(target));
+          // Link the optimistic carrier the same way ownKeys/`enumerationSource`
+          // does. Without this, a $TRACK-only reader never sees structural
+          // guesses (push/splice/reorder) and is not re-run on revert (#5007).
+          if (optHooks !== null && target.o && !writeOverride) optHooks.frame(target);
           // Structural chaining (§7b): a chained backing's $TRACK reads
           // through to the INNER store's container — structural
           // notifications land on the source's own node.
@@ -2413,7 +2417,10 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     let desc: PropertyDescriptor | undefined;
     desc ??= visibleDescriptor(target, src, key);
     if (desc === undefined) return undefined;
-    if (!(key === "length" && Array.isArray(shell))) desc.configurable = true;
+    // The shell's `length` is writable and non-configurable, and a proxy must
+    // report it that way (a frozen source array's is non-writable).
+    if (key === "length" && Array.isArray(shell)) desc.writable = true;
+    else desc.configurable = true;
     return desc;
   },
 

@@ -18,6 +18,7 @@ Files: **CS** = `tests/store/createStore.test.ts`, **SP** = `tests/store/storePa
 **R3. A store proxy ingested into another store (deep or shallow) is re-wrapped in the ingesting store's own proxy family — never identity-passed, never raw-marked.**
 
 - SPC "each level serves its own proxies…", "set-trap ingest passes through without raw-marking", "seed ingest…".
+- **Ruled 2026-11-18 (#4996):** this is the derived store's rule — a projection, `createStore(fn)` and an optimistic store derive, so each holds its own view of a store in its value. Plain stores are one family (R2): a store placed in a plain store is that store, the same identity and shared state, so an edit through either shows in both. Pin: `tests/store-setter-foreign-proxy-4996.test.ts`.
 
 **R4. Write isolation across a store chain: writing through the last store in a derived chain is visible only there; upstream stores and base objects untouched (shallow or deep middle).**
 
@@ -225,10 +226,10 @@ _Amended 2026-10-01 (#3733, rule B)._ This reverses #2692's "write trumps deriva
 
 - NC; CS "#2771".
 
-**R50. Frozen sources fully supported (read/snapshot; getters returning frozen don't throw).**
+**R50. Frozen plain objects and arrays wrap like unfrozen ones (fine-grained reads, writes through the setter, the frozen source untouched); read/snapshot/descriptor reads never throw; getters returning frozen don't throw. The opt-out for opaque data is a shallow store, not `Object.freeze`.**
 
-- CS "Unwrapping Edge Cases", "supports getters that return frozen objects".
-- Note: no test writes INTO a frozen subtree — under CoW that becomes possible (clone unfreezes); open behavioral question.
+- CS "Unwrapping Edge Cases", "supports getters that return frozen objects"; frozen-wraps.test.ts.
+- Note: Ryan 2026-11-18 resolved the open question: stores never write to their sources (CoW), so freezing has nothing to protect; frozen-as-leaf was a Solid 1 mutation guard. Shallow is the advice for keeping a value raw.
 
 **R51. Proxy-invariant compliance via target indirection: keys/spread/descriptor reads never throw regardless of source rigidity; source-non-configurable prop readable, writable through the store, reported `configurable: true`; descriptors agree with reads after flush; non-enumerable stays non-enumerable; accessor descriptors preserve get/set identity; write over inherited prop yields own data descriptor.**
 

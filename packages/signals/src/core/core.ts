@@ -2438,10 +2438,13 @@ export function read<T>(el: any): T {
   // Rule 3: this read serves the committed value to a render effect outside a
   // parking flush (decided after the pull below — a pull can join).
   let committed = false;
+  // A re-read: `link` reused the link this pass's last pass made to `el`.
+  // Only a re-read retries an errored source.
+  let reread: unknown;
   if (c) {
     if (laneStageHook) fresh = tracking && readsFresh(c as Computed<any>, el);
     if (tracking) {
-      link(el, c as Computed<any>);
+      reread = link(el, c as Computed<any>);
       if ((el as Computed<unknown>)._fn) {
         pullComputed(el, c as Computed<any>);
         // F-6 (#4050): a memo over a verdict reader's value derives from a
@@ -2673,14 +2676,16 @@ export function read<T>(el: any): T {
   // serving node values (memo parity, #2897 ruling).
   if ((el as Computed<any>)._fn && (el as Computed<any>)._statusFlags & STATUS_ERROR) {
     // Only a genuine reactive re-read may retry an errored async source:
-    // - tracking: owned/tracked scope only (never events / `untrack` / effect side-effect phase)
+    // - reread: tracked, and by a pass whose last pass read it. A reader's
+    //   first read is no question: a boundary its memo re-creates, or a
+    //   mount, reads the error and asks nothing (F-9 re-ask, #5002)
     // - owner._time < clock: only on a later cycle than the one the error was found
     // - not a zombie: its fate is the seam's (L2). A zombie's retry of a sync
     //   memo it reads threw a fresh error that re-derived the live frame's
     //   verdict readers of the same memo, whose retry next round re-derived
     //   the zombie: a livelock (#4405's one-hop shape, S-58)
     if (
-      tracking &&
+      reread &&
       (el as Computed<any>)._time < clock &&
       !((el as Computed<any>)._flags & REACTIVE_ZOMBIE)
     ) {
