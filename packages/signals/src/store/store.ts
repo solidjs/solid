@@ -293,16 +293,15 @@ function releaseSlot(node: any): void {
     if (t.dk === node) t.dk = null;
   } else if (t.n?.[key as any] === node) {
     delete t.n![key as any];
-    t.nc--;
-  } else if (t.h?.[key as any] === node) delete t.h![key as any];
+    // An emptied dictionary is dropped (#5024): the target outlives its
+    // readers while the app holds the raw object.
+    if (--t.nc === 0) t.n = null;
+  } else if (t.h?.[key as any] === node) {
+    delete t.h![key as any];
+    if (Reflect.ownKeys(t.h!).length === 0) t.h = null;
+  }
   // The family's index keeps only targets that still carry a node.
-  if (
-    t._fam !== null &&
-    t.nc === 0 &&
-    t.k === null &&
-    t.dk === null &&
-    (t.h === null || Reflect.ownKeys(t.h).length === 0)
-  )
+  if (t._fam !== null && t.nc === 0 && t.k === null && t.dk === null && t.h === null)
     t._fam.live.delete(t);
 }
 
