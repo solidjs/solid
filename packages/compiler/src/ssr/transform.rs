@@ -3341,7 +3341,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             }
             if value.is_none() {
                 let collapsed = text
-                    .split_whitespace()
+                    .split_ascii_whitespace()
                     .collect::<std::vec::Vec<_>>()
                     .join(" ");
                 value = Some(self.ast().expression_string_literal(
