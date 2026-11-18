@@ -121,7 +121,10 @@ for (const latest of [true, false])
     await tick();
     api.select(4);
     await tick();
-    expect(screen()).toBe("error|34|select a card");
+    // The row's first read of the errored list asks nothing (#5002), so the
+    // selection has nothing to wait for and shows at once.
+    expect(screen()).toBe("error|34|#4 in doing");
+    expect(keys()).toBe("move0,move1");
     take("move1").res(true);
     await tick();
     (latest ? takeLatest : take)("todo").rej(new Error("declined"));

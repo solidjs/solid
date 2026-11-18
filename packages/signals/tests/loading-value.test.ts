@@ -295,12 +295,20 @@ describe("createMemo with loadingValue", () => {
 
     // A tracked re-read on a later cycle retries the errored source; the
     // retry re-opens serving of commit #0 (the answer still hasn't landed).
+    // A reader's first read is not a re-read: it sees the error (#5002).
     let observed: string | undefined;
+    let probe!: () => string;
+    const [bump, setBump] = createSignal(0);
     createRoot(() => {
-      const probe = createMemo(() => user());
-      observed = probe();
+      probe = createMemo(() => (bump(), user()));
+      expect(() => probe()).toThrow("boom");
     });
     flush();
+    expect(attempt).toBe(1);
+    setBump(1);
+    flush();
+    observed = probe();
+    expect(attempt).toBe(2);
     expect(observed).toBe("placeholder");
     expect(isPending(user)).toBe(false);
 
