@@ -595,8 +595,17 @@ export function unregisterDelegatedContainer(container, owner = container) {
   if (count > 1) state.owners.set(owner, count - 1);
   else state.owners.delete(owner);
   if (state.owners.size) return;
-  state.handlers.forEach((handler, name) => container.removeEventListener(name, handler));
+  state.handlers.forEach((handler, name) => {
+    container.removeEventListener(name, resetDelegatedEvent, true);
+    container.removeEventListener(name, handler);
+  });
   delegatedContainers.delete(container);
+}
+
+function resetDelegatedEvent(e) {
+  // The owner mark belongs to one native dispatch, not the Event object.
+  // All root capture listeners run before any delegated bubble listener.
+  delete e[$$EVENT_OWNER];
 }
 
 function attachDelegatedEvent(name, container, state) {
@@ -605,6 +614,7 @@ function attachDelegatedEvent(name, container, state) {
     ? e => dispatchAsInteraction(e, () => eventHandler(e, container, state))
     : e => eventHandler(e, container, state);
   state.handlers.set(name, handler);
+  container.addEventListener(name, resetDelegatedEvent, true);
   container.addEventListener(name, handler);
 }
 

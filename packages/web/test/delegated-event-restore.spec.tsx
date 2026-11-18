@@ -66,7 +66,7 @@ describe("delegated dispatch restores the native Event", () => {
     expect(seen).toEqual([undefined, btn, undefined, outer]);
   });
 
-  test.fails("the same Event object dispatched twice runs the handler twice", () => {
+  test("the same Event object dispatched twice runs the handler twice", () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
     let btn!: HTMLButtonElement;
@@ -103,7 +103,7 @@ describe("delegated dispatch restores the native Event", () => {
     root.remove();
   });
 
-  test.fails("nested roots each run once per dispatch of the same Event object", () => {
+  test("nested roots each run once per dispatch of the same Event object", () => {
     const outerRoot = document.createElement("div");
     document.body.appendChild(outerRoot);
     let slot!: HTMLDivElement, btn!: HTMLButtonElement;
