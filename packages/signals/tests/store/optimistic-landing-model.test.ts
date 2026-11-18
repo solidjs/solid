@@ -60,21 +60,15 @@ const BASELINE: Record<string, Record<string, number>> = {
   "seeded/2": { "agree: snapshot≠proxy": 1 },
   "seeded/3": {
     "agree: snapshot≠proxy": 7,
-    "agree: untracked≠screen": 1,
     "live: a guessed row is off screen": 2,
     "live: a removed row is on screen": 1,
-    "final: a hold never commits": 1,
-    "final: the screen is not the server's list": 1,
-    "final: a later plain write is parked": 1
+    "frame: a torn frame was shown": 1
   },
   "seedless/2": { "agree: snapshot≠proxy": 3 },
   "seedless/3": {
     "agree: snapshot≠proxy": 5,
-    "agree: untracked≠screen": 2,
     "live: a guessed row is off screen": 2,
-    "final: a hold never commits": 2,
-    "final: the screen is not the server's list": 2,
-    "final: a later plain write is parked": 2
+    "frame: a torn frame was shown": 2
   }
 };
 
@@ -276,7 +270,9 @@ async function runCase(c: Case): Promise<Finding[]> {
       const rows = S.mapArray(
         () => list,
         (row: Row) => {
-          mounts.push(row.id);
+          // A torn list can hand the mapper a hole: it is recorded as one
+          // (the frame check), not thrown from inside a flush.
+          if (row) mounts.push(row.id);
           return () => (row ? `${row.id}:${row.n}` : "hole");
         }
       );
