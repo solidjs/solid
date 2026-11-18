@@ -1,5 +1,17 @@
 # @solidjs/web
 
+## 2.0.1
+
+### Patch Changes
+
+- b9475d7: A delegated handler runs again when the same Event object is dispatched a second time (#5011).
+- 8a129c9: Fix `hydrate(document)` hanging when the head holds only registry-inserted tags. The #3081 prelude move appended each leading `data-dh` tag to the end of the head; with no authored head children the run never ended and rotated the head forever. It now walks a snapshot of the head's children.
+- 73262e5: Smaller client bundles: code only lanes, guesses and store projections use no longer ships in apps that import none of them, and a delegated root is read off its container's owners instead of a second counter (the compiled hello world drops 88 B brotli).
+- e9ce67f: A `<Portal>` rendered inside another `<Portal>` now mounts after its parent's content, as in 1.x, so a portal opened from inside another one stacks on top of it (#4963).
+- Updated dependencies [e57fc3f]
+- Updated dependencies [ebd1c65]
+  - solid-js@2.0.1
+
 ## 2.0.0
 
 ### Major Changes

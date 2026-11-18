@@ -1,5 +1,30 @@
 # solid-js
 
+## 2.0.1
+
+### Patch Changes
+
+- e57fc3f: Frozen plain objects and arrays inside a store now wrap and track like unfrozen ones. Stores never write to their sources, so there is nothing for a freeze to protect, and serving a frozen subtree as one plain value made every reader under it re-run on any change. Libraries that freeze their state (XState in development, for example) are now fine-grained. To keep a value plain, use a shallow store (`createStore(value, { shallow: true })`). Also fixes a proxy-invariant TypeError when reading the `length` descriptor of a frozen source array.
+- ebd1c65: Link the 2.0 tutorial at docs.solidjs.com/tutorial from the package README. The published 2.0.0 README still pointed at the 1.x tutorial on solidjs.com.
+- Updated dependencies [9aa69b8]
+- Updated dependencies [bf43068]
+- Updated dependencies [110d27e]
+- Updated dependencies [59bfec7]
+- Updated dependencies [e57fc3f]
+- Updated dependencies [44ec31f]
+- Updated dependencies [85f184d]
+- Updated dependencies [73262e5]
+- Updated dependencies [89496f8]
+- Updated dependencies [df1e7c6]
+- Updated dependencies [cfae0c2]
+- Updated dependencies [4bce44f]
+- Updated dependencies [dceda0f]
+- Updated dependencies [4f3c3c4]
+- Updated dependencies [6de5a17]
+- Updated dependencies [6de6f2a]
+- Updated dependencies [3b544ea]
+  - @solidjs/signals@2.0.1
+
 ## 2.0.0
 
 ### Major Changes

@@ -1,5 +1,27 @@
 # @solidjs/signals
 
+## 2.0.1
+
+### Patch Changes
+
+- 9aa69b8: Internal comments in the signals core now cite the rule they serve instead of restating it. No behavior change.
+- bf43068: An effect that reads a derived writable signal (`createSignal(fn)`) re-runs for that signal's write when another of its sources was written and reverted in the same batch (#4991).
+- 110d27e: fix(signals): a disposed dependency no longer keeps a memo pending after its asks land (#5003)
+- 59bfec7: A reader's first read of an errored async source no longer asks it again. A memo that reads through `x catch alt` makes a new error boundary on each run, and a component that mounts over a failed store, now read the error instead of re-asking the source and waiting on that ask. A reader re-run by a change still retries the source it read before (#5002).
+- e57fc3f: Frozen plain objects and arrays inside a store now wrap and track like unfrozen ones. Stores never write to their sources, so there is nothing for a freeze to protect, and serving a frozen subtree as one plain value made every reader under it re-run on any change. Libraries that freeze their state (XState in development, for example) are now fine-grained. To keep a value plain, use a shallow store (`createStore(value, { shallow: true })`). Also fixes a proxy-invariant TypeError when reading the `length` descriptor of a frozen source array.
+- 44ec31f: fix(signals): a mount born held stays held when its derivation starts waiting on a guess lane's flight (#4998)
+- 85f184d: Under a `Loading` held by `on`, an expression beside a `For` in the boundary's children (a count over the same store) shows a later guess as the list does, while the swap to the fallback stays staged in the hold (#4999).
+- 73262e5: Smaller client bundles: code only lanes, guesses and store projections use no longer ships in apps that import none of them, and a delegated root is read off its container's owners instead of a second counter (the compiled hello world drops 88 B brotli).
+- 89496f8: A value read for the first time behind an `isPending(...)` check in a binding that is already on screen updates while the fetch is in flight, as it does when it is read before the check (#4966). Only a value read ahead (`latest`) opens a mount that waits for the landing (#4806).
+- df1e7c6: A memo whose guess lane is corrected re-notifies the readers that derived from the lane's void value. A memo over an optimistic list's length (`items.length` after an accepted add replaced its placeholder) no longer keeps showing the lane's count when the truth's answer equals what the screen showed (#4971).
+- cfae0c2: A derivation that leaves a guess lane re-notifies the readers that derived from its lane value, so a `<Show>` no longer switches to a fallback that shows the values from before a held change (#4990).
+- 4bce44f: A `<Loading on>` re-arm the frame still holds keeps its content on screen, so a guess written over that content now reaches the rows inside the boundary, as it reaches readers outside (#4987).
+- dceda0f: fix(signals): an async derivation's read of a verdict memo no longer seats that memo in the hold, so a write in `onSettled` after hydration is not held forever (#4965)
+- 4f3c3c4: An optimistic store setter composes each key from the guess a read of that key finds, so a guess on a field keeps an earlier guess on it when a guess on another field came between (#4988).
+- 6de5a17: `$TRACK`-only readers of an optimistic array now link the guess carrier, so structural guesses paint and reverts re-run (#5007).
+- 6de6f2a: fix(signals): a memo that reads a projection's own row (handed back into the projection's source) reads it as an input and no longer pulls the projection, so heights stop climbing. That climb left the memo stale after an accepted add (#4970) and threw `RangeError: Invalid array length` after a re-ask (#4972).
+- 3b544ea: fix(signals): `reasks()` no longer recurses forever when two keyed projections each read a row lent from the other's store (#4969)
+
 ## 2.0.0
 
 ### Minor Changes
