@@ -522,7 +522,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
           if (__TEST__) shadowActual(SLOT_C);
           return el._value;
         }
-        // An action body reading another hold's proposal entangles with it (A15).
+        // An action body reading another hold's proposal entangles with it (D-7).
         if (!tracked && flushTransaction && !globalQueue._running) joinFuture(t);
         if (__TEST__) shadowActual(SLOT_P);
         return heldLatest(el, tracked ? c : null);
