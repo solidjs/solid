@@ -18,6 +18,7 @@ Files: **CS** = `tests/store/createStore.test.ts`, **SP** = `tests/store/storePa
 **R3. A store proxy ingested into another store (deep or shallow) is re-wrapped in the ingesting store's own proxy family — never identity-passed, never raw-marked.**
 
 - SPC "each level serves its own proxies…", "set-trap ingest passes through without raw-marking", "seed ingest…".
+- **Ruled 2026-11-18 (#4996):** this is the derived store's rule — a projection, `createStore(fn)` and an optimistic store derive, so each holds its own view of a store in its value. Plain stores are one family (R2): a store placed in a plain store is that store, the same identity and shared state, so an edit through either shows in both. Pin: `tests/store-setter-foreign-proxy-4996.test.ts`.
 
 **R4. Write isolation across a store chain: writing through the last store in a derived chain is visible only there; upstream stores and base objects untouched (shallow or deep middle).**
 
