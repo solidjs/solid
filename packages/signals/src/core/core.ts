@@ -2312,9 +2312,6 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // A write landing on a guess is its truth (F-11); one on a lane's
   // derivation is the lane's staging.
   if (laneWriteHook && el._config & CONFIG_OVERRIDE) return laneWriteHook(el, v);
-  // A write to a held slot is a second proposal: the writer's tick joins the
-  // hold, before the equality gate (D-8).
-  if (el._config & CONFIG_HELD) joinFuture(txOf(el));
   // The first commit has no previous value: the comparator never sees
   // `undefined`. A write over a shown error is a change (D-41). `custom` is
   // taken once for the gate and the netting so the default `===` runs inline
@@ -2325,6 +2322,9 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     !!((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED) ||
     !!el._x?._shownError ||
     (custom === false ? currentValue !== v : !isSame(el, currentValue, v));
+  // A write to a held slot is a second proposal: the writer's tick joins the
+  // hold, equal or not (D-8).
+  if (el._config & CONFIG_HELD) joinFuture(txOf(el), !valueChanged);
   if (!valueChanged) return v;
 
   // Observe: a committed write begins a re-run chain; a landing reports itself.

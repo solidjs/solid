@@ -499,14 +499,24 @@ export function dropFlushTx(): void {
 function unappend(into: unknown[] | null, own: unknown[] | null): void {
   if (own) for (let j = own.length; j--; ) into!.splice(into!.lastIndexOf(own[j]) >>> 0, 1);
 }
-export function joinFuture(t: Transaction | null): void {
+export function joinFuture(t: Transaction | null, unchanged?: boolean): void {
   // A lane is never the flush's transaction (D-37, #4440).
   if (laneStageHook && t?._lane) return;
   const f = flushTransaction;
   if (f === null) {
     flushTransaction = t === null ? newTransaction(false) : resolveTx(t);
   } else if (t !== null) merge(resolveTx(t), f);
-  if (!globalQueue._running) schedule();
+  if (globalQueue._running) return;
+  // An equal rewrite has nothing to flush; its join ends with the tick (D-4, D-8).
+  if (unchanged && !scheduled) {
+    if (quietJoin === null) queueMicrotask(dropQuietJoin);
+    quietJoin = flushTransaction;
+  } else schedule();
+}
+let quietJoin: Transaction | null = null;
+function dropQuietJoin(): void {
+  if (!scheduled && flushTransaction === quietJoin) flushTransaction = null;
+  quietJoin = null;
 }
 /** `t` merges into `f`: the work that touched both entangles them (A15).
  * A lane never merges: it is a sub-frame, not a peer — its work is routed
@@ -1830,6 +1840,7 @@ export function flush<T>(fn?: () => T): T | void {
     }
     return;
   }
+  if (quietJoin !== null) dropQuietJoin();
   if (halted) return;
   let count = 0;
   // Attribution: whether this call drained anything, so `flushEnd` fires once
