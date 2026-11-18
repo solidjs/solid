@@ -121,7 +121,7 @@ import { attrHooks } from "./attribution-hooks.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { cleanup, disposeChildren, inheritId, linkChild, markDisposal } from "./owner.js";
 // The reader seat's shadow (S0): reachable only under `__TEST__`
-// (documentation/plans/reader-seat-rebuild.md §3).
+// (documentation/archive/plans/reader-seat-rebuild.md §3).
 import {
   RAISE_FL,
   RAISE_H,
@@ -624,7 +624,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
 
   // Shadow seat (S0): opened beside the seating at the head — after the
   // held re-pass arm above, which is the pass's own hold work — and
-  // compared to it (documentation/plans/reader-seat-rebuild.md §3.2).
+  // compared to it (documentation/archive/plans/reader-seat-rebuild.md §3.2).
   if (__TEST__)
     shadowSeatOpen(
       el,

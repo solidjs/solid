@@ -1,7 +1,7 @@
 /**
  * The reader seat — the one answer to "which world does this read see".
  *
- * SHADOW (S0, `documentation/plans/reader-seat-rebuild.md`): every function
+ * SHADOW (S0, `documentation/archive/plans/reader-seat-rebuild.md`): every function
  * here is reachable only under `__TEST__`. It runs BESIDE the deciders it is
  * built to replace (`frameRead`, `bornInto`, `joinPass`, `stagedScreen`,
  * `stagedRead`, `readerSeesCommitted`, `read`/`serve`'s hold arms,
@@ -1372,7 +1372,7 @@ export function shadowThrown(e: unknown): void {
  * once the swap lands the entry's issue closes and the entry goes. */
 interface KnownDifference {
   /** An issue, or — for a difference the optimism spike removes by
-   * construction (`documentation/plans/optimism-seam-spike-brief.md`,
+   * construction (`documentation/archive/plans/optimism-seam-spike-brief.md`,
    * sections 8 and 11) — the rule and rows it is ruled under. */
   label: string;
   /** What differs: the slot a read is served, the join a read leaves the

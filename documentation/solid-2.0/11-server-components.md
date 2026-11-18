@@ -1,5 +1,7 @@
 # RFC: Server components (experimental)
 
+> **Frozen design record (2.0.0, 2026-11-17).** This RFC is history: it records why 2.0 is shaped this way, and later changes are not folded back in. Current behavior is on the docs site (https://docs.solidjs.com), in [`MIGRATION.md`](MIGRATION.md) and, for async semantics, in `packages/signals/docs/RULES-FUNDAMENTALS.md` / `RULES-DERIVED.md`.
+
 **Start here:** If you’re migrating an app, read the migration guide first: [MIGRATION.md](MIGRATION.md). This RFC builds directly on [10 — Server functions](10-server-functions.md).
 
 > **Status note:** Shipped as an **experimental preview** in the 2.0 prerelease line (`solid-js`/`@solidjs/web` ≥ 2.0.0-beta.24). Server components ride the Solid 2.0 release but are **excluded from 2.0’s stability guarantees**: the API surface and the wire format may change between prereleases, and stabilization will be announced separately. The runtime and wire live in `@solidjs/web` (frames, transport, document SSR). This document is the Solid-facing surface and its decision record.

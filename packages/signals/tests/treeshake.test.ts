@@ -370,7 +370,7 @@ describe("pay-for-use tree-shaking (#2883)", { timeout: 30_000 }, () => {
     // auto-dispose sweep guard that preserves the inline arm's early return.
     // 25,338 -> 25,426. The additive half; the twins it makes deletable
     // (overrideRead's wrapper, nodeValue, the verdict re-derivations) are the
-    // deletion half — see docs/DESIGN-CONSOLIDATION.md §0.
+    // deletion half — see docs/archive/DESIGN-CONSOLIDATION.md §0.
     // A write is a proposal (A34, #3494 / #3519 review, 2026-09-17): +234 B
     // core-retained (25,426 -> 25,660 over move 3b) — `batchJoins` (setSignal records a
     // held node's join and schedules; drained inside flush's try; the fast

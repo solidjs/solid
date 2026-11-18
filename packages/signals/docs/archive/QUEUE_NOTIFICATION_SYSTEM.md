@@ -101,4 +101,4 @@ That source-based model is what lets loading and error boundaries settle correct
 ## Related Documentation
 
 - See [QUEUE_EXECUTION_CONTROL.md](./QUEUE_EXECUTION_CONTROL.md) for how queues, heaps, and lanes are drained.
-- See [BITWISE_OPERATIONS.md](./BITWISE_OPERATIONS.md) for the current `STATUS_*` and `REACTIVE_*` masks involved in propagation.
+- See [BITWISE_OPERATIONS.md](../BITWISE_OPERATIONS.md) for the current `STATUS_*` and `REACTIVE_*` masks involved in propagation.

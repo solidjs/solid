@@ -12,7 +12,7 @@ end of the audit: 17 invariants stated, 2 more found by the harness (C18,
 C19); 7 hold (C1, C8–C11, C14–C16 — eight pins), 11 red (C2–C7, C12, C13,
 C17, C18, C19), ten red diagnoses R1–R10.
 
-The question this answers is not the one `documentation/plans/sc-layer-audit.md`
+The question this answers is not the one `documentation/archive/plans/sc-layer-audit.md`
 §3 answers. That inventory lists 75 statements of what the server-components
 client **asserts** — per mechanism, in the code's own voice. This document
 asks what must hold for the **page** to be consistent — the whole page, as a
@@ -938,7 +938,7 @@ two seeds, no finding outside the six).
 
 Key: **SC-only** — needs frames/slots/records to express; **generic-restated**
 — the SC case is an instance of a plain hydration rule (§3 _n_ cites
-`documentation/plans/solid-web-size-audit.md` §3) that could break without
+`documentation/archive/plans/solid-web-size-audit.md` §3) that could break without
 frames; **generic-suspect** — shared mechanism, nothing in the plain suite
 pinned it before this pass. "Plain verdict" is what the generic pins and
 harness found.

@@ -1,5 +1,7 @@
 # RFC: Server functions
 
+> **Frozen design record (2.0.0, 2026-11-17).** This RFC is history: it records why 2.0 is shaped this way, and later changes are not folded back in. Current behavior is on the docs site (https://docs.solidjs.com), in [`MIGRATION.md`](MIGRATION.md) and, for async semantics, in `packages/signals/docs/RULES-FUNDAMENTALS.md` / `RULES-DERIVED.md`.
+
 **Start here:** If you’re migrating an app, read the migration guide first: [MIGRATION.md](MIGRATION.md)
 
 > **Status note:** This RFC covers two layers. The base mechanics — the `"use server"` directive, the `@solidjs/web/server-functions` runtime, response helpers, single-flight, and no-JS handling — are **shipped** in the 2.0 prerelease line. The extension surface (`GET`, `withMeta`, the metadata accessors, `prepareRequest`, method enforcement, `id` on proxies, and — added when #3057 supplied the consumer the first draft was waiting on — the per-call invocator `invoke`) is now **shipped** as well; this document remains the canonical specification. The dev observation surface a server-function inspector needs is the `"call"` and `"invocation"` records on `OBSERVE.records` (observe and dev builds; see below and [RFC 08](08-dev-diagnostics.md#observerecords--the-runtimes-records-channel)). Dev-only compiler-emitted `name` metadata has since shipped (`registerServerReference(id, fn, name)` / `createServerReference(id, name)` seed the metadata channel). Server components build on this runtime — see [11 — Server components](11-server-components.md).
@@ -205,7 +207,7 @@ The reference contract shrinks accordingly (no compatibility shims):
 | `.withOptions(init)`            | **removed** — session-dynamic uses go through `prepareRequest`; call-scoped uses through `invoke` (bounded options, not `RequestInit`) |
 | Start’s `GET` export            | **deleted**; `GET` imports from core                                                                                                   |
 
-#### `live(fn)`: a standing answer, for the response's lifetime (shipped over the top-level iterable; extended 2026-09-22/23, extension built — Stage 8 Phase A, plan in `documentation/plans/stage8-connection-transport.md`)
+#### `live(fn)`: a standing answer, for the response's lifetime (shipped over the top-level iterable; extended 2026-09-22/23, extension built — Stage 8 Phase A, plan in `documentation/archive/plans/stage8-connection-transport.md`)
 
 `live` declares that a server function's answer is a **standing answer**: the current state of one logical query, which the source re-yields on any invocation, and which the caller wants to keep receiving for as long as it is reading. It is a _client_ declaration — the server half is identity-flavored, in-process SSR calls have no wire — and it implies `GET`: a standing answer is a read by contract, so `live(fn)` connects over the GET transport and takes on `GET`'s safe-read obligations. An explicit `live(GET(fn))` is equivalent; live stays outermost, because its behavior wraps the call.
 

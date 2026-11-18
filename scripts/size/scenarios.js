@@ -47,7 +47,7 @@ const alias = {
 
 // The three floor caps, the two server-component page caps and the two
 // server-entry floors are FROZEN
-// (size-reduction effort, 2026-09-26 — documentation/plans/size-reduction-audit.md
+// (size-reduction effort, 2026-09-26 — documentation/archive/plans/size-reduction-audit.md
 // §A): they live in floor-caps.json, and check-floor-caps.mjs fails a PR that raises one
 // without a `Size-Exception:` line in its body. Lowering is always allowed.
 // The dated notes on each scenario below remain the ledger of how the
@@ -118,7 +118,7 @@ const pageAlias = {
 // in these graphs — seroval and everything else resolve as before.
 const solidConditions = ["solid", "import", "browser", "default"];
 
-// Observe tier (documentation/plans/observe-tier-plan.md): the artifacts the
+// Observe tier (documentation/archive/plans/observe-tier-plan.md): the artifacts the
 // `observe` export condition selects — wiring kept (attribution hook sites,
 // owner labels, edge counters, the diagnostics channel), checks folded. Its
 // scenario measures what a production observability build ships; the prod
@@ -3568,7 +3568,7 @@ module.exports = [
     // Introduction (2026-09-08): 23.91 KB, i.e. the engine is 9.7 KB brotli.
     // Its record types still carry live nodes (`RerunEvent.node`) and its
     // formatters ride along with `enable()`; slimming both is the follow-up
-    // in documentation/plans/observe-tier-plan.md.
+    // in documentation/archive/plans/observe-tier-plan.md.
     path: "csr-app-attribution.js",
     // Contested-effect re-derivation (#3322, 2026-09-09): 24.00 -> 24.08 KB,
     // measured at 24.04. Core scheduler cost; see the core-floor note.
@@ -3747,7 +3747,7 @@ module.exports = [
     // Propagation track's node-to-node link). The enabled hot path was
     // re-benchmarked at the `next` baseline after the effect-frame WeakMap
     // was made lazy (see the Stage 2 note in
-    // documentation/plans/chrome-performance-tracks-plan.md).
+    // documentation/archive/plans/chrome-performance-tracks-plan.md).
     // Fallback records time the display, not the swap (#3575 rebase): 28,757 B
     // (+253 B, of which +72 is the tier's, above). The engine holds a shown
     // fallback as staged under its transaction (or the current drain), moves
@@ -4081,7 +4081,7 @@ module.exports = [
   // (`spread`, `className`, `style`, `setAttribute`, `addEvent`,
   // `delegateEvents`) and the hydratable walk helpers (`getNextElement`,
   // `getNextMarker`, `runHydrationEvents`, `scope`) were never on the gate
-  // (documentation/plans/solid-web-size-audit.md §1.3, §2.4). These three are
+  // (documentation/archive/plans/solid-web-size-audit.md §1.3, §2.4). These three are
   // JSX under fixtures/compiled/, compiled by the measured checkout's native
   // @solidjs/compiler at measure time (bundle.mjs, `compile`) and bundled
   // like every other scenario. The compiled app's own modules report as the
@@ -5303,7 +5303,7 @@ module.exports = [
     // `dynamicComponent` (B.3-sync, 2026-10-07): 35.74 -> 33.58 KB, measured
     // at 33,570 B (104,586 B minified): the fixture mounts its server
     // component through `dynamicComponent`, the component-only sibling of
-    // `dynamic` (documentation/plans/frames-b3-sync.md), so `dynamic`'s
+    // `dynamic` (documentation/archive/plans/frames-b3-sync.md), so `dynamic`'s
     // string-tag arm — `staticElement`, `createElement`, `spread`, the
     // prop-collection helpers, the SVG/MathML tables — is no longer
     // reachable from this page: −7,417 min / −2,152 br (the edited-dist

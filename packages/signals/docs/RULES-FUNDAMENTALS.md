@@ -1,6 +1,6 @@
 # Async rules — the fundamentals
 
-**Status: DRAFT for maintainer review (2026-10-07).** Not yet the fixed base. Drafted from every source named in the brief — `SPEC-ASYNC-SEMANTICS.md` and its amendments, `RULES-INDEX.md`, the `Loading`/`createLoadingBoundary`/`action`/`createOptimistic` JSDoc, the tests, the dev diagnostics, the pre-L2 recovery's eleven proposed rules, and the rulings of 2026-10-05 → 2026-10-07 (#3800, #3806, #3811, #3820, #3824, #3869/#3851, the dropped A35). Where two sources genuinely disagree the fundamental below does not decide; the disagreement is in [`OPEN-QUESTIONS.md`](./OPEN-QUESTIONS.md) as a screen sequence. Once the maintainer has reviewed this file once, each fundamental is **immutable**.
+**Status: standing (drafted 2026-10-07, adopted as the base).** These are the rules; the archive (`SPEC-ASYNC-SEMANTICS.md`) is history. Drafted from every source named in the brief — `SPEC-ASYNC-SEMANTICS.md` and its amendments, `RULES-INDEX.md`, the `Loading`/`createLoadingBoundary`/`action`/`createOptimistic` JSDoc, the tests, the dev diagnostics, the pre-L2 recovery's eleven proposed rules, and the rulings of 2026-10-05 → 2026-10-07 (#3800, #3806, #3811, #3820, #3824, #3869/#3851, the dropped A35). Where two sources genuinely disagree the fundamental below does not decide; the disagreement is in [`OPEN-QUESTIONS.md`](./OPEN-QUESTIONS.md) as a screen sequence. Each fundamental is **immutable**.
 
 ## How the three tiers relate
 

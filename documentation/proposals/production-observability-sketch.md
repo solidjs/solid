@@ -2,7 +2,7 @@
 
 Status: SKETCH ONLY. Nothing here is implemented. Drafted 2026-09-06 to give a
 concrete shape to the "observability-vendor consumption" track that
-`documentation/plans/agent-diagnostics-plan.md` deliberately keeps separate
+`documentation/archive/plans/agent-diagnostics-plan.md` deliberately keeps separate
 from `@solidjs/diagnostics`. The intended first external consumer is Sentry;
 the design must not depend on that.
 
@@ -392,7 +392,7 @@ fix once, for every consumer — not something to compute vendor-side.
 
 Solid (this repo):
 
-0. **Server dev build first** — `documentation/plans/server-dev-build-plan.md`.
+0. **Server dev build first** — `documentation/archive/plans/server-dev-build-plan.md`.
    There is no server dev build today: `solid-js`'s server entry has no
    `_SOLID_DEV_` replace and fires its warnings unconditionally in prod;
    `@solidjs/web`'s server entry has 26 dev gates that are stripped in the

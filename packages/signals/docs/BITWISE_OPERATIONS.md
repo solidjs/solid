@@ -142,5 +142,5 @@ const queue = sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
 
 ## Related Documentation
 
-- See [QUEUE_NOTIFICATION_SYSTEM.md](./QUEUE_NOTIFICATION_SYSTEM.md) for how status masks move through queues.
-- See [QUEUE_EXECUTION_CONTROL.md](./QUEUE_EXECUTION_CONTROL.md) for how dirty heaps, lanes, and effect queues are drained.
+- See [QUEUE_NOTIFICATION_SYSTEM.md](./archive/QUEUE_NOTIFICATION_SYSTEM.md) for how status masks move through queues.
+- See [QUEUE_EXECUTION_CONTROL.md](./archive/QUEUE_EXECUTION_CONTROL.md) for how dirty heaps, lanes, and effect queues are drained.

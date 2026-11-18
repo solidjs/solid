@@ -22,7 +22,7 @@ Provenance:
   lost.
 
 Related: `INTERNALS-ASYNC-STATE.md` §1 (node state fields),
-`BITWISE_OPERATIONS.md` (the `_config` presence bits), `write-coalescing.md`.
+`BITWISE_OPERATIONS.md` (the `_config` presence bits), `archive/write-coalescing.md`.
 
 ---
 
