@@ -1786,9 +1786,9 @@ function serveDataKey(
   // and a call here showed on CodSpeed as −6 to −9% on the store reads
   // (#4729, third round); the optimistic hook's carrier read takes the
   // function.
-  if (target.s) return serveShallow(target, key, v);
   if (target.ch && !chained && v !== null && typeof v === "object" && v[$TARGET]?.px !== v)
     v = resolveChainedRaw(target, key, v);
+  if (target.s) return serveShallow(target, key, v);
   if (node !== undefined) {
     if ((node as any).pxv === v && v !== undefined) return draftServe(target, (node as any).px);
     if (!isWrappable(v)) return v;
@@ -1811,11 +1811,11 @@ export function serveKeyValue(
   chained: boolean,
   node?: Signal<any>
 ): any {
-  if (target.s) return serveShallow(target, key, v);
   // A derive's draft wrapper answers `$TARGET` without being a proxy: the
   // inner store's alias (#3767), resolved like a raw (#3859).
   if (target.ch && !chained && v !== null && typeof v === "object" && v[$TARGET]?.px !== v)
     v = resolveChainedRaw(target, key, v);
+  if (target.s) return serveShallow(target, key, v);
   if (node !== undefined) {
     if ((node as any).pxv === v && v !== undefined) return draftServe(target, (node as any).px);
     if (!isWrappable(v)) return v;

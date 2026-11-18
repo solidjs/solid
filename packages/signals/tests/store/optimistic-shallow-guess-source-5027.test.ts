@@ -1,13 +1,12 @@
 // #5027: a nested write through a shallow optimistic store's guess stays in
 // the view: the source store it derives from keeps its own value (CS-R4:
 // writes stay in the store that made them), during the action and after.
-// On main the shallow view shares the source's nested object, so the guess
-// writes into the source. The thin-engine rewrite (#4906) fixes it. Pinned
-// until then.
+// The shallow view serves the source's nested object as the source
+// store's own (CS-R43), so the guess writes the view's copy (F-11).
 import { test, expect } from "vitest";
 import { action, createOptimisticStore, createStore, flush } from "../../src/index.js";
 
-test.fails("#5027 a shallow optimistic guess leaves its source store alone", async () => {
+test("#5027 a shallow optimistic guess leaves its source store alone", async () => {
   const [source] = createStore({ address: { city: "Paris" } });
   const [view, guess] = createOptimisticStore(
     () => source,
