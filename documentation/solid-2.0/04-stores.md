@@ -200,6 +200,8 @@ Unchanged slots skip by reference equality (a partial payload that reuses row ob
 
 `shallow` is also accepted by `createProjection` and `createOptimisticStore`. Optimistic writes compose cleanly with the replacement contract: a tentative record replacement stages in the overlay, shows immediately, and reverts to the untouched original — the base records are never mutated.
 
+It is also how to keep a value out of tracking. `Object.freeze` does not do that: stores never write to their sources, so a frozen plain object or array wraps and tracks like any other (writes go through the setter and leave the frozen source untouched). Libraries that freeze their state, such as XState in development, stay fine-grained.
+
 When *not* to use it: state you edit field-by-field (forms, editors, sparse in-place mutation). That is exactly what the default deep store is optimal for — shallow trades leaf granularity for record-granularity throughput, and re-runs all of a record's bindings when the record is replaced.
 
 ### `snapshot(store)` (replaces `unwrap`)
