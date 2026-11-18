@@ -387,7 +387,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   const owner = el as Computed<any>;
   const owned = !!c && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
   const tracked = owned && tracking;
-  // A pulled memo's pass is its own, outside the window (A31, #4366, #4429).
+  // A pulled memo's pass is its own, outside the window (D-25, #4366, #4429).
   const prevProbing = probing;
   const prevLatest = latestActive;
   probing = false;

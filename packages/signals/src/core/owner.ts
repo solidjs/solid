@@ -392,7 +392,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
         // Present from birth: disposeChildren marks death here on roots too, and
         // a first store of a missing property is a shape transition plus a
         // properties-store allocation per root — on a 100×4 table teardown that
-        // was 12 KB and most of disposal's time (2026-10-17).
+        // was 12 KB and most of disposal's time.
         _flags: REACTIVE_NONE,
         _root: true,
         _parentComputed: (parent as Root)?._root ? (parent as Root)._parentComputed : parent,
@@ -414,7 +414,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
         // Present from birth: disposeChildren marks death here on roots too, and
         // a first store of a missing property is a shape transition plus a
         // properties-store allocation per root — on a 100×4 table teardown that
-        // was 12 KB and most of disposal's time (2026-10-17).
+        // was 12 KB and most of disposal's time.
         _flags: REACTIVE_NONE,
         _root: true,
         _parentComputed: (parent as Root)?._root ? (parent as Root)._parentComputed : parent,

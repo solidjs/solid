@@ -790,7 +790,7 @@ export function createReaction(
  *   holds (the action awaits the promise that would otherwise wait on its
  *   own settle);
  * - a mainline reader whose pass read a frame another transaction holds
- *   joined it (L2, born held — A29) and delivers at that commit: the
+ *   joined it (L2, born held — F-7) and delivers at that commit: the
  *   committed view, never a foreign hold's unrevealed frame. */
 function watch<T>(
   fn: () => T,

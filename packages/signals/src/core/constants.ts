@@ -13,7 +13,7 @@ export const REACTIVE_ZOMBIE = 1 << 5;
 export const REACTIVE_DISPOSED = 1 << 6;
 /** L2 — this pass read the future (a tracked read of a CONFIG_HELD node).
  * Lives for the pass only: set by `read`, consumed by `recompute`'s publish
- * (a first pass that read the future is born held, A29), wiped with the
+ * (a first pass that read the future is born held, F-7), wiped with the
  * pass's other per-pass bits. */
 export const REACTIVE_JOINED = 1 << 7;
 export const REACTIVE_SNAPSHOT_STALE = 1 << 8;
@@ -35,7 +35,7 @@ export const REACTIVE_FRAME_READ = 1 << 11;
  * either re-read later in the pass (fresh) or trimmed with it (not a dep).
  */
 export const REACTIVE_MISSED_WAKE = 1 << 12;
-/** A `refresh()` asked this node to re-ask its question (A19 exc. 2, A24):
+/** A `refresh()` asked this node to re-ask its question (F-9, D-23):
  * consumed by the next pass, which — going pending — classifies its flight
  * quiet (`_x._reask`). */
 export const REACTIVE_REASK = 1 << 13;
@@ -124,7 +124,7 @@ export const CONFIG_HELD = 1 << 8;
  * shown, it has no screen: its reads are its transaction's, whichever flush
  * runs it (`bornInto`, #4010). Cleared by its commit. */
 export const CONFIG_HELD_FRAME = 1 << 20;
-/** A15's reveal corollary (#3305): a commit published this flight's inputs
+/** F-1 (#3305): a commit published this flight's inputs
  * beneath it — the node was pending, nothing staged, when it committed — so
  * its committed value is torn against the visible frame. A render effect
  * revealing it cannot be a stale reader: it observes the flight (pends,
@@ -144,7 +144,7 @@ export const CONFIG_OVERRIDE = 1 << 11;
  * of a per-node `_unobserved` closure. */
 export const CONFIG_SLOT_NODE = 1 << 12;
 /** A store slot node whose staging is a USER setter's proposal, not its
- * derive's derivation (A34 (3)'s discriminator for derived stores — the
+ * derive's derivation (D-8's discriminator for derived stores — the
  * leaf twin of REACTIVE_MANUAL_WRITE). Set by the user setter, cleared by
  * the derive's own write to the key. */
 export const CONFIG_MANUAL_WRITE = 1 << 18;
@@ -158,7 +158,7 @@ export const CONFIG_GUESS = 1 << 13;
 /** The node's pass read a verdict (`isPending`/`latest`): a dependency going
  * pending is a question for its next pass — the verdict changed — so the
  * propagation re-derives it instead of marking it pending (as a kept-tail
- * link does, A30). Set at the window, never cleared: a reader that stopped
+ * link does, D-10). Set at the window, never cleared: a reader that stopped
  * asking re-derives once and goes pending through its own read. The same
  * bit as REACTIVE_PROBED: a pass's probe (or a read of a verdict memo,
  * core.ts `read`) carries into the config at its end without a shift. */
@@ -177,7 +177,7 @@ export const CONFIG_LAGS = 1 << 19;
 /** The reader wants the truth, not the lane's guess (`until`, signals.ts):
  * a read of displayed optimism serves the base the guess covers, makes the
  * pass no lane's, and the truth landing wakes it even when it confirms the
- * guess (the one case ordinary subscribers are not told — A17's silence). */
+ * guess (the one case ordinary subscribers are not told, F-11). */
 export const CONFIG_AUTHORITATIVE = 1 << 17;
 // Presence bits (stage-3 hot-path monomorphism, DESIGN-PATCH-CHANNEL §11b):
 // optional per-node slots (_overrideValue, _pendingSignal/_latestValueComputed,
@@ -198,7 +198,7 @@ export const CONFIG_HAS_SNAPSHOT = 1 << 9;
  * deliberately keeps that race — its contract is "first settled value"
  * (#2930), not "next quiescent state". */
 export const CONFIG_FRESH_READ = 1 << 16;
-/** A28 (4): the node was written inside a recompute that ran OUTSIDE a flush
+/** F-10: the node was written inside a recompute that ran OUTSIDE a flush
  * (a creation-time compute — boundary machinery, a mapArray's first run). Such
  * a write is promoted at that recompute's end: readers in the same block see
  * it. Cleared when the next flush begins; set only on that rare path. */

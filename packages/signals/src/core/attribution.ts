@@ -1270,7 +1270,7 @@ function markSeen(el: Computed<any>): void {
  * replaces them, or after it to read the fresh set). The validated prefix
  * [`_deps`..`_depsTail`] is that pass's set; links past the tail are a
  * previous pass's, kept linked while the frame they fed is still the
- * committed one (A30 — a staged memo pass, or an effect pass whose run is
+ * committed one (D-10 — a staged memo pass, or an effect pass whose run is
  * still owed) and not part of the subscription diff.
  */
 function captureDeps(el: Computed<any>): unknown[] {

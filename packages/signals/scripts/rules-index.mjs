@@ -219,6 +219,7 @@ const unresolved = kind => [...cited[kind].keys()].filter(id => !rules.has(id)).
 // `--comments` prints the census for every src/ file; `--check` fails only
 // on POLICY files, so the list grows as files are brought under the policy.
 const POLICY = [
+  "src/boundaries.ts",
   "src/core/async.ts",
   "src/core/core.ts",
   "src/core/guesses.ts",

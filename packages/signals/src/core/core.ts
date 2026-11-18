@@ -1791,7 +1791,7 @@ export function read<T>(el: any): T {
     !el._fn &&
     el._x?._snapshotValue === undefined &&
     !snapshotCaptureActive &&
-    (!unflushedStaged || el._pendingValue === NOT_PENDING) && // A28, see readNodeFast
+    (!unflushedStaged || el._pendingValue === NOT_PENDING) && // F-10, see readNodeFast
     !(el._config & CONFIG_OVERRIDE) && // lanes: the slow path's one arm
     (!__DEV__ || !strictRead)
   ) {

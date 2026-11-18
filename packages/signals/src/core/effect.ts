@@ -84,7 +84,7 @@ export function effect<T>(
   recompute(node, true);
   // A first pass that read a staged value was staged itself (recompute: born
   // staged); the flush's commit replays this effect. Its first run is not this
-  // creation's (A29). A lane's node's run is the lane's: queued, not run
+  // creation's (F-7). A lane's node's run is the lane's: queued, not run
   // now — into its own pass's lane (its transaction: the creator's lane, or
   // the one a lane read moved the pass into, F-6/F-7) — and released at the
   // reveal (lanes.ts). Not a lane's node: the creator's (`enqueue`'s default
@@ -287,7 +287,7 @@ function runEffect(node: Effect<any>, type: number): void {
     node._prevValue = node._value;
     node._modified = false;
     // The run applied: this is the frame now, so the dependency tail the
-    // compute pass left linked goes (A30, #3438 — `recompute` defers an
+    // compute pass left linked goes (D-10, #3438 — `recompute` defers an
     // effect's trim while a run is owed; the twin of `commitPendingNode`'s
     // trim for a staged pass). An errored compute kept its full list with
     // `_depsTail` marking where it stopped; leave it, as the commit does.
@@ -345,8 +345,8 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
       ) {
         // Held: it commits at its hold's landing, which runs the hold's
         // stashed runs — but a run during the hold, for another dep, had
-        // consumed the one queued for it (#4607). Re-run there, as A15's
-        // stale reader would be; effect-phase code holds nothing (D-29).
+        // consumed the one queued for it (#4607). Re-run there, as a
+        // stale reader would be (D-9); effect-phase code holds nothing (D-29).
         if (dep._config & CONFIG_HELD) {
           if (!owed) {
             owed = true;
