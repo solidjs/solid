@@ -285,8 +285,10 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       node._statusFlags &= ~STATUS_PENDING;
       if (!errored) setPendingError(node);
       // A held reader's re-pass over the landing is its hold's work (D-1); never a
-      // lane's (#4440).
-      if (node._config & CONFIG_HELD) joinFuture(txOf(node));
+      // lane's (#4440). A source still in flight has not landed: a reader that
+      // stopped carrying it joins nothing (F-2).
+      if (node._config & CONFIG_HELD && !(source._statusFlags & STATUS_PENDING))
+        joinFuture(txOf(node));
       if (node._x?._blocked) {
         enqueueSub(node);
         scheduled = true;
