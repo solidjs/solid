@@ -468,10 +468,60 @@ export function onSupersede(fn: () => void): void {
         };
 }
 
+/**
+ * A flight's landing through a setter (`handleAsync`'s `setter`, bound by
+ * store/projection.ts): `commit` writes the value; a throw from it is the
+ * flight's error (`fail`, false returned). `el`'s status is already landed
+ * (`landStatus`); `wasUninitialized` is its STATUS_UNINITIALIZED before that.
+ */
+export function landBySetter<T>(
+  el: Computed<T>,
+  value: T,
+  commit: (value: T) => void,
+  wasUninitialized: number,
+  fail: (error: unknown) => void
+): boolean {
+  // Observe: what a setter landing moves on the node, to say whether it committed.
+  const observed = __OBSERVE__ && attrHooks !== null;
+  const before = observed ? el._value : undefined;
+  const beforeTime = observed ? el._time : 0;
+  try {
+    commit(value);
+  } catch (error) {
+    fail(error);
+    return false;
+  }
+  // A store derive's landing commits through its setter: unheld, the
+  // shown error leaves now, and so does a commit-beneath-a-flight's
+  // CONFIG_INPUTS_PUBLISHED (its first flight's, #4269) — left standing,
+  // a verdict reader of the next flight would suspend instead of being
+  // served the screen; held, both at the derive's commit.
+  if (!(el._config & CONFIG_HELD)) {
+    el._x!._shownError = null;
+    el._config &= ~CONFIG_INPUTS_PUBLISHED;
+  }
+  if (wasUninitialized) landStatus(el, true);
+  // Attribution hook: this path landed through the setter (derived
+  // stores, projections), which does not go through setSignal, so the
+  // flight is closed here (#3947). It committed if the commit moved
+  // `_value`/`_time` or parked `_pendingValue`; a store setter does not
+  // move this node's `_value`, so waterfall chaining through derived
+  // stores stays unmeasured. Outside the try (#2883 — see attribution-hooks.ts).
+  if (observed)
+    attrHooks!.asyncLanded(
+      el,
+      value,
+      el._value !== before || el._time !== beforeTime || el._pendingValue === value
+    );
+  return true;
+}
 export function handleAsync<T>(
   el: Computed<T>,
   result: T | PromiseLike<T> | AsyncIterable<T>,
-  setter?: (value: T) => void,
+  // A landing that commits through a setter instead of `setSignal` — a store
+  // derive's, which wraps its commit in `landBySetter` (below). A callback
+  // carrying the whole arm, so a build without stores retains none of it.
+  setter?: (value: T, wasUninitialized: number, fail: (error: unknown) => void) => boolean,
   // The flight rejected (after the node's status is set): a projection
   // tells its leaves' readers, who are not the node's dependents
   // (store/projection.ts). `pending`: a NotReady rejection — the node is
@@ -626,39 +676,11 @@ export function handleAsync<T>(
     const carried = holdWorkHook && pendingNodes.some(n => n._pendingValue !== NOT_PENDING);
     const wasUninitialized = el._statusFlags & STATUS_UNINITIALIZED;
     landStatus(el);
-    // Observe: what a setter landing moves on the node, to say whether it committed.
     const observed = __OBSERVE__ && attrHooks !== null;
-    const before = observed ? el._value : undefined;
-    const beforeTime = observed ? el._time : 0;
     if (setter) {
-      try {
-        setter(value);
-      } catch (error) {
-        handleError(error);
-        return;
-      }
-      // A store derive's landing commits through its setter: unheld, the
-      // shown error leaves now, and so does a commit-beneath-a-flight's
-      // CONFIG_INPUTS_PUBLISHED (its first flight's, #4269) — left standing,
-      // a verdict reader of the next flight would suspend instead of being
-      // served the screen; held, both at the derive's commit.
-      if (!(el._config & CONFIG_HELD)) {
-        el._x!._shownError = null;
-        el._config &= ~CONFIG_INPUTS_PUBLISHED;
-      }
-      if (wasUninitialized) landStatus(el, true);
-      // Attribution hook: this path landed through the setter (derived
-      // stores, projections), which does not go through setSignal, so the
-      // flight is closed here (#3947). It committed if the commit moved
-      // `_value`/`_time` or parked `_pendingValue`; a store setter does not
-      // move this node's `_value`, so waterfall chaining through derived
-      // stores stays unmeasured. Outside the try (#2883 — see attribution-hooks.ts).
-      if (observed)
-        attrHooks!.asyncLanded(
-          el,
-          value,
-          el._value !== before || el._time !== beforeTime || el._pendingValue === value
-        );
+      // A store derive's landing (`landBySetter`); false: its commit threw,
+      // taken as the flight's error.
+      if (!setter(value, wasUninitialized, handleError)) return;
     } else if (observed) {
       // The plain landing below, reported once: as an async landing, not a write.
       const changed = landThroughSetSignal(el, value);

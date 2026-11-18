@@ -1167,7 +1167,7 @@ retired as a pole and survives only as potential authoring sugar.
    declaration, no configuration; a backend that holds connections
    over HTTP/2 is the precondition. The seed's watermark (causal settlement for Stage 7) is retired:
    settlement is convergence (§9.2 amendment), and the two stages are
-   independent. Plan: `documentation/plans/stage8-connection-transport.md`.
+   independent. Plan: `documentation/archive/plans/stage8-connection-transport.md`.
 9. **Stage 9 — Mutations through a live connection.** Seed recorded
    2026-09-28 (§9.6); not scheduled.
 
@@ -3381,7 +3381,7 @@ example's answer).
 
 #### 9.2.4 Amendment — binding slots: the fill runs once (2026-09-29)
 
-Design: `documentation/plans/binding-slot-execution.md`. Two slot
+Design: `documentation/archive/plans/binding-slot-execution.md`. Two slot
 kinds, named for what the server does with them: a **template
 slot** (`Slot<Args>`) is placed and the client fills it with
 markup; a **binding slot** (`BindingSlot<Args, Bindings>`, until
@@ -3475,7 +3475,7 @@ object); it is an error today, so adding it later is not breaking.
 
 #### 9.2.5 Amendment — binding slots: text positions (2026-09-29)
 
-Design: `documentation/plans/text-positions.md`. A binding-slot
+Design: `documentation/archive/plans/text-positions.md`. A binding-slot
 value placed as a child — `<strong>{list.remaining}</strong> items
 left` — is a position, like an attribute: the server writes the
 t = 0 value on the document face and nothing on the stream face,
@@ -3874,7 +3874,7 @@ question is answered as today's per-source stream framed as
 server-sent events, with no declaration and no configuration.
 Names remain provisional. The implementation plan — phases, slices,
 the example that vets each slice — is
-`documentation/plans/stage8-connection-transport.md`; the data-tier
+`documentation/archive/plans/stage8-connection-transport.md`; the data-tier
 contract this design consumes is RFC 10 (`live(fn)`, including its
 Framing bullet).
 
@@ -4260,7 +4260,7 @@ depends on this stage.
 Data tier first, with no server components in sight, then frames —
 each slice landing with the page of `examples/room` that proves it.
 The full sequence, verification per slice, and the example mapping
-live in `documentation/plans/stage8-connection-transport.md`; in
+live in `documentation/archive/plans/stage8-connection-transport.md`; in
 summary:
 
 - **Phase A (data):** A1 framing — the live address
@@ -4693,7 +4693,7 @@ today, its cost, a proposed disposition, and what would decide it.
   widgets) or a proper Q5 example (single-flight with
   server-rendered rejections). Its current shape should not be the
   example anyone learns from. *Decided 2026-09-29: Q5; the per-example
-  plan is `documentation/plans/examples-grid-plan.md`.*
+  plan is `documentation/archive/plans/examples-grid-plan.md`.*
 - `hackernews`, then `notes` and `chat`, become the front door for
   binding slots (the plan's order).
 - §9.6 (B) gets its verification pass on the flight collector.

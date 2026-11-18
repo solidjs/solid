@@ -207,7 +207,7 @@ maintainer accepted the cost (read from the PR body when the run starts —
 edit the body, then re-run). Ten weeks of individually justified 10–300 B
 bumps took the signals floor from 7.1 to 9.9 KB; the freeze makes the next
 one a decision, not a paragraph. See
-`documentation/plans/size-reduction-audit.md`. Each floor's recorded
+`documentation/archive/plans/size-reduction-audit.md`. Each floor's recorded
 minified is frozen the same way (raising it, or removing it, needs the
 exception). The ratchet may lower a frozen floor like any cap.
 

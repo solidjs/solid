@@ -283,7 +283,7 @@ L.push(
   "| `F-<n>` | `RULES-FUNDAMENTALS.md` | the fundamentals: immutable statements of visible behavior |",
   "| `D-<n>` | `RULES-DERIVED.md` | derived rules: a fundamental narrowed to a shape, naming its scenarios |",
   "| `S-<n>` | `SCENARIOS.md` | scenarios — the rulings. `executable` rows are generated from `packages/web/test/async-gen/rulings/S-<n>.ts` and run in `pnpm test`; `prose` rows are hand-written |",
-  "| `A<n>` | `SPEC-ASYNC-SEMANTICS.md` Tier A | ruled, test-pinned propositions about isPending / latest / transitions / optimistic lanes |",
+  "| `A<n>` | `SPEC-ASYNC-SEMANTICS.md` Tier A | **frozen archive**: the old ruling log about isPending / latest / transitions / optimistic lanes. Do not cite in new code, tests or PRs; cite the F-/D- successor in the archive's banner table |",
   "| `B<n>` `C<n>` | `SPEC-ASYNC-SEMANTICS.md` Tier B/C | inferred / open items, all since ruled, closed or promoted into an A-rule (`(was B1)` — the alias row points at it) |",
   "| `V<n>` | `SPEC-ASYNC-SEMANTICS.md` Known violations | violations of A-rules found and fixed by the #2838 redesign; pinned in `spec-async-semantics.test.ts` |",
   "| `INV-<n>` | `INTERNALS-ASYNC-STATE.md` §5 | `__TEST__` invariants (asserted in `invariants.ts`) |",

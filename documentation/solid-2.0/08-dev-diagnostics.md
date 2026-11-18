@@ -1,5 +1,7 @@
 # RFC: Dev-mode diagnostics and errors
 
+> **Frozen design record (2.0.0, 2026-11-17).** This RFC is history: current behavior is on the docs site and, for async semantics, in `packages/signals/docs/RULES-FUNDAMENTALS.md` / `RULES-DERIVED.md`. One exception: the diagnostic-code table below is live, read by `scripts/generate-diagnostics-json.mjs`; keep it in step with the codes.
+
 **Start here:** If you're migrating an app, read the migration guide first: [MIGRATION.md](MIGRATION.md)
 
 ## Summary

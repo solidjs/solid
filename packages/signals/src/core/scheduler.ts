@@ -120,7 +120,16 @@ export function installLaneHooks(
   laneWriteHook = write;
   laneSeamsHook = seams;
   endLanesHook = end;
-  lanesBlockedHook = blocked;
+  // The transaction being judged (`judge`): a lane consulted on its behalf
+  // judges for it. Only this hook nests one `blocked` in another, so the
+  // bookkeeping lives here and a build without lanes folds `judge` away.
+  lanesBlockedHook = t => {
+    const prev = judge;
+    judge ??= t;
+    const r = blocked(t);
+    judge = prev;
+    return r;
+  };
   laneServedHook = served;
 }
 // The guess layer (guesses.ts; installed when `createOptimistic` or
@@ -540,16 +549,15 @@ export function merge(t: Transaction, f: Transaction): void {
  * own truth is in flight blocks the lane's parent, not the lane — it stands
  * in for the flight (A17: "visible until its own fetch settles"). */
 export function blocked(t: Transaction): boolean {
-  // The transaction being judged (a lane consulted on its behalf judges for
-  // it): a zombie whose removal it stages is moot for it alone (`onScreen`).
-  const prev = judge;
-  judge ??= t;
   // An action still running in it holds it open (action.ts). Its lanes
   // (lanes.ts): a lane under `t` blocks it while blocked itself.
-  const r = t._open !== 0 || blockedBy(t._nodes, t) || !!lanesBlockedHook?.(t);
-  judge = prev;
-  return r;
+  return t._open !== 0 || blockedBy(t._nodes, t) || !!lanesBlockedHook?.(t);
 }
+/** The transaction being judged — the outermost `blocked` of a nest (a lane
+ * consulted on its behalf judges for it): a zombie whose removal it stages
+ * is moot for it alone (`onScreen`). Set around the lanes' hook
+ * (`installLaneHooks`), the only path that nests; null otherwise, where the
+ * transaction judged is `blockedBy`'s own `owner`. */
 let judge: Transaction | null = null;
 /** Observe tier: the flights `t` waits on — its pending held sources a
  * frame reader observes (`blockedBy`'s predicate, collected; the readers
@@ -575,7 +583,7 @@ export function blockersOf(t: Transaction): Computed<any>[] {
  * one of the sources it waits on is `t`'s (a render effect marked pending
  * by a lane flight, never re-run, is the lane's wait, not the frame's). */
 export function ownFlights(t: Transaction): boolean {
-  return blockedBy(t._nodes, t, true);
+  return blockedBy(t._nodes, t, ownSource);
 }
 /** A source the pending node waits on that is `t`'s (held by it, or by no
  * one) — not another transaction's or lane's work. Itself, when it is the
@@ -589,7 +597,14 @@ function ownSource(n: Computed<any>, t: Transaction): boolean {
   }
   return false;
 }
-function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boolean {
+/** `own`: the pending node's filter (`ownFlights` passes `ownSource`) — a
+ * parameter, not a flag, so a build without lanes or guesses (the only
+ * callers of `ownFlights`) does not retain `ownSource`. */
+function blockedBy(
+  nodes: Signal<any>[],
+  owner: Transaction,
+  own?: (n: Computed<any>, t: Transaction) => boolean
+): boolean {
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i] as Computed<any>;
     if (
@@ -597,7 +612,7 @@ function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boole
       n._flags & REACTIVE_DISPOSED ||
       n._config & CONFIG_GUESS ||
       (n._x!._transaction !== null && txOf(n) !== owner) ||
-      (own && !ownSource(n, owner)) ||
+      (own && !own(n, owner)) ||
       // A guess lane's member waiting on re-asks only (`reasks`) keeps what
       // it shows, and a `refresh()` holds nothing new (D-34 ¶3): it does not
       // keep the lane's other work off the screen (#4834: a memo over the

@@ -1,5 +1,5 @@
 // L2 — implicit transition = zombie. The four contracts, in ruling order
-// (documentation/plans/size-reduction-carve-step1.md §8):
+// (documentation/archive/plans/size-reduction-carve-step1.md §8):
 //
 //   1. ownership invariant — every node, parked or live, is reachable from a
 //      live owner at every instant; owner disposal is total.

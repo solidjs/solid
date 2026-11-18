@@ -1,6 +1,6 @@
 # Solid 2.0 RFCs
 
-Temporary prerelease documentation for Solid 2.0. Treat **`MIGRATION.md`** as the primary entrypoint for migrating apps; the RFCs below are deeper, topic-focused docs that may be folded into the main documentation over time.
+The Solid 2.0 RFCs, frozen as the design record at the 2.0.0 release (2026-11-17). They explain why 2.0 is shaped the way it is; they are not kept current. **`MIGRATION.md`** is maintained and is the entry point for migrating apps; current behavior is documented at https://docs.solidjs.com.
 
 **Overview:** [Solid 2.0 Proposed API Changes (HackMD)](https://hackmd.io/@0u1u3zEAQAO0iYWVAStEvw/SyXYy2swbg)
 

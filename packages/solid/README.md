@@ -77,7 +77,7 @@ The full migration guide is [`MIGRATION.md`](https://github.com/solidjs/solid/bl
 - **Why Solid, key features, browser support, community, sponsors** — see the [repository README](https://github.com/solidjs/solid#readme).
 - **Full documentation** — [docs.solidjs.com](https://docs.solidjs.com).
 - **Interactive tutorial** — [docs.solidjs.com/tutorial](https://docs.solidjs.com/tutorial).
-- **Examples** — the [`examples/`](https://github.com/solidjs/solid/tree/main/examples) folder (see [`documentation/plans/examples-grid-plan.md`](https://github.com/solidjs/solid/blob/main/documentation/plans/examples-grid-plan.md) for the grid they cover).
+- **Examples** — the [`examples/`](https://github.com/solidjs/solid/tree/main/examples) folder (see [`documentation/archive/plans/examples-grid-plan.md`](https://github.com/solidjs/solid/blob/main/documentation/archive/plans/examples-grid-plan.md) for the grid they cover).
 - **Discord** — [discord.com/invite/solidjs](https://discord.com/invite/solidjs).
 
 ---

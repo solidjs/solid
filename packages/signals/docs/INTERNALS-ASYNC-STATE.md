@@ -1,5 +1,7 @@
 # Async/Transition/Lane State Model — Working Notes
 
+> **Partly stale (checked 2026-11-18).** About a third of the fields and functions this file names no longer exist in `src/` (for example `CONFIG_HAS_LANE`, `LaneView`, `STORE_FIREWALL`). Where it disagrees with the code, the code wins; for behavior, the rules are `RULES-FUNDAMENTALS.md` and `RULES-DERIVED.md`. The §5 `INV-<n>` invariants are still the ones `invariants.ts` asserts.
+
 > **Index:** every rule ID cited from `src/` or `tests/` — this file's A/B/C/V ids, the INV/RUL/R/§ vocabularies of the internals and rules-mining docs — is listed with status, definition and citations in [`RULES-INDEX.md`](./RULES-INDEX.md) (generated; `node scripts/rules-index.mjs`). IDs are never renumbered.
 
 Living document for the pending/transition/optimistic-lane machinery in
@@ -13,7 +15,7 @@ ruling. Anything marked `[ruled]` cites the decision.
 
 ## 0. L2 — the hold model (2026-10-04): what replaced §1–§4
 
-**Status: `[ruled]`** (the carve, 2026-09-30 → 2026-10-03; `documentation/plans/size-reduction-carve-step1.md` sections 8, 10, 16–21, 27–29, 31–35, 38–41 are the dated record). §1–§4 below describe the implementation this file was written against — transitions with `_asyncReporters`, lanes with `_overrideValue`/`signalLanes`, companions, the store's `_firewall` chain — and are kept for the reasoning record. They are not the running code. The invariants of §5 that name those fields are retired with them; the rules they protected are restated in `SPEC-ASYNC-SEMANTICS.md` ("The hold model — L2") and pinned by the tests named there.
+**Status: `[ruled]`** (the carve, 2026-09-30 → 2026-10-03; `documentation/archive/plans/size-reduction-carve-step1.md` sections 8, 10, 16–21, 27–29, 31–35, 38–41 are the dated record). §1–§4 below describe the implementation this file was written against — transitions with `_asyncReporters`, lanes with `_overrideValue`/`signalLanes`, companions, the store's `_firewall` chain — and are kept for the reasoning record. They are not the running code. The invariants of §5 that name those fields are retired with them; the rules they protected are restated in `SPEC-ASYNC-SEMANTICS.md` ("The hold model — L2") and pinned by the tests named there.
 
 **State.** A node is `_value` (committed) or `_pendingValue` (staged for this flush). Cold state lives on the node's extension `_x`: `_transaction` (the `Transaction` holding it, `CONFIG_HELD`), `_lane` (a lane's value for it, `CONFIG_OVERRIDE`; `CONFIG_GUESS` for a written guess), `_q` (the question a flight answers — A18 provenance), `_reask` (a quiet re-ask's classification, A19 exc. 2), `_marks` (`affects()` count), `_pendingSources`/`_inFlight`/`_error` (the async core, unchanged). Per-pass flags on `_flags`: `REACTIVE_JOINED` (the pass read the future), `REACTIVE_FRAME_READ` (a stale reader, re-derived at the landing), `REACTIVE_STAGED_READ` (the pass read this flush's staging as the screen), `REACTIVE_LANE_READ`/`REACTIVE_SCREEN_READ` (lane work), `REACTIVE_PROBE_UNANSWERED` (a verdict probe answered before the flush had a transaction), `REACTIVE_REASK`, `REACTIVE_ZOMBIE` (a parked frame's child).
 
@@ -258,7 +260,7 @@ Confidence: **high** = implementation self-consistency, assert now.
   latest-1 #2481: a boundary reset re-ran a lane-born memo). A fresh lane
   publish clears `CONFIG_OVERRIDE_SUPERSEDED` for the same reason.
 - **INV-seat family (medium, recording — `core/seat.ts`, S0 of
-  `documentation/plans/reader-seat-rebuild.md`)** The reader-seat shadow:
+  `documentation/archive/plans/reader-seat-rebuild.md`)** The reader-seat shadow:
   under `__TEST__` every `read` computes the old deciders' answer and the
   new `slot()` beside it, and every `recompute` opens a seat beside the
   old head seating. Mismatches are recorded (registry, `SEAT_SHADOW_REPORT`
@@ -434,7 +436,7 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   every floor and plain-store scenario 0 B, `hydrating + every store
 primitive family` (both halves) +15 B brotli / +157 B minified. Suites,
   the seat shadow and 50k × 3 seeds against `next`'s recording: no screen
-  moves (documentation/plans/reader-seat-rebuild.md §9.3).
+  moves (documentation/archive/plans/reader-seat-rebuild.md §9.3).
 - 2026-11-09: **A store guess is one node — the guess carrier** (S2's
   shape, ported onto `next` without S1's staging; D-33's point-of-write
   clause, S-59, #4724). Before, an optimistic setter was scattered into the
@@ -981,7 +983,7 @@ Sixteen rules folded into nine absorbers (D-1, D-9, D-12, D-17, D-23, D-25, D-33
 
 **From:** F-2, F-1, F-7. **Rows:** S-3, S-6, S-31. **Pins also:** `tests/born-held.test.ts`, `tests/issue-3800-repro.test.ts`, `tests/verdict-mount-first-pass-3851.test.ts`.
 
-A memo or render effect is the hold's when a pass of it reads a value the hold holds — its first pass included — never because it was created while the hold was open. Born held, it has no answer until the commit: a plain read of it throws, `latest` of it shows what it produced, and a render effect that reads it holds the change that mounted it, so the branch attaches whole at the commit, never around an empty slot — unless a fresh boundary catches the read (F-4). A first pass that reads this flush's staging is born held when the flush parks, whoever opened the branch (ruled 2026-11-05, decision 4 in `documentation/plans/optimism-seam-spike-brief.md` §8).
+A memo or render effect is the hold's when a pass of it reads a value the hold holds — its first pass included — never because it was created while the hold was open. Born held, it has no answer until the commit: a plain read of it throws, `latest` of it shows what it produced, and a render effect that reads it holds the change that mounted it, so the branch attaches whole at the commit, never around an empty slot — unless a fresh boundary catches the read (F-4). A first pass that reads this flush's staging is born held when the flush parks, whoever opened the branch (ruled 2026-11-05, decision 4 in `documentation/archive/plans/optimism-seam-spike-brief.md` §8).
 
 **Status:** standing. Mechanism and history: `INTERNALS-ASYNC-STATE.md` §7, the 2026-11-06 entry.
 

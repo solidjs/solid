@@ -1,5 +1,7 @@
 # RFC: SSR and the HTTP exchange
 
+> **Frozen design record (2.0.0, 2026-11-17).** This RFC is history: it records why 2.0 is shaped this way, and later changes are not folded back in. Current behavior is on the docs site (https://docs.solidjs.com), in [`MIGRATION.md`](MIGRATION.md) and, for async semantics, in `packages/signals/docs/RULES-FUNDAMENTALS.md` / `RULES-DERIVED.md`.
+
 **Start here:** If you’re migrating an app, read the migration guide first: [MIGRATION.md](MIGRATION.md)
 
 > **Status note:** Everything here is **shipped** in the 2.0 prerelease line. This document collects the server-rendering entry points and the HTTP exchange surface of `@solidjs/web` — pieces that previously lived in SolidStart or in scattered subpath lore. The per-primitive hydration policy (`ssrSource` / `deferStream`) is documented with async data in [RFC 05](05-async-data.md); `clientOnly` with control flow in [RFC 03](03-control-flow.md); server functions and server components in [RFC 10](10-server-functions.md) / [RFC 11](11-server-components.md).
