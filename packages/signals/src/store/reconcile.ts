@@ -27,6 +27,7 @@ import {
   bumpDeep,
   deepUsed,
   hasAccessorFlag,
+  keepHeldLeaves,
   materializePB,
   notifyFold,
   notifyFoldTail,
@@ -110,6 +111,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
     optHooks !== null && t.o ? (optHooks.pair(t, incoming, true), optHooks.view(t, old)) : old;
   const nextArr = Array.isArray(incoming);
   const shallow = t.s === true;
+  keepHeldLeaves(t, old, incoming);
   adoptPB(t, incoming, false);
   if (shallow) markRawIngest(incoming);
   // The deep witness is bumped once per adoption (none to bump: done).
