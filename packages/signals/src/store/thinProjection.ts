@@ -58,6 +58,7 @@ import {
   $THIN,
   isThin,
   thinChain,
+  thinListRoot,
   thinReconcile,
   thinRunDirect as runDirect,
   thinSetter as storeSetter,
@@ -338,7 +339,14 @@ export function runProjectionComputed<T extends object>(
               const prevQ = question;
               setQuestion(asking());
               try {
-                storeSetter(wrappedStore, st => thinReconcile(st, v, fam.key ?? null), false);
+                storeSetter(
+                  wrappedStore,
+                  st => (
+                    Array.isArray(v) && !isThin(v) && thinListRoot(st),
+                    thinReconcile(st, v, fam.key ?? null)
+                  ),
+                  false
+                );
               } finally {
                 setQuestion(prevQ);
               }

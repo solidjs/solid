@@ -263,6 +263,9 @@ export function thinWrap(v: any, fam: StoreFamily | null = null, u: Target | nul
   const map: WeakMap<object, any> = fam?.map ?? targets;
   let t: Target | undefined = map.get(v);
   if (t === undefined) {
+    // Another store's proxy a plain store holds: the holder's own row,
+    // chained to it (CS-R3; a write through it stays in the holder, CS-R4).
+    if (fam === null && u !== null && isThin(v)) return wrap(chainSlot(u, v), fam, u);
     const r = Array.isArray(v);
     t = {
       v,
@@ -301,6 +304,20 @@ export function thinWrap(v: any, fam: StoreFamily | null = null, u: Target | nul
   return t.p;
 }
 const wrap = thinWrap;
+/** The store a plain target was first reached from. */
+function top(t: Target): Target {
+  while (t.u !== null) t = t.u;
+  return t;
+}
+/** A plain store's own row of a store it holds (the store's proxy is what
+ * its slot keeps). */
+const own = (t: Target, v: any): any => (t._fam === null && isThin(v) ? child(t, v) : v);
+/** What a slot of `t` holds for `v`: the raw of a proxy of this store's (or
+ * of a derived store's own family), another store's proxy as it is. */
+const held = (t: Target, v: any): any =>
+  isThin(v) && (t._fam !== null || (v[$THIN]._fam === null && top(v[$THIN]) === top(t)))
+    ? v[$THIN].v
+    : v;
 /** Dev: each target's root (the first store it was reached from), the
  * holder the post-await read warning reports once per (store.ts `storeRoot`). */
 const devRoot: WeakMap<Target, Target> | null = __DEV__ ? new WeakMap() : null;
@@ -310,9 +327,9 @@ function child(t: Target, v: any): any {
     // through the slot's chain to it (#2932: each level its own proxies).
     const ct: Target | undefined =
       t._fam !== null && isWrappable(v) ? (t._fam.map.get(v) as any) : undefined;
-    return ct !== undefined && ct.c !== null ? ct.p : v;
-  }
-  if (!isWrappable(v) || isRawValue(v)) return v;
+    if (ct !== undefined && ct.c !== null) return ct.p;
+    if (t._fam !== null || !isThin(v)) return v;
+  } else if (!isWrappable(v) || isRawValue(v)) return v;
   const p = wrap(v, t._fam, t);
   if (__DEV__) {
     const ct: Target = p[$THIN];
@@ -505,7 +522,8 @@ GlobalQueue._storeEngine = {
   target: (v: any, fam: StoreFamily | null): Target | undefined =>
     isThin(v) ? v[$THIN] : isWrappable(v) ? ((fam?.map as any) ?? targets).get(v) : undefined,
   keys: keysOf,
-  value: valueOf,
+  // A plain store's view of a store it holds is its own row of it.
+  value: (t: Target, key: PropertyKey): any => own(t, valueOf(t, key)),
   sub: (t: Target) => subChains.get(t)?.values() ?? [],
   view: (on: boolean) => void (writerView = on)
 };
@@ -673,16 +691,16 @@ function write(t: Target, key: PropertyKey, v: any, cur: any = write): void {
   // Structure: membership for records; position is content for arrays.
   if (t.k !== null && (t.r ? key !== "length" : prev === ABSENT || v === ABSENT)) {
     if (bumpFor === t) return void (bumped = true);
-    // An index guess on a keyed optimistic list is that slot's (point of
-    // write): the list's key node another action's guess carries is not a
-    // slot the two share (D-33, #4897). This action's bump goes to a key
-    // node of its own, which the list's readers read beside it.
+    // An index guess on a keyed optimistic list, or a key a guess adds to
+    // or takes from a record, is that slot's (point of write): the key
+    // node another action's guess carries is not a slot the two share
+    // (D-33, #4897). This action's bump goes to a key node of its own,
+    // which the readers read beside it.
     let k = t.k;
     if (
-      t.r &&
       userWrite &&
       guess !== null &&
-      t._fam?.key &&
+      (t.r ? t._fam?.key : t._fam?.opt) &&
       k._config & CONFIG_GUESS &&
       k._x!._q !== question
     ) {
@@ -1133,7 +1151,12 @@ const BASE: ProxyHandler<any> = {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(t as any, key);
     if (t.r && key === "length")
-      return { value: valueOf(t, key), writable: true, enumerable: false, configurable: false };
+      return {
+        value: valueOf(t, key),
+        writable: true,
+        enumerable: false,
+        configurable: !Array.isArray(_)
+      };
     // An enumerator already holds the key set (`k`) this pass: it reads the
     // frame, no presence node (#3664). A descriptor read alone tracks
     // presence (R13).
@@ -1159,7 +1182,7 @@ const BASE: ProxyHandler<any> = {
     // A plain data property is a write; anything else is boxed whole into
     // the slot (staged with the frame like any value).
     if (!d.get && !d.set && d.enumerable !== false && d.writable !== false)
-      writeSlot(t, key, unwrapThin(d.value));
+      writeSlot(t, key, held(t, d.value));
     else write(t, key, new Box(d.get || d.set ? d : { ...d, value: unwrapThin(d.value) }));
     return true;
   },
@@ -1181,8 +1204,8 @@ const BASE: ProxyHandler<any> = {
       value[$THIN]._fam !== t._fam &&
       !inDraft(value[$THIN])
     )
-      return (writeSlot(t, key, chainSlot(t, valueOf(t, key), value)), true);
-    const v = unwrapThin(value);
+      return (writeSlot(t, key, chainSlot(t, value)), true);
+    const v = held(t, value);
     // A derive's new child over a child carrying guesses: the truth lands
     // into it, so the guesses re-base over it (D-34, #4336).
     if (t._fam?.opt && !userWrite && guessed !== null && isWrappable(v)) {
@@ -1219,7 +1242,7 @@ const BASE: ProxyHandler<any> = {
           const g = n._config & CONFIG_GUESS ? guessed!(n) : undefined;
           const c = isWrappable(g) ? (t._fam.map.get(g) as any)?.c : null;
           if (c && kf!(c) === k)
-            return (thinReconcile(c, v, kf!, 0), writeSlot(t, key, chainSlot(t, pv, c)), true);
+            return (thinReconcile(c, v, kf!, 0), writeSlot(t, key, chainSlot(t, c)), true);
         }
     }
     writeSlot(t, key, v);
@@ -1283,7 +1306,7 @@ function chainGet(t: Target, key: PropertyKey, receiver: any): any {
   if (tr && v !== DELEGATE && node!._config & CONFIG_GUESS) inner(t, () => t.c[key]);
   if (v === DELEGATE) {
     const iv = inner(t, () => t.c[key]);
-    return t._fam !== null && isThin(iv) && iv[$THIN]._fam !== t._fam ? subChain(t, key, iv) : iv;
+    return isThin(iv) && (t._fam === null || iv[$THIN]._fam !== t._fam) ? subChain(t, key, iv) : iv;
   }
   return v === ABSENT ? undefined : child(t, v);
 }
@@ -1339,7 +1362,7 @@ function subChain(t: Target, key: PropertyKey, iv: any): any {
     const raw = r ? [] : {};
     chainRaws.add(raw);
     thinWrap(raw, t._fam, t);
-    e = t._fam!.map.get(raw) as unknown as Target;
+    e = (t._fam?.map ?? targets).get(raw) as unknown as Target;
     m.set(key, e);
     if (__DEV__) subKeys!.set(e, key);
   }
@@ -1359,16 +1382,18 @@ function chainTo(t: Target, next: any): void {
 }
 /** A family slot holding another store: a raw of this family's, chained
  * to it (#2864, #4845). */
-function chainSlot(t: Target, pv: any, nv: any): any {
-  let pt: Target | undefined = isWrappable(pv) ? (t._fam!.map.get(pv) as any) : undefined;
-  if (pt === undefined || pt.r !== Array.isArray(nv)) {
-    pv = Array.isArray(nv) ? [] : {};
-    chainRaws.add(pv);
-    thinWrap(pv, t._fam, t);
-    pt = t._fam!.map.get(pv) as any;
+function chainSlot(t: Target, nv: any): any {
+  // One raw per chained store in a family (a plain store: its root): two
+  // slots holding one store are one row (an alias stays an alias).
+  const m: WeakMap<object, any> = ((t._fam ?? (top(t) as any)).cm ??= new WeakMap());
+  let raw = m.get(nv);
+  if (raw === undefined) {
+    m.set(nv, (raw = Array.isArray(nv) ? [] : {}));
+    chainRaws.add(raw);
+    thinWrap(raw, t._fam, t);
+    chainTo((t._fam?.map ?? targets).get(raw) as any, nv);
   }
-  chainTo(pt!, nv);
-  return pv;
+  return raw;
 }
 /** Leave the chain: every key takes the value it showed as its own. */
 function unchain(t: Target): void {
@@ -1389,7 +1414,7 @@ function unchain(t: Target): void {
 function replace(t: Target, next: any): void {
   if (next === t.v && t.n === null) return;
   for (const key of keysOf(t)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
-  for (const key of ownOf(next)) write(t, key, unwrapThin(next[key]));
+  for (const key of ownOf(next)) write(t, key, held(t, next[key]));
 }
 
 const ASYNC_SETTER =
@@ -1521,7 +1546,10 @@ export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true
     if (__DEV__ && guard) devGuardStoreSetterResult(result);
     if (result !== undefined && result !== proxy && isWrappable(result)) {
       const t: Target = (proxy as any)[$THIN];
-      t._fam?.key !== undefined
+      // A user's returned value is a shallow diff, as on a plain store (the
+      // keyed diff is the derive's); an optimistic family's is its guess,
+      // written as the keyed diff (S-59).
+      t._fam?.opt
         ? thinReconcile(proxy, result, t._fam.key ?? null)
         : replace(t, unwrapThin(result));
     }
@@ -1575,6 +1603,12 @@ function rawThin(v: any): void {
   markRaw(v);
 }
 
+/** A list answering a derived store seeded with a record (a seedless
+ * derive's `{}`): the root becomes a list, over a raw of its own. */
+export function thinListRoot(proxy: any): void {
+  const t: Target = proxy[$THIN];
+  if (!t.r && t.c === null) (t._fam!.map.set((t.v = []), t as any), (t.r = true));
+}
 /** Keyed merge of `next` into the store (inside a setter). */
 export function thinReconcile(
   proxy: any,
@@ -1647,14 +1681,15 @@ function merge(
   if (typeof nv !== "object" || nv === null) return nv;
   if (kept(t, next, map, pv, nv)) return pv;
   // A store inside a derive's value: the slot chains to it (#2864).
-  if (t._fam !== null && isThin(nv) && nv[$THIN]._fam !== t._fam) return chainSlot(t, pv, nv);
-  nv = unwrapThin(nv);
+  if (t._fam !== null && isThin(nv) && nv[$THIN]._fam !== t._fam) return chainSlot(t, nv);
+  if (isThin(nv) && isThin((nv = held(t, nv)))) return nv;
   if (pv === nv || !isWrappable(pv) || !isWrappable(nv) || Array.isArray(pv) !== Array.isArray(nv))
     return nv;
   const pt = map.get(pv);
   // A raw already wrapped, or re-sent at another slot, is its own row:
   // identity travels with the raw (#4001).
-  if (pt === undefined || map.has(nv) || resent(t, next, pv)) return nv;
+  // (A row chained to a store is that store's alias, never a plain row's.)
+  if (pt === undefined || pt.c !== null || map.has(nv) || resent(t, next, pv)) return nv;
   // A keyed diff of a plain store skips a row nothing below ever read
   // through a node (a proxy alone, read untracked): the slot takes the new
   // raw whole and a capture may detach (#2902, the pruning contract, as
@@ -1885,7 +1920,7 @@ export function thinSnapshot(
         setProp(copy, raw, k, v);
         continue;
       }
-      const c = v !== null && typeof v === "object" ? thinSnapshot(v, seen, fam) : v;
+      const c = v !== null && typeof v === "object" ? thinSnapshot(own(t, v), seen, fam) : v;
       if (copy === null && c !== v) copy = copyOf(t, raw, keys, seen, i);
       if (copy !== null) copy[k] = c;
     }
@@ -1905,7 +1940,7 @@ export function thinSnapshot(
     const d = Object.getOwnPropertyDescriptor(copy ?? raw, k);
     if (d === undefined || d.get || d.set) continue;
     const v = d.value;
-    const s = thinSnapshot(v, seen, fam);
+    const s = thinSnapshot(own(t, v), seen, fam);
     if (s !== v) (start(), Object.defineProperty(copy, k, { ...d, value: s }));
   }
   return copy ?? raw;

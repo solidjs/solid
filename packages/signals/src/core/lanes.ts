@@ -462,12 +462,15 @@ export function laneStage(
   // A29), or one whose own mainline pass is running (it pulled the node;
   // `laneRead` decides — its frame holds). Its pending is the frame's: queued
   // for the commit sweep as mainline's (async.ts). A node born in the lane
-  // has nothing on screen: its leaf waits as the lane's.
+  // has nothing on screen: its leaf waits as the lane's. A held leaf stays
+  // its frame's even when the node reached it has no value yet: a mount born
+  // held whose derivation now waits on a lane's flight (#4998, D-2, F-1).
   else if (errored) {
     if (
       errored !== true &&
-      !(errored._statusFlags & STATUS_UNINITIALIZED) &&
-      (el._config & CONFIG_HELD || el._flags & REACTIVE_RECOMPUTING_DEPS) &&
+      (el._config & CONFIG_HELD ||
+        (!(errored._statusFlags & STATUS_UNINITIALIZED) &&
+          el._flags & REACTIVE_RECOMPUTING_DEPS)) &&
       !el._x?._transaction?._lane
     ) {
       queuePendingNode(el);
