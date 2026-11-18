@@ -218,7 +218,13 @@ const unresolved = kind => [...cited[kind].keys()].filter(id => !rules.has(id)).
 //   - a document the repo does not have ("plan sec. N").
 // `--comments` prints the census for every src/ file; `--check` fails only
 // on POLICY files, so the list grows as files are brought under the policy.
-const POLICY = ["src/core/guesses.ts", "src/core/verdict.ts"];
+const POLICY = [
+  "src/core/async.ts",
+  "src/core/core.ts",
+  "src/core/guesses.ts",
+  "src/core/types.ts",
+  "src/core/verdict.ts"
+];
 const dStatus = new Map();
 {
   const L = read(DERIVED).split("\n");

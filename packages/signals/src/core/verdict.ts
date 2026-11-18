@@ -355,7 +355,7 @@ export function isPending(fn: () => any): boolean {
     return probeFound;
   } catch (e) {
     // A node with no answer suspends when owned and reads false unowned; a
-    // thunk that throws a real error reads false (D-23).
+    // real error is swallowed and the probe keeps what it found (D-23, S-51).
     if (e instanceof NotReadyError && !probeFound && context !== null) throw e;
     // Dev: the probe's own swallow is not a user catch (D-42).
     if (__DEV__) forgetThrownRead();
