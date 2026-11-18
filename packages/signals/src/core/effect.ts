@@ -92,7 +92,7 @@ export function effect<T>(
   // `defer` skips the first run, whoever owes it. A node born staged
   // (#4543): its staged first value applies now, so the commit replays
   // nothing and the next pass gets it as `prev`, as on a plain mount (#4556;
-  // D-13). A lane's node (#4557): it queues none.
+  // D-12). A lane's node (#4557): it queues none.
   options?.defer
     ? applyStaged(node)
     : node._pendingValue === NOT_PENDING &&

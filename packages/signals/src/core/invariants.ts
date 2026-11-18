@@ -20,7 +20,7 @@ import type { Computed, Signal } from "./types.js";
  *
  * INV-seat-1..3 (the reader-seat shadow: a leaf's world is its reads' —
  * the screen raises nothing, a born node or the hold's own staging is the
- * hold's world, D-27 — posture is never inherited, the new seat/slot agrees
+ * hold's world, D-25 — posture is never inherited, the new seat/slot agrees
  * with the old deciders) live in `core/seat.ts` — they record into a registry rather
  * than throw, so a differential run reports every class of disagreement
  * (`shadowReport`, `SEAT_SHADOW_REPORT`); `__SEAT_SHADOW_STRICT__` throws.
@@ -37,8 +37,6 @@ function isDisposed(node: AnyNode): boolean {
 // holding one at quiescence with no queued commit is a leak (#2827 class).
 const heldPendingNodes = new Set<AnyNode>();
 
-// (Former INV-8 hold-provenance tracking is gone with revert targets: every
-// held `_pendingValue` is now a pending commit — there is only one kind.)
 export function devTrackHeldPending(node: AnyNode): void {
   if (!__TEST__) return;
   heldPendingNodes.add(node);

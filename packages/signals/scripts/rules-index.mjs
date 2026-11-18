@@ -264,8 +264,12 @@ function commentFindings(file) {
   const found = [];
   for (const [line, t] of commentText(file)) {
     for (const m of t.matchAll(CITE)) {
-      const id = m[1] || (m[4] && (m[3] ? m[3] + "-R" + m[4] : null)) || m[5] || m[6];
-      if (m[4] && !m[3]) found.push([line, "bare", "R" + m[4]]);
+      const id =
+        m[1] ||
+        (m[4] && (m[3] ? m[3] + "-R" + m[4] : m[2] && QUAL[m[2]] + "-R" + m[4])) ||
+        m[5] ||
+        m[6];
+      if (m[4] && !m[3] && !m[2]) found.push([line, "bare", "R" + m[4]]);
       else if (id && GONE.test(statusOf(id))) found.push([line, statusOf(id), id]);
     }
     if (/\bplan sec\./.test(t)) found.push([line, "missing doc", "plan sec."]);
