@@ -42,12 +42,19 @@ function createHtml() {
   // Walk over text, comment, and element nodes.
   const walker = document.createTreeWalker(document, 129);
 
-  const createElement = (name: string) => {
-    return SVGElements.has(name)
-      ? document.createElementNS("http://www.w3.org/2000/svg", name)
-      : MathMLElements.has(name)
-        ? document.createElementNS("http://www.w3.org/1998/Math/MathML", name)
-        : document.createElement(name);
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const MATHML_NS = "http://www.w3.org/1998/Math/MathML";
+  // `ns` is the namespace a static parent puts its children in, as the HTML
+  // parser does: inside <svg> or <math>, `title`/`a`/`style` stay foreign.
+  // Without one, the tag name alone decides.
+  const createElement = (name: string, ns?: string) => {
+    ns =
+      name === "svg"
+        ? SVG_NS
+        : name === "math"
+          ? MATHML_NS
+          : ns || (SVGElements.has(name) ? SVG_NS : MathMLElements.has(name) ? MATHML_NS : ns);
+    return ns ? document.createElementNS(ns, name) : document.createElement(name);
   };
 
   // Internal: build a tagged JSX tag bound to a component registry.
@@ -108,7 +115,7 @@ function createHtml() {
     }
   };
 
-  const buildNodes = (node: ChildNode): Node => {
+  const buildNodes = (node: ChildNode, ns?: string): Node => {
     switch (node.type) {
       case TEXT_NODE:
         textTemplate.innerHTML = trustedHTML(node.value);
@@ -120,7 +127,7 @@ function createHtml() {
       case ELEMENT_NODE:
         let hasSpread = false;
 
-        const elem = createElement(node.name);
+        const elem = createElement(node.name, ns);
         // Element-claim contract (`a[href]`, `form[action]`): stamped here,
         // while static props are still visible — the filter below bakes them
         // into the template, after which the runtime can't tell a claim
@@ -147,7 +154,16 @@ function createHtml() {
           return true;
         });
         const childRoot = node.name === "template" ? (elem as HTMLTemplateElement).content : elem;
-        childRoot.append(...node.children.map(buildNodes));
+        // An HTML parent, or <foreignObject>, hands its children back to HTML.
+        const childNs =
+          elem.namespaceURI === SVG_NS
+            ? node.name === "foreignObject"
+              ? undefined
+              : SVG_NS
+            : elem.namespaceURI === MATHML_NS
+              ? MATHML_NS
+              : undefined;
+        childRoot.append(...node.children.map(child => buildNodes(child, childNs)));
 
         return elem;
     }
