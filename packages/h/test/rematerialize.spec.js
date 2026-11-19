@@ -172,4 +172,48 @@ describe("render(h(App), el)", () => {
     expect(created).toBe(1);
     dispose();
   });
+
+  test("an App returning h.Fragment with multiple children resolves tagged thunks once", () => {
+    const [on, setOn] = createSignal(false);
+    let created = 0;
+    const Toggle = () => (created++, h(Show, { when: on, fallback: "no" }, h("b", "yes")));
+    const App = () => h(h.Fragment, null, h(Toggle), h("i", "!"));
+    const el = document.createElement("div");
+    const dispose = render(h(App), el);
+    expect(el.innerHTML).toBe("no<i>!</i>");
+    setOn(true);
+    flush();
+    expect(el.innerHTML).toBe("<b>yes</b><i>!</i>");
+    expect(created).toBe(1);
+    dispose();
+  });
+
+  test("a multi-child flow component resolves tagged thunks in the consumer's scope", () => {
+    const [on, setOn] = createSignal(false);
+    let created = 0;
+    const Toggle = () => (created++, h(Show, { when: on, fallback: "no" }, h("b", "yes")));
+    const el = document.createElement("div");
+    const dispose = render(h(Show, { when: () => true }, h(Toggle), h("i", "!")), el);
+    expect(el.innerHTML).toBe("no<i>!</i>");
+    setOn(true);
+    flush();
+    expect(el.innerHTML).toBe("<b>yes</b><i>!</i>");
+    expect(created).toBe(1);
+    dispose();
+  });
+
+  test("a component returning an array of tagged thunks resolves them once", () => {
+    const [on, setOn] = createSignal(false);
+    let created = 0;
+    const Toggle = () => (created++, h(Show, { when: on, fallback: "no" }, h("b", "yes")));
+    const Comp = () => [h(Toggle), h("i", "!")];
+    const el = document.createElement("div");
+    const dispose = render(h(Comp), el);
+    expect(el.innerHTML).toBe("no<i>!</i>");
+    setOn(true);
+    flush();
+    expect(el.innerHTML).toBe("<b>yes</b><i>!</i>");
+    expect(created).toBe(1);
+    dispose();
+  });
 });

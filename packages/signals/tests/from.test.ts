@@ -118,15 +118,13 @@ describe("from: basics", () => {
     expect(seen).not.toContain(2);
     expect(isPending(() => m())).toBe(false);
 
-    // The consumer always has a pull waiting, so a burst's first value
-    // answers it; the values that arrive before the next pull coalesce.
     src.next(4);
     src.next(5);
     src.next(6);
     await microtasks();
     expect(m()).toBe(6);
     expect(seen).not.toContain(5);
-    expect(seen).toEqual(["<pending>", 1, 3, 4, 6]);
+    expect(seen).toEqual(["<pending>", 3, 6]);
     expect(isPending(() => m())).toBe(false);
     dispose();
   });

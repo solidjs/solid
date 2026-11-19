@@ -172,6 +172,7 @@ export function from<T>(source: FromSource<T>): AsyncIterable<T> {
       } | null = null;
       let unsubscribe: (() => void) | null = null;
       let closed = false;
+      let queued = false;
 
       const close = () => {
         if (closed) return;
@@ -208,7 +209,13 @@ export function from<T>(source: FromSource<T>): AsyncIterable<T> {
           if (done) return;
           latest = value;
           has = true;
-          settle();
+          if (waiting && !queued) {
+            queued = true;
+            queueMicrotask(() => {
+              queued = false;
+              settle();
+            });
+          }
         },
         err => {
           if (done) return;

@@ -57,6 +57,19 @@ describe("Tagged JSX Integration Tests", () => {
   });
 
   describe("Attributes and Props", () => {
+    it("keeps the outer traversal when an attribute getter renders a nested template", () =>
+      createRoot(dispose => {
+        const title = () => (html`<i>inner</i>` as HTMLElement).textContent;
+        const outer = html`<div>
+          <span title=${title}>a</span><b title=${"yes"}>b</b>
+        </div>` as HTMLElement;
+
+        expect(outer.querySelector("span")?.getAttribute("title")).toBe("inner");
+        expect(outer.querySelector("b")?.getAttribute("title")).toBe("yes");
+        expect(outer.textContent).toBe("ab");
+        dispose();
+      }));
+
     it("handles complex attribute names and mixed values", () => {
       const [cls, setCls] = createSignal("active");
       let el!: HTMLElement;
@@ -417,6 +430,20 @@ describe("Tagged JSX Integration Tests", () => {
   });
 
   describe("Custom Components", () => {
+    it("lets nested children override a function-valued children prop", () =>
+      createRoot(dispose => {
+        const Comp = (props: { children: unknown }) => props.children;
+        const localHtml = html.define({ Comp });
+
+        expect(localHtml`<Comp children=${() => "fallback"}>real</Comp>`).toBe("real");
+        expect(localHtml`<Comp children="fallback">real</Comp>`).toBe("real");
+        expect(
+          localHtml`<Comp ...${{ children: "spread" }} children=${() => "fallback"}>real</Comp>`
+        ).toBe("real");
+        expect(localHtml`<Comp children=${() => "fallback"} />`).toBe("fallback");
+        dispose();
+      }));
+
     it("passes children correctly to registered components", () =>
       createRoot(dispose => {
         const Wrapper = (props: { children: any }) => html`<section>${props.children}</section>`;
@@ -544,6 +571,32 @@ describe("Tagged JSX Integration Tests", () => {
   });
 
   describe("Special Elements and Namespaces", () => {
+    it("preserves whitespace-only text in pre and textarea", () =>
+      createRoot(dispose => {
+        // prettier-ignore
+        const pre = html`<pre> </pre>` as HTMLPreElement;
+        // prettier-ignore
+        const textarea = html`<textarea> </textarea>` as HTMLTextAreaElement;
+
+        expect(pre.textContent).toBe(" ");
+        expect(textarea.value).toBe(" ");
+        dispose();
+      }));
+
+    it("matches HTML parsing of a leading newline in pre and textarea", () =>
+      createRoot(dispose => {
+        // prettier-ignore
+        const pre = html`<pre>\nhello</pre>` as HTMLPreElement;
+        // prettier-ignore
+        const textarea = html`<textarea>\nhello</textarea>` as HTMLTextAreaElement;
+        const parsed = document.createElement("template");
+        parsed.innerHTML = "<pre>\nhello</pre><textarea>\nhello</textarea>";
+
+        expect(pre.textContent).toBe(parsed.content.querySelector("pre")?.textContent);
+        expect(textarea.value).toBe(parsed.content.querySelector("textarea")?.value);
+        dispose();
+      }));
+
     it("treats <script> and <style> as raw text", () =>
       createRoot(dispose => {
         const style = html` <style>
@@ -554,6 +607,31 @@ describe("Tagged JSX Integration Tests", () => {
 
         expect(style.textContent).toContain("body > div");
         expect(style.tagName).toBe("STYLE");
+        dispose();
+      }));
+
+    it("preserves character references in script and style raw text", () =>
+      createRoot(dispose => {
+        const style = html`<style>
+          .x::after {
+            content: "&amp;";
+          }
+        </style>` as HTMLStyleElement;
+        const script = html`<script>
+          const value = "&amp;";
+        </script>` as HTMLScriptElement;
+        const svg = html`<svg>
+          <style>
+            .x {
+              fill: &amp;
+            }
+          </style>
+        </svg>` as SVGSVGElement;
+
+        expect(style.textContent).toContain('content: "&amp;";');
+        expect(script.textContent).toContain('const value = "&amp;";');
+        expect(svg.querySelector("style")?.textContent).toContain("fill: &");
+        expect(svg.querySelector("style")?.textContent).not.toContain("&amp;");
         dispose();
       }));
 
@@ -701,6 +779,14 @@ describe("Tagged JSX Integration Tests", () => {
     it("throws for an unregistered capitalized component", () =>
       createRoot(dispose => {
         expect(() => html`<UnregisteredComponent />`).toThrow(/not found in registry/);
+        dispose();
+      }));
+
+    it("explains how to write a literal less-than sign in text", () =>
+      createRoot(dispose => {
+        expect(() => html`<div>1 < 2</div>`).toThrow(
+          'To include a literal "<" in text, use &lt; or ${"<"}.'
+        );
         dispose();
       }));
 
@@ -1062,6 +1148,40 @@ describe("Tagged JSX Integration Tests", () => {
     });
 
     describe("List and Table Rendering", () => {
+      it("rejects a row directly under a table with the compiler's malformed-HTML diagnostic", () => {
+        createRoot(dispose => {
+          expect(
+            () =>
+              html`<table>
+                <tr>
+                  <td>cell</td>
+                </tr>
+              </table>`
+          ).toThrow(
+            /The HTML provided is malformed and will yield unexpected output when evaluated by a browser\./
+          );
+          dispose();
+        });
+      });
+
+      it("keeps explicit table sections and standalone row partials valid", () => {
+        createRoot(dispose => {
+          const table = html`<table>
+            <tbody>
+              <tr>
+                <td>cell</td>
+              </tr>
+            </tbody>
+          </table>` as HTMLTableElement;
+          const row = html`<tr>
+            <td>cell</td>
+          </tr>` as HTMLTableRowElement;
+          expect(table.tBodies[0].rows[0].cells[0].textContent).toBe("cell");
+          expect(row.cells[0].textContent).toBe("cell");
+          dispose();
+        });
+      });
+
       it("renders table with dynamic rows and cells", () =>
         createRoot(dispose => {
           const [rows] = createSignal([
