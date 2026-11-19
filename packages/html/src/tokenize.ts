@@ -218,6 +218,11 @@ export const tokenize = (
             tokens.push({ type: SPREAD_TOKEN });
             cursor += 3;
           } else {
+            if (tokens[tokens.length - 1]?.type === OPEN_TAG_TOKEN)
+              throw new Error(
+                `Invalid tag start after "<": ${JSON.stringify(str[cursor])} at ${i}:${cursor}. ` +
+                  'To include a literal "<" in text, use &lt; or ${"<"}.'
+              );
             throw new Error(`Unexpected Character: ${str[cursor]} at ${i}:${cursor}`);
           }
           break;

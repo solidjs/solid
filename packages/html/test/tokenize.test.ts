@@ -657,6 +657,16 @@ describe("special characters in names", () => {
 });
 
 describe("invalid syntax", () => {
+  it("explains how to write a literal less-than sign in text", () => {
+    expect(() => tokenizeTemplate`<div>1 < 2</div>`).toThrow(
+      'To include a literal "<" in text, use &lt; or ${"<"}.'
+    );
+  });
+
+  it("keeps the generic error for an invalid character inside a tag", () => {
+    expect(() => tokenizeTemplate`<div @foo />`).toThrow("Unexpected Character: @");
+  });
+
   it("should throw with extra <", () => {
     expect(() => tokenizeTemplate`<<div / >`).toThrow();
   });
