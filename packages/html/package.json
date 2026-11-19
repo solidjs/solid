@@ -42,7 +42,7 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@solidjs/web": "^2.0.1"
+    "@solidjs/web": "^2.0.2"
   },
   "devDependencies": {
     "@solidjs/web": "workspace:*",

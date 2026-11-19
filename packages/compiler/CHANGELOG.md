@@ -1,5 +1,11 @@
 # @solidjs/compiler
 
+## 2.0.2
+
+### Patch Changes
+
+- 0c031aa: Collapse only ASCII whitespace in a static `<option>`'s text when SSR matches it against a bound `<select value>`, so text with `&nbsp;` or other non-ASCII whitespace matches and renders `selected`.
+
 ## 2.0.1
 
 ### Patch Changes

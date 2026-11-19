@@ -1,5 +1,23 @@
 # solid-js
 
+## 2.0.2
+
+### Patch Changes
+
+- f895c91: Agent guidance (CHEATSHEET, `solid-2.0` and `reactivity-diagnostics` skills, `diagnostics.json`): `STRICT_READ_UNTRACKED` is fixed by moving the read to where the value is used; agents should not wrap it in `untrack`, which stays the explicit form of a deliberate one-time read. The diagnostics skill now maps each use (rendered, derived, async input, hook argument, local-state seed, side effect, event, built-once object) to its repair.
+- cd201ce: Diagnostics guidance: a top-level `untrack` snapshot is only safe when the value is never downstream of async (an async-derived value can be pending or mid-transition).
+- Updated dependencies [8dd6497]
+- Updated dependencies [55e8f58]
+- Updated dependencies [b9ce3f7]
+- Updated dependencies [2024b4d]
+- Updated dependencies [6888e26]
+- Updated dependencies [7e7938b]
+- Updated dependencies [63e5284]
+- Updated dependencies [f9d7e57]
+- Updated dependencies [445012d]
+- Updated dependencies [04abe54]
+  - @solidjs/signals@2.0.2
+
 ## 2.0.1
 
 ### Patch Changes

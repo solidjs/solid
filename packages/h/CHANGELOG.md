@@ -1,5 +1,14 @@
 # @solidjs/h
 
+## 2.0.1
+
+### Patch Changes
+
+- 28b046a: Forward every argument to hyperscript component callbacks, including arguments accepted through default or rest parameters.
+- Updated dependencies [323d00c]
+- Updated dependencies [b884d6e]
+  - @solidjs/web@2.0.2
+
 ## 2.0.0
 
 ### Major Changes
