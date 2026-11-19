@@ -149,7 +149,7 @@ function materialize(args: any[]): ExpandableNode | ExpandableNode[] {
       (e as Node).appendChild(document.createTextNode(l.toString()));
     } else if (Array.isArray(l)) {
       for (let i = 0; i < l.length; i++) item(l[i]);
-    } else if (l instanceof Element) {
+    } else if (l instanceof Node) {
       insert(e as Element, l, multiExpression ? null : undefined);
     } else if ("object" === type) {
       let dynamic = false;
@@ -185,7 +185,7 @@ function materialize(args: any[]): ExpandableNode | ExpandableNode[] {
         const first = args[0];
         const src: Props | undefined =
           first == null ||
-          (typeof first === "object" && !Array.isArray(first) && !(first instanceof Element))
+          (typeof first === "object" && !Array.isArray(first) && !(first instanceof Node))
             ? args.shift() || undefined
             : undefined;
         e = createComponent(l, componentProps(src, args)) as ExpandableNode;

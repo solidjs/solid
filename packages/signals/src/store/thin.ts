@@ -378,6 +378,8 @@ let writerView = false;
  * what the setter reads of the row says whether its write is computed from
  * the guess (D-33). */
 const placed = new WeakMap<object, [Signal<any>, any]>();
+/** A hold whose staging the open user setter read from its draft. */
+let draftRead: any = null;
 function peek(node: Signal<any>, t: Target, mode = 0): any {
   if (writerView && guessed !== null && t._fam?.opt) return guessed(node);
   // An optimistic family's user draft composes on what the user sees.
@@ -405,7 +407,13 @@ function peek(node: Signal<any>, t: Target, mode = 0): any {
     // The derive writes the truth: it composes on the truth beneath a guess.
     if (node._config & CONFIG_GUESS) return under!(node);
   }
-  if (inDraft(t)) return node._pendingValue !== NOT_PENDING ? node._pendingValue : node._value;
+  if (inDraft(t)) {
+    if (node._pendingValue === NOT_PENDING) return node._value;
+    // A user setter that reads a held write joins its hold at its exit (D-33).
+    if (mode === 1 && userWrite && (node._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD)
+      draftRead = txOf(node);
+    return node._pendingValue;
+  }
   // Dev: a read after an await is reported by the trap, once per store
   // (core's per-node report is skipped under untrack).
   return tracking || (__DEV__ && asyncTailFlights !== 0) ? untrack(() => read(node)) : read(node);
@@ -1653,7 +1661,7 @@ export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true
   } finally {
     // The writes made stand, as a record's do when the setter throws.
     if (L !== null) L.close(open);
-    writing--;
+    if (!--writing && draftRead !== null) (joinFuture(draftRead), (draftRead = null));
     scopes.pop();
     userWrite = prevUser;
     if (__OBSERVE__ && writing === 0 && obsWrites !== null) flushWrites();

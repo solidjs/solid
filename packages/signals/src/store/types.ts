@@ -126,9 +126,12 @@ export function isRawValue(value: any): boolean {
   return rawValuesUsed && rawValues.has(value);
 }
 
-/** Mark a value so no store ever wraps it (sticky; it reads as a leaf). */
+/** Keep a value out of store wrapping: every store serves it as is. Pass a
+ * class to keep all instances of it and its subclasses raw. */
 export function markRaw<T>(value: T): T {
-  if (isWrappable(value)) {
+  if (typeof value === "function") {
+    if (value.prototype) wrappableProtos.set(value.prototype, false);
+  } else if (isWrappable(value)) {
     rawValuesUsed = true;
     rawValues.add(value as object);
   }
@@ -172,7 +175,8 @@ export function isWrappable(obj: any) {
   if (wrappable === undefined) {
     wrappable =
       Object.prototype.toString.call(obj) === "[object Object]" &&
-      (typeof Node === "undefined" || !(obj instanceof Node));
+      (typeof Node === "undefined" || !(obj instanceof Node)) &&
+      isWrappable(proto);
     wrappableProtos.set(proto, wrappable);
   }
   return wrappable;

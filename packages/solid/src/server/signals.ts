@@ -66,7 +66,7 @@ export function from<T>(source: FromSource<T>): AsyncIterable<T> {
     }
   });
 }
-export { snapshot, omit, storePath, isStatic, $PROXY, $TRACK } from "@solidjs/signals";
+export { snapshot, omit, storePath, isStatic, markRaw, $PROXY, $TRACK } from "@solidjs/signals";
 
 // === Type re-exports ===
 

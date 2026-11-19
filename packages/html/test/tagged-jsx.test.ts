@@ -580,6 +580,28 @@ describe("Tagged JSX Integration Tests", () => {
       dispose();
     });
 
+    it("puts tags HTML and SVG share in the SVG namespace inside a static <svg> (#5057)", () =>
+      createRoot(dispose => {
+        const svg = html`<svg>
+          <title>hello</title>
+          <a href="#x">link</a>
+          <foreignObject><a href="#y">html</a></foreignObject>
+        </svg>` as SVGSVGElement;
+        const [svgLink, htmlLink] = Array.from(svg.querySelectorAll("a"));
+
+        expect(svg.querySelector("title")!.namespaceURI).toBe("http://www.w3.org/2000/svg");
+        expect(svgLink.namespaceURI).toBe("http://www.w3.org/2000/svg");
+        expect(htmlLink.namespaceURI).toBe("http://www.w3.org/1999/xhtml");
+        dispose();
+      }));
+
+    it("keeps an ambiguous tag outside <svg> in the HTML namespace (#5057)", () =>
+      createRoot(dispose => {
+        const div = html`<div><a href="#x">link</a></div>` as HTMLDivElement;
+        expect(div.querySelector("a")!.namespaceURI).toBe("http://www.w3.org/1999/xhtml");
+        dispose();
+      }));
+
     it("handles template elements correctly", () =>
       createRoot(dispose => {
         const nodes = html`${"hole"}<template>Count: ${() => 1}</template>` as Node[];
