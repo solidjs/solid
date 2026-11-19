@@ -950,7 +950,12 @@ function collectMounts(): void {
 function holdsOn(t: Transaction): boolean {
   return (
     t._open !== 0 ||
-    t._nodes.some(n => !(n as any)._type && (n as Computed<any>)._statusFlags! & STATUS_PENDING)
+    t._nodes.some(
+      n =>
+        !(n as any)._type &&
+        (n as Computed<any>)._statusFlags! & STATUS_PENDING &&
+        !((n as Computed<any>)._flags & REACTIVE_DISPOSED)
+    )
   );
 }
 function shownBy(r: Computed<any>): unknown {

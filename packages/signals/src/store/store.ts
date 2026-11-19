@@ -293,16 +293,15 @@ function releaseSlot(node: any): void {
     if (t.dk === node) t.dk = null;
   } else if (t.n?.[key as any] === node) {
     delete t.n![key as any];
-    t.nc--;
-  } else if (t.h?.[key as any] === node) delete t.h![key as any];
+    // An emptied dictionary is dropped (#5024): the target outlives its
+    // readers while the app holds the raw object.
+    if (--t.nc === 0) t.n = null;
+  } else if (t.h?.[key as any] === node) {
+    delete t.h![key as any];
+    if (Reflect.ownKeys(t.h!).length === 0) t.h = null;
+  }
   // The family's index keeps only targets that still carry a node.
-  if (
-    t._fam !== null &&
-    t.nc === 0 &&
-    t.k === null &&
-    t.dk === null &&
-    (t.h === null || Reflect.ownKeys(t.h).length === 0)
-  )
+  if (t._fam !== null && t.nc === 0 && t.k === null && t.dk === null && t.h === null)
     t._fam.live.delete(t);
 }
 
@@ -386,7 +385,7 @@ export function getNode(
       slotNodeEquals,
       target,
       key,
-      accKnown === -1 ? isOwnAccessor(pb ?? target.v, key) : accKnown === 1
+      accKnown === -1 ? isAccessorKey(pb ?? target.v, key) : accKnown === 1
     ));
     if (pb !== null && !(created as any).acc)
       bornStaged(target, created, target.del?.has(key) ? undefined : pb[key as any], key);
@@ -579,6 +578,14 @@ function isOwnAccessor(src: Record<PropertyKey, any>, key: PropertyKey): boolean
   return (
     hasOwn.call(src, key) &&
     (lookupGetter.call(src, key) !== undefined || lookupSetter.call(src, key) !== undefined)
+  );
+}
+
+// Own accessors, and a class's prototype getters (they run on the proxy).
+function isAccessorKey(src: Record<PropertyKey, any>, key: PropertyKey): boolean {
+  return (
+    isOwnAccessor(src, key) ||
+    (key !== "__proto__" && !hasOwn.call(src, key) && lookupGetter.call(src, key) !== undefined)
   );
 }
 
@@ -828,6 +835,12 @@ export function adoptPB(
     if (target.ovl) materializePB(target);
     base = target.pb!;
   } else base = target.v;
+  // #4146 for an adoption (#5005): before a user's adoption swaps a HELD
+  // container's staging, its keys get their leaves, born from the two frames,
+  // so a change stages on its key as a trap write's would (an array's keys
+  // stage as its setter's do).
+  if (userWrite && (target.k as any)?._config & CONFIG_HELD && !Array.isArray(base))
+    for (const key in { ...base, ...incoming }) deferredReleases.add(getNode(target, key));
   if (directCommit) {
     target.pb = null;
     if (target.k !== null) target.k._value = incoming;
@@ -1159,7 +1172,7 @@ function notifyWrites(t: StoreTarget): void {
         // falls through so the cleared-acc hot read serves it (#3949);
         // an own getter's descriptor has no `value`, so the compare below
         // would otherwise keep the getter's result (or FORCE) for `undefined`.
-        (node as any).acc = isOwnAccessor(pb, key);
+        (node as any).acc = isAccessorKey(pb, key);
         const od = Object.getOwnPropertyDescriptor(old, key);
         const nd = Object.getOwnPropertyDescriptor(pb, key);
         if (!nd || nd.get || nd.set) {
@@ -1325,7 +1338,7 @@ export function notifyKeyDiff(
     (node as any).acc === true ||
     (probe && hasOwn.call(neu, key) && lookupGetter.call(neu, key) !== undefined)
   ) {
-    (node as any).acc = isOwnAccessor(neu, key);
+    (node as any).acc = isAccessorKey(neu, key);
     const od = Object.getOwnPropertyDescriptor(old, key);
     const nd = Object.getOwnPropertyDescriptor(neu, key);
     // Data descriptors fall through, as in notifyWrites (#3949).
@@ -1786,9 +1799,9 @@ function serveDataKey(
   // and a call here showed on CodSpeed as −6 to −9% on the store reads
   // (#4729, third round); the optimistic hook's carrier read takes the
   // function.
-  if (target.s) return serveShallow(target, key, v);
   if (target.ch && !chained && v !== null && typeof v === "object" && v[$TARGET]?.px !== v)
     v = resolveChainedRaw(target, key, v);
+  if (target.s) return serveShallow(target, key, v);
   if (node !== undefined) {
     if ((node as any).pxv === v && v !== undefined) return draftServe(target, (node as any).px);
     if (!isWrappable(v)) return v;
@@ -1811,11 +1824,11 @@ export function serveKeyValue(
   chained: boolean,
   node?: Signal<any>
 ): any {
-  if (target.s) return serveShallow(target, key, v);
   // A derive's draft wrapper answers `$TARGET` without being a proxy: the
   // inner store's alias (#3767), resolved like a raw (#3859).
   if (target.ch && !chained && v !== null && typeof v === "object" && v[$TARGET]?.px !== v)
     v = resolveChainedRaw(target, key, v);
+  if (target.s) return serveShallow(target, key, v);
   if (node !== undefined) {
     if ((node as any).pxv === v && v !== undefined) return draftServe(target, (node as any).px);
     if (!isWrappable(v)) return v;
@@ -2275,7 +2288,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       let acc: boolean;
       if (node0 !== undefined) acc = (node0 as any).acc === true;
       else if (!inDraft(target) && getObserver() !== null) {
-        acc = isOwnAccessor(src, key);
+        acc = isAccessorKey(src, key);
         if (src === (target.pb ?? target.v)) accProbe = acc ? 1 : 0;
       } else acc = false;
       if (acc) {
