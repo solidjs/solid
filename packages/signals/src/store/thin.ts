@@ -369,6 +369,9 @@ function inDraft(t: Target): boolean {
   if (writing !== 0) {
     const s = t._fam ?? PLAIN;
     if (scopes[0] === s || scopes.includes(s)) return true;
+    // A store with a setter is written from any store's open setter; an
+    // optimistic setter's writes are its own store's guesses.
+    if (userWrite && t._fam?.ow && !(scopes[scopes.length - 1] as StoreFamily).opt) return true;
   }
   return writeOverride && t._fam !== null;
 }

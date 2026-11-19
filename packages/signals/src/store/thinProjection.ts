@@ -523,6 +523,7 @@ export function createThinStoreDerived<T extends object = {}>(
   options?: ProjectionOptions
 ): [Refreshable<Store<T>>, (f: (draft: T) => T | void) => void] {
   const store = createProjectionInternal(fn, seed, options);
+  (store as any)[$THIN]._fam.ow = true;
   return [store, (f: (draft: T) => T | void): void => storeSetter(store, f)];
 }
 

@@ -1,6 +1,8 @@
 import {
   action,
   affects,
+  createOptimisticStore,
+  createProjection,
   createStore,
   flush,
   isPending,
@@ -125,5 +127,42 @@ describe("a derived store's view of another store", () => {
     await done;
     flush();
     expect(isPending(() => view.address.city)).toBe(false);
+  });
+
+  // No store owns its objects from the outside: a plain store's setter
+  // writes a `createStore(fn)` row it holds, and the write is the view's.
+  // A projection owns its proxies, and an optimistic store's writes are its
+  // actions' guesses: neither is written through another store.
+  it("a plain store's setter writes a derived store's row it holds", () => {
+    const [person] = createStore({ name: "Alice" });
+    const [view] = createStore<any>(() => ({ row: person }));
+    flush();
+    const [card, setCard] = createStore<any>({ row: view.row });
+    expect(card.row).toBe(view.row);
+    setCard(d => void (d.row.name = "Bob"));
+    flush();
+    expect(card.row.name).toBe("Bob");
+    expect(view.row.name).toBe("Bob");
+    expect(person.name).toBe("Alice");
+  });
+
+  it("a projection's row is not written through another store", () => {
+    const view = createProjection<any>(() => ({ row: { name: "Own" } }), {});
+    flush();
+    const [card, setCard] = createStore<any>({ row: view.row });
+    setCard(d => void (d.row.name = "Bob"));
+    flush();
+    expect(card.row.name).toBe("Own");
+    expect(view.row.name).toBe("Own");
+  });
+
+  it("an optimistic store's row is not written through another store", () => {
+    const [view] = createOptimisticStore<any>(() => ({ row: { name: "Own" } }), {});
+    flush();
+    const [card, setCard] = createStore<any>({ row: view.row });
+    setCard(d => void (d.row.name = "Bob"));
+    flush();
+    expect(card.row.name).toBe("Own");
+    expect(view.row.name).toBe("Own");
   });
 });

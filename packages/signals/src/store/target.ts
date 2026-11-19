@@ -23,6 +23,9 @@ import type { Computed, Owner, Signal } from "../core/types.js";
 export interface StoreFamily {
   /** Optimistic family (S4): the setter's writes are guesses. */
   opt?: boolean;
+  /** `createStore(fn)`: a store with a setter is written from any open
+   * setter, as a plain store is; a projection owns its proxies. */
+  ow?: boolean;
   /** Targets carrying a lane value on one of their nodes (reads compose the
    * view over the truth — optimistic.ts); dropped lazily once none is. */
   _overlaid?: Set<StoreTarget>;
