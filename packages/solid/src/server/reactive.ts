@@ -347,9 +347,10 @@ export function from<T>(
     | ((setter: Setter<T>) => () => void)
     | {
         subscribe: (fn: (v: T) => void) => (() => void) | { unsubscribe: () => void };
-      }
+      },
+  initialValue?: T
 ): Accessor<T> {
-  const [s, set] = createSignal<T | undefined>(undefined, { equals: false }) as [
+  const [s, set] = createSignal<T | undefined>(initialValue, { equals: false }) as [
     Accessor<T>,
     Setter<T>
   ];
