@@ -979,13 +979,19 @@ export function heldMountUnder(o: Owner | null, l: Transaction | null): boolean 
       continue;
     }
     const t = resolveTx(r._x!._transaction!);
+    const holds = holdsOn(t);
     if (
       // A memo mount is on screen through the render effect that reads it
       // (#4806: a fragment, text beside a hole, returned to the slot). One
       // a memo reads is that memo's: a boundary the mount builds around it
       // shows its fallback (#3851).
       ((r as any)._type ? hiddenHook?.(r) : !shownBy(r)) ||
-      !(r._statusFlags & STATUS_PENDING || holdsOn(t))
+      !(r._statusFlags & STATUS_PENDING || holds) ||
+      // Pending only on `l`'s reveal (a node born in `l`): it waits on `l`, not `l` on it (S-46).
+      (l !== null &&
+        !holds &&
+        !r._x!._pendingSources?.size &&
+        (l._links || [l]).some(u => u._reruns.indexOf(r) !== -1))
     )
       continue;
     for (let p: Owner | null = r._parent; p !== null; p = p._parent)
