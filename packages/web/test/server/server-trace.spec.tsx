@@ -803,6 +803,71 @@ describe("a shared-cache policy a middleware sets before next() (#4967)", () => 
   });
 });
 
+describe("a handler's own Response a shared cache may store (#5050)", () => {
+  // A route handler or middleware answer leaves through commitEventResponse.
+  // The rule is the document's (#4938): the headers it leaves with decide.
+  const leave = (response: Response, withStub = true, policy?: string) => {
+    const evt: any = withStub
+      ? event({ traceparent: INCOMING })
+      : {
+          request: new Request("https://app.example/", { headers: { traceparent: INCOMING } }),
+          locals: {}
+        };
+    return inScope(evt, () => {
+      if (policy) httpHeader("Cache-Control", policy);
+      return commitEventResponse(response, evt);
+    });
+  };
+  const traced = (response: Response) => serverTiming(response.headers).has("traceparent");
+
+  test("its own public or s-maxage Cache-Control withholds the trace", () => {
+    for (const cacheControl of ["public, s-maxage=600", "max-age=0, s-maxage=300"]) {
+      const redirect = new Response(null, {
+        status: 301,
+        headers: { Location: "/", "Cache-Control": cacheControl }
+      });
+      expect(traced(leave(redirect))).toBe(false);
+      expect(
+        traced(leave(new Response("{}", { headers: { "Cache-Control": cacheControl } }), false))
+      ).toBe(false);
+    }
+    expect(
+      traced(leave(new Response("ok", { headers: { "CDN-Cache-Control": "max-age=60" } })))
+    ).toBe(false);
+  });
+
+  test("a policy set on the stub before next() withholds it too", () => {
+    expect(traced(leave(new Response("ok"), true, "public, max-age=0, s-maxage=600"))).toBe(false);
+  });
+
+  test("the response's own private policy wins over the stub's (the stub only fills gaps)", () => {
+    const own = new Response("ok", { headers: { "Cache-Control": "private, max-age=60" } });
+    expect(traced(leave(own, true, "public, s-maxage=600"))).toBe(true);
+    expect(traced(leave(new Response("ok", { headers: { "Cache-Control": "no-store" } })))).toBe(
+      true
+    );
+    expect(traced(leave(new Response("ok")))).toBe(true);
+  });
+
+  test("a POST answer keeps it, whatever Cache-Control it carries", () => {
+    const evt = event({ traceparent: INCOMING });
+    const post: any = {
+      ...evt,
+      request: new Request("https://app.example/", {
+        method: "POST",
+        headers: { traceparent: INCOMING }
+      })
+    };
+    const out = inScope(post, () =>
+      commitEventResponse(
+        new Response("ok", { headers: { "Cache-Control": "public, max-age=60" } }),
+        post
+      )
+    );
+    expect(traced(out)).toBe(true);
+  });
+});
+
 describe("<meta> tags in the shell", () => {
   test("a document gets them inside <head>, after the shell's static charset — string and stream", async () => {
     const evt = event({ traceparent: INCOMING });

@@ -45,6 +45,7 @@ import {
   mergeServerTiming,
   traceMetaMarkup,
   withholdForSharedCache,
+  sharedCacheMayStore,
   type TraceContext
 } from "./trace.js";
 import { observeRender, timesServerWork } from "./server-observe.js";
@@ -7194,6 +7195,19 @@ export function commitEventResponse(response: Response, event?: RequestEvent): R
  */
 export function commitEventResponse(response, event = getRequestEvent()) {
   const stub = event && event.response;
+  // #5050 (#4938, #3985 for a handler's own Response): an answer a shared
+  // cache may store tells no viewer the request's trace. The headers it
+  // leaves with decide: the response's own, then the stub's, which only
+  // fill gaps. Only a GET or HEAD answer is stored (the server-function
+  // road's rule); a POST's trace rides as before.
+  // A committed stub's head already left with whatever it said.
+  const method = event && event.request && event.request.method;
+  if ((method === "GET" || method === "HEAD") && !(stub && stub.committed)) {
+    const leaving = name =>
+      response.headers.get(name) ?? (stub && stub.headers ? stub.headers.get(name) : null);
+    if (sharedCacheMayStore(leaving("Cache-Control"), leaving("CDN-Cache-Control")))
+      traceForEvent(event!).emit = false;
+  }
   if (!stub || !stub.headers || stub.committed) {
     // No head to fold. The trace is the REQUEST's, not the stub's: an event
     // without a `response` (the server-function handler's default event, a
