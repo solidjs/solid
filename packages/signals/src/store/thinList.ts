@@ -11,6 +11,7 @@ import { context, read, untrack } from "../core/core.js";
 import { attrHooks } from "../core/attribution-hooks.js";
 import { link } from "../core/graph.js";
 import { signalHook } from "../core/identities.js";
+import { resolveTx, txOf } from "../core/scheduler.js";
 import type { Signal } from "../core/types.js";
 import {
   $THIN,
@@ -47,6 +48,15 @@ import {
 import { isWrappable } from "./types.js";
 
 const isObj = (v: any): boolean => v !== null && typeof v === "object";
+/** A list key's index: -1 for `length`, -2 for any other key. */
+const ix = (key: PropertyKey): number =>
+  typeof key === "number"
+    ? key
+    : key === "length"
+      ? -1
+      : typeof key === "string" && "" + (+key >>> 0) === key
+        ? +key
+        : -2;
 const protoOf = Object.getPrototypeOf;
 
 function same(t: Target, a: any[], b: any[]): boolean {
@@ -263,8 +273,46 @@ function screen(t: Target): any[] | null {
   return r === null ? null : allRows(t, r);
 }
 
+/** Leaving a chain: the rows it showed are the list's own. */
+function unchain(t: Target, keys: PropertyKey[], own: (key: PropertyKey) => any): void {
+  const rows: any[] = [];
+  for (const key of keys) {
+    const i = ix(key);
+    if (i >= 0) rows[i] = own(key);
+  }
+  const k = keyNode(t);
+  if (k._value === CHAINED) k._value = rows;
+  if (k._pendingValue === CHAINED) k._pendingValue = rows;
+}
+const eq =
+  (t: Target) =>
+  (a: any[], b: any[]): boolean =>
+    same(t, a, b);
+/** A record that became a list: its key node is its arrangement. */
+function root(t: Target): void {
+  if (t.k !== null) ((t.k._equals = eq(t)), put(t, t.k, () => t.v));
+}
+/** The rows a guess made answer the truth's rows of their keys: a row
+ * keeps its proxy and readers (D-34). */
+function made(t: Target, byKey: Map<any, any>, keyOf: (row: any) => any): Set<any> | null {
+  const shown = screen(t);
+  let out: Set<any> | null = null;
+  if (shown !== null)
+    for (const g of shown) {
+      const k = keyOf(g);
+      if (k !== undefined && !byKey.has(k)) (byKey.set(k, g), (out ??= new Set()).add(g));
+    }
+  return out;
+}
+const hold = (t: Target): any => resolveTx(txOf(t.k!)._parent ?? txOf(t.k!));
+
 export const thinList: ThinList = {
-  same,
+  ix,
+  eq,
+  unchain,
+  root,
+  made,
+  hold,
   value,
   get,
   has,

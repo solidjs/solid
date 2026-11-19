@@ -538,7 +538,7 @@ function slot<V>(t: Target, v: V, eq: (a: V, b: V) => boolean, key: PropertyKey)
  * so a program with stores that declares no mark carries no walk. A Box
  * value is not wrappable, so `target` drops it. */
 GlobalQueue._storeEngine = {
-  node: (t: Target, key: PropertyKey) => (t.l && ix(key) !== -2 ? keyNode(t) : nodeOf(t, key)),
+  node: (t: Target, key: PropertyKey) => (t.l && L!.ix(key) !== -2 ? keyNode(t) : nodeOf(t, key)),
   target: (v: any, fam: StoreFamily | null): Target | undefined =>
     isThin(v) ? v[$THIN] : isWrappable(v) ? ((fam?.map as any) ?? targets).get(v) : undefined,
   keys: keysOf,
@@ -549,7 +549,7 @@ GlobalQueue._storeEngine = {
 /** The logical value of `key` in the reader's frame (ABSENT when not own). */
 function valueOf(t: Target, key: PropertyKey, mode = 0): any {
   if (t.l) {
-    const i = ix(key);
+    const i = L!.ix(key);
     if (i !== -2) return L!.value(t, i, mode);
   }
   const node = t.n?.[key];
@@ -599,7 +599,12 @@ const CHAINED: any[] = [];
  * it, so a bundle without optimistic stores carries none of it). */
 let L: ThinList | null = null;
 export interface ThinList {
-  same(t: Target, a: any[], b: any[]): boolean;
+  ix(key: PropertyKey): number;
+  eq(t: Target): (a: any[], b: any[]) => boolean;
+  unchain(t: Target, keys: PropertyKey[], own: (key: PropertyKey) => any): void;
+  root(t: Target): void;
+  made(t: Target, byKey: Map<any, any>, keyOf: (row: any) => any): Set<any> | null;
+  hold(t: Target): any;
   value(t: Target, i: number, mode: number): any;
   get(t: Target, i: number, tracked: boolean): any;
   has(t: Target, i: number, tracked: boolean): boolean;
@@ -612,21 +617,13 @@ export const installThinList = (l: ThinList): void => void (L = l);
 function keyNode(t: Target): Signal<any> {
   if (t.k === null) {
     t.k = t.l
-      ? slot(t, t.c !== null ? CHAINED : t.v, (a, b) => L!.same(t, a, b), $TRACK)
+      ? slot(t, t.c !== null ? CHAINED : t.v, L!.eq(t), $TRACK)
       : slot(t, 0, isEqual, $TRACK);
     if (t._fam !== null) t._fam.live.add(t as any);
   }
   return t.k!;
 }
 /** An index (>= 0), "length" (-1), or neither (-2). */
-const ix = (key: PropertyKey): number =>
-  typeof key === "number"
-    ? key
-    : key === "length"
-      ? -1
-      : typeof key === "string" && "" + (+key >>> 0) === key
-        ? +key
-        : -2;
 function track(t: Target): void {
   if (!inDraft(t) && getObserver() !== null) {
     read(keyNode(t));
@@ -691,7 +688,7 @@ function write(t: Target, key: PropertyKey, v: any, cur: any = write): void {
   if (userWrite && t.c !== null && t._fam !== null && !t._fam.opt)
     t.r ? privatize(t) : overlays(t._fam).has(t) || overlays(t._fam).set(t, null);
   if (t.l) {
-    const i = ix(key);
+    const i = L!.ix(key);
     if (i !== -2) return L!.write(t, i, v);
   }
   // No write has moved this target off its raw: every node holds the seed.
@@ -1091,7 +1088,7 @@ const BASE: ProxyHandler<any> = {
         data: { strictRead, property: key, source: "store" }
       });
     if (t.l && !sym) {
-      const i = ix(key);
+      const i = L!.ix(key);
       if (i !== -2) return L!.get(t, i, tracked);
     }
     if (node === undefined) {
@@ -1149,7 +1146,7 @@ const BASE: ProxyHandler<any> = {
     if (key === $THIN || key === $PROXY || key === $TRACK) return true;
     if (t._fam !== null) pullFamily(t);
     if (t.l) {
-      const i = ix(key);
+      const i = L!.ix(key);
       if (i !== -2) return L!.has(t, i, !inDraft(t) && getObserver() !== null);
     }
     if (!inDraft(t) && getObserver() !== null) {
@@ -1321,7 +1318,7 @@ function chainHas(t: Target, key: PropertyKey): boolean {
   if (t._fam !== null) pullFamily(t);
   const tr = chainTracked(t);
   if (t.l) {
-    const i = ix(key);
+    const i = L!.ix(key);
     if (i !== -2) return L!.has(t, i, tr);
   }
   let node = t.n?.[key];
@@ -1337,7 +1334,7 @@ function chainGet(t: Target, key: PropertyKey, receiver: any): any {
   const tr = chainTracked(t);
   if (key === $TRACK) return (track(t), inner(t, () => t.c[$TRACK]));
   if (t.l) {
-    const i = ix(key);
+    const i = L!.ix(key);
     if (i !== -2) return L!.get(t, i, tr);
   }
   let node = t.n?.[key];
@@ -1499,20 +1496,14 @@ function unchain(
     if (node._pendingValue === DELEGATE) node._pendingValue = own(key);
   };
   if (t.n !== null) for (const key of Reflect.ownKeys(t.n)) fix(t.n[key as any], key);
-  const rows: any[] = [];
-  for (const key of keysOf(it))
-    if (t.l && ix(key) !== -2) ix(key) < 0 || (rows[ix(key)] = own(key));
-    else if (t.n?.[key] === undefined) nodeOf(t, key, own(key));
+  // A list's rows are its arrangement's, not nodes.
+  const row = (key: PropertyKey) => t.l && L!.ix(key) !== -2;
+  for (const key of keysOf(it)) if (t.n?.[key] === undefined && !row(key)) nodeOf(t, key, own(key));
   // A seed key the chain lacks reads absent too.
   for (const key of ownOf(t.v))
-    if (t.n?.[key as any] === undefined && !(t.l && ix(key) !== -2)) nodeOf(t, key, ABSENT);
-  const fresh = t.k === null;
+    if (t.n?.[key as any] === undefined && !row(key)) nodeOf(t, key, ABSENT);
+  if (t.l) L!.unchain(t, keysOf(it), own);
   t.c = null;
-  if (t.l) {
-    const k = keyNode(t);
-    if (fresh || k._value === CHAINED) k._value = rows;
-    if (k._pendingValue === CHAINED) k._pendingValue = rows;
-  }
   t.w = t.gone = true; // its nodes hold the chain's values, not the raw's
   if (t.cv !== null) put(t, t.cv, (x: number) => x + 1);
 }
@@ -1717,8 +1708,7 @@ export function thinListRoot(proxy: any): void {
   if (!t.r && t.c === null) {
     t._fam!.map.set((t.v = []), t as any);
     t.r = true;
-    if ((t.l = !!t._fam!.opt) && t.k !== null)
-      ((t.k._equals = (a: any, b: any) => L!.same(t, a, b)), put(t, t.k, () => t.v));
+    if ((t.l = !!t._fam!.opt)) L!.root(t);
   }
 }
 /** Keyed merge of `next` into the store (inside a setter). */
@@ -1899,12 +1889,7 @@ function reconcileTarget(
           // The truth answering a guessed row (a push the user made) takes
           // that row's identity: the row keeps its proxy and readers (D-34,
           // store/optimistic.ts `pairRows`).
-          const shown = t.l ? L!.screen(t) : null;
-          if (shown !== null)
-            for (const g of shown) {
-              const k = keyOf(map, keyFn!, g);
-              if (k !== undefined && !byKey.has(k)) (byKey.set(k, g), (made ??= new Set()).add(g));
-            }
+          if (t.l) made = L!.made(t, byKey, g => keyOf(map, keyFn!, g));
           // A returned answer pairs a row the list no longer holds with the
           // guessed target of its key, as a draft's write does (#4907, the
           // set trap's keyed pairing): the row keeps its guess.
@@ -1920,7 +1905,7 @@ function reconcileTarget(
       // The truth of a row the guess made is the guess's hold's until it
       // commits: the screen keeps the row as guessed (D-34).
       const hi = holdIn;
-      if (made?.has(pv)) holdIn = resolveTx(txOf(t.k!)._parent ?? txOf(t.k!));
+      if (made?.has(pv)) holdIn = L!.hold(t);
       const m = merge(t, next, map, keyFn, pv, nv, nk !== undefined);
       holdIn = hi;
       write(t, i, m, t._fam === null ? cur : write);
@@ -2004,7 +1989,7 @@ export function thinSnapshot(
     if (t.r) copy.length = valueOf(t, "length");
     for (const k of keysOf(t)) {
       if (t.r && k === "length") continue;
-      if (t.l && ix(k) !== -2) {
+      if (t.l && L!.ix(k) !== -2) {
         copy[k] = thinSnapshot(valueOf(t, k), seen, fam);
         continue;
       }
