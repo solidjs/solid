@@ -36,6 +36,28 @@ describe("solid-element", () => {
     expect(element.shadowRoot!.textContent).toBe("2");
   });
 
+  test("declared props are enumerable, so they can be forwarded (#5058)", () => {
+    const tag = nextTag("enumerable-props");
+    let keys: string[] = [];
+    let copy: Record<string, unknown> = {};
+    const Child = (props: { label: string }) => <span>{props.label}</span>;
+    customElement(tag, { label: "hello" }, props => {
+      keys = Object.keys(props);
+      copy = { ...props };
+      return <Child {...props} />;
+    });
+
+    const element = document.createElement(tag) as HTMLElement & { label: string };
+    document.body.append(element);
+
+    expect(keys).toEqual(["label"]);
+    expect(copy).toEqual({ label: "hello" });
+    expect(element.shadowRoot!.textContent).toBe("hello");
+    element.label = "updated";
+    flush();
+    expect(element.shadowRoot!.textContent).toBe("updated");
+  });
+
   test("parses observed attributes into reactive props", () => {
     const tag = nextTag("reactive-attr");
     customElement(tag, { label: "initial" }, props => <span>{props.label}</span>);

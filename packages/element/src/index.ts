@@ -18,6 +18,7 @@ function createProps<T extends object>(raw: T) {
     const [get, set] = createSignal(() => raw[keys[i]]);
     Object.defineProperty(props, keys[i], {
       get,
+      enumerable: true,
       set(v) {
         set(() => v);
       }
