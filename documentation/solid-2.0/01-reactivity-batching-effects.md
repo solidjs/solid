@@ -44,7 +44,7 @@ button.onclick = () => setCount((c) => c + 1);
 
 ### Strict top-level access (new in 2.0)
 
-**What’s new:** In component body **top level**, reactive reads (signal, signal-backed prop, store property) **warn in dev** unless they are inside a reactive scope (e.g. JSX, `createMemo`, `createEffect`) or explicitly wrapped in `untrack` (a deliberate one-time read, not a way to clear the warning). This steers authors to avoid accidental dependencies that would re-run the component in async or lose reactivity.
+**What’s new:** In component body **top level**, reactive reads (signal, signal-backed prop, store property) **warn in dev** unless they are inside a reactive scope (e.g. JSX, `createMemo`, `createEffect`) or explicitly wrapped in `untrack` (a deliberate one-time read of a value never downstream of async, not a way to clear the warning). This steers authors to avoid accidental dependencies that would re-run the component in async or lose reactivity.
 
 ```js
 // New: top-level read in component body warns unless wrapped

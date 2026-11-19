@@ -98,7 +98,11 @@ Pick the repair by what the value is for:
   effect.
 - A deliberate one-time snapshot that must never update: wrap the read in
   `untrack(() => props.value)` to say so. This is the author deciding the
-  value never follows its source, not a way to clear the warning.
+  value never follows its source, not a way to clear the warning. It is
+  only safe when the value is never downstream of async. A value that comes
+  from async data can still be pending (the read throws) or mid-transition
+  (the snapshot is the old committed value). A component rarely knows where
+  its props come from, so a prop is seldom safe to snapshot.
 
 Coding agents: do not wrap the read in `untrack()` to make the warning go
 away. That keeps the bug (the value still never updates) and only hides the

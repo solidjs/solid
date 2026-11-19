@@ -423,7 +423,7 @@ function Snapshot(props) {
 }
 ```
 
-`untrack()` is the explicit form of a one-time read: use it only when the value must never follow its source. It silences the warning without changing what happens, so when the value should update, move the read to where it is used instead (JSX, a memo, an effect's compute, the event handler, or an accessor passed to the hook). Coding agents should not use `untrack` to clear this warning. Seed local state with a writable derived signal (`createSignal(() => props.initial)`) and form controls with `defaultValue`.
+`untrack()` is the explicit form of a one-time read: use it only when the value must never follow its source and is never downstream of async. A value that comes from async data can still be pending (the read throws `PENDING_ASYNC_UNTRACKED_READ`) or mid-transition (the snapshot is the old committed value), and a component rarely knows where its props come from. It silences the warning without changing what happens, so when the value should update, move the read to where it is used instead (JSX, a memo, an effect's compute, the event handler, or an accessor passed to the hook). Coding agents should not use `untrack` to clear this warning. Seed local state with a writable derived signal (`createSignal(() => props.initial)`) and form controls with `defaultValue`.
 
 This also fires for store property access in the same contexts.
 
