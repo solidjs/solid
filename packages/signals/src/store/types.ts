@@ -115,8 +115,8 @@ export function isRawValue(value: any): boolean {
   return rawValuesUsed && rawValues.has(value);
 }
 
-/** Mark a value so no store ever wraps it (sticky; it reads as a leaf).
- * A class marks every instance of it and its subclasses. */
+/** Keep a value out of store wrapping: every store serves it as is. Pass a
+ * class to keep all instances of it and its subclasses raw. */
 export function markRaw<T>(value: T): T {
   if (typeof value === "function") {
     if (value.prototype) wrappableProtos.set(value.prototype, false);
