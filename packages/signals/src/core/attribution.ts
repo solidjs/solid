@@ -33,7 +33,7 @@ import {
   ownerPath,
   reportDiagnostic
 } from "./dev.js";
-import { blockersOf, GlobalQueue } from "./scheduler.js";
+import { blockersOf, GlobalQueue, viewHold } from "./scheduler.js";
 import type { Computed, Owner, Signal } from "./types.js";
 
 /**
@@ -2947,7 +2947,9 @@ function trackHoldStart(t: Transition): void {
   // tracking: their settle must wait for the transition either way (see flushEnd).
   markNavigationsHeld(t);
   markInteractionsHeld(t);
-  if (options.holds === false) return;
+  // A flush parked while a view is open waits on the view's hold, which the
+  // tool closes, not on the page's async work: no hold to judge (view.ts).
+  if (options.holds === false || viewHold !== null) return;
   const state = holdState(t);
   state.flushes++;
   if (t._open > 0) state.action = true;
@@ -2958,6 +2960,8 @@ function trackHoldStart(t: Transition): void {
 
 function trackHoldMerge(target: Transition, outgoing: Transition): void {
   mergeInteractionsHeld(target, outgoing);
+  // Merged while a view is open: both are the view's hold now (trackHoldStart).
+  if (viewHold !== null) return void (holdStates.delete(target), holdStates.delete(outgoing));
   const from = holdStates.get(outgoing);
   if (from === undefined) return;
   holdStates.delete(outgoing);
@@ -3932,7 +3936,9 @@ function shownOf(n: Signal<any> | Computed<any>): unknown {
 
 /** The screen shows `n`'s optimistic guess (not a derived override or a companion). */
 function showsGuess(n: Signal<any> | Computed<any>): boolean {
-  return (n._config & CONFIG_GUESS) !== 0 && !!n._x?._shown;
+  // A guess shown while a view is open is the view's pin, not a promise the
+  // page made: its lift at the view's landing is no revert (view.ts).
+  return (n._config & CONFIG_GUESS) !== 0 && !!n._x?._shown && viewHold === null;
 }
 
 /** Its shown value can still change without a new staging: staged, held, or on a lane. */
