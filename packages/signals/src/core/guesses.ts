@@ -9,7 +9,8 @@ import {
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
   CONFIG_SLOT_NODE,
-  NOT_PENDING
+  NOT_PENDING,
+  REACTIVE_ZOMBIE
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { ext } from "./core.js";
@@ -32,6 +33,7 @@ import {
   question,
   resolveTx,
   schedule,
+  staleReader,
   txOf,
   type Transaction
 } from "./scheduler.js";
@@ -196,6 +198,11 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     covers.delete(n);
     holdNode(n, parent);
     n._pendingValue = value;
+    // A zombie reading the slot is still on screen (D-9). If this flush
+    // parks, its queued pass is cancelled: the correction's landing re-runs
+    // it, or it keeps showing the guess (#5077).
+    for (let s = n._subs; s; s = s._nextSub)
+      if (s._sub._flags & REACTIVE_ZOMBIE) staleReader(s._sub, parent);
     if (n._subs !== null) insertSubs(n);
   } else {
     landBeneath(n, value);
