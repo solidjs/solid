@@ -782,6 +782,14 @@ describe("Tagged JSX Integration Tests", () => {
         dispose();
       }));
 
+    it("explains how to write a literal less-than sign in text", () =>
+      createRoot(dispose => {
+        expect(() => html`<div>1 < 2</div>`).toThrow(
+          'To include a literal "<" in text, use &lt; or ${"<"}.'
+        );
+        dispose();
+      }));
+
     it("throws for spread of a non-object value", () =>
       createRoot(dispose => {
         const invalid = 42;
