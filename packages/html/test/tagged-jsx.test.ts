@@ -430,6 +430,20 @@ describe("Tagged JSX Integration Tests", () => {
   });
 
   describe("Custom Components", () => {
+    it("lets nested children override a function-valued children prop", () =>
+      createRoot(dispose => {
+        const Comp = (props: { children: unknown }) => props.children;
+        const localHtml = html.define({ Comp });
+
+        expect(localHtml`<Comp children=${() => "fallback"}>real</Comp>`).toBe("real");
+        expect(localHtml`<Comp children="fallback">real</Comp>`).toBe("real");
+        expect(
+          localHtml`<Comp ...${{ children: "spread" }} children=${() => "fallback"}>real</Comp>`
+        ).toBe("real");
+        expect(localHtml`<Comp children=${() => "fallback"} />`).toBe("fallback");
+        dispose();
+      }));
+
     it("passes children correctly to registered components", () =>
       createRoot(dispose => {
         const Wrapper = (props: { children: any }) => html`<section>${props.children}</section>`;
