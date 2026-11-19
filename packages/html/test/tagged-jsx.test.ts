@@ -544,6 +544,32 @@ describe("Tagged JSX Integration Tests", () => {
   });
 
   describe("Special Elements and Namespaces", () => {
+    it("preserves whitespace-only text in pre and textarea", () =>
+      createRoot(dispose => {
+        // prettier-ignore
+        const pre = html`<pre> </pre>` as HTMLPreElement;
+        // prettier-ignore
+        const textarea = html`<textarea> </textarea>` as HTMLTextAreaElement;
+
+        expect(pre.textContent).toBe(" ");
+        expect(textarea.value).toBe(" ");
+        dispose();
+      }));
+
+    it("matches HTML parsing of a leading newline in pre and textarea", () =>
+      createRoot(dispose => {
+        // prettier-ignore
+        const pre = html`<pre>\nhello</pre>` as HTMLPreElement;
+        // prettier-ignore
+        const textarea = html`<textarea>\nhello</textarea>` as HTMLTextAreaElement;
+        const parsed = document.createElement("template");
+        parsed.innerHTML = "<pre>\nhello</pre><textarea>\nhello</textarea>";
+
+        expect(pre.textContent).toBe(parsed.content.querySelector("pre")?.textContent);
+        expect(textarea.value).toBe(parsed.content.querySelector("textarea")?.value);
+        dispose();
+      }));
+
     it("treats <script> and <style> as raw text", () =>
       createRoot(dispose => {
         const style = html` <style>

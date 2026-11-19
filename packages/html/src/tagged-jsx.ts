@@ -115,10 +115,12 @@ function createHtml() {
     }
   };
 
-  const buildNodes = (node: ChildNode, ns?: string): Node => {
+  const buildNodes = (node: ChildNode, ns?: string, stripFirstLF = false): Node => {
     switch (node.type) {
       case TEXT_NODE:
-        textTemplate.innerHTML = trustedHTML(node.value);
+        textTemplate.innerHTML = trustedHTML(
+          stripFirstLF && node.value.startsWith("\n") ? node.value.slice(1) : node.value
+        );
         return document.createTextNode(textTemplate.content.textContent ?? "");
       case EXPRESSION_NODE:
         return document.createComment("+");
@@ -163,7 +165,13 @@ function createHtml() {
             : elem.namespaceURI === MATHML_NS
               ? MATHML_NS
               : undefined;
-        childRoot.append(...node.children.map(child => buildNodes(child, childNs)));
+        const stripChildLF =
+          childNs === undefined && (node.name === "pre" || node.name === "textarea");
+        childRoot.append(
+          ...node.children.map((child, index) =>
+            buildNodes(child, childNs, stripChildLF && index === 0)
+          )
+        );
 
         return elem;
     }
