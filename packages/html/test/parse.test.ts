@@ -223,6 +223,15 @@ describe("Attributes", () => {
 });
 
 describe("whitespace handling", () => {
+  it("preserves whitespace-only text in pre and textarea", () => {
+    expect(jsx`<pre> </pre>`.children[0]).toMatchObject({
+      children: [{ type: TEXT_NODE, value: " " }]
+    });
+    expect(jsx`<textarea> </textarea>`.children[0]).toMatchObject({
+      children: [{ type: TEXT_NODE, value: " " }]
+    });
+  });
+
   it("preserves whitespace in text nodes in root", () => {
     const ast = jsx`  Hello <div>   Hello   World   </div> !   `;
     expect(ast).toEqual({

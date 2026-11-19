@@ -112,11 +112,18 @@ function createHtml() {
     }
   };
 
-  const buildNodes = (node: ChildNode, ns?: string, rawText = false): Node => {
+  const buildNodes = (
+    node: ChildNode,
+    ns?: string,
+    rawText = false,
+    stripFirstLF = false
+  ): Node => {
     switch (node.type) {
       case TEXT_NODE:
         if (rawText) return document.createTextNode(node.value);
-        textTemplate.innerHTML = trustedHTML(node.value);
+        textTemplate.innerHTML = trustedHTML(
+          stripFirstLF && node.value.startsWith("\n") ? node.value.slice(1) : node.value
+        );
         return document.createTextNode(textTemplate.content.textContent ?? "");
       case EXPRESSION_NODE:
         return document.createComment("+");
@@ -165,7 +172,13 @@ function createHtml() {
           elem.namespaceURI !== SVG_NS &&
           elem.namespaceURI !== MATHML_NS &&
           (node.name === "script" || node.name === "style");
-        childRoot.append(...node.children.map(child => buildNodes(child, childNs, childRawText)));
+        const stripChildLF =
+          childNs === undefined && (node.name === "pre" || node.name === "textarea");
+        childRoot.append(
+          ...node.children.map((child, index) =>
+            buildNodes(child, childNs, childRawText, stripChildLF && index === 0)
+          )
+        );
 
         return elem;
     }
