@@ -39,9 +39,6 @@ function createHtml() {
   const rawTextElements = new Set(RawTextElements);
   rawTextElements.delete("template");
 
-  // Walk over text, comment, and element nodes.
-  const walker = document.createTreeWalker(document, 129);
-
   const SVG_NS = "http://www.w3.org/2000/svg";
   const MATHML_NS = "http://www.w3.org/1998/Math/MathML";
   // `ns` is the namespace a static parent puts its children in, as the HTML
@@ -205,7 +202,7 @@ function createHtml() {
     }
 
     const element = node.template.content.firstChild!.cloneNode(true) as Element;
-    walker.currentNode = element;
+    const walker = document.createTreeWalker(element, 129);
 
     const walkNodes = (nodes: ChildNode[], walker: TreeWalker) => {
       for (const node of nodes) {

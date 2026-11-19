@@ -57,6 +57,19 @@ describe("Tagged JSX Integration Tests", () => {
   });
 
   describe("Attributes and Props", () => {
+    it("keeps the outer traversal when an attribute getter renders a nested template", () =>
+      createRoot(dispose => {
+        const title = () => (html`<i>inner</i>` as HTMLElement).textContent;
+        const outer = html`<div>
+          <span title=${title}>a</span><b title=${"yes"}>b</b>
+        </div>` as HTMLElement;
+
+        expect(outer.querySelector("span")?.getAttribute("title")).toBe("inner");
+        expect(outer.querySelector("b")?.getAttribute("title")).toBe("yes");
+        expect(outer.textContent).toBe("ab");
+        dispose();
+      }));
+
     it("handles complex attribute names and mixed values", () => {
       const [cls, setCls] = createSignal("active");
       let el!: HTMLElement;
