@@ -1069,6 +1069,8 @@ let heldDerivationHit = false;
 /** The open setter is a USER'S (`storeSetter(…, guard = true)`), not the
  * derive's draft or landing. */
 let userWrite = false;
+/** A hold whose staging the outermost user setter read from its draft (#5046). */
+let draftReadTx: Transaction | null = null;
 /** Is the open setter a user's? (reconcile.ts: a user's reconcile on an
  * optimistic family writes the draft.) */
 export function userWriting(): boolean {
@@ -1537,21 +1539,18 @@ function readSource(
     // from the future (L2: a read of something already held joins it): the
     // derive's whole result reveals with the action (core R31 / #3733:
     // "under the transaction and revealed with it"), not key by key. A
-    // user's setter reading its draft is no pass and joins nothing here.
-    if (writeOverride && !userWrite) {
+    // user's setter reading its draft is no pass: it notes the hold, and
+    // its writes join it at the setter's exit (#5046, as D-33's guess
+    // written after reading another hold's guess does).
+    if (userWrite !== writeOverride) {
       const leaf = key !== undefined ? target.n?.[key as any] : undefined;
-      if (leaf !== undefined) {
-        if ((leaf._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD)
-          joinPassTx(txOf(leaf));
-      } else {
-        const k = target.k;
-        if (
-          k !== null &&
-          (k._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
-          (key === undefined || heldKeyChanged(target, key))
-        )
-          joinPassTx(txOf(k));
-      }
+      const k = leaf ?? target.k;
+      if (
+        k != null &&
+        (k._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
+        (leaf !== undefined || key === undefined || heldKeyChanged(target, key))
+      )
+        userWrite ? (draftReadTx = txOf(k)) : joinPassTx(txOf(k));
     }
     return pb;
   }
@@ -2666,6 +2665,7 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
     // Outermost setter exit: emit write-time notifications (one node write
     // per changed observed key) so holds and lanes engage now.
     if (writing === 0 && pendingNotify.size) {
+      if (draftReadTx !== null) joinFuture(draftReadTx);
       const touched = [...pendingNotify];
       pendingNotify.clear();
       for (const t of touched) notifyWrites(t);
@@ -2674,6 +2674,7 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
       if (directCommit) for (const t of touched) if (t.pb !== null) foldTarget(t, t.v);
     }
     userWrite = prevUser;
+    if (writing === 0) draftReadTx = null;
   }
   // After the sync writes have notified (they were real, like an effect's
   // side effects before its invalid-cleanup throw) and before adoption.
