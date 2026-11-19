@@ -409,12 +409,15 @@ function Good(props) {
   return <div>{props.count}</div>;
 }
 
-// Fix: explicit one-time read
+// Fix: derive, or hand a hook an accessor
 function AlsoGood(props) {
-  const n = untrack(() => props.count);
-  return <div>{n}</div>;
+  const doubled = () => props.count * 2;
+  const user = createMemo(() => fetchUser(props.id));
+  return <div>{doubled()} {user().name}</div>;
 }
 ```
+
+Wrapping the read in `untrack()` silences the warning but keeps the bug: the value is still captured once and never updates. Move the read to where the value is used instead (JSX, a memo, an effect's compute, the event handler, or an accessor passed to the hook). `untrack` is for the rare value a person has decided must never follow its source; it is not a repair for this warning, and coding agents should not reach for it. Seed local state with a writable derived signal (`createSignal(() => props.initial)`) and form controls with `defaultValue`.
 
 This also fires for store property access in the same contexts.
 

@@ -68,11 +68,36 @@ a cost or a wait can be read as "what did the user do to pay for this."
 
 ### STRICT_READ_UNTRACKED
 
-A reactive value was read outside any tracking scope (e.g. destructured props
-or a signal called in the component body). The read got the current value
-once and will never update. Move the read into a tracking scope: JSX, a
-memo, or an effect's compute function. If you intentionally want a one-time
-snapshot, wrap the read in `untrack()` to say so explicitly.
+Move the read to where the value is used, inside a tracking scope: JSX, a
+memo, an effect's compute function, or an API that takes an accessor. The
+value was read outside any tracking scope (e.g. destructured props or a
+signal called in the component body), so it got the current value once and
+will never update.
+
+Do NOT wrap the read in `untrack()` to make the warning go away. That keeps
+the bug (the value still never updates) and only hides the report.
+`untrack` exists for the rare case where a person has decided a value must
+never follow its source; an agent should not make that call because a
+warning appeared. Pick the repair by what the value is for:
+
+| The value is…                                                 | Repair                                                                                  |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| rendered                                                      | read it in JSX: `<h1>{props.title}</h1>`                                                |
+| derived                                                       | a function `const total = () => props.price * props.qty`, or `createMemo`               |
+| an input to async data                                        | read it in the compute: `createMemo(() => fetchUser(props.id))`                         |
+| passed to a hook or primitive                                 | pass an accessor: `useThing(() => props.id)`, not `useThing(props.id)`                  |
+| the seed of local editable state                              | writable derived: `createSignal(() => props.initial)` (resets when it changes)          |
+| the initial value of a form control                           | `defaultValue={props.initial}` on the element                                           |
+| needed by a side effect                                       | `createEffect(() => props.id, (id) => ...)`                                             |
+| needed when an event fires                                    | read it inside the handler: `onClick={() => save(props.id)}`                            |
+| an argument of a flow callback (`<For>`…)                     | read the accessor in JSX inside the callback, not at its top                            |
+| config for an object built once (a client, an actor, a chart) | build it in a memo over the reads so it is rebuilt, or apply changes to it in an effect |
+
+Writing a hook or library adapter: take `() => T` (or `T | (() => T)`) and
+read it inside your own memos and effects. A hook that wraps its argument
+reads in `untrack` to be "warning-free" freezes every caller's value; the
+warning was pointing at that. Destructuring props (`function C({ id })`) is
+the same read: use `props.id`.
 
 When the context is "an event handler expression", the read is in the
 expression an element's handler is bound from (`onClick={selected() ? a : b}`,
@@ -93,8 +118,9 @@ suspend and resume: JSX, a memo, or an effect's compute function.
 An async computation read a signal, memo, or store property for the first
 time after an `await`. Only reads before the first `await` are tracked, so
 the computation keeps its old result when that value changes. Read the value
-before the first `await` (capture it in a local), or wrap the read in
-`untrack()` if a one-time value is intended. Dev-only and V8-only (Chromium
+before the first `await` (capture it in a local). Do not wrap the read in
+`untrack()` to silence this: that makes the stale value deliberate without
+anyone deciding it should be. Dev-only and V8-only (Chromium
 browsers, Node, Deno, Bun); Firefox and Safari never report it, so treat it
 as complementary to lint — it follows the read into helpers, `.then`
 callbacks, and awaited utilities that lint cannot see. `async function*`

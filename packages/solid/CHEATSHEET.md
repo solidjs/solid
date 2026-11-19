@@ -160,7 +160,7 @@ For component-level setup-and-teardown, **use `onSettled` with a returned cleanu
 ## Reactive control utilities
 
 ```ts
-untrack(() => count()); // read without subscribing
+untrack(() => count()); // read without subscribing (not a fix for STRICT_READ_UNTRACKED, see Diagnostics)
 flush(); // drain queued updates synchronously
 isEqual(a, b); // default equality
 ```
@@ -596,7 +596,7 @@ Hydration adopts each async read the server answered (value or error) and never 
 
 Common dev-mode warnings/errors you may hit:
 
-- **Top-level reactive read in component body** — read inside JSX or wrap in `untrack`/`createMemo`.
+- **Top-level reactive read in component body** (`STRICT_READ_UNTRACKED`) — move the read to where the value is used: JSX, a function or `createMemo`, an effect's compute, inside the event handler, or an accessor handed to the hook (`useThing(() => props.id)`). Seed local state with `createSignal(() => props.initial)`. **Never wrap the read in `untrack` to silence it**: the value still never updates, and the warning was the only sign. Hooks and adapters take accessors and read them in their own memos and effects.
 - **Write under owned scope** — move setters into event handlers / `onSettled` (`untrack` does NOT exempt writes: the guard is owner-based, and untrack only stops tracking), or opt in with `{ ownedWrite: true }`.
 - **Strict read untracked** — extract values in the compute phase; don't read store proxies inside the effect callback.
 - **Multiple Solid instances** — single `solid-js` install required.
@@ -737,7 +737,7 @@ If your training data is 1.x, these are the corrections. **Read this before gene
 - **`createEffect` takes two arguments now**: `(compute, apply)`. The single-arg form is gone — using it is an error.
 - **Setters don't update reads immediately** — values become visible after the microtask flushes (or via `flush()`).
 - **No writes inside owned scope** — writing a signal/store from inside a memo, effect compute, or component body throws in dev. Move writes to event handlers or `onSettled`. (`untrack` does not help: the guard fires on the ambient OWNER, which untrack never touches — component bodies already run untracked and are exactly where the guard fires.) Opt in narrowly with `{ ownedWrite: true }` for internal state.
-- **No top-level reactive reads in component body** — reading signals/props directly at the top of a component warns. Read inside JSX, a memo, or `untrack`.
+- **No top-level reactive reads in component body** — reading signals/props directly at the top of a component warns. Read inside JSX, a memo, an effect's compute, or pass an accessor. Wrapping the read in `untrack` is not a fix: it keeps the stale value and hides the warning.
 - **Props are values, not accessors** — at the call site call accessors (`<X v={count()} />`, not `<X v={count} />`). The single most common AI-generated bug.
 - **Don't destructure props** — `function Comp({ name })` warns; use `props.name` to keep reactivity. (Same root cause as above; see the Props section.)
 - **`<For>` callback shape follows keying** — default/keyed-by-identity receives a raw item and index accessor; `keyed={false}` receives an item accessor and stable numeric index; custom keys receive accessors.
