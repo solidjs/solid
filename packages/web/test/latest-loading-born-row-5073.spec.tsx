@@ -18,7 +18,7 @@ function Page(props: { wrap?: boolean }) {
       <Show when={loading()}>loading</Show>
       <Show when={!loading() && latest(rows)}>
         <div>
-          <For each={latest(rows)}>{row => <i>{row()}</i>}</For>
+          <For each={latest(rows)}>{row => <i>{row}</i>}</For>
         </div>
       </Show>
     </>

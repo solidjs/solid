@@ -987,7 +987,7 @@ export function heldMountUnder(o: Owner | null, l: Transaction | null): boolean 
       // shows its fallback (#3851).
       ((r as any)._type ? hiddenHook?.(r) : !shownBy(r)) ||
       !(r._statusFlags & STATUS_PENDING || holds) ||
-      // Pending only on `l`'s reveal (a node born in `l`): it waits on `l`, not `l` on it (S-46).
+      // Pending only on `l`'s reveal (a node born in `l`): it waits on `l`, not `l` on it (S-30).
       (l !== null &&
         !holds &&
         !r._x!._pendingSources?.size &&
