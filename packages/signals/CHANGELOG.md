@@ -1,5 +1,20 @@
 # @solidjs/signals
 
+## 2.0.2
+
+### Patch Changes
+
+- 8dd6497: A prototype getter on a class instance in a store now runs on the store proxy, so it tracks the fields it reads (CS-R48). Before, a getter read with no store node yet ran on the raw instance and never updated.
+- 55e8f58: A failed re-ask staged under a hold reaches its `Errored` once nothing is in the air, also when the fallback reads `isPending()`. A disposed reader still marked pending no longer keeps the hold's verdict lane, and the hold with it, waiting forever (#5039).
+- b9ce3f7: An error boundary whose content returns a store row, read through a memo or directly, now catches the store's failed re-ask and shows its fallback. Before, the failure escaped the boundary and halted the app with `REACTIVITY_HALTED`.
+- 2024b4d: Avoid errors when overlapping optimistic store actions settle in reverse order.
+- 6888e26: A nested write through a shallow optimistic store's guess no longer writes into the store it derives from (#5027).
+- 7e7938b: A `reconcile()` during a pending action now publishes the keys the action does not hold, whether or not anything reads them (#5005).
+- 63e5284: A store setter that reads a key an open action holds, and writes from it, now joins that action's hold (#5046). Before, `setState(d => { d.copy = d.score })` during an action that set `score` showed the copied value at once, while `score` still showed its old value. A setter that does not read the held key still updates on its own.
+- f9d7e57: fix(signals): a reader linked to a settled source no longer stays pending on it, so an action whose reader waits on a derived optimistic store and a slower sibling flight lands
+- 445012d: A store target whose last node is released drops its emptied node dictionaries, so a store the app still holds keeps no per-target residue after its readers unmount (#5024).
+- 04abe54: A held reader that stops carrying a source still in flight no longer joins that source's hold. An unread `createErrorBoundary` over memos of a list with a refresh out no longer holds an unrelated change until the refresh lands (#5019).
+
 ## 2.0.1
 
 ### Patch Changes
