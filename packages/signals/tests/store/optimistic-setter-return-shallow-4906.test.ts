@@ -30,7 +30,9 @@ it("a returned filter keeps the rows it carried over", async () => {
   expect(list[2]).toBe(r3);
 });
 
-it("a returned new object replaces the row at its index", async () => {
+// A row rewritten under its own key is that row: the new object's fields are
+// the guess, and the row keeps its identity (D-33).
+it("a returned new object under a row's key guesses that row's fields", async () => {
   const [list, guess] = createOptimisticStore<any[]>([
     { id: 1, v: 0 },
     { id: 2, v: 0 }
@@ -47,7 +49,7 @@ it("a returned new object replaces the row at its index", async () => {
   await tick();
   flush();
   expect(list[0]).toBe(r1);
-  expect(list[1]).not.toBe(r2);
+  expect(list[1]).toBe(r2);
   expect(list[1].v).toBe(9);
   end();
   await run;

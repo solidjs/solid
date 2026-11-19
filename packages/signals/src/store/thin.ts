@@ -135,7 +135,7 @@ function release(node: any, settled?: boolean): void {
   const t: Target = node._host;
   const key = node._key;
   if (key === $TRACK) {
-    if (t.k !== node) return;
+    if (t.k !== node || (t.l && node._value !== t.v)) return;
     t.k = null;
   } else if (key === $DEEP) {
     if (t.dv !== node) return;
@@ -181,7 +181,7 @@ interface Target {
   /** presence nodes */
   h: Record<PropertyKey, Signal<boolean>> | null;
   /** structure version */
-  k: Signal<number> | null;
+  k: Signal<any> | null;
   /** proxy */
   p: any;
   /** array? */
@@ -214,10 +214,14 @@ interface Target {
   q: number;
   /** prototype node (a class member read, or a swap) */
   o: Signal<any> | null;
-  /** optimistic list guess state (thinOptimistic.ts) */
+  /** an optimistic family's list: `k` holds its rows, one node (D-33) */
+  l: boolean;
+  /** the open setter's copy of the rows, written to `k` when it closes */
+  da: any[] | null;
+  /** a list guess written over a question in flight (thinOptimistic.ts) */
   over: boolean;
   lg: any;
-  /** per-action key nodes of a keyed optimistic list (#4897) */
+  /** per-action key nodes of an optimistic record (D-33) */
   ks: Map<number, Signal<number>> | null;
   /** the first parent this target was reached through (reconcile's gate) */
   u: Target | null;
@@ -300,9 +304,11 @@ export function thinWrap(v: any, fam: StoreFamily | null = null, u: Target | nul
       x: false,
       q: 0,
       o: null,
+      l: r && !!fam?.opt,
+      da: null,
+      ks: null,
       over: false,
       lg: null,
-      ks: null,
       u,
       d: false,
       sv: null
@@ -367,12 +373,12 @@ export const unwrapThin = (v: any): any => (isThin(v) ? v[$THIN].v : v);
  * else reads through core (tracked or not: a pass joins a hold either way). */
 /** The `affects()` walk reads the writer's view (the tick's guesses too). */
 let writerView = false;
-/** #4812/#4724 (store/optimistic.ts `placed`): a row a keyed list's index
- * guess put in place, with the index node and the row it replaced. The
- * index read is navigation; what the setter reads of the row says whether
- * the write is computed from the guess. */
+/** A row a list guess put where the truth has another (or none), with the
+ * list's node and the row it replaced: reading the index is navigation;
+ * what the setter reads of the row says whether its write is computed from
+ * the guess (D-33). */
 const placed = new WeakMap<object, [Signal<any>, any]>();
-function peek(node: Signal<any>, t: Target, mode = 0, key?: PropertyKey): any {
+function peek(node: Signal<any>, t: Target, mode = 0): any {
   if (writerView && guessed !== null && t._fam?.opt) return guessed(node);
   // An optimistic family's user draft composes on what the user sees.
   if (guessed !== null && t._fam?.opt && inDraft(t)) {
@@ -382,21 +388,17 @@ function peek(node: Signal<any>, t: Target, mode = 0, key?: PropertyKey): any {
       // A presence read (mode 2) notes only a guess that changed presence (#4812).
       const v = guessed(node);
       if (mode && context === null) {
-        const p = mode === 1 && key !== undefined ? placed.get(t.v) : undefined;
+        const p = mode === 1 ? placed.get(t.v) : undefined;
         if (p !== undefined) {
-          const o = isWrappable(p[1]) ? p[1][key!] : undefined;
+          const o = isWrappable(p[1]) ? p[1][(node as any)._key] : undefined;
           if (isWrappable(v)) v !== o && placed.set(v, [p[0], o]);
           else if (!Object.is(v, o)) read(p[0]);
         }
         if (
           node._config & CONFIG_GUESS &&
           (mode === 1 || (v === ABSENT) !== (under!(node) === ABSENT))
-        ) {
-          const u = under!(node);
-          if (mode === 1 && t.r && t._fam!.key && key !== "length" && isWrappable(v))
-            v !== u && placed.set(v, [node, u]);
-          else read(node);
-        }
+        )
+          read(node);
       }
       return v;
     }
@@ -528,7 +530,7 @@ function slot<V>(t: Target, v: V, eq: (a: V, b: V) => boolean, key: PropertyKey)
  * so a program with stores that declares no mark carries no walk. A Box
  * value is not wrappable, so `target` drops it. */
 GlobalQueue._storeEngine = {
-  node: nodeOf,
+  node: (t: Target, key: PropertyKey) => (t.l && ix(key) !== -2 ? keyNode(t) : nodeOf(t, key)),
   target: (v: any, fam: StoreFamily | null): Target | undefined =>
     isThin(v) ? v[$THIN] : isWrappable(v) ? ((fam?.map as any) ?? targets).get(v) : undefined,
   keys: keysOf,
@@ -538,6 +540,10 @@ GlobalQueue._storeEngine = {
 };
 /** The logical value of `key` in the reader's frame (ABSENT when not own). */
 function valueOf(t: Target, key: PropertyKey, mode = 0): any {
+  if (t.l) {
+    const i = ix(key);
+    if (i !== -2) return L!.value(t, i, mode);
+  }
   const node = t.n?.[key];
   const v = node !== undefined ? peek(node, t, mode) : seed(t, key);
   return v === DELEGATE ? innerValue(t, key) : v;
@@ -546,7 +552,7 @@ function keysOf(t: Target): (string | symbol)[] {
   const n = t.n;
   if (t.r) {
     // Unwritten, no node off the raw: the raw's keys are the keys.
-    if (!t.w && !t.x && t.c === null) return ownOf(t.v);
+    if (!t.w && !t.x && t.c === null && t.k === null) return ownOf(t.v);
     const len = valueOf(t, "length");
     const keys: string[] = [];
     for (let i = 0; i < len; i++) if (valueOf(t, i) !== ABSENT) keys.push("" + i);
@@ -579,13 +585,43 @@ function keysOf(t: Target): (string | symbol)[] {
       if (!hasOwn.call(t.v, key) && peek(n[key], t, 2) !== ABSENT) out.push(key);
   return out;
 }
+/** A chained list's rows are the chain's while nothing of its own covers them. */
+const CHAINED: any[] = [];
+/** An optimistic family's lists (thinList.ts; thinOptimistic.ts installs
+ * it, so a bundle without optimistic stores carries none of it). */
+let L: ThinList | null = null;
+export interface ThinList {
+  same(t: Target, a: any[], b: any[]): boolean;
+  value(t: Target, i: number, mode: number): any;
+  get(t: Target, i: number, tracked: boolean): any;
+  has(t: Target, i: number, tracked: boolean): boolean;
+  write(t: Target, i: number, v: any): void;
+  mark(): number;
+  close(from: number): void;
+  screen(t: Target): any[] | null;
+}
+export const installThinList = (l: ThinList): void => void (L = l);
+function keyNode(t: Target): Signal<any> {
+  if (t.k === null) {
+    t.k = t.l
+      ? slot(t, t.c !== null ? CHAINED : t.v, (a, b) => L!.same(t, a, b), $TRACK)
+      : slot(t, 0, isEqual, $TRACK);
+    if (t._fam !== null) t._fam.live.add(t as any);
+  }
+  return t.k!;
+}
+/** An index (>= 0), "length" (-1), or neither (-2). */
+const ix = (key: PropertyKey): number =>
+  typeof key === "number"
+    ? key
+    : key === "length"
+      ? -1
+      : typeof key === "string" && "" + (+key >>> 0) === key
+        ? +key
+        : -2;
 function track(t: Target): void {
   if (!inDraft(t) && getObserver() !== null) {
-    if (t.k === null) {
-      t.k = slot(t, 0, isEqual, $TRACK);
-      if (t._fam !== null) t._fam.live.add(t as any);
-    }
-    read(t.k);
+    read(keyNode(t));
     if (t.ks)
       for (const [q, o] of t.ks)
         o._config & (CONFIG_GUESS | CONFIG_OVERRIDE) || q === question ? read(o) : t.ks.delete(q);
@@ -603,10 +639,8 @@ function put(t: Target, node: Signal<any>, v: any): void {
   // actions writing different keys never entangle); the derive's writes are
   // the truth beneath.
   if (guess !== null && userWrite && t._fam?.opt) {
-    if (t.r) preListGuess?.(t, setterSeq);
     guess(node, v);
     ((t._fam as any).g ??= new Set()).add(node);
-    if (t.r) listGuess?.(t);
   } else {
     // A34 (3), #3612: a user write to a derivation another transaction
     // holds is the draft's prior state; the hold re-derives over it.
@@ -624,43 +658,20 @@ function put(t: Target, node: Signal<any>, v: any): void {
       userWrite
         ? (node._config |= CONFIG_MANUAL_WRITE)
         : ((node._config &= ~CONFIG_MANUAL_WRITE), holdWithDerive(t, node));
-    // A derive landing on a list a shown guess arranged is held by the
-    // guess's action: the new rows never show beneath the guessed
-    // arrangement (D-34, #3743; store/optimistic.ts `fold`). Not a guess
-    // written over a question in flight (#4525, `over`), nor a landing of a
-    // question another action's lane asked over the guesses (`_asked` < 0,
-    // the re-base, #4336).
     if (
-      !userWrite &&
-      t.r &&
-      t._fam?.opt &&
-      !(t as any).over &&
-      !((t._fam as any)._asked < 0) &&
-      t.n !== null
+      holdIn !== null &&
+      node._pendingValue !== NOT_PENDING &&
+      !(node._config & (CONFIG_HELD | CONFIG_OVERRIDE))
     )
-      for (const k of Reflect.ownKeys(t.n)) {
-        const g = t.n[k as any];
-        // Not an older question's truth (core `stale`): the guess re-bases
-        // over it, as deep's carrier does (#4897).
-        if (
-          g !== node &&
-          g._config & CONFIG_GUESS &&
-          g._x?._transaction &&
-          !(question !== 0 && question < g._x._q)
-        ) {
-          const l = txOf(g);
-          if (l._shown) {
-            joinFuture(resolveTx(l._parent ?? l));
-            break;
-          }
-        }
-      }
+      holdNode(node, holdIn);
     // A continuation's write held with the derive: its readers re-run in
     // the hold's flush, staged with it (F-10; store.ts `notifyContainer`).
     if (!userWrite && !t._fam?.opt && flushTransaction === null && node._config & CONFIG_HELD)
       joinFuture(txOf(node));
   }
 }
+/** The hold a landing's writes into a guess-made row wait in. */
+let holdIn: any = null;
 // A plain store list's reconcile pass bumps its structure node once, at the
 // end, not once per slot it writes (`reconcileTarget`).
 let bumpFor: Target | null = null;
@@ -671,6 +682,10 @@ function write(t: Target, key: PropertyKey, v: any, cur: any = write): void {
   // derive's next answer; a list becomes the view's own.
   if (userWrite && t.c !== null && t._fam !== null && !t._fam.opt)
     t.r ? privatize(t) : overlays(t._fam).has(t) || overlays(t._fam).set(t, null);
+  if (t.l) {
+    const i = ix(key);
+    if (i !== -2) return L!.write(t, i, v);
+  }
   // No write has moved this target off its raw: every node holds the seed.
   const n0 = t.n?.[key];
   if ((!t.w || n0 === undefined) && Object.is(seed(t, key), v)) return;
@@ -708,18 +723,18 @@ function write(t: Target, key: PropertyKey, v: any, cur: any = write): void {
   const h = t.h?.[key];
   if (h !== undefined) put(t, h, v !== ABSENT);
   // Structure: membership for records; position is content for arrays.
-  if (t.k !== null && (t.r ? key !== "length" : prev === ABSENT || v === ABSENT)) {
+  if (t.k !== null && !t.l && (t.r ? key !== "length" : prev === ABSENT || v === ABSENT)) {
     if (bumpFor === t) return void (bumped = true);
-    // An index guess on a keyed optimistic list, or a key a guess adds to
-    // or takes from a record, is that slot's (point of write): the key
-    // node another action's guess carries is not a slot the two share
-    // (D-33, #4897). This action's bump goes to a key node of its own,
-    // which the readers read beside it.
+    // A key a guess adds to or takes from a record is that key's slot (point
+    // of write): the key node another action's guess carries is not a slot
+    // the two share (D-33). This action's bump goes to a key node of its
+    // own, which the readers read beside it.
     let k = t.k;
     if (
       userWrite &&
       guess !== null &&
-      (t.r ? t._fam?.key : t._fam?.opt) &&
+      !t.r &&
+      t._fam?.opt &&
       k._config & CONFIG_GUESS &&
       k._x!._q !== question
     ) {
@@ -738,9 +753,6 @@ function write(t: Target, key: PropertyKey, v: any, cur: any = write): void {
 // ---------------------------------------------------------------------------
 // derived stores: ported from store.ts as-is (they speak core nodes only)
 
-/** For the optimistic engine (thinOptimistic.ts). */
-export const nodeOfThin = (t: any, key: PropertyKey): Signal<any> => nodeOf(t, key);
-export { ABSENT as ABSENT_THIN };
 export function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
   for (let s = n._subs; s !== null; s = s._nextSub) if (s._sub === c) return true;
   return false;
@@ -765,16 +777,6 @@ let stands: (t: Target) => boolean | 2 | 3 = () => false;
  * (#4561): its reads of guessed leaves this pass are the guess. */
 let serving: unknown = null;
 let standing: unknown = null;
-/** A user's guess on a list (thinOptimistic.ts marks one written over a new
- * question's flight, #4525). */
-let listGuess: ((t: Target) => void) | null = null;
-let preListGuess: ((t: Target, seq: number) => void) | null = null;
-/** Each user setter's number: a list's view before the setter's first write. */
-let setterSeq = 0;
-export function installThinListGuess(fn: typeof listGuess, pre?: typeof preListGuess): void {
-  listGuess = fn;
-  preListGuess = pre ?? null;
-}
 export function installThinStands(fn: typeof stands): void {
   stands = fn;
 }
@@ -885,6 +887,14 @@ function pairLate(t: Target, node: Signal<any>): void {
     const c = m ? m._value : t.v[k];
     if (c === nv || (m && m._pendingValue !== NOT_PENDING ? m._pendingValue : c) === ov) return;
   }
+  stageRow(fam, ov, nv, node);
+  // The slot itself is unchanged: no longer held.
+  node._pendingValue = NOT_PENDING;
+  node._config &= ~CONFIG_HELD;
+}
+/** One target over the old raw, the new raw's differing leaves staged on it
+ * under `node`'s hold. */
+function stageRow(fam: StoreFamily, ov: any, nv: any, node: Signal<any>): void {
   const ct: Target = wrap(ov, fam)[$THIN];
   const x = node._x!;
   for (const k of Reflect.ownKeys({ ...ov, ...nv })) {
@@ -897,9 +907,6 @@ function pairLate(t: Target, node: Signal<any>): void {
     }
   }
   ct.w = ct.gone = true;
-  // The slot itself is unchanged: no longer held.
-  node._pendingValue = NOT_PENDING;
-  node._config &= ~CONFIG_HELD;
 }
 
 export function thinRunDirect(fn: () => void): void {
@@ -920,12 +927,6 @@ function writeSlot(t: Target, key: PropertyKey, v: any): void {
       for (let i = v; i < len; i++) write(t, i, ABSENT);
     } else if (typeof key === "string" && "" + (+key >>> 0) === key) {
       if (+key >= len) write(t, "length", +key + 1);
-      // D-33: the list is the slot while a guess moved its length — an
-      // index write into a slot only that guess made writes the list, so
-      // the two guesses entangle. One within the truth's rows borrows the
-      // length (#4784, #4897).
-      else if (userWrite && carries(t.n?.length) && +key >= (under ? under(t.n!.length) : 0))
-        put(t, t.n!.length, len);
     }
   }
   write(t, key, v);
@@ -972,7 +973,7 @@ function thinSlice(this: any, s?: number, e?: number): any[] {
   if (__DEV__ && lean && getObserver() === null) checkForeignRead();
   for (let i = 0, v, node: any; i < n; i++) {
     if (lean && (node = t.n?.[i]) !== undefined) {
-      v = tracked ? read(node) : peek(node, t, 1, i);
+      v = tracked ? read(node) : peek(node, t, 1);
       if (v === null || typeof v !== "object") {
         if (v !== ABSENT) {
           c[i] = v;
@@ -992,6 +993,22 @@ function thinSlice(this: any, s?: number, e?: number): any[] {
     if ((v = this[i]) !== undefined || i in this) c[i] = v;
   }
   return c;
+}
+function frameRead(t: Target, node: Signal<any>, tracked: boolean): any {
+  let v: any;
+  // A pass a refresh's re-ask holds while guesses stand in (D-34 ¶3, A17)
+  // sees the screen plus the guesses: a leaf another write holds is its
+  // committed value, read as a stale reader of that hold (A15, #4887).
+  if (
+    standing !== null &&
+    standing === context &&
+    tracked &&
+    (node._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD
+  )
+    (link(node, context as any), staleReader(context as any, txOf(node)), (v = node._value));
+  else v = tracked ? read(node) : peek(node, t, 1);
+  if (serving !== null && serving === context && node._config & CONFIG_GUESS) v = guessed!(node);
+  return v;
 }
 const isFrozen = Object.isFrozen;
 /** `Reflect.ownKeys` of a plain raw, several times faster on a fast-mode
@@ -1037,8 +1054,8 @@ const BASE: ProxyHandler<any> = {
     }
     if (t._fam !== null) pullFamily(t);
     if (sym && key === $TRACK) return (track(t), undefined);
-    let node = t.n?.[key];
     const tracked = tracking && context !== null && !inDraft(t);
+    let node = t.n?.[key];
     if (
       __DEV__ &&
       asyncTailFlights !== 0 &&
@@ -1065,6 +1082,10 @@ const BASE: ProxyHandler<any> = {
         nodeName: key,
         data: { strictRead, property: key, source: "store" }
       });
+    if (t.l && !sym) {
+      const i = ix(key);
+      if (i !== -2) return L!.get(t, i, tracked);
+    }
     if (node === undefined) {
       const own = hasOwn.call(t.v, key);
       // Pollution guard; `constructor` withheld from drafts only (#4670).
@@ -1095,19 +1116,7 @@ const BASE: ProxyHandler<any> = {
     }
     if ((node._config & (CONFIG_HELD | CONFIG_GUESS)) === CONFIG_HELD && t._fam !== null)
       pairLate(t, node);
-    let v: any;
-    // A pass a refresh's re-ask holds while guesses stand in (D-34 ¶3, A17)
-    // sees the screen plus the guesses: a leaf another write holds is its
-    // committed value, read as a stale reader of that hold (A15, #4887).
-    if (
-      standing !== null &&
-      standing === context &&
-      tracked &&
-      (node._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD
-    )
-      (link(node, context as any), staleReader(context as any, txOf(node)), (v = node._value));
-    else v = tracked ? read(node) : peek(node, t, 1, key);
-    if (serving !== null && serving === context && node._config & CONFIG_GUESS) v = guessed!(node);
+    const v = frameRead(t, node, tracked);
     if (v === null || typeof v !== "object")
       // A removed own key reads what the prototype says (#4674 ruling).
       return v !== ABSENT
@@ -1131,6 +1140,10 @@ const BASE: ProxyHandler<any> = {
       affectsHooks._witness(t as any, key);
     if (key === $THIN || key === $PROXY || key === $TRACK) return true;
     if (t._fam !== null) pullFamily(t);
+    if (t.l) {
+      const i = ix(key);
+      if (i !== -2) return L!.has(t, i, !inDraft(t) && getObserver() !== null);
+    }
     if (!inDraft(t) && getObserver() !== null) {
       const h = (t.h ??= Object.create(null) as Record<PropertyKey, Signal<boolean>>);
       if (h[key] === undefined) {
@@ -1227,12 +1240,17 @@ const BASE: ProxyHandler<any> = {
     if (t._fam?.opt && !userWrite && guessed !== null && isWrappable(v)) {
       const pv = valueOf(t, key);
       let pt = isWrappable(pv) ? (t._fam.map.get(pv) as unknown as Target | undefined) : undefined;
-      if (pt === undefined || pt.r !== Array.isArray(v) || !famGuessing(t._fam)) {
+      const kf = t._fam.key;
+      const k = kf ? kf(v) : undefined;
+      if (
+        pt === undefined ||
+        pt.r !== Array.isArray(v) ||
+        !famGuessing(t._fam) ||
+        (t.l && k !== undefined && keyAt(kf!, pt) !== k)
+      ) {
         // A keyed row: paired by key with the guessed row it answers
         // (#4329, store/optimistic.ts `pairRows`).
         pt = undefined;
-        const kf = t._fam.key;
-        const k = kf ? kf(v) : undefined;
         if (k !== undefined)
           for (const c of t._fam.live as unknown as Set<Target>)
             if (c !== t && c.r === Array.isArray(v) && hasGuess(c) && kf!(c.p) === k) {
@@ -1250,12 +1268,8 @@ const BASE: ProxyHandler<any> = {
       // the lent row takes the server object as its truth, so a guess of
       // that store's still out on the row shows until its action ends
       // (F-11, #4902).
-      const kf = t._fam.key;
-      const k = kf && t.n !== null ? kf(v) : undefined;
-      if (k !== undefined)
-        for (const i of Reflect.ownKeys(t.n!)) {
-          const n = t.n![i as any];
-          const g = n._config & CONFIG_GUESS ? guessed!(n) : undefined;
+      if (k !== undefined && t.l && carries(t.k))
+        for (const g of L!.screen(t)!) {
           const c = isWrappable(g) ? (t._fam.map.get(g) as any)?.c : null;
           if (c && kf!(c) === k)
             return (thinReconcile(c, v, kf!, 0), writeSlot(t, key, chainSlot(t, c)), true);
@@ -1298,6 +1312,10 @@ function chainHas(t: Target, key: PropertyKey): boolean {
   if (key === $THIN || key === $PROXY || key === $TRACK) return true;
   if (t._fam !== null) pullFamily(t);
   const tr = chainTracked(t);
+  if (t.l) {
+    const i = ix(key);
+    if (i !== -2) return L!.has(t, i, tr);
+  }
   let node = t.n?.[key];
   if (node === undefined && tr) node = nodeOf(t, key);
   const v = node === undefined ? DELEGATE : tr ? read(node) : peek(node, t);
@@ -1310,6 +1328,10 @@ function chainGet(t: Target, key: PropertyKey, receiver: any): any {
   if (t._fam !== null) pullFamily(t);
   const tr = chainTracked(t);
   if (key === $TRACK) return (track(t), inner(t, () => t.c[$TRACK]));
+  if (t.l) {
+    const i = ix(key);
+    if (i !== -2) return L!.get(t, i, tr);
+  }
   let node = t.n?.[key];
   // A prototype member (an array method) is the chained store's.
   const it: Target = t.c[$THIN];
@@ -1404,7 +1426,8 @@ function chainTo(t: Target, next: any): void {
 /** Own values give way to the chain's (a guess or a pending write too). */
 function giveWay(t: Target, keys: boolean): void {
   if (t.n !== null) for (const key of Reflect.ownKeys(t.n)) put(t, t.n[key as any], () => DELEGATE);
-  if (keys && t.k !== null) put(t, t.k, (x: number) => x + 1);
+  if (t.l ? t.k !== null : keys && t.k !== null)
+    put(t, t.k!, t.l ? () => CHAINED : (x: number) => x + 1);
   if (t.cv !== null) put(t, t.cv, (x: number) => x + 1);
 }
 /** A user's writes on a derived store's view of another store, by target:
@@ -1468,16 +1491,26 @@ function unchain(
     if (node._pendingValue === DELEGATE) node._pendingValue = own(key);
   };
   if (t.n !== null) for (const key of Reflect.ownKeys(t.n)) fix(t.n[key as any], key);
-  for (const key of keysOf(it)) if (t.n?.[key] === undefined) nodeOf(t, key, own(key));
+  const rows: any[] = [];
+  for (const key of keysOf(it))
+    if (t.l && ix(key) !== -2) ix(key) < 0 || (rows[ix(key)] = own(key));
+    else if (t.n?.[key] === undefined) nodeOf(t, key, own(key));
   // A seed key the chain lacks reads absent too.
-  for (const key of ownOf(t.v)) if (t.n?.[key as any] === undefined) nodeOf(t, key, ABSENT);
+  for (const key of ownOf(t.v))
+    if (t.n?.[key as any] === undefined && !(t.l && ix(key) !== -2)) nodeOf(t, key, ABSENT);
+  const fresh = t.k === null;
   t.c = null;
+  if (t.l) {
+    const k = keyNode(t);
+    if (fresh || k._value === CHAINED) k._value = rows;
+    if (k._pendingValue === CHAINED) k._pendingValue = rows;
+  }
   t.w = t.gone = true; // its nodes hold the chain's values, not the raw's
   if (t.cv !== null) put(t, t.cv, (x: number) => x + 1);
 }
 
 function replace(t: Target, next: any): void {
-  if (next === t.v && t.n === null) return;
+  if (next === t.v && t.n === null && t.k === null) return;
   for (const key of keysOf(t)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
   for (const key of ownOf(next)) write(t, key, t.s ? next[key] : held(t, next[key]));
 }
@@ -1599,7 +1632,7 @@ export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true
   if (__DEV__ && guard) devGuardOwnedWrite();
   const prevUser = userWrite;
   userWrite = guard;
-  if (guard) setterSeq++;
+  const open = L === null ? 0 : L.mark();
   const t0: Target = (proxy as any)[$THIN];
   scopes.push(scopeOf(t0));
   writing++;
@@ -1618,6 +1651,8 @@ export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true
       replace(t, unwrapThin(result));
     }
   } finally {
+    // The writes made stand, as a record's do when the setter throws.
+    if (L !== null) L.close(open);
     writing--;
     scopes.pop();
     userWrite = prevUser;
@@ -1671,7 +1706,12 @@ function rawThin(v: any): void {
  * derive's `{}`): the root becomes a list, over a raw of its own. */
 export function thinListRoot(proxy: any): void {
   const t: Target = proxy[$THIN];
-  if (!t.r && t.c === null) (t._fam!.map.set((t.v = []), t as any), (t.r = true));
+  if (!t.r && t.c === null) {
+    t._fam!.map.set((t.v = []), t as any);
+    t.r = true;
+    if ((t.l = !!t._fam!.opt) && t.k !== null)
+      ((t.k._equals = (a: any, b: any) => L!.same(t, a, b)), put(t, t.k, () => t.v));
+  }
 }
 /** Keyed merge of `next` into the store (inside a setter). */
 export function thinReconcile(
@@ -1783,7 +1823,7 @@ function reconcileTarget(
     if (t.c !== null) unchain(t);
   }
   next = unwrapThin(next);
-  if (next === t.v && t.n === null) return;
+  if (next === t.v && t.n === null && !(t.l && (t.k !== null || t.da !== null))) return;
   if (root && keyFn !== null) {
     const k = keyFn(proxy);
     if (k !== undefined && k !== keyFn(next)) {
@@ -1813,6 +1853,7 @@ function reconcileTarget(
       bd = bumped;
     if (t._fam === null) ((bumpFor = t), (bumped = false));
     let byKey: Map<any, any> | null = null;
+    let made: Set<any> | null = null;
     // The old rows' keys from the first mismatch on (`keyOf` once per row).
     let oldKeys: any[] | null = null;
     let oldVals: any[] | null = null;
@@ -1850,13 +1891,11 @@ function reconcileTarget(
           // The truth answering a guessed row (a push the user made) takes
           // that row's identity: the row keeps its proxy and readers (D-34,
           // store/optimistic.ts `pairRows`).
-          if (guessed !== null && t._fam?.opt && t.n !== null)
-            for (const key of Reflect.ownKeys(t.n)) {
-              const node = t.n[key as any];
-              if (!(node._config & CONFIG_GUESS)) continue;
-              const g = guessed(node);
+          const shown = t.l ? L!.screen(t) : null;
+          if (shown !== null)
+            for (const g of shown) {
               const k = keyOf(map, keyFn!, g);
-              if (k !== undefined && !byKey.has(k)) byKey.set(k, g);
+              if (k !== undefined && !byKey.has(k)) (byKey.set(k, g), (made ??= new Set()).add(g));
             }
           // A returned answer pairs a row the list no longer holds with the
           // guessed target of its key, as a draft's write does (#4907, the
@@ -1870,12 +1909,13 @@ function reconcileTarget(
         }
         pv = byKey.get(nk);
       }
-      write(
-        t,
-        i,
-        merge(t, next, map, keyFn, pv, nv, nk !== undefined),
-        t._fam === null ? cur : write
-      );
+      // The truth of a row the guess made is the guess's hold's until it
+      // commits: the screen keeps the row as guessed (D-34).
+      const hi = holdIn;
+      if (made?.has(pv)) holdIn = resolveTx(txOf(t.k!)._parent ?? txOf(t.k!));
+      const m = merge(t, next, map, keyFn, pv, nv, nk !== undefined);
+      holdIn = hi;
+      write(t, i, m, t._fam === null ? cur : write);
     }
     ((sentFor = sf), (sentSet = ss));
     for (let i = next.length; i < len; i++) write(t, i, ABSENT);
@@ -1956,6 +1996,10 @@ export function thinSnapshot(
     if (t.r) copy.length = valueOf(t, "length");
     for (const k of keysOf(t)) {
       if (t.r && k === "length") continue;
+      if (t.l && ix(k) !== -2) {
+        copy[k] = thinSnapshot(valueOf(t, k), seen, fam);
+        continue;
+      }
       const node = t.n?.[k as any];
       const own = node !== undefined && peek(node, t) !== DELEGATE;
       const iv = own ? undefined : valueOf(it, k);
@@ -2087,3 +2131,32 @@ function chainDevWriter(): void {
     setSignal(node, value as any);
   });
 }
+
+/** For the optimistic list engine (thinList.ts). */
+export {
+  ABSENT as ABSENT_THIN,
+  CHAINED,
+  DELEGATE,
+  carries,
+  child as thinChild,
+  frameRead,
+  inDraft,
+  inner as thinInner,
+  keyNode,
+  keyOf as thinKeyOf,
+  nodeOf as thinNodeOf,
+  noteParent,
+  peek as thinPeek,
+  placed,
+  put as thinPut,
+  replace as thinReplace,
+  stageRow,
+  subChain,
+  echo as thinEcho,
+  guess as thinGuess,
+  guessed as thinGuessed,
+  under as thinUnder,
+  userWrite as thinUserWrite,
+  writing as thinWriting
+};
+export type { Target as ThinTarget };

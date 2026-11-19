@@ -9,11 +9,9 @@ import { render } from "../src/index.js";
 // #4897: one keyed optimistic store over one answer source. An add guesses a
 // placeholder at the end; a reorder of the rows above it is guessed and stays
 // out. When the add's answer lands, the placeholder never shows beside the
-// row the answer wrote. A reorder written as draft writes to rows 0 and 1 is
-// its own guess: the add's end shows at once. One returned as a copy
-// (`slice` reads the presence of index 2 and the length, which the add
-// wrote) derives from the add's guess, and the two holds entangle (D-33,
-// #4788, #4812): the screen keeps what it showed until the reorder settles.
+// row the answer wrote. An add and a reorder both change the list's rows in
+// order, which is one slot: the two holds entangle however the reorder is
+// written (D-33), and the screen keeps what it showed until both settle.
 // The signals twin is tests/optimistic-add-placeholder-beside-reorder-4897.
 
 const tick = async () => {
@@ -126,7 +124,7 @@ describe("#4897 an ended add's placeholder while a reorder guess on other slots 
         if (ending === "answered") t.land("add", { id: 10, title: "A" });
         else t.fail("add");
         await tick();
-        expect(t.state()).toBe(!draftStyle ? "2,1,(A)" : ending === "answered" ? "2,1,10" : "2,1");
+        expect(t.state()).toBe("2,1,(A)");
         t.land("move", null);
         await tick();
         expect(t.state()).toBe(ending === "answered" ? "1,2,10" : "1,2");
