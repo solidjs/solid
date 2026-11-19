@@ -122,7 +122,10 @@ export const parse = (tokens: Token[], voidElements: Set<string>): RootNode => {
       case TEXT_TOKEN: {
         // --- TEXT ---
         const value = token.value;
-        if (value.trim() === "") {
+        if (
+          value.trim() === "" &&
+          !(parent.type === ELEMENT_NODE && (parent.name === "pre" || parent.name === "textarea"))
+        ) {
           const prevType = tokens[pos - 1]?.type;
           const nextType = tokens[pos + 1]?.type;
           // Filter out empty text nodes between tags

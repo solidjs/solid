@@ -500,7 +500,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | S-27 | executable, standing | `docs/SCENARIOS.md:665` | — | latest-between-plain-reads-4777.test.ts×1 | [executable, standing] `[isPending(x), x()]` is atomic; the `latest` form follows x's own async only — D-23, D-25 (A10, A8) |
 | S-28 | prose | `docs/SCENARIOS.md:706` | — | latest-uninitialized-over-latest-4362.test.ts×1 | [prose] `isPending` never throws unowned; `latest` throws uninitialized everywhere — D-24 (A16, A7) |
 | S-29 | executable, standing | `docs/SCENARIOS.md:718` | scheduler.ts×1 | — | [executable, standing] A display-ahead reader's own async is held — D-25 (A31, #3442) |
-| S-30 | prose | `docs/SCENARIOS.md:762` | guesses.ts×1 verdict.ts×1 | — | [prose] A `latest()` reader mounted mid-hold shows the committed value and reveals with the lane — D-26 (#3460) |
+| S-30 | prose | `docs/SCENARIOS.md:762` | guesses.ts×1 lanes.ts×1 verdict.ts×1 | — | [prose] A `latest()` reader mounted mid-hold shows the committed value and reveals with the lane — D-26 (#3460) |
 | S-31 | executable, standing | `docs/SCENARIOS.md:788` | — | display-ahead-plain-write-content.test.ts×3 | [executable, standing] A verdict reader's mount is mainline: `Show when={latest(x)}` → `Loading` shows its fallback — D-1, D-25 (#3851) |
 | S-32 | prose | `docs/SCENARIOS.md:995` | — | — | [prose] An optimistic write shows from its flush; held writes beside it; one frame at the end — D-32, D-33 (A17) |
 | S-33 | executable, standing | `docs/SCENARIOS.md:1024` | — | — | [executable, standing] A different truth corrects the graph now and the screen at the commit; a never-shown guess is void — D-34 (#3331) |
