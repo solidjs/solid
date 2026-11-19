@@ -1140,6 +1140,40 @@ describe("Tagged JSX Integration Tests", () => {
     });
 
     describe("List and Table Rendering", () => {
+      it("rejects a row directly under a table with the compiler's malformed-HTML diagnostic", () => {
+        createRoot(dispose => {
+          expect(
+            () =>
+              html`<table>
+                <tr>
+                  <td>cell</td>
+                </tr>
+              </table>`
+          ).toThrow(
+            /The HTML provided is malformed and will yield unexpected output when evaluated by a browser\./
+          );
+          dispose();
+        });
+      });
+
+      it("keeps explicit table sections and standalone row partials valid", () => {
+        createRoot(dispose => {
+          const table = html`<table>
+            <tbody>
+              <tr>
+                <td>cell</td>
+              </tr>
+            </tbody>
+          </table>` as HTMLTableElement;
+          const row = html`<tr>
+            <td>cell</td>
+          </tr>` as HTMLTableRowElement;
+          expect(table.tBodies[0].rows[0].cells[0].textContent).toBe("cell");
+          expect(row.cells[0].textContent).toBe("cell");
+          dispose();
+        });
+      });
+
       it("renders table with dynamic rows and cells", () =>
         createRoot(dispose => {
           const [rows] = createSignal([
