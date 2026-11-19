@@ -377,7 +377,7 @@ function optionHole(
         } else return undefined;
       } else return undefined;
     }
-    if (!value) value = t.stringLiteral(text.replace(/\s+/g, " ").trim());
+    if (!value) value = t.stringLiteral(text.replace(/[\t\n\f\r ]+/g, " ").replace(/^ | $/g, ""));
   }
   const args: babelTypes.Expression[] = [value!];
   if (select || own) args.push(select ? t.cloneNode(select) : t.identifier("undefined"));
