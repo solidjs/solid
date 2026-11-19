@@ -385,6 +385,15 @@ export interface Transaction {
   /** #4806: a verdict lane whose pass opened content over the hold's staging. */
   _opened?: number;
 }
+/** Observe tier (view.ts, the attribution entry): the hold every flush joins
+ * while a view is open. Null in every bundle that never opens a view. */
+export let viewHold: Transaction | null = null;
+/** Observe tier (view.ts): a pass the open view holds back. */
+export let viewSkip: ((n: Computed<any>) => boolean) | null = null;
+export function setView(hold: Transaction | null, skip: typeof viewSkip = null): void {
+  viewHold = hold;
+  viewSkip = skip;
+}
 /** Live transactions — opened, unmerged, not landed. Scanned at every seam
  * while non-empty; nothing on the plain path. */
 export const transactions: Transaction[] = [];
@@ -1056,6 +1065,7 @@ export class GlobalQueue implements IQueue {
     resyncUnflushedCompanions();
     passLane = null;
     passTx = null;
+    if (__OBSERVE__ && viewHold !== null) joinFuture(viewHold);
     try {
       // Sweep before the heap: unobserved() pulls swept nodes out of it, so
       // a dormant memo dirtied in the same tick is reclaimed instead of

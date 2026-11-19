@@ -35,6 +35,13 @@ export const why: typeof Engine.why = () => [];
 export const subscriptions: typeof Engine.subscriptions = () => [];
 export const formatRerun: typeof Engine.formatRerun = () => "";
 export const formatOrigin: typeof Engine.formatOrigin = () => "";
+// No view in prod: nothing is held back, so there is nothing to show or land.
+export const openView: typeof Engine.openView = () => ({
+  show: noop,
+  resume: () => true,
+  branch: noop,
+  landing: () => false
+});
 // Prod registers no roots: the graph has no observable size.
 export const graphSize: typeof Engine.graphSize = () => ({
   roots: 0,
@@ -81,3 +88,4 @@ export type {
   FeedbackSource,
   FlightStats
 } from "./core/attribution-feedback.js";
+export type { View, ViewOptions } from "./core/view.js";
