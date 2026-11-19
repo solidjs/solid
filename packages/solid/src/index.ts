@@ -16,6 +16,7 @@ export {
   isPending,
   isWrappable,
   mapArray,
+  markRaw,
   merge,
   isStatic,
   omit,

@@ -33,7 +33,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | C | 4 | 0 | 3 | 1 |
 | INV | 11 | 3 | 7 | 4 |
 | RUL | 13 | 3 | 6 | 6 |
-| R (CS) | 59 | 18 | 20 | 30 |
+| R (CS) | 59 | 18 | 21 | 30 |
 | R (OL) | 37 | 1 | 4 | 33 |
 | R (OS) | 46 | 0 | 4 | 42 |
 | R (PJ) | 37 | 2 | 6 | 31 |
@@ -248,7 +248,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | CS-R39 | live | `docs/rules-mining/core-store.md:180` | — | — | Shallow setter-scope reads serve raws; in-place mutation of a served raw is reactively inert — records replaced, never edited.** |
 | CS-R40 | live | `docs/rules-mining/core-store.md:184` | — | — | Shallow reconcile is positional: per-index effects only where the reference changed; reference-identical rows skip entirely; length propagates; `key` option moot.** Aligned: unowned-reference skip rul… |
 | CS-R41 | live | `docs/rules-mining/core-store.md:188` | store.ts×1 | — | A plain record replaced into a shallow store is STICKY raw-marked: presents raw in this store AND in any deep store that later ingests it.** |
-| CS-R42 | live | `docs/rules-mining/core-store.md:193` | store.ts×1 types.ts×1 | — | markRaw values never wrap through ANY store (deep included); leaves for reconcile (reference replacement, no recursion).** |
+| CS-R42 | live | `docs/rules-mining/core-store.md:193` | store.ts×1 types.ts×1 | markraw-class.test.ts×1 | markRaw values never wrap through ANY store (deep included); leaves for reconcile (reference replacement, no recursion). `markRaw(Class)` marks every instance of the class and its subclasses (the opt-… |
 | CS-R43 | live | `docs/rules-mining/core-store.md:197` | — | optimistic-shallow-guess-source-5027.test.ts×1 | Store proxies are exempt from shallow raw treatment: shallow store ingesting another store's proxy passes it through unmarked and serves a live wrapped view (upstream visible, downstream isolated), se… |
 | CS-R44 | live | `docs/rules-mining/core-store.md:201` | store.ts×1 | — | Ingesting an already-deep-tracked raw into a shallow store throws in dev.** |
 | CS-R45 | live | `docs/rules-mining/core-store.md:206` | — | — | A shallow store nested in a deep store participates in the parent's reconcile (raw replacement, per-index notify).** |

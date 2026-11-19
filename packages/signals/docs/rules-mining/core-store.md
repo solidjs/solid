@@ -190,9 +190,9 @@ _Amended 2026-10-01 (#3733, rule B)._ This reverses #2692's "write trumps deriva
 - SH "record replacement through the setter works and marks raw"; SPC.
 - **CONFLICT (ruling needed):** global sticky marking caused #2932 for proxies. Cross-store stickiness for plain records is an implementation choice pinned as semantics — decide deliberately (O4).
 
-**R42. markRaw values never wrap through ANY store (deep included); leaves for reconcile (reference replacement, no recursion).**
+**R42. markRaw values never wrap through ANY store (deep included); leaves for reconcile (reference replacement, no recursion). `markRaw(Class)` marks every instance of the class and its subclasses (the opt-out from R48).**
 
-- SH 2 tests.
+- SH 2 tests; markraw-class.test.ts.
 
 **R43. Store proxies are exempt from shallow raw treatment: shallow store ingesting another store's proxy passes it through unmarked and serves a live wrapped view (upstream visible, downstream isolated), seed or set-trap.**
 
