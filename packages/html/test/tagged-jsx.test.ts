@@ -557,6 +557,31 @@ describe("Tagged JSX Integration Tests", () => {
         dispose();
       }));
 
+    it("preserves character references in script and style raw text", () =>
+      createRoot(dispose => {
+        const style = html`<style>
+          .x::after {
+            content: "&amp;";
+          }
+        </style>` as HTMLStyleElement;
+        const script = html`<script>
+          const value = "&amp;";
+        </script>` as HTMLScriptElement;
+        const svg = html`<svg>
+          <style>
+            .x {
+              fill: &amp;
+            }
+          </style>
+        </svg>` as SVGSVGElement;
+
+        expect(style.textContent).toContain('content: "&amp;";');
+        expect(script.textContent).toContain('const value = "&amp;";');
+        expect(svg.querySelector("style")?.textContent).toContain("fill: &");
+        expect(svg.querySelector("style")?.textContent).not.toContain("&amp;");
+        dispose();
+      }));
+
     it("maintains SVG namespace across nested dynamic paths", () => {
       const [radius, setRadius] = createSignal(10);
       let circle!: SVGCircleElement;
