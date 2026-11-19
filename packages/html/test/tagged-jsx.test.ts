@@ -57,6 +57,19 @@ describe("Tagged JSX Integration Tests", () => {
   });
 
   describe("Attributes and Props", () => {
+    it("keeps the outer traversal when an attribute getter renders a nested template", () =>
+      createRoot(dispose => {
+        const title = () => (html`<i>inner</i>` as HTMLElement).textContent;
+        const outer = html`<div>
+          <span title=${title}>a</span><b title=${"yes"}>b</b>
+        </div>` as HTMLElement;
+
+        expect(outer.querySelector("span")?.getAttribute("title")).toBe("inner");
+        expect(outer.querySelector("b")?.getAttribute("title")).toBe("yes");
+        expect(outer.textContent).toBe("ab");
+        dispose();
+      }));
+
     it("handles complex attribute names and mixed values", () => {
       const [cls, setCls] = createSignal("active");
       let el!: HTMLElement;
@@ -417,6 +430,20 @@ describe("Tagged JSX Integration Tests", () => {
   });
 
   describe("Custom Components", () => {
+    it("lets nested children override a function-valued children prop", () =>
+      createRoot(dispose => {
+        const Comp = (props: { children: unknown }) => props.children;
+        const localHtml = html.define({ Comp });
+
+        expect(localHtml`<Comp children=${() => "fallback"}>real</Comp>`).toBe("real");
+        expect(localHtml`<Comp children="fallback">real</Comp>`).toBe("real");
+        expect(
+          localHtml`<Comp ...${{ children: "spread" }} children=${() => "fallback"}>real</Comp>`
+        ).toBe("real");
+        expect(localHtml`<Comp children=${() => "fallback"} />`).toBe("fallback");
+        dispose();
+      }));
+
     it("passes children correctly to registered components", () =>
       createRoot(dispose => {
         const Wrapper = (props: { children: any }) => html`<section>${props.children}</section>`;
@@ -554,6 +581,31 @@ describe("Tagged JSX Integration Tests", () => {
 
         expect(style.textContent).toContain("body > div");
         expect(style.tagName).toBe("STYLE");
+        dispose();
+      }));
+
+    it("preserves character references in script and style raw text", () =>
+      createRoot(dispose => {
+        const style = html`<style>
+          .x::after {
+            content: "&amp;";
+          }
+        </style>` as HTMLStyleElement;
+        const script = html`<script>
+          const value = "&amp;";
+        </script>` as HTMLScriptElement;
+        const svg = html`<svg>
+          <style>
+            .x {
+              fill: &amp;
+            }
+          </style>
+        </svg>` as SVGSVGElement;
+
+        expect(style.textContent).toContain('content: "&amp;";');
+        expect(script.textContent).toContain('const value = "&amp;";');
+        expect(svg.querySelector("style")?.textContent).toContain("fill: &");
+        expect(svg.querySelector("style")?.textContent).not.toContain("&amp;");
         dispose();
       }));
 

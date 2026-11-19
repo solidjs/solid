@@ -39,9 +39,6 @@ function createHtml() {
   const rawTextElements = new Set(RawTextElements);
   rawTextElements.delete("template");
 
-  // Walk over text, comment, and element nodes.
-  const walker = document.createTreeWalker(document, 129);
-
   const SVG_NS = "http://www.w3.org/2000/svg";
   const MATHML_NS = "http://www.w3.org/1998/Math/MathML";
   // `ns` is the namespace a static parent puts its children in, as the HTML
@@ -115,9 +112,10 @@ function createHtml() {
     }
   };
 
-  const buildNodes = (node: ChildNode, ns?: string): Node => {
+  const buildNodes = (node: ChildNode, ns?: string, rawText = false): Node => {
     switch (node.type) {
       case TEXT_NODE:
+        if (rawText) return document.createTextNode(node.value);
         textTemplate.innerHTML = trustedHTML(node.value);
         return document.createTextNode(textTemplate.content.textContent ?? "");
       case EXPRESSION_NODE:
@@ -163,7 +161,11 @@ function createHtml() {
             : elem.namespaceURI === MATHML_NS
               ? MATHML_NS
               : undefined;
-        childRoot.append(...node.children.map(child => buildNodes(child, childNs)));
+        const childRawText =
+          elem.namespaceURI !== SVG_NS &&
+          elem.namespaceURI !== MATHML_NS &&
+          (node.name === "script" || node.name === "style");
+        childRoot.append(...node.children.map(child => buildNodes(child, childNs, childRawText)));
 
         return elem;
     }
@@ -205,7 +207,7 @@ function createHtml() {
     }
 
     const element = node.template.content.firstChild!.cloneNode(true) as Element;
-    walker.currentNode = element;
+    const walker = document.createTreeWalker(element, 129);
 
     const walkNodes = (nodes: ChildNode[], walker: TreeWalker) => {
       for (const node of nodes) {
@@ -255,6 +257,13 @@ function createHtml() {
     const sources: unknown[] = [];
     let own: Record<string, any> = props;
     for (const prop of node.props) {
+      if (
+        node.type === COMPONENT_NODE &&
+        node.children.length &&
+        prop.type !== SPREAD_PROP &&
+        prop.name === "children"
+      )
+        continue;
       switch (prop.type) {
         case BOOLEAN_PROP:
           own[prop.name] = true;
