@@ -1,5 +1,12 @@
 # @solidjs/h
 
+## 2.0.2
+
+### Patch Changes
+
+- 180d6f1: fix(h): a Text or DocumentFragment child is inserted as a node instead of read as props (#5056)
+  - @solidjs/web@2.0.3
+
 ## 2.0.1
 
 ### Patch Changes
