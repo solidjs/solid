@@ -243,6 +243,27 @@ describe("Test HyperScript", () => {
     expect(el.firstChild).toBe(existing);
   });
 
+  test("a Text child is inserted, not read as props (#5056)", () => {
+    const text = document.createTextNode("hello");
+    const el = mount(() => h("div", text));
+    expect(el.firstChild).toBe(text);
+    expect(el.attributes.length).toBe(0);
+  });
+
+  test("a DocumentFragment child inserts its nodes, not read as props (#5056)", () => {
+    const frag = document.createDocumentFragment();
+    frag.append(document.createElement("b"), document.createTextNode("x"));
+    const el = mount(() => h("div", frag));
+    expect(el.outerHTML).toBe("<div><b></b>x</div>");
+  });
+
+  test("a component's Text second arg becomes props.children (#5056)", () => {
+    const text = document.createTextNode("inner");
+    const Comp = props => h("section", props.children);
+    const el = mount(() => h(Comp, text));
+    expect(el.firstChild).toBe(text);
+  });
+
   test("component with multiple extra args bundles them into props.children array", () => {
     const Comp = props => h("ul", props.children);
     const el = mount(() => h(Comp, null, h("li", "a"), h("li", "b"), h("li", "c")));
