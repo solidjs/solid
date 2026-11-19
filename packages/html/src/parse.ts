@@ -175,6 +175,11 @@ export const parse = (tokens: Token[], voidElements: Set<string>): RootNode => {
         // Handle Opening Tag: <name ...>
         if (nextToken.type === IDENTIFIER_TOKEN || nextToken.type === EXPRESSION_TOKEN) {
           const tagName = nextToken.value;
+          if (parent.type === ELEMENT_NODE && parent.name === "table" && tagName === "tr") {
+            throw new Error(
+              "The HTML provided is malformed and will yield unexpected output when evaluated by a browser."
+            );
+          }
           const node: ElementNode | ComponentNode = {
             type:
               typeof tagName === "number" || isComponentNode(tagName)
