@@ -251,8 +251,7 @@ function pairLate(t: Target, node: Signal<any>): void {
       ov.includes(v)
     )
       continue;
-    stageRow(fam, o, v, node);
-    (out ??= nv.slice())[i] = o;
+    if (stageRow(fam, o, v, node)) (out ??= nv.slice())[i] = o;
   }
   if (out === null) return;
   if (same(t, ov, out)) {

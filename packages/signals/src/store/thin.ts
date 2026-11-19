@@ -341,8 +341,13 @@ function child(t: Target, v: any): any {
   if (t.s) {
     // A shallow slot serves verbatim; a store placed in it is served
     // through the slot's chain to it (#2932: each level its own proxies).
+    // A derived store's seed that holds a store is its view of it too (CS-R3).
     const ct: Target | undefined =
-      t._fam !== null && isWrappable(v) ? (t._fam.map.get(v) as any) : undefined;
+      t._fam === null || !isWrappable(v)
+        ? undefined
+        : (t._fam.map.get(
+            isThin(v) && v[$THIN]._fam !== t._fam ? chainSlot(t, v, false) : v
+          ) as any);
     return ct !== undefined && ct.c !== null ? ct.p : v;
   }
   if (!isWrappable(v) || isRawValue(v)) return v;
@@ -892,15 +897,17 @@ function pairLate(t: Target, node: Signal<any>): void {
     const c = m ? m._value : t.v[k];
     if (c === nv || (m && m._pendingValue !== NOT_PENDING ? m._pendingValue : c) === ov) return;
   }
-  stageRow(fam, ov, nv, node);
+  if (!stageRow(fam, ov, nv, node)) return;
   // The slot itself is unchanged: no longer held.
   node._pendingValue = NOT_PENDING;
   node._config &= ~CONFIG_HELD;
 }
 /** One target over the old raw, the new raw's differing leaves staged on it
- * under `node`'s hold. */
-function stageRow(fam: StoreFamily, ov: any, nv: any, node: Signal<any>): void {
+ * under `node`'s hold. Another store's row is not this store's to stage on:
+ * the write stays in the view (CS-R4). */
+function stageRow(fam: StoreFamily, ov: any, nv: any, node: Signal<any>): boolean {
   const ct: Target = wrap(ov, fam)[$THIN];
+  if (ct._fam !== fam) return false;
   const x = node._x!;
   for (const k of Reflect.ownKeys({ ...ov, ...nv })) {
     const v = hasOwn.call(nv, k) ? nv[k] : ABSENT;
@@ -912,6 +919,7 @@ function stageRow(fam: StoreFamily, ov: any, nv: any, node: Signal<any>): void {
     }
   }
   ct.w = ct.gone = true;
+  return true;
 }
 
 export function thinRunDirect(fn: () => void): void {
@@ -1045,9 +1053,10 @@ const BASE: ProxyHandler<any> = {
   get(_, key, receiver) {
     const t: Target = _[$S];
     if (__DEV__ && getObserver() === null) checkForeignRead();
-    if (t.c !== null) return CHAIN.get!(_, key, receiver);
+    // A marked view is witnessed where it is read, not at its source.
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(t as any, typeof key === "symbol" ? undefined : key);
+    if (t.c !== null) return CHAIN.get!(_, key, receiver);
     // Brands are symbols: a string key skips their checks.
     const sym = typeof key === "symbol";
     if (sym) {

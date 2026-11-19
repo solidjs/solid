@@ -1,4 +1,12 @@
-import { createStore, flush, snapshot } from "../../src/index.js";
+import {
+  action,
+  affects,
+  createStore,
+  flush,
+  isPending,
+  reconcile,
+  snapshot
+} from "../../src/index.js";
 
 // A derived store's view of another store's objects (ruled 2026-11-18,
 // #4906): rows follow the source row (CS-R2), the derive's answer replaces
@@ -62,5 +70,60 @@ describe("a derived store's view of another store", () => {
     setA(d => void (d.n = 1));
     flush();
     expect(ids(D.list)).toEqual([1, 2]);
+  });
+
+  // A held write to a viewed row, read during its hold, stays the view's.
+  for (const read of ["nothing", "the source", "the view"])
+    it(`an action's keyed write to a viewed row stays in the view after reading ${read}`, async () => {
+      const [person] = createStore({ id: 1, name: "Alice" });
+      const [view, setView] = createStore<any>(() => ({ rows: [person] }));
+      flush();
+      let release!: () => void;
+      const gate = new Promise<void>(r => (release = r));
+      const done = action(function* () {
+        setView((d: any) => void reconcile([{ id: 1, name: "Bob" }], "id")(d.rows));
+        yield gate;
+      })();
+      flush();
+      if (read === "the source") person.name;
+      if (read === "the view") view.rows[0].name;
+      release();
+      await done;
+      flush();
+      expect(person.name).toBe("Alice");
+      expect(view.rows[0].name).toBe("Bob");
+    });
+
+  it("a shallow derived store's seed that holds a store is its view of it", () => {
+    const [person] = createStore({ name: "Alice" });
+    const [view, setView] = createStore<any>(() => ({ row: person }), { row: person }, {
+      shallow: true
+    } as any);
+    flush();
+    expect(view.row).not.toBe(person);
+    expect(view.row.name).toBe("Alice");
+    setView((d: any) => void (d.row.name = "Bob"));
+    flush();
+    expect(view.row.name).toBe("Bob");
+    expect(person.name).toBe("Alice");
+  });
+
+  it("a marked view is pending at its first untracked read; its source is not", async () => {
+    const [source] = createStore({ address: { city: "Paris" } });
+    const [view] = createStore<any>(() => source);
+    flush();
+    let release!: () => void;
+    const gate = new Promise<void>(r => (release = r));
+    const done = action(function* () {
+      affects(view);
+      yield gate;
+    })();
+    flush();
+    expect(isPending(() => source.address.city)).toBe(false);
+    expect(isPending(() => view.address.city)).toBe(true);
+    release();
+    await done;
+    flush();
+    expect(isPending(() => view.address.city)).toBe(false);
   });
 });
