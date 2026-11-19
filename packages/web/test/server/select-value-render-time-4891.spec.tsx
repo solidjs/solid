@@ -10,6 +10,8 @@
 import { describe, expect, test } from "vitest";
 import { renderToString, renderToStream, Loading } from "@solidjs/web";
 import { For, Show, createMemo, createSignal } from "solid-js";
+// @ts-expect-error jsdom ships no types; used only to parse the rendered document
+import { JSDOM } from "jsdom";
 
 function later<T>(value: T, ms = 5): Promise<T> {
   return new Promise(r => setTimeout(() => r(value), ms));
@@ -65,6 +67,16 @@ describe("SSR <select value> at render time (#4891)", () => {
     ));
     expect(html).toMatch(/<option selected>Two<\/option>/);
     expect(html).toMatch(/<option>One<\/option>/);
+  });
+
+  test("an option's text keeps non-ASCII whitespace when matched", () => {
+    const html = renderToString(() => (
+      <select value={"B\u00a0B"}>
+        <option>A</option>
+        <option>B&nbsp;B</option>
+      </select>
+    ));
+    expect(new JSDOM(html).window.document.querySelector("select").value).toBe("B\u00a0B");
   });
 
   test("a multiple select's array value marks every matching option", () => {
