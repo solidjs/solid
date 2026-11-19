@@ -1503,11 +1503,11 @@ export function strictReadActive(): boolean {
  * Use `untrack` inside a memo or effect when you need to read a signal once
  * without making the surrounding computation depend on its future changes.
  *
- * `untrack` is not a fix for `STRICT_READ_UNTRACKED`. Wrapping a component
- * body read in it silences the warning but keeps the bug: the value is still
- * read once and never updates. Move the read to where the value is used
- * (JSX, a memo, an effect's compute, the event handler, or an accessor passed
- * to the hook that needs it).
+ * In a component body, `untrack` marks a read as a deliberate one-time
+ * snapshot and silences `STRICT_READ_UNTRACKED`. Use it only when the value
+ * must never update. When it should follow its source, move the read to
+ * where the value is used (JSX, a memo, an effect's compute, the event
+ * handler, or an accessor passed to the hook that needs it) instead.
  *
  * `untrack` stops dependency tracking, not async settlement. Reading an
  * uninitialized async source still suspends the owning computation; it runs

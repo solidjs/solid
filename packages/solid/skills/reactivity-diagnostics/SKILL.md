@@ -75,11 +75,7 @@ once and will never update.
 Move the read to where the value is used, inside a tracking scope: JSX, a
 memo, an effect's compute function, or an API that takes an accessor.
 
-Do NOT wrap the read in `untrack()` to make the warning go away. That keeps
-the bug (the value still never updates) and only hides the report.
-`untrack` exists for the rare case where a person has decided a value must
-never follow its source; an agent should not make that call because a
-warning appeared. Pick the repair by what the value is for:
+Pick the repair by what the value is for:
 
 - Rendered: read it in JSX, `<h1>{props.title}</h1>`.
 - Derived: use a function, `const total = () => props.price * props.qty`,
@@ -100,6 +96,13 @@ warning appeared. Pick the repair by what the value is for:
 - Config for an object built once (a client, an actor, a chart): build it in
   a memo over the reads so it is rebuilt, or apply changes to it in an
   effect.
+- A deliberate one-time snapshot that must never update: wrap the read in
+  `untrack(() => props.value)` to say so. This is the author deciding the
+  value never follows its source, not a way to clear the warning.
+
+Coding agents: do not wrap the read in `untrack()` to make the warning go
+away. That keeps the bug (the value still never updates) and only hides the
+report. Leave `untrack` to a person who has decided the value is fixed.
 
 Writing a hook or library adapter: take `() => T` (or `T | (() => T)`) and
 read it inside your own memos and effects. A hook that wraps its argument
