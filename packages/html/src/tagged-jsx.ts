@@ -112,9 +112,10 @@ function createHtml() {
     }
   };
 
-  const buildNodes = (node: ChildNode, ns?: string): Node => {
+  const buildNodes = (node: ChildNode, ns?: string, rawText = false): Node => {
     switch (node.type) {
       case TEXT_NODE:
+        if (rawText) return document.createTextNode(node.value);
         textTemplate.innerHTML = trustedHTML(node.value);
         return document.createTextNode(textTemplate.content.textContent ?? "");
       case EXPRESSION_NODE:
@@ -160,7 +161,11 @@ function createHtml() {
             : elem.namespaceURI === MATHML_NS
               ? MATHML_NS
               : undefined;
-        childRoot.append(...node.children.map(child => buildNodes(child, childNs)));
+        const childRawText =
+          elem.namespaceURI !== SVG_NS &&
+          elem.namespaceURI !== MATHML_NS &&
+          (node.name === "script" || node.name === "style");
+        childRoot.append(...node.children.map(child => buildNodes(child, childNs, childRawText)));
 
         return elem;
     }
