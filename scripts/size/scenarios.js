@@ -1136,7 +1136,8 @@ module.exports = [
     // #4689): measured 15,114 B / 43,914 B minified; the cap raised in
     // its PR with the growth accepted (the rulings' cost on this chunk).
     limit: "15.13 KB",
-    capMinified: 43914,
+    // 2026-11-19 (re-record over main @ 7e7938b): recorded minified 43,914 -> 43,939 B (+25 B: #5044, #5005 held-key leaves on a user's adoption), measured 15,103 B brotli in CI; the cap is unchanged. Recorded minified = measured.
+    capMinified: 43939,
     alias
   },
   {
