@@ -835,6 +835,12 @@ export function adoptPB(
     if (target.ovl) materializePB(target);
     base = target.pb!;
   } else base = target.v;
+  // #4146 for an adoption (#5005): before a user's adoption swaps a HELD
+  // container's staging, its keys get their leaves, born from the two frames,
+  // so a change stages on its key as a trap write's would (an array's keys
+  // stage as its setter's do).
+  if (userWrite && (target.k as any)?._config & CONFIG_HELD && !Array.isArray(base))
+    for (const key in { ...base, ...incoming }) deferredReleases.add(getNode(target, key));
   if (directCommit) {
     target.pb = null;
     if (target.k !== null) target.k._value = incoming;
