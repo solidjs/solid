@@ -154,7 +154,7 @@ describe("Test HyperScript", () => {
     // Fragment is a component whose body returns props.children.
     const result = mount(() => h(h.Fragment, null, first, second));
     expect(Array.isArray(result)).toBe(true);
-    expect(result).toEqual([first, second]);
+    expect(result.map(node => node.outerHTML)).toEqual(["<span>A</span>", "<span>B</span>"]);
   });
 
   test("#id-only selector defaults to a div", () => {
