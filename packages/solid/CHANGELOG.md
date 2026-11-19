@@ -1,5 +1,13 @@
 # solid-js
 
+## 1.9.20
+
+### Patch Changes
+
+- 29eac3f: Export `cancelCallback` from the server build so it can be imported alongside `requestCallback`.
+- 061297f: Use the initial value passed to `from()` during server rendering, matching the client.
+- 647078b: Add `setTrustedTypesPolicy(policy)` to `solid-js/web` (dom-expressions 0.40.15), so compiled templates work on pages that enforce `require-trusted-types-for 'script'`. The app passes a Trusted Types policy it created, and `template()` assigns the `TrustedHTML` that policy returns. On the server it is a no-op. Nothing changes for apps that do not call it.
+
 ## 1.9.19
 
 ### Patch Changes

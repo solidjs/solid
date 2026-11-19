@@ -23,6 +23,7 @@ export {
   runWithOwner,
   equalFn,
   requestCallback,
+  cancelCallback,
   mapArray,
   indexArray,
   observable,
