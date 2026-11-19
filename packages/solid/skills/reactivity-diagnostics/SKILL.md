@@ -68,11 +68,12 @@ a cost or a wait can be read as "what did the user do to pay for this."
 
 ### STRICT_READ_UNTRACKED
 
+A reactive value was read outside any tracking scope (e.g. destructured props
+or a signal called in the component body). The read got the current value
+once and will never update.
+
 Move the read to where the value is used, inside a tracking scope: JSX, a
-memo, an effect's compute function, or an API that takes an accessor. The
-value was read outside any tracking scope (e.g. destructured props or a
-signal called in the component body), so it got the current value once and
-will never update.
+memo, an effect's compute function, or an API that takes an accessor.
 
 Do NOT wrap the read in `untrack()` to make the warning go away. That keeps
 the bug (the value still never updates) and only hides the report.
@@ -80,18 +81,25 @@ the bug (the value still never updates) and only hides the report.
 never follow its source; an agent should not make that call because a
 warning appeared. Pick the repair by what the value is for:
 
-| The value is…                                                 | Repair                                                                                  |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| rendered                                                      | read it in JSX: `<h1>{props.title}</h1>`                                                |
-| derived                                                       | a function `const total = () => props.price * props.qty`, or `createMemo`               |
-| an input to async data                                        | read it in the compute: `createMemo(() => fetchUser(props.id))`                         |
-| passed to a hook or primitive                                 | pass an accessor: `useThing(() => props.id)`, not `useThing(props.id)`                  |
-| the seed of local editable state                              | writable derived: `createSignal(() => props.initial)` (resets when it changes)          |
-| the initial value of a form control                           | `defaultValue={props.initial}` on the element                                           |
-| needed by a side effect                                       | `createEffect(() => props.id, (id) => ...)`                                             |
-| needed when an event fires                                    | read it inside the handler: `onClick={() => save(props.id)}`                            |
-| an argument of a flow callback (`<For>`…)                     | read the accessor in JSX inside the callback, not at its top                            |
-| config for an object built once (a client, an actor, a chart) | build it in a memo over the reads so it is rebuilt, or apply changes to it in an effect |
+- Rendered: read it in JSX, `<h1>{props.title}</h1>`.
+- Derived: use a function, `const total = () => props.price * props.qty`,
+  or `createMemo`.
+- An input to async data: read it in the compute,
+  `createMemo(() => fetchUser(props.id))`.
+- Passed to a hook or primitive: pass an accessor,
+  `useThing(() => props.id)`, not `useThing(props.id)`.
+- The seed of local editable state: use a writable derived signal,
+  `createSignal(() => props.initial)`, which resets when the source changes.
+- The initial value of a form control: `defaultValue={props.initial}` on the
+  element.
+- Needed by a side effect: `createEffect(() => props.id, (id) => ...)`.
+- Needed when an event fires: read it inside the handler,
+  `onClick={() => save(props.id)}`.
+- An argument of a flow callback (`<For>`, `<Show>`): read the accessor in
+  JSX inside the callback, not at its top.
+- Config for an object built once (a client, an actor, a chart): build it in
+  a memo over the reads so it is rebuilt, or apply changes to it in an
+  effect.
 
 Writing a hook or library adapter: take `() => T` (or `T | (() => T)`) and
 read it inside your own memos and effects. A hook that wraps its argument

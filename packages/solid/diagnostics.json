@@ -581,7 +581,7 @@
     "severity": ["warn"],
     "category": "strict-read",
     "trigger": "Untracked reactive read in component/effect body",
-    "repair": "Move the read to where the value is used, inside a tracking scope: JSX, a memo, an effect's compute function, or an API that takes an accessor.",
+    "repair": "A reactive value was read outside any tracking scope (e.g. destructured props or a signal called in the component body).",
     "guideUrl": "https://docs.solidjs.com/reference/solid-js/diagnostics/strict-read-untracked"
   },
   {
