@@ -1611,12 +1611,11 @@ export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true
     if (__DEV__ && guard) devGuardStoreSetterResult(result);
     if (result !== undefined && result !== proxy && isWrappable(result)) {
       const t: Target = (proxy as any)[$THIN];
-      // A user's returned value is a shallow diff, as on a plain store (the
-      // keyed diff is the derive's); an optimistic family's is its guess,
-      // written as the keyed diff (S-59).
-      t._fam?.opt
-        ? thinReconcile(proxy, result, t._fam.key ?? null)
-        : replace(t, unwrapThin(result));
+      // A user's returned value is a shallow diff on every store: the
+      // keyed diff is the derive's. On an optimistic store it is the guess,
+      // one write per key or index that differs (D-33); rows the setter
+      // carried over are the store's own.
+      replace(t, unwrapThin(result));
     }
   } finally {
     writing--;
