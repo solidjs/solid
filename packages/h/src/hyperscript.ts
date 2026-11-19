@@ -97,12 +97,23 @@ function componentProps(src: Props | undefined, children: any[]): Props {
   const d: PropertyDescriptorMap = src ? Object.getOwnPropertyDescriptors(src) : {};
   let rewritten = !src;
   if (children.length) {
-    d.children = {
-      value: children.length > 1 ? children : children[0],
-      writable: true,
-      enumerable: true,
-      configurable: true
-    };
+    // A bare thunk array is read as accessors by `insert` and re-invoked (#5072).
+    if (children.length > 1) {
+      d.children = {
+        get() {
+          return resolveThunks(children);
+        },
+        enumerable: true,
+        configurable: true
+      };
+    } else {
+      d.children = {
+        value: children[0],
+        writable: true,
+        enumerable: true,
+        configurable: true
+      };
+    }
     rewritten = true;
   }
   const getters: string[] = [];
@@ -188,9 +199,9 @@ function materialize(args: any[]): ExpandableNode | ExpandableNode[] {
           (typeof first === "object" && !Array.isArray(first) && !(first instanceof Node))
             ? args.shift() || undefined
             : undefined;
-        e = createComponent(l, componentProps(src, args)) as ExpandableNode;
-        // Drain nested h() thunks so downstream sees the real render result.
-        while (typeof e === "function" && (e as any)[$ELEMENT]) e = (e as any)();
+        // Resolve tagged thunks in the returned value, including arrays, so
+        // downstream sees nodes and `insert` never re-invokes a thunk (#5072).
+        e = resolveThunks(createComponent(l, componentProps(src, args)));
         args = [];
       } else if ((l as any)[$ELEMENT]) item(l());
       else {
