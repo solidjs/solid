@@ -225,7 +225,8 @@ const POLICY = [
   "src/core/guesses.ts",
   "src/core/seat.ts",
   "src/core/types.ts",
-  "src/core/verdict.ts"
+  "src/core/verdict.ts",
+  "src/core/view.ts"
 ];
 const dStatus = new Map();
 {

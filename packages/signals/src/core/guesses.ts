@@ -33,6 +33,7 @@ import {
   resolveTx,
   schedule,
   txOf,
+  viewHold,
   type Transaction
 } from "./scheduler.js";
 import {
@@ -92,7 +93,8 @@ export function take(n: Signal<any>, l: Transaction, d?: boolean): void {
   }
 }
 export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
-  if (__DEV__) devWarnOptimisticWhileLoading(n as Computed<T>);
+  // A guess written while a view is open is the view's pin (view.ts).
+  if (__DEV__ && viewHold === null) devWarnOptimisticWhileLoading(n as Computed<T>);
   const prev = guessedValueOf(n);
   if (typeof v === "function") v = (v as (prev: T) => T)(prev);
   // Equal is no guess, unless the node carries one: re-asking renews its question (#3347).

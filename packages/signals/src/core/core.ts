@@ -159,6 +159,7 @@ import {
   schedule,
   setPassLane,
   txOf,
+  viewSkip,
   resolveTx,
   inEffectCallback,
   effectCallbackEvent,
@@ -351,6 +352,11 @@ export function clearSnapshots(): void {
 export function recompute(el: Computed<any>, create: boolean = false): void {
   // Any recompute can clean a marked subscriber: invalidate the skip (§12d).
   bumpNotifyEpoch();
+  if (__OBSERVE__ && viewSkip !== null && !create && viewSkip(el)) {
+    deleteFromHeap(el, dirtyQueue);
+    el._flags &= ~(REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_LANE_DIRTY);
+    return;
+  }
   const isEffect = (el as any)._type;
   let released: Computed<any>[] | undefined;
   let superseded: unknown = NOT_PENDING;

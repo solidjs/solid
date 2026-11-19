@@ -18,6 +18,11 @@ export { attribution, formatOrigin, formatRerun, graphSize } from "./core/attrib
 export { costs } from "./core/attribution-costs.js";
 export { feedback } from "./core/attribution-feedback.js";
 export { subscriptions, why } from "./core/attribution-queries.js";
+// A view over the page (time travel, experimental): importing it ships the
+// lane and guess modules it drives, so a bundle that never opens one carries
+// neither (bundle size).
+export { openView } from "./core/view.js";
+export type { View, ViewOptions } from "./core/view.js";
 export type {
   Acknowledgement,
   Attribution,

@@ -1392,6 +1392,96 @@ Labels read as source: a flow control's own nodes fold into its tag (`<App> › 
 
 Findings become markers: every `DiagnosticEvent` delivered while enabled is a marker on the panel's Timings track (`SILENT_HOLD — <Search>`), coloured by severity, and — at `warn` or worse — annotated as a performance issue for the Insights sidebar (`detail.devtools.performanceIssue`, with the repair guide's section for the code as its link; Chrome ignores the annotation where it is not yet supported). In dev, every span and marker is emitted inside the `console.createTask` task of the component it belongs to, so the entry's stack in the panel points at the JSX site that rendered the component rather than at the engine. The dev component wrapper creates that task only for components rendered while an attribution engine is installed — `console.createTask` captures a stack per call, roughly the wrapper's own cost again and ~90 B retained per instance, DevTools open or not, and only an attribution consumer reads it — so a dev session with nothing enabled pays nothing, and the tracks enabled at bootstrap see every component's site (a component rendered before any consumer enabled carries no task and its spans are emitted plainly). Enabling takes its own hold on the engine (`attribution.enable({ log: false, checks: false, ... })` — asking for no console log and records only, which quiets the console and the six cost checks only while no other holder wants them; pass `attribution: { checks: true }` to have the tracks' hold run the checks, their findings painted as markers), so it coexists with a diagnostics capture or an APM adapter; the returned function releases it. There is one instance per page: a second `enablePerformanceTracks()` while one is running joins it (the first call's options stand) and returns its own release, and the instance is torn down when every release has been called — a module HMR re-evaluates lands back on one set of tracks, not two painters. The adapter is the one place host APIs are called from inside the engine's hooks, and it guards them: a `performance`/`console` call that throws drops that entry (dev warns once) and never reaches the engine.
 
+### Views and time travel (`openView`, experimental)
+
+> **Experimental.** `openView` and its `View` may change in a minor release. It exists for devtools (a history view that shows past frames); nothing in an app should call it.
+
+The engine records what each drain changed (`flush.changes`, above); a view is the one way to _show_ a past frame. It records nothing itself.
+
+```ts
+import { openView, type View, type ViewOptions } from "solid-js/attribution";
+
+interface ViewOptions {
+  effects?: boolean; // run user effects under the view (default false)
+}
+interface View {
+  show(values: ReadonlyMap<object, unknown>): void; // replace the pin set
+  resume(): boolean; // leave; false while the landing waits on async work
+  branch(): void; // leave by making the shown values the truth
+  landing(): boolean; // after resume(): its transition has not landed yet
+}
+function openView(options?: ViewOptions): View;
+```
+
+While a view is open, every flush joins one hold that only the view closes: the program keeps running beneath it (writes, async landings, mounts, action bodies), and none of it shows. `show(map)` pins each node in the map (the `node` of a `flush` record's `live.changes`) at its value. A **pin** is an ordinary optimistic guess over that hold: it shows through the normal render path, and sync memos, render effects, `<Show>`/`<For>` structure and boundaries re-derive from it. Observe and dev tiers; the prod tier resolves an inert twin (`show`/`branch` do nothing, `resume()` returns `true`, `landing()` returns `false`).
+
+| Case                                                           | What happens                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What can be pinned                                             | A signal, a store property's node, and an async memo (one that asked). A sync memo in the map is ignored: it re-derives from the pins. Disposed nodes are skipped                                                                                                                                                                                                                                                                                                            |
+| `show()` again                                                 | Replaces the whole pin set. A node pinned before and absent now goes back to what it showed when the view opened                                                                                                                                                                                                                                                                                                                                                             |
+| Live write, mount, action body, async landing beneath the view | Hidden until the landing. A `flush` listener sees no change for it while the view is open                                                                                                                                                                                                                                                                                                                                                                                    |
+| Live write to a pinned node                                    | The pin stays on screen. An updater (`set(v => v + 1)`) composes on the truth beneath the pin, not on the pin                                                                                                                                                                                                                                                                                                                                                                |
+| Async memo that is pinned                                      | Its pass is held back: no refetch while viewing or when moving between pins                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Render effects                                                 | Run on the view                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| User effects (`createEffect`, `createTrackedEffect`)           | Held back. At the landing an effect runs once if a source's truth ended somewhere other than where the view opened over it; otherwise it does not run and its cleanup does not run. `openView({ effects: true })` runs them on the view instead                                                                                                                                                                                                                              |
+| `resume()`                                                     | Everything done beneath the view lands as one transition, recorded as one `flush` record listing what differs from what the view showed. Returns `false` while that transition waits on async work; the view stays on screen until it lands (poll `landing()`)                                                                                                                                                                                                               |
+| `branch()`                                                     | The pins become the truth; the writes made beneath the view are dropped; later writes compose on the pinned values                                                                                                                                                                                                                                                                                                                                                           |
+| Views at once                                                  | One. `openView()` throws while another is open. `openView`, `show`, `resume` and `branch` throw inside a flush, an effect or an action body. `show()` after leaving throws; `resume()` and `branch()` again are no-ops                                                                                                                                                                                                                                                       |
+| The engine                                                     | Not required. With the engine enabled, a guess that shows while a view is open is the view's pin, so its lift is no `OPTIMISTIC_REVERTED`; flushes parked on the view's hold are not a hold of the page's (no `hold` record, no `SILENT_HOLD`/`LONG_HOLD`/`STACKED_HOLDS`), and an app hold open when the view opened is merged into it; a pin emits no `OPTIMISTIC_WRITE_WHILE_LOADING`. An interaction whose write the view hid settles at the landing (`outcome: "held"`) |
+| Untracked reads                                                | A handler's untracked read sees the view: a devtool should make the page read-only while viewing                                                                                                                                                                                                                                                                                                                                                                             |
+
+A history view on the engine's `flush` record (the signals package's test helper `tests/view-time-travel.ts` is the full version):
+
+```ts
+import { OBSERVE } from "solid-js";
+import { attribution, openView, type View } from "solid-js/attribution";
+
+const steps: { node: object; prev: unknown }[][] = [];
+let view: View | null = null;
+
+const release = attribution.enable({ log: false });
+OBSERVE!.records.subscribe(
+  "flush",
+  (_event, live) => {
+    if (view === null && live!.changes.length)
+      steps.push(live!.changes.map(c => ({ node: c.node, prev: c.prev })));
+  },
+  { bodies: true }
+);
+
+// Every node changed after step k, at what it showed before its first later change.
+function pinsFor(k: number) {
+  const pins = new Map<object, unknown>();
+  for (let i = steps.length - 1; i > k; i--) for (const c of steps[i]) pins.set(c.node, c.prev);
+  return pins;
+}
+
+function viewStep(k: number) {
+  (view ??= openView()).show(pinsFor(k));
+}
+function resume() {
+  view?.resume(); // false: still landing; the landing's own record lists prev = what the view showed
+  view = null;
+}
+function branch(k: number) {
+  view?.branch();
+  view = null;
+  steps.length = k + 1;
+}
+```
+
+**Known limitations**, each pinned by a test named `known gap: …`:
+
+- `isPending(x)` under a view reports the live program: a live write beneath the view makes a pinned async memo read as pending.
+- A flight already in flight when the view opens lands beneath the pin, and its memo asks once more at `resume()`.
+- A reader the view moved away from the present and back runs once more at `resume()`, with the same value.
+- Stores: a property nothing read when it changed has no node and cannot be pinned; an array index removed since stays absent in the view; `<For>` over a store list reads the list's items from the store's backing, so a reorder does not rewind (the length does); `snapshot(store)` reads the backing, which is the present; `branch()` lands the nodes, not the store's backing.
+- State created inside a branch the view remounts starts over: its history is not replayed.
+- "Asked" is detected from the question an async flight stamps on its node, and a guess stamps the same field: a synchronous `createOptimistic(fn)` memo that once carried a guess is pinned like an async memo (its pass held back) instead of re-deriving.
+- A click whose only write went to a pinned node is recorded with `writes: 0` (`outcome: "idle"`); the engine also does not judge a guess the page itself shows while a view is open.
+
+**Open rule question.** A pin is a guess judged by F-11 and D-34 as written. Two parts of a view depart from D-34: a pinned async memo's held-back pass (it is not re-asked "now" when an input changes beneath the view; it is asked once at the landing), and held-back user effects. Whether a devtool's view is an observe-tier exception to name in the rules, or should follow the guess rules as written (re-ask now, effects run on the view), is open with the maintainer.
+
 ### Architecture
 
 The engine is decoupled from the core through a narrow dev-only hook surface (`attribution-hooks.ts`): the core's only obligation is to report true facts (recompute start/end with lane and transition posture, committed writes, async landings, refreshes) at the moments they happen. All semantics — stamps, cause chains, timings, thresholds — live in the engine. Disabled cost is one null check per hook site; production builds fold every site out entirely (the size guard enforces byte-parity).
