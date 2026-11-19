@@ -152,7 +152,12 @@ function release(node: any, settled?: boolean): void {
   } else return;
   // A count, not an enumeration: a wide map deleted key by key goes
   // dictionary-mode, and a `for…in` per release was quadratic (clear).
-  if (t._fam !== null && t.k === null && t.q === 0) t._fam.live.delete(t as any);
+  if (t.q === 0) {
+    // Emptied dictionaries are dropped (#5024): the target outlives its
+    // readers while the app holds the raw.
+    t.n = t.h = null;
+    if (t._fam !== null && t.k === null) t._fam.live.delete(t as any);
+  }
 }
 let laneCarried: Set<any> | null = null;
 /** At a commit: release the lane-carried nodes nobody reads that no live

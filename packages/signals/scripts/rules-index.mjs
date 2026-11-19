@@ -3,6 +3,7 @@
 //
 //   node scripts/rules-index.mjs            # write docs/RULES-INDEX.md
 //   node scripts/rules-index.mjs --check    # exit 1 if a src/ citation does not resolve
+//   node scripts/rules-index.mjs --comments # census of stale citations in src/ comments
 //
 // Vocabularies (IDs are NEVER renumbered; this file only indexes them):
 //   A<n>      SPEC-ASYNC-SEMANTICS.md Tier-A propositions (table rows)
@@ -175,19 +176,20 @@ function nsFor(file, qualifier) {
   return "CS";
 }
 const CITE =
-  /\b(A\d{1,2}|V[1-5]|INV-\d+|RUL-\d+|[BC]\d)\b(?![.\d])|(?:\b(core|opt|proj|snap|lanes?)\s+)?\bR(\d{1,2}[a-z]?)\b|(§\d+[a-z]?)|\b([DFS]-\d{1,2})\b(?!\d)/g;
+  /\b(A\d{1,2}|V[1-5]|INV-\d+|RUL-\d+|[BC]\d)\b(?![.\d])|(?:\b(core|opt|proj|snap|lanes?)\s+|\b(CS|OL|OS|PJ|RS)-)?\bR(\d{1,2}[a-z]?)\b|(§\d+[a-z]?)|\b([DFS]-\d{1,2})\b(?!\d)/g;
 function citationsIn(file) {
   const out = [];
   const c = read(file);
   for (const m of c.matchAll(CITE)) {
     if (m[1]) out.push(m[1]);
-    else if (m[3]) {
+    else if (m[3]) out.push(m[3] + "-R" + m[4]);
+    else if (m[4]) {
       const ns = nsFor(file, m[2]);
       // A bare R<n> the citing module's own file does not define is a
       // core-store rule (the base vocabulary every store module builds on).
-      out.push(rules.has(ns + "-R" + m[3]) || m[2] ? ns + "-R" + m[3] : "CS-R" + m[3]);
-    } else if (m[4]) out.push(m[4]);
-    else if (m[5]) out.push(m[5]);
+      out.push(rules.has(ns + "-R" + m[4]) || m[2] ? ns + "-R" + m[4] : "CS-R" + m[4]);
+    } else if (m[5]) out.push(m[5]);
+    else if (m[6]) out.push(m[6]);
   }
   return out;
 }
@@ -206,6 +208,97 @@ for (const [kind, files] of [
     }
 const fmtCites = m => (m ? [...m].map(([f, n]) => `${path.basename(f)}×${n}`).join(" ") : "—");
 const unresolved = kind => [...cited[kind].keys()].filter(id => !rules.has(id)).sort();
+
+// ── comment policy (trial) ─────────────────────────────────────────────────
+// A comment that cites a rule is checked against what the rule says now. In
+// a file under the policy (POLICY), a comment may not cite:
+//   - a rule that no longer stands: folded, retired, superseded, withdrawn,
+//     ruled out (cite the rule that replaced it);
+//   - a bare R<n> (the namespace is guessed from the module; write OL-R5);
+//   - a document the repo does not have ("plan sec. N").
+// `--comments` prints the census for every src/ file; `--check` fails only
+// on POLICY files, so the list grows as files are brought under the policy.
+const POLICY = [
+  "src/boundaries.ts",
+  "src/core/async.ts",
+  "src/core/core.ts",
+  "src/core/guesses.ts",
+  "src/core/seat.ts",
+  "src/core/types.ts",
+  "src/core/verdict.ts"
+];
+const dStatus = new Map();
+{
+  const L = read(DERIVED).split("\n");
+  for (let i = 0; i < L.length; i++) {
+    const m = /^### (D-\d+)\. /.exec(L[i]);
+    if (!m) continue;
+    let j = i + 1;
+    while (j < L.length && !L[j].trim()) j++;
+    const head = L[j] ?? "";
+    if (/^\*\*Folded into/.test(head)) dStatus.set(m[1], "folded");
+    else if (/^\*\*Retired/.test(head)) dStatus.set(m[1], "retired");
+  }
+}
+const GONE = /^(superseded|retired|ruled out|folded|withdrawn)/;
+const statusOf = id => dStatus.get(id) ?? rules.get(id)?.status ?? "unresolved";
+function commentText(file) {
+  // Comments only, one entry per source line (string contents never cite).
+  const out = [];
+  const L = read(file).split("\n");
+  let block = false;
+  L.forEach((l, i) => {
+    let t = "";
+    if (block) {
+      const e = l.indexOf("*/");
+      t = e === -1 ? l : l.slice(0, e);
+      block = e === -1;
+    } else {
+      const b = l.indexOf("/*"),
+        c = l.indexOf("//");
+      if (c !== -1 && (b === -1 || c < b) && !/["'`][^"'`]*\/\/[^"'`]*["'`]/.test(l))
+        t = l.slice(c);
+      else if (b !== -1) {
+        const e = l.indexOf("*/", b + 2);
+        t = e === -1 ? l.slice(b) : l.slice(b, e);
+        block = e === -1;
+      }
+    }
+    if (t) out.push([i + 1, t]);
+  });
+  return out;
+}
+function commentFindings(file) {
+  const found = [];
+  for (const [line, t] of commentText(file)) {
+    for (const m of t.matchAll(CITE)) {
+      const id =
+        m[1] ||
+        (m[4] && (m[3] ? m[3] + "-R" + m[4] : m[2] && QUAL[m[2]] + "-R" + m[4])) ||
+        m[5] ||
+        m[6];
+      if (m[4] && !m[3] && !m[2]) found.push([line, "bare", "R" + m[4]]);
+      else if (id && GONE.test(statusOf(id))) found.push([line, statusOf(id), id]);
+    }
+    if (/\bplan sec\./.test(t)) found.push([line, "missing doc", "plan sec."]);
+  }
+  return found;
+}
+if (process.argv.includes("--comments")) {
+  const tally = new Map();
+  for (const f of srcFiles) {
+    const r = rel(f),
+      found = commentFindings(f);
+    if (!found.length) continue;
+    console.log(`${r}${POLICY.includes(r) ? " (policy)" : ""}: ${found.length}`);
+    for (const [line, kind, id] of found) {
+      console.log(`  ${r}:${line} ${kind} ${id}`);
+      tally.set(kind, (tally.get(kind) ?? 0) + 1);
+    }
+  }
+  console.log("comment census:", [...tally].map(([k, n]) => `${k} ${n}`).join(", ") || "clean");
+  process.exit(0);
+}
 
 // ── output ─────────────────────────────────────────────────────────────────
 if (process.argv.includes("--check")) {
@@ -248,11 +341,20 @@ if (process.argv.includes("--check")) {
     );
     process.exit(1);
   }
+  const policy = POLICY.flatMap(f =>
+    commentFindings(path.join(ROOT, f)).map(([l, k, id]) => `${f}:${l} ${k} ${id}`)
+  );
+  if (policy.length) {
+    console.error("rules-index: comment policy —", policy.join("; "));
+    process.exit(1);
+  }
   console.log(
     "rules-index: every src/ citation resolves (" +
       cited.src.size +
       " ids); every live A-rule is cited by a test; every ruling block has a ruling file (" +
       blocks.length +
+      "); policy files cite only standing rules (" +
+      POLICY.length +
       ")"
   );
 }

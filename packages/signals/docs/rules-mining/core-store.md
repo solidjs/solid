@@ -220,7 +220,7 @@ _Amended 2026-10-01 (#3733, rule B)._ This reverses #2692's "write trumps deriva
 
 **R48. User class instances (custom prototypes) DO wrap: prototype getters track; methods on the draft receive the proxy as `this` (reactive writes).**
 
-- CS "wrapped nested class", "not wrapped nested class" (historical name); NC ×2.
+- CS "wrapped nested class", "not wrapped nested class" (historical name); NC ×2; class-instance-members.test.ts.
 
 **R49. Null-prototype objects wrap and track; function-valued props callable through the proxy.**
 

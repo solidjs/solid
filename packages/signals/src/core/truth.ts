@@ -25,7 +25,7 @@ export const covers: WeakMap<Signal<any>, unknown> = /* @__PURE__ */ new WeakMap
  * until the reveal (`under`), the screen's value after. A derivation: its
  * staging under the lane (a lane pass's answer, until the reveal), else
  * what the screen shows — NOT_PENDING for a node with neither (born in the
- * lane, uninitialized: its reads throw NotReady, A7; #4363). */
+ * lane, uninitialized: its reads throw NotReady, D-22; #4363). */
 export function latestOf(el: Signal<any> | Computed<any>): unknown {
   if (el._config & CONFIG_GUESS) return el._x!._shown ? el._value : covers.get(el);
   return el._pendingValue !== NOT_PENDING

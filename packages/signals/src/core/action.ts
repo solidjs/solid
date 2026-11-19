@@ -38,7 +38,7 @@ const ACTION_CALLED_IN_OWNED_SCOPE_MESSAGE =
  * — that would park the outer's remaining writes' frame mid-slice; the outer
  * step's own return does. */
 function inTransaction<T>(t: Transaction, q: number, fn: () => T): T {
-  // The slice and its flush ask this action's question (A18 provenance):
+  // The slice and its flush ask this action's question (F-11):
   // the guesses it writes and the flights it starts are stamped with it.
   const prevQ = question;
   setQuestion(q);
@@ -78,7 +78,7 @@ function inTransaction<T>(t: Transaction, q: number, fn: () => T): T {
  * the next `yield` runs OUTSIDE the transaction: writes to fresh signals
  * commit immediately, and anything that creates a reader there — `until()`,
  * `latest()`, a memo or effect, a mount — is created mainline, where a read of
- * this action's held state makes it born held (A29): staged with the
+ * this action's held state makes it born held (F-7): staged with the
  * transaction and replayed at its commit. `await` is still the ergonomic
  * choice for typed results; just put a bare `yield` before any write or
  * reader creation that follows it — including the expression of the next

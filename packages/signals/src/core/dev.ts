@@ -896,12 +896,10 @@ const OPTIMISTIC_WRITE_BEFORE_LOAD_MESSAGE =
   "Keep the pending items in a separate list (an outbox) until the source loads, " +
   "or disable the action until the source has loaded.";
 
-/** DEV (ruled 2026-11-03, #4656): an optimistic write to a derived
- * optimistic store whose first answer has not landed (`source`: the
- * store's derive). An optimistic memo no longer guards (S-56, 2026-11-07:
- * a guess before the first answer is the newest value the node produced
- * and shows); the store form keeps the guard until the store engine can
- * show such a guess — today its screen stays loading while an untracked
+/** DEV (#4656): an optimistic write to a derived optimistic store whose
+ * first answer has not landed (`source`: the store's derive). An optimistic
+ * memo does not guard (S-56); the store form keeps the guard until the store
+ * engine can show such a guess: its screen stays loading while an untracked
  * read sees the guess. Called under `__DEV__` only. */
 export function devGuardOptimisticBeforeLoad(source: Computed<any> | null | undefined): void {
   if (source && source._statusFlags & STATUS_UNINITIALIZED) {
@@ -932,7 +930,7 @@ const reasked = (n: any): boolean =>
     ));
 const warnedWhileLoading = new WeakSet<object>();
 
-/** DEV (ruled 2026-11-12, #4795): an optimistic write to a source that has
+/** DEV (#4795): an optimistic write to a source that has
  * answered before and is loading a new question (an input changed): the
  * setter composes on the previous answer, and the new one replaces the
  * guess (D-34). Not before the first answer (S-56: the setter gets

@@ -1,7 +1,7 @@
 // #5005: while an action holds `a`, a reconcile() that repeats a's staged
 // value and changes `b` must publish `b` the same way whether or not a live
 // effect reads `b` (an observer never changes what an ordinary read
-// returns).
+// returns; F-10). Only `a` is held (F-2).
 import { test, expect } from "vitest";
 import {
   action,

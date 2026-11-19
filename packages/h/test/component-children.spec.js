@@ -262,6 +262,19 @@ describe("callback prop wrap", () => {
     expect(seen).toBe("item:7");
   });
 
+  test.each([
+    [(label, suffix = ".") => label + suffix, ["Invoice", "!"], "Invoice!"],
+    [
+      (label, index, ...parts) => [label, index, ...parts].join(":"),
+      ["item", 7, "end"],
+      "item:7:end"
+    ]
+  ])("forwards arguments beyond the callback's declared arity (%#)", (format, args, text) => {
+    const Label = props => h("span", props.format(...args));
+    const node = mount(() => h(Label, { format }));
+    expect(node.textContent).toBe(text);
+  });
+
   test("is idempotent across nested components (passing through doesn't re-wrap)", () => {
     // The wrap exists only to materialize tagged thunks at the
     // boundary; threading a wrapped callback through more layers must
