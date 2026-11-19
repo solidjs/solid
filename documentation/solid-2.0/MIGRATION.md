@@ -228,7 +228,7 @@ These are **dev-only diagnostics** meant to catch bugs earlier. Some are warning
 
 #### “Top-level reactive read” in a component
 
-In 2.0, reading reactive values at the top level of a component body (including destructuring props) will warn. The fix is to move the read to where the value is used: JSX, a memo, an effect's compute function, the event handler, or an accessor passed to a hook. If the value must never update, `untrack` makes the one-time read explicit; do not use it just to silence the warning.
+In 2.0, reading reactive values at the top level of a component body (including destructuring props) will warn. The fix is to move the read to where the value is used: JSX, a memo, an effect's compute function, the event handler, or an accessor passed to a hook. If the value must never update and is never downstream of async, `untrack` makes the one-time read explicit; do not use it just to silence the warning.
 
 ```jsx
 // ❌ 2.0 warns (top-level reactive read)
