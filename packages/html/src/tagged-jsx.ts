@@ -255,6 +255,13 @@ function createHtml() {
     const sources: unknown[] = [];
     let own: Record<string, any> = props;
     for (const prop of node.props) {
+      if (
+        node.type === COMPONENT_NODE &&
+        node.children.length &&
+        prop.type !== SPREAD_PROP &&
+        prop.name === "children"
+      )
+        continue;
       switch (prop.type) {
         case BOOLEAN_PROP:
           own[prop.name] = true;
