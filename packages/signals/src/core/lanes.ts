@@ -954,7 +954,7 @@ function holdsOn(t: Transaction): boolean {
       n =>
         !(n as any)._type &&
         (n as Computed<any>)._statusFlags! & STATUS_PENDING &&
-        !(n._flags & REACTIVE_DISPOSED)
+        !((n as Computed<any>)._flags & REACTIVE_DISPOSED)
     )
   );
 }
