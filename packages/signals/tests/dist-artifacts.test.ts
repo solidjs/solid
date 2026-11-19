@@ -653,6 +653,22 @@ describe("@solidjs/signals engine per tier", () => {
     expect(src).not.toMatch(/^import /m);
   });
 
+  test("./attribution: prod openView is inert and the prod tree carries no view", async () => {
+    const { openView } = (await import("../dist/prod/attribution.js")) as any;
+    const view = openView({ effects: true });
+    expect(() => view.show(new Map([[{}, 1]]))).not.toThrow();
+    expect(view.landing()).toBe(false);
+    expect(view.resume()).toBe(true);
+    expect(() => view.branch()).not.toThrow();
+    // A second view while the first is "open" is fine: there is no hold.
+    expect(openView().resume()).toBe(true);
+    const files = readdirSync(new URL("../dist/prod/", import.meta.url), { recursive: true });
+    for (const file of files.map(String).filter(f => f.endsWith(".js"))) {
+      const src = readFileSync(new URL(`../dist/prod/${file}`, import.meta.url), "utf8");
+      expect(src, file).not.toMatch(/a view is already open|viewHold|viewSkip/);
+    }
+  });
+
   test("./attribution: observe/attribution.js drives observe/index.js", async () => {
     expectEngineDrivesCore(
       await import("../dist/observe/index.js"),
