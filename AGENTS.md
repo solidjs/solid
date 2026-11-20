@@ -105,6 +105,17 @@ Commits and pushes always require an explicit ask in the user's latest message. 
 - **Understand before implementing.** If a design or proposal isn't fully clear, ask questions first. Don't start coding until the model is understood.
 - **Correctness over speed.** Take the time to get it right. A wrong implementation that passes tests is worse than no implementation.
 
+### The engine's value model: one value on screen, one pending value per hold
+
+This is the model the signals engine is built to. The rules say what the screen shows; this says what a node may store to show it. It is not derivable from a single rule, so it is written here.
+
+- **A node has the value the screen shows and one pending value per hold.** Holds that overlap on a node merge into one (F-2, D-33), so two holds never keep two pending values for the same node. An ordinary write never forks a node (discussion #3905, declined).
+- **A lane is a hold of its own over the hold it reads ahead of, and only the author can open one**, with a read ahead they wrote: `latest`, `isPending`, or an optimistic write (F-6). It is the one declared fork.
+- **So a node carries at most three values:** what the screen shows; what its hold will commit, which is also what a guess reverts to (F-11); and one guess a lane has forked off and not yet revealed because its own async is still out. That guess shows when its async lands, even if the hold it was made over is still open (F-6). Until then the screen keeps what it showed, for every reader (F-1).
+- **Anything else is outside the model:** a set-aside copy of a value, a note of what the screen is showing, a covered value kept beside the truth, a second pending slot, a per-node map or list that holds a value. A fix that needs one is not a fix. Stop and bring the case to the maintainer as a component in JSX with the screen after each step.
+- **Do not add engine state so that a guess can come back or announce itself.** Optimistic state is for process, `isPending` is for data: the app shows work in flight with its own `createOptimistic(false)` flag set inside the action, or with `affects()` and `isPending` on the data. Fetching off an optimistic value is the author's choice, and the screen staying where it is until that work settles is correct.
+- **Three stores in the engine today are outside the model and are debt, not precedent:** the covered value in `covers` (`core/truth.ts`), and `kept` and `screens` (`core/guesses.ts`). Do not extend them, copy their shape, or add a fourth.
+
 ### Public API changes must be flagged
 
 Any change to the public surface — a new or removed export, prop, option, or parameter; a changed signature, default, or documented behavior of an existing one; a new diagnostic code — must be called out explicitly to the maintainer *before* it is made (or, when discovered mid-task, before it is committed), stated as its own item, not folded into a summary of the fix. This applies to changes made for "parity", "symmetry", or "while I was there" exactly as much as to changes the task asked for; those are the ones most likely to slip through. The same applies to instructions given to subagents: a brief that would add or remove public surface must say so, and the agent must report the surface it touched. The PR body must list every public API change under its own heading.
