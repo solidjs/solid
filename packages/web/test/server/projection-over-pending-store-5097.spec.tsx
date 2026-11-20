@@ -35,7 +35,7 @@ describe("#5097: a projection over a pending async store on the server", () => {
   test("createProjection(() => store) waits for the store", async () => {
     function App() {
       const rows = rowsStore();
-      const view = createProjection(() => rows, [] as any[], { key: "id" } as any);
+      const view = createProjection((() => rows) as any, [] as any[], { key: "id" } as any);
       return (
         <Loading fallback="loading">
           <p>{view.map((r: any) => r.t).join(",")}</p>
@@ -49,7 +49,7 @@ describe("#5097: a projection over a pending async store on the server", () => {
   test("createOptimisticStore(() => store) waits for the store", async () => {
     function App() {
       const rows = rowsStore();
-      const [view] = createOptimisticStore(() => rows, [] as any[], { key: "id" } as any);
+      const [view] = createOptimisticStore((() => rows) as any, [] as any[], { key: "id" } as any);
       return (
         <Loading fallback="loading">
           <p>{view.map((r: any) => r.t).join(",")}</p>
