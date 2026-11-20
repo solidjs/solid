@@ -51,7 +51,9 @@ const b = <input prop:value={-1} />;`;
   test("universal", () => {
     const code = compile("universal");
     expect(code).toContain("c: -1");
-    expect(code).toContain("d: NaN");
+    // @babel/generator 8.1.3+ prints a NaN literal as `(0 / 0)`, since the
+    // `NaN` global can be shadowed; 7.x prints `NaN`.
+    expect(code).toMatch(/d: (NaN|\(0 \/ 0\))/);
     expect(code).toContain("e: -0");
   });
 });
