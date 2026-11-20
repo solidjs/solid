@@ -722,9 +722,12 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     // HELD (another transaction's): then the held staging stays the
     // adoption and the draft is a mainline layer above it (#3612/#3688: a
     // mainline setter mid-hold publishes mainline; the held keys stay held).
+    // The holder's own write joins its hold (D-8, A34): the clone is the staging
+    // its landing commits (#5093).
     pb = target.pb = cloneRaw(pb, target);
     const k = target.k;
-    if (k !== null && !(k._config & CONFIG_HELD)) k._pendingValue = pb;
+    if (k !== null && (!(k._config & CONFIG_HELD) || txOf(k) === flushTransaction))
+      k._pendingValue = pb;
   } else if (pb === null) {
     const v = target.v;
     if (!directCommit) queueFold(target);
