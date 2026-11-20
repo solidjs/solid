@@ -109,13 +109,12 @@ Commits and pushes always require an explicit ask in the user's latest message. 
 
 This is the model the signals engine is built to. The rules say what the screen shows; this says what a node may store to show it. It is not derivable from a single rule, so it is written here.
 
-- **A node has the value the screen shows and one pending value per hold.** Holds that overlap on a node merge into one (F-2, D-33), so two holds never keep two pending values for the same node. An ordinary write never forks a node (discussion #3905, declined).
+- **A node has the value the screen shows and one pending value per hold.** Holds that overlap on a node merge into one (F-2, D-33), so two holds never keep two pending values for the same node. This has no exception: a change that would alter what a guess sits on merges with that guess's hold, even when the change is itself optimistic, and the guess stays on screen until the last of them settles (D-33). An ordinary write never forks a node (discussion #3905, declined).
 - **A lane is a hold of its own over the hold it reads ahead of, and only the author can open one**, with a read ahead they wrote: `latest`, `isPending`, or an optimistic write (F-6). It is the one declared fork.
 - **So a node carries at most three values:** what the screen shows; what its hold will commit, which is also what a guess reverts to (F-11); and one guess a lane has forked off and not yet revealed because its own async is still out. That guess shows when its async lands, even if the hold it was made over is still open (F-6). Until then the screen keeps what it showed, for every reader (F-1).
 - **Anything else is outside the model:** a set-aside copy of a value, a note of what the screen is showing, a covered value kept beside the truth, a second pending slot, a per-node map or list that holds a value. A fix that needs one is not a fix. Stop and bring the case to the maintainer as a component in JSX with the screen after each step.
 - **Do not add engine state so that a guess can come back or announce itself.** Optimistic state is for process, `isPending` is for data: the app shows work in flight with its own `createOptimistic(false)` flag set inside the action, or with `affects()` and `isPending` on the data. Fetching off an optimistic value is the author's choice, and the screen staying where it is until that work settles is correct.
 - **In code:** `_value` is what the screen shows, `_pendingValue` is what the hold will commit, and `covers` (`core/truth.ts`) is a guess its lane has not revealed. `_x._revert` says a shown guess's pending value is still the value it reverts to, because nothing has answered it.
-- **One store in the engine today is outside the model and is debt, not precedent:** `kept` (`core/guesses.ts`), the set-aside guesses of #4336. Do not extend it, copy its shape, or add another.
 
 ### Public API changes must be flagged
 

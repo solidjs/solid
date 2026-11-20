@@ -15,11 +15,10 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { ext } from "./core.js";
 import { devWarnOptimisticWhileLoading } from "./dev.js";
-import { covers, landed, latestOf, underOf } from "./truth.js";
+import { covers, latestOf, underOf } from "./truth.js";
 import {
   armGuessing,
   clock,
-  commitPendingNode,
   GlobalQueue,
   holdNode,
   insertSubs,
@@ -49,7 +48,6 @@ import {
   markJudged,
   newLane,
   readGuesses,
-  rerun,
   setLaneValue
 } from "./lanes.js";
 import type { Computed, Signal } from "./types.js";
@@ -72,28 +70,6 @@ export function pendingGuessOf(n: Signal<any> | Computed<any>): unknown {
   for (let i = pendingGuesses.length - 3; i >= 0; i -= 3)
     if (pendingGuesses[i] === n) return pendingGuesses[i + 1];
   return NOT_PENDING;
-}
-/** Guesses another action's lane took over, as `[node, guess, lane,
- * question, taker, …]`, kept to give back if the taker reverts (#4336). */
-const kept: any[] = [];
-/** `d`: taken without being written (a store target's other slots). */
-export function take(n: Signal<any>, l: Transaction, d?: boolean): void {
-  const x = n._x!;
-  const g = txOf(n);
-  const v = latestOf(n);
-  kept.push(n, v, x._transaction, x._q, l);
-  rerun(n, l);
-  // The screen is back to what the guess reverts to. Over a truth landed
-  // beneath, it keeps what it shows until the taker reveals (D-34).
-  if (x._revert) ((n._value = n._pendingValue), (n._pendingValue = NOT_PENDING));
-  covers.delete(n);
-  x._shown = x._revert = false;
-  n._config &= d ? ~(CONFIG_GUESS | CONFIG_OVERRIDE) : ~CONFIG_GUESS;
-  if (d) x._transaction = null;
-  else {
-    list(n, l);
-    if (n._pendingValue === NOT_PENDING) setLaneValue(n, l, v);
-  }
 }
 export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   if (__DEV__) devWarnOptimisticWhileLoading(n as Computed<T>);
@@ -173,10 +149,6 @@ const applyGuessesAt = (parent: Transaction | null): void => {
   readGuesses.length = k;
 };
 
-/** The correction is a revert (no truth landed beneath): the lane gives
- * back the guesses it took (#4336). */
-let reverting = false;
-
 /** A guess's truth arrived: a different one corrects, an equal one confirms
  * (F-11, D-34). The truth is held by the guess's hold, not by the tick that
  * carried it, so one landing answering two actions' guesses does not
@@ -190,7 +162,6 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     changed = false;
   if (changed) {
     dissolveLane(l, parent, n);
-    if (reverting) marked.add(l);
     // A shown guess stays on screen until the commit (D-34), so the
     // published-inputs mark no longer applies (#4795).
     if (l._shown) (marked.add(n), (n._config &= ~CONFIG_INPUTS_PUBLISHED));
@@ -229,25 +200,21 @@ function laneCorrections(): boolean {
       const n = l._nodes[i];
       if (n._config & CONFIG_GUESS && n._x!._transaction === l) {
         const truth = underOf(n);
-        reverting = !landed(n);
         supersede(n, truth, !n._equals || !n._equals(latestOf(n), truth));
-        reverting = false;
       }
     }
   }
   return judged;
 }
 
-/** A write landing on a guess. False when a store slot's guess is taken by
- * another action's lane instead (#4336). */
-function guessWrite(el: Signal<any> | Computed<any>, v: unknown): boolean {
-  if (GlobalQueue._slotTake?.(el)) return false;
+/** A write landing on a guess: its truth, judged or held beneath (D-34). */
+function guessWrite(el: Signal<any> | Computed<any>, v: unknown): void {
+  GlobalQueue._slotMerge?.(el);
   // Provenance (D-34): an older question's answer is held beneath, not judged.
   const older = stale(el, question);
   if (GlobalQueue._laneRebase?.(el, v, older) || older) landBeneath(el, v);
   else supersede(el, v, !el._equals || !el._equals(latestOf(el), v));
   schedule();
-  return true;
 }
 
 /** A guess's own pass finished: whatever recomputes the node is its
@@ -278,29 +245,5 @@ function answered(el: Computed<any>): number {
   return q;
 }
 
-/** A revert landing gives back the guesses its lane took from an action
- * still out, in the landing's frame (F-1, #4336). */
-function revertLanding(u: Transaction): void {
-  for (let i = kept.length - 5; i >= 0; i -= 5)
-    if (resolveTx(kept[i + 4]._parent) === u) {
-      let [n, v, g, q, t] = kept.splice(i, 5);
-      if (
-        marked.has(t) &&
-        lanes.includes(g) &&
-        (!(n._config & CONFIG_SLOT_NODE) || (n = GlobalQueue._slotTake!(n, true)))
-      ) {
-        const x = ext(n);
-        if (x._transaction === null || txOf(n) === u) {
-          commitPendingNode(n);
-          x._q = q;
-          n._config |= CONFIG_OVERRIDE | CONFIG_GUESS;
-          list(n, g);
-          setLaneValue(n, g, v);
-          rerun(n, u);
-        }
-      }
-    }
-}
-
-installGuessLayer(take, guessWrite, revertLanding);
+installGuessLayer(guessWrite);
 installGuessHooks(laneOutcome, applyGuessesAt, () => lanes.length !== 0 && laneCorrections());
