@@ -4,8 +4,9 @@
  * Contract under test:
  * - Accessor targets resolve with the settled value; store targets resolve
  *   with the store node passed (root or nested — the family re-asks as one).
- * - Quiescence, not flight identity: a superseding refresh (or any newer
- *   invalidation) folds every waiter onto whatever finally lands.
+ * - Quiescence, not flight identity: a newer invalidation (an input change)
+ *   folds every waiter onto whatever finally lands. A refresh made while a
+ *   re-ask's answer is out waits for it and re-asks once (#5094).
  * - The seam is the landing itself, not graph notification: an equal-value
  *   landing (completely silent to subscribers) still settles the promise.
  * - A failed re-ask rejects with the error; `yield refresh(x)` in an action
@@ -191,7 +192,7 @@ test("fire-and-forget refresh with a failing re-ask surfaces no unhandled reject
   dispose();
 });
 
-test("supersession: waiters from both refreshes deliver the final landing", async () => {
+test("overlapping refreshes: the answer out lands, then one re-ask (#5094)", async () => {
   const gates: ReturnType<typeof deferred<string>>[] = [];
   let m!: SourceAccessor<string>;
   let dispose!: () => void;
@@ -212,18 +213,22 @@ test("supersession: waiters from both refreshes deliver the final landing", asyn
   const p1 = refresh(m);
   flush();
   await tick();
-  const p2 = refresh(m); // supersedes flight 2 with flight 3
+  // Flight 2 is out: this re-ask waits for its answer, then asks once.
+  const p2 = refresh(m);
   flush();
   await tick();
+  expect(gates.length).toBe(2);
 
-  // The superseded flight landing is ignored — not delivered to anyone.
-  gates[1].resolve("stale");
+  // Flight 2's answer is a valid value of the same question (D-34): it lands
+  // and settles p1; p2's re-ask goes up after it.
+  gates[1].resolve("second");
   await tick();
   flush();
+  await expect(p1).resolves.toBe("second");
+  expect(gates.length).toBe(3);
   gates[2].resolve("final");
   await tick();
   flush();
-  await expect(p1).resolves.toBe("final");
   await expect(p2).resolves.toBe("final");
   expect(m()).toBe("final");
   dispose();
