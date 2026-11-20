@@ -11,6 +11,18 @@
 const { modes, compileBabel, compileOxc, normalize, unifiedDiff } = require("./parity/harness");
 
 const cases = {
+  "JSX in a later declarator splits the declarators before it (#5102)": `
+function Comp(props) {
+  const label = mk(), onClick = () => label, view = <div title={label()} onClick={() => onClick()}>x{label()}<Foo a={label} /></div>, other = 1;
+  return view;
+}
+function Two() {
+  const first = <i>{mk()}</i>, label = mk(), second = <p>{first}{label()}</p>;
+  return second;
+}
+export const exported = mk(), exportedView = <p>{exported()}</p>;
+let a = mk(), frag = <>{a()}</>, st = <b>static</b>;
+`,
   "slot prop hole before children (#3567)": `
 const a = <main>{props.header}{props.children}</main>;
 const z = <p>P</p>;
