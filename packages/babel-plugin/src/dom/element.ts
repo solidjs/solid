@@ -723,7 +723,7 @@ function transformAttributes(
     };
     let i = 0,
       leading = styleValue.expression.leadingComments;
-    styleValue.expression.properties.slice().forEach((p, index) => {
+    styleValue.expression.properties.slice().forEach(p => {
       if (!t.isObjectProperty(p)) return;
       if (!p.computed) {
         if (leading) p.value.leadingComments = leading;
@@ -744,7 +744,7 @@ function transformAttributes(
         path
           .get("openingElement")
           .node.attributes.splice(Number(styleObjectAttribute.key) + ++i, 0, newAttr);
-        styleValue.expression.properties.splice(index - i - 1, 1);
+        styleValue.expression.properties.splice(styleValue.expression.properties.indexOf(p), 1);
       }
     });
     if (!styleValue.expression.properties.length)
@@ -828,7 +828,7 @@ function transformAttributes(
         .get("value")
         .get("expression")
         .get("properties") as BabelPath[];
-    classListProperties.slice().forEach((propPath, index) => {
+    classListProperties.slice().forEach(propPath => {
       const p = propPath.node;
       if (!t.isObjectProperty(p)) return;
       const { confident, value: computed } = propPath.get("value").evaluate();
@@ -867,7 +867,7 @@ function transformAttributes(
             )
           );
       }
-      classListProperties.splice(index - i - 1, 1);
+      classListProperties.splice(classListProperties.indexOf(propPath), 1);
     });
     if (!classListProperties.length)
       path.get("openingElement").node.attributes.splice(Number(classListAttribute.key), 1);
