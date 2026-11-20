@@ -239,13 +239,13 @@ function materialize(args: any[]): ExpandableNode | ExpandableNode[] {
       else if (v[0] === "#") e.setAttribute("id", s);
     }
   }
-  function detectMultiExpression(list: any[]) {
-    for (let i = 1; i < list.length; i++) {
+  function detectMultiExpression(list: any[], start = 1) {
+    for (let i = start; i < list.length; i++) {
       if (typeof list[i] === "function") {
         multiExpression = true;
         return;
       } else if (Array.isArray(list[i])) {
-        detectMultiExpression(list[i]);
+        detectMultiExpression(list[i], 0);
       }
     }
   }
