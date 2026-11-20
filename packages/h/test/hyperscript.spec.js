@@ -227,6 +227,15 @@ describe("Test HyperScript", () => {
     expect(el.textContent).toBe("xyz");
   });
 
+  test("a function at index 0 of a nested-array child is detected as multiExpression", () => {
+    const [val, setVal] = createSignal("A");
+    const el = mount(() => h("p", "left", [() => val(), "right"]));
+    expect(el.textContent).toBe("leftAright");
+    setVal("B");
+    flush();
+    expect(el.textContent).toBe("leftBright");
+  });
+
   test("component invoked with only children arg (no props) wraps args as props.children", () => {
     const Comp = props => h("p", props.children);
     const el = mount(() => h(Comp, "just-text"));
