@@ -119,21 +119,7 @@ fn document_shell(html: &str, tag: &str) -> String {
         element
     };
 
-    let mut output = Vec::new();
-    let handle = SerializableHandle::from(shell);
-    if serialize(
-        &mut output,
-        &handle,
-        SerializeOpts {
-            traversal_scope: TraversalScope::IncludeNode,
-            ..SerializeOpts::default()
-        },
-    )
-    .is_err()
-    {
-        return String::new();
-    }
-    String::from_utf8_lossy(&output).into_owned()
+    serialize_tree(shell, TraversalScope::IncludeNode)
 }
 
 /// Parses `html` as if assigned to a `<body>` element's `innerHTML` and
@@ -155,13 +141,31 @@ fn inner_html(html: &str) -> String {
         return String::new();
     };
 
+    serialize_tree(root.clone(), TraversalScope::ChildrenOnly(None))
+}
+
+fn serialize_tree(root: Handle, traversal_scope: TraversalScope) -> String {
+    let mut nodes = vec![root.clone()];
+    while let Some(node) = nodes.pop() {
+        if let NodeData::Element {
+            template_contents, ..
+        } = &node.data
+            && let Some(contents) = template_contents.borrow().as_ref()
+        {
+            node.children
+                .borrow_mut()
+                .clone_from(&contents.children.borrow());
+        }
+        nodes.extend(node.children.borrow().iter().cloned());
+    }
+
     let mut output = Vec::new();
-    let handle = SerializableHandle::from(root.clone());
+    let handle = SerializableHandle::from(root);
     if serialize(
         &mut output,
         &handle,
         SerializeOpts {
-            traversal_scope: TraversalScope::ChildrenOnly(None),
+            traversal_scope,
             ..SerializeOpts::default()
         },
     )
