@@ -4075,9 +4075,13 @@ impl<'a> AstSsrTransform<'a, '_> {
                 // hoists (Babel's `scope.push` targets the arrow).
                 self.function_parent_stack
                     .push(crate::shared::transform::FunctionParentKind::Arrow);
+                self.bindings
+                    .enter_scope(crate::shared::bindings::BindingScopeKind::Function);
+                self.bindings.declare_function_params(&arrow.params);
                 self.push_var_scope(VarScopeKind::Collector);
                 self.visit_expression(&mut expression);
                 let vars = self.pop_var_scope();
+                self.bindings.exit_scope();
                 self.function_parent_stack.pop();
                 let mut statements = self.ast().vec();
                 if let Some(capture) = self.take_this_capture_statement(span) {
