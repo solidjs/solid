@@ -949,7 +949,7 @@ impl<'a> AstDomTransform<'a, '_> {
         child_template.push_both(">");
         if attrs_lowering.needs_text_placeholder && child.children.is_empty() {
             child_template.html.push(' ');
-        } else {
+        } else if tag_name != "noscript" {
             self.lower_dom_children(
                 child,
                 &tag_name,
