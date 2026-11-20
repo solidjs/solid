@@ -930,4 +930,20 @@ _$effect(
   }
 );
 const template107 = _el$131;
+var _el$132 = _tmpl$4();
+_$effect(
+  () => ({
+    e: {
+      [prop()]: v()
+    },
+    t: c(),
+    a: b()
+  }),
+  ({ e, t, a }, _p$) => {
+    _$style(_el$132, e, _p$?.e);
+    t !== _p$?.t && _$setStyleProperty(_el$132, "color", t);
+    a !== _p$?.a && _$setStyleProperty(_el$132, "background", a);
+  }
+);
+const template108 = _el$132;
 _$delegateEvents(["click", "input"]);
