@@ -186,6 +186,7 @@ function TargetShape(
   this.sc = 0;
   this.kc = 0;
   this.nc = 0;
+  this.hc = 0;
   this._fam = fam;
   this.o = fam !== null && fam.opt === true;
   this.s = false;
@@ -298,7 +299,7 @@ function releaseSlot(node: any): void {
     if (--t.nc === 0) t.n = null;
   } else if (t.h?.[key as any] === node) {
     delete t.h![key as any];
-    if (Reflect.ownKeys(t.h!).length === 0) t.h = null;
+    if (--t.hc === 0) t.h = null;
   }
   // The family's index keeps only targets that still carry a node.
   if (t._fam !== null && t.nc === 0 && t.k === null && t.dk === null && t.h === null)
@@ -417,6 +418,7 @@ export function getHasNode(target: StoreTarget, key: PropertyKey): Signal<boolea
     if (pb !== null) bornStaged(target, created, key in pb && !target.del?.has(key), key);
     if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(created, target);
     nodes[key] = node;
+    target.hc++;
     noteNode(target, created, key);
   }
   return node;

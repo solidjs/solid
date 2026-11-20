@@ -71,6 +71,9 @@ export interface StoreTarget {
   ch: boolean;
   /** live value-node count (deleted-key sweep fast-out in the fused walk). */
   nc: number;
+  /** live presence-node count: `h` is dropped when it reaches 0, without
+   * walking the dictionary (#5120). */
+  hc: number;
   /** Lazy per-property subscription nodes (slot nodes). */
   n: Record<PropertyKey, Signal<any>> | null;
   /** Lazy per-key presence nodes (`in` tracks presence, not value — R13). */
