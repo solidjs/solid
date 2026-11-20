@@ -1593,7 +1593,9 @@ export function runRefCallback(fn: () => void): void {
         prevOwner = effectCallbackOwner;
       setEffectCallback(true, ANY_EVENT, context);
       try {
-        untrack(fn, "a ref callback");
+        // No strict-read window: a ref's reads are imperative, as in an
+        // event handler or an effect callback (#5098).
+        untrack(fn, false);
       } finally {
         setEffectCallback(prev, prevEvent, prevOwner);
       }
@@ -1995,7 +1997,8 @@ export function read<T>(el: any): T {
   }
   if (el._statusFlags & STATUS_PENDING && !committed) {
     // Untracked, an uninitialized node has nothing to serve and throws. A
-    // frame-only reader sees the frame (D-29).
+    // frame-only reader sees the frame (D-29), and so does a ref callback's
+    // own read: a ref is imperative, like an event handler (F-1, #5098).
     if (c) {
       if (__DEV__ && c._config & CONFIG_CHILDREN_FORBIDDEN) {
         const message =
@@ -2016,7 +2019,10 @@ export function read<T>(el: any): T {
           )
         );
       }
-      if (!(c._config & CONFIG_CHILDREN_FORBIDDEN) || el._statusFlags & STATUS_UNINITIALIZED) {
+      if (
+        !(c._config & CONFIG_CHILDREN_FORBIDDEN || (refCallbackDepth && !tracking)) ||
+        el._statusFlags & STATUS_UNINITIALIZED
+      ) {
         // Out of line, so `read` gains a call only where a pending read throws (D-22, F-9).
         if (observeFlightHook && servesStaged(c as Computed<any>, el, el)) {
           if (__TEST__) shadowActual(SLOT_P);
