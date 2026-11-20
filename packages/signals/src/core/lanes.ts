@@ -509,22 +509,13 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
   for (let i = 0; i < l._nodes.length; i++) {
     const n = l._nodes[i];
     const x = n._x!,
-      held = kept.delete(n);
+      held = kept.delete(n) && into === null;
     // A member disposed since it joined the lane is no reader any more
     // (F-3, D-11): dead, it stays at its last committed value (#3024). Nothing
     // here may queue it: recompute's head wipe would drop REACTIVE_DISPOSED
     // and run it again in a torn-down tree (#4613).
     if (n === except || x._transaction !== l || (n as Computed<any>)._flags & REACTIVE_DISPOSED)
       continue;
-    if (held) {
-      // Kept back at the reveal (`laneSeam`): it re-derives on the landed
-      // world; a born-held mount goes with its owner's re-derivation.
-      n._pendingValue = NOT_PENDING;
-      n._config &= ~(CONFIG_OVERRIDE | CONFIG_STAGED);
-      x._transaction = null;
-      if (!(n._config & CONFIG_MOUNT_AHEAD)) enqueueSub(n as Computed<any>);
-      continue;
-    }
     const effect = (n as any)._type;
     const guess = n._config & CONFIG_GUESS;
     // What the screen shows of it.
@@ -546,7 +537,9 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
       // flight). A first load the lane produced nothing for stays loading
       // until its flight answers (D-22, A19 exc. 1): nothing is staged.
       x._transaction = null;
-      if (guess) n._pendingValue = truth;
+      // Kept back at the reveal (`laneSeam`): it re-derives on the landed
+      // world; a born-held mount goes with its owner's re-derivation.
+      if (guess || held) n._pendingValue = truth;
       commitPendingNode(n);
       if (!effect) {
         if (
@@ -563,9 +556,10 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
       // landing's `reruns` skips an errored reader: its error is an errored
       // source's (#3945).
       if (
-        (n as Computed<any>)._flags & REACTIVE_FRAME_READ &&
-        (n as Computed<any>)._statusFlags & STATUS_ERROR &&
-        (x._error as StatusError).source === n
+        (held && !(n._config & CONFIG_MOUNT_AHEAD)) ||
+        ((n as Computed<any>)._flags & REACTIVE_FRAME_READ &&
+          (n as Computed<any>)._statusFlags & STATUS_ERROR &&
+          (x._error as StatusError).source === n)
       )
         enqueueSub(n as Computed<any>);
     } else if (
@@ -854,12 +848,11 @@ function laneSeam(l: Transaction, leaked: boolean): void {
   // attaches the mount, never at this reveal with its hole empty (S-46, F-2,
   // #5092).
   collectMounts();
-  if (aheadMounts.length)
-    for (let k = -1; k !== kept.size; ) {
-      k = kept.size;
-      for (const n of l._nodes as Computed<any>[])
-        if (n._x!._transaction === l && !kept.has(n) && keptBack(n)) kept.add(n);
-    }
+  for (let k = -1; aheadMounts.length && k !== kept.size; ) {
+    k = kept.size;
+    for (const n of l._nodes as Computed<any>[])
+      if (n._x!._transaction === l && keptBack(n)) kept.add(n);
+  }
   for (let i = 0; i < l._nodes.length; i++) {
     const n = l._nodes[i] as Computed<any>;
     // (Not once a pass since has notified them — D-37: a lane does not
@@ -868,8 +861,7 @@ function laneSeam(l: Transaction, leaked: boolean): void {
     const x = n._x!;
     if (x._transaction !== l) continue;
     if (kept.has(n)) {
-      const f = (n as any)._boundRunEffect;
-      if (f) for (let q = 0; q < 2; q++) l._queues[q] = l._queues[q].filter(g => g !== f);
+      if ((n as any)._type) (n as any)._modified = false;
       continue;
     }
     // The lane's value is the screen's: a guess moves from the lane's
@@ -995,12 +987,7 @@ function holdsOn(t: Transaction): boolean {
 /** Lane nodes a reveal kept back for the hold's landing (`laneSeam`, #5092). */
 const kept = new Set<Signal<any>>();
 function keptBack(n: Computed<any>): unknown {
-  if (
-    (n as any)._type
-      ? n._config & CONFIG_MOUNT_AHEAD && n._config & CONFIG_HELD
-      : heldMountUnder(n, null)
-  )
-    return 1;
+  if (!(n as any)._type && heldMountUnder(n, null)) return 1;
   for (let d = n._deps; d; d = d._nextDep) if (kept.has(d._dep)) return 1;
   for (let p = n._parent; p; p = p._parent) if (kept.has(p as Computed<any>)) return 1;
 }
