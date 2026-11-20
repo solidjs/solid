@@ -11,7 +11,25 @@ const path = require("path");
 
 const compilerDir = path.resolve(__dirname, "..");
 
+const templateCases = {
+  templateText: { code: "const t = <template>hi</template>;", throws: false },
+  malformedInTemplate: {
+    code: "const t = <template><p><div>x</div></p></template>;",
+    throws: true
+  },
+  nestedTemplate: {
+    code: 'const t = <div><template id="row"><template><li class="item">x</li></template></template></div>;',
+    options: { hydratable: true },
+    throws: false
+  },
+  templateInHead: {
+    code: "const t = <head><template><span>x</span></template></head>;",
+    throws: false
+  }
+};
+
 const cases = {
+  ...templateCases,
   pInDiv: { code: "const t = <p><div>bad</div></p>;", throws: true },
   nestedA: { code: "const t = <a><a>x</a></a>;", throws: true },
   tableNoTbody: { code: "const t = <table><tr><td>1</td></tr></table>;", throws: true },
@@ -103,6 +121,7 @@ describe("validate error parity", () => {
 // for the server. The Babel plugin skips SSR templates, so these assert the
 // Oxc error alone and that its DOM diff matches the DOM compile's.
 const ssrCases = {
+  ...templateCases,
   pInDiv: { code: "const t = <p>a<div>b</div></p>;", throws: true },
   hydratablePInDiv: {
     code: "const t = <p class={c()}>a<div>b</div></p>;",
