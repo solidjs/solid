@@ -346,7 +346,8 @@ for (const withMemo of [true, false])
         "a list lands=read:",
         "filter all=all:[2][4]",
         ...rest,
-        "land list=all:[2][4]",
+        // The second poll, made while the first's answer was out, waited for
+        // it and re-asked once (#5094): one list request fewer.
         "land list=all:[1][2][4]",
         "poll=all:[1][2][4]",
         "land list=all:[1][2][4]"
@@ -471,8 +472,10 @@ it("#4643: a toggle beside a held poll answer shows the screen's other rows, who
     "land poll=[1o][2o][3o] 3 left",
     "t3=[1o][2o][3x] 2 left",
     "land toggle:1=[1o][2o][3x] 2 left",
-    "land list=[1o][2o][3x] 2 left",
+    // A refresh made while the poll's answer was out re-asks after it lands
+    // (#5094), so its list request comes after the add's.
     "land add:3=[1o][2o][3x] 2 left",
+    "land list=[1o][2o][3x] 2 left",
     "land toggle:3=[1o][2o][3x] 2 left",
     "land list=[1o][2o][3x] 2 left",
     "land list=[1o][2o][3x] 2 left",
