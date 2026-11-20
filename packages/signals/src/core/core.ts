@@ -2470,8 +2470,9 @@ export function staleValues<T>(fn: () => T, set = true): T {
 }
 
 /** Core half of `refresh()` (signals.ts): marks the next recompute a quiet
- * re-ask and schedules it. */
-export function markRefresh(node: Computed<any>): void {
+ * re-ask and schedules it. `check`: the owned-scope check alone, the mark
+ * coming after the answer out lands (#5094). */
+export function markRefresh(node: Computed<any>, check?: boolean): void {
   if (
     __DEV__ &&
     context &&
@@ -2492,7 +2493,7 @@ export function markRefresh(node: Computed<any>): void {
     });
     throw new Error(REACTIVE_WRITE_IN_OWNED_SCOPE_REFRESH_MESSAGE);
   }
-  if (typeof node._fn === "function" && !(node._flags & REACTIVE_DISPOSED)) {
+  if (!check && typeof node._fn === "function" && !(node._flags & REACTIVE_DISPOSED)) {
     // A refresh in a manual write's frame re-asks with the write as `prev`
     // (D-8, #3026). The next pass's flight is a quiet re-ask (F-9), unless an
     // input changed this tick.

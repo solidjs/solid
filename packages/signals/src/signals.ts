@@ -42,7 +42,13 @@ import {
   staleReader,
   type Transaction
 } from "./core/scheduler.js";
-import { REACTIVE_JOINED, STATUS_ERROR, STATUS_PENDING } from "./core/constants.js";
+import {
+  REACTIVE_CHECK,
+  REACTIVE_DIRTY,
+  REACTIVE_JOINED,
+  STATUS_ERROR,
+  STATUS_PENDING
+} from "./core/constants.js";
 import { unwrapStatusError } from "./core/error.js";
 import { optimisticWrite } from "./core/guesses.js";
 import { truthConfirmed, truthRead } from "./core/truth.js";
@@ -900,9 +906,12 @@ export function resolve<T>(fn: () => T): Promise<T> {
  * - Accessor targets resolve with the settled value; store targets resolve
  *   with the store node passed (reads through it are fresh after the await).
  * - A failed re-ask rejects with the error.
- * - Semantics are quiescence, not flight identity: if another refresh (or
- *   any invalidation) supersedes this one mid-flight, the promise waits for
- *   — and delivers — whatever finally lands.
+ * - Semantics are quiescence, not flight identity: if an invalidation
+ *   supersedes this one mid-flight, the promise waits for — and delivers —
+ *   whatever finally lands.
+ * - Called while the target's previous answer is still out (outside an
+ *   action), it waits for that answer to land, then re-asks once; calls made
+ *   meanwhile share that re-ask, and the promise delivers its answer.
  *
  * @example
  * ```ts
@@ -949,12 +958,27 @@ export function refresh<T>(
   // answer. resolve()'s own eager compute is untouched: created after a
   // refresh it still settles stale-while-revalidate (#2930) — its contract is
   // "first settled value", not "next quiescent state".
-  markRefresh(node);
   // The transaction `refresh()` is called in (an action's slice): the
   // waiter, created on the microtask below, is its reader (`watch`).
   const own = flushTransaction;
+  // A re-ask while the same question's answer is out waits for that answer,
+  // then re-asks once: the answer is a valid value (D-34, F-9). Superseding
+  // it, a poll faster than the response never landed one, and a hold that
+  // read the polled node never settled (#5094). The calls made meanwhile mark
+  // after the landing's flush, so they coalesce as same-tick calls do, and
+  // their waiters deliver the re-ask's answer. An action's `refresh()`
+  // re-asks in its hold at once (D-31).
+  const flight = node._x?._inFlight as PromiseLike<unknown> | null | undefined;
+  const later = !!(
+    own === null &&
+    node._statusFlags & STATUS_PENDING &&
+    !(node._flags & (REACTIVE_CHECK | REACTIVE_DIRTY)) &&
+    typeof (flight as any)?.then === "function"
+  );
+  markRefresh(node, later);
   const promise = new Promise<any>((res, rej) => {
-    queueMicrotask(() => {
+    const run = () => {
+      if (later && node._x?._inFlight === flight) markRefresh(node);
       // The root is load-bearing: an ownerless computed is auto-disposing,
       // and the settle walk releases an unobserved one instead of re-running
       // it, so the waiter would never see the refetch land (#3888). Settle
@@ -990,7 +1014,11 @@ export function refresh<T>(
           own
         );
       createRoot(make);
-    });
+    };
+    if (later) {
+      const re = () => queueMicrotask(run);
+      flight!.then(re, re);
+    } else queueMicrotask(run);
   });
   // Fire-and-forget refresh must not turn a failed refetch into an unhandled
   // rejection; awaiting callers attach their own handlers to `promise`.
