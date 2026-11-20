@@ -15,7 +15,7 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { ext } from "./core.js";
 import { devWarnOptimisticWhileLoading } from "./dev.js";
-import { covered, covers, latestOf, underOf } from "./truth.js";
+import { covers, landed, latestOf, underOf } from "./truth.js";
 import {
   armGuessing,
   clock,
@@ -83,9 +83,11 @@ export function take(n: Signal<any>, l: Transaction, d?: boolean): void {
   const v = latestOf(n);
   kept.push(n, v, x._transaction, x._q, l);
   rerun(n, l);
-  if (x._shown) n._value = covered(n);
+  // The screen is back to what the guess reverts to. Over a truth landed
+  // beneath, it keeps what it shows until the taker reveals (D-34).
+  if (x._revert) ((n._value = n._pendingValue), (n._pendingValue = NOT_PENDING));
   covers.delete(n);
-  x._shown = false;
+  x._shown = x._revert = false;
   n._config &= d ? ~(CONFIG_GUESS | CONFIG_OVERRIDE) : ~CONFIG_GUESS;
   if (d) x._transaction = null;
   else {
@@ -115,7 +117,8 @@ function applyGuesses(parent: Transaction | null): void {
   for (let i = 0; i < pendingGuesses.length; i += 3) {
     const n = pendingGuesses[i] as Signal<any>;
     const v = pendingGuesses[i + 1];
-    let changed = true;
+    let changed = true,
+      wait = false;
     // A guess over a slot another frame holds entangles the frames (D-8, D-33).
     let holder: Transaction | null = null;
     if (n._config & CONFIG_OVERRIDE) {
@@ -123,12 +126,10 @@ function applyGuesses(parent: Transaction | null): void {
       if (!(n._config & CONFIG_GUESS)) {
         n._pendingValue = NOT_PENDING;
         n._config |= CONFIG_GUESS;
-      } else if (n._x!._shown) {
-        // The screen keeps the shown guess until the lane's next reveal (F-1, S-30).
-        screens.has(n) || screens.set(n, [n._value, n._x!._transaction]);
-        txOf(n)._reguessed = clock;
-      }
-      setLaneValue(n, txOf(n), v);
+      } else if (n._x!._shown) wait = true;
+      // A shown guess re-asked waits for the lane's next reveal (F-1, S-30).
+      if (wait) txOf(n)._reguessed = clock;
+      setLaneValue(n, txOf(n), v, wait);
       holder = txOf(n)._parent;
     } else {
       let l: Transaction;
@@ -194,7 +195,7 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     // published-inputs mark no longer applies (#4795).
     if (l._shown) (marked.add(n), (n._config &= ~CONFIG_INPUTS_PUBLISHED));
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
-    n._x!._shown = false;
+    n._x!._shown = n._x!._revert = false;
     covers.delete(n);
     holdNode(n, parent);
     n._pendingValue = value;
@@ -228,7 +229,7 @@ function laneCorrections(): boolean {
       const n = l._nodes[i];
       if (n._config & CONFIG_GUESS && n._x!._transaction === l) {
         const truth = underOf(n);
-        reverting = n._pendingValue === NOT_PENDING;
+        reverting = !landed(n);
         supersede(n, truth, !n._equals || !n._equals(latestOf(n), truth));
         reverting = false;
       }
@@ -301,17 +302,5 @@ function revertLanding(u: Transaction): void {
     }
 }
 
-/** A re-asked shown guess: what the screen showed, and its lane, until the next reveal (#4775). */
-const screens = /* @__PURE__ */ new WeakMap<Signal<any>, [unknown, Transaction | null]>();
-installGuessLayer(take, guessWrite, revertLanding, (el, revealed) => {
-  const s = screens.get(el);
-  if (revealed) screens.delete(el);
-  return s &&
-    !revealed &&
-    el._config & CONFIG_GUESS &&
-    el._x!._shown &&
-    el._x!._transaction === s[1]
-    ? s[0]
-    : el._value;
-});
+installGuessLayer(take, guessWrite, revertLanding);
 installGuessHooks(laneOutcome, applyGuessesAt, () => lanes.length !== 0 && laneCorrections());

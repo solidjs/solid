@@ -327,6 +327,26 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
 
 ## 7. Decision log
 
+- 2026-11-20: **A node stores two values; a lane stores a guess it has not
+  revealed** (the value model in the root `AGENTS.md`; F-11, F-6; no rule or
+  screen changes). Ruled the same day: one pending value per hold, a lane is
+  a hold of its own over its action, the lane's waiting guess is the one
+  value beside a node's two. Before, a guess's node kept more: the lane's
+  record (`covers`) held the guess until its reveal and then the value it
+  covered, also for lane derivations; a re-asked shown guess was written to
+  `_value` at once with a note of what the screen showed (`screens`, #4775).
+  Now `_value` is always the screen. `reveal` (lanes.ts) moves a waiting
+  guess from `covers` to `_value` and, with nothing staged beneath, stages
+  the value it showed over as `_pendingValue`: the revert is the hold's
+  write. `_x._revert` marks that staging, so `landed` (truth.ts) can tell a
+  truth that landed beneath the guess from the value it reverts to; the held
+  flag cannot (a same-tick truth lacks it, a refresh sets it). A re-asked
+  shown guess waits in `covers` (`setLaneValue`'s `wait`), still judged a
+  round later (`_reguessed`). A guess that becomes its lane's derivation
+  drops both (`laneStage`). `recompute`'s re-ask test ignores a staged
+  revert. `kept` (#4336) is unchanged. Census over the signals suite, nodes
+  at rest holding three values: 3,200 before, 21 after (16 a waiting guess,
+  3 `kept`).
 - 2026-11-12b: **A pass that asks reads ahead on the screen (C)** (S-51
   re-ruled; F-2's producer clause and F-6's limit of 2026-11-07 replaced;
   #4677, #4778). The producer clause made a pass that asks the hold's:

@@ -507,10 +507,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let reask =
     (el._flags & REACTIVE_REASK) !== 0 &&
     !(
-      (el._statusFlags & STATUS_PENDING ||
-        (el._pendingValue !== NOT_PENDING && !(el._flags & REACTIVE_MANUAL_WRITE))) &&
       el._x !== null &&
-      !el._x._reask
+      !el._x._reask &&
+      (el._statusFlags & STATUS_PENDING ||
+        (el._pendingValue !== NOT_PENDING &&
+          !el._x._revert &&
+          !(el._flags & REACTIVE_MANUAL_WRITE)))
     );
 
   // Shadow seat, compared with the seating above (reader-seat-rebuild.md §3.2).

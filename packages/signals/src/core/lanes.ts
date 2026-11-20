@@ -8,12 +8,11 @@
 // park has nothing to be optimistic over: the write is void.
 //
 // Two places per node, as for any held node: `_value` is what the screen
-// shows, `_pendingValue` the staging of the transaction holding it — for a
-// lane's node, the lane's: a written guess or a lane pass's derivation,
-// until the lane reveals (`laneSeam`), when it moves into `_value` and the
-// lane records what it covered (`under`). A truth landing beneath a guess is
-// the lane's parent's, kept on the lane too (`under`, CONFIG_HELD) for the
-// parent's landing to commit. The lane carries the state machine: `_shown`
+// shows, `_pendingValue` what its hold will commit. A lane pass's derivation
+// is staged in `_pendingValue` until the lane reveals (`laneSeam`). A guess
+// waits in the lane's record (truth.ts `covers`) until its reveal moves it
+// to `_value`; its `_pendingValue` is its hold's: the value it reverts to,
+// staged at the reveal, or a truth landed beneath it (F-11). The lane carries the state machine: `_shown`
 // once it has revealed. A direct read sees the lane's latest throughout
 // (A17); an authoritative reader (`until`) sees the truth beneath it (Q3,
 // 2026-10-02: "optimistic overrides are intentionally not part of
@@ -123,43 +122,42 @@ export function newLane(parent: Transaction): Transaction {
   return l;
 }
 
-/** `v` is lane `l`'s value of `n` from now — a guess written or re-asked, a
- * store's composed row, a guess coming back: on screen at once once the
- * lane has revealed (what it covers kept for the lane's end, `cover`),
- * staged for the reveal before. */
-export function setLaneValue(n: Signal<any>, l: Transaction, v: unknown): void {
-  if (l._shown || n._x!._shown) {
-    cover(n);
+/** `v` is lane `l`'s value of `n` from now. A guess goes to the lane's
+ * record and is revealed at once when the lane has shown, unless `wait`:
+ * a shown guess re-asked reveals with its lane's passes (F-1, S-30). */
+export function setLaneValue(n: Signal<any>, l: Transaction, v: unknown, wait?: boolean): void {
+  if (n._config & CONFIG_GUESS) {
+    covers.set(n, v);
+    if (!wait && (l._shown || n._x!._shown)) reveal(n);
+  } else if (l._shown || n._x!._shown) {
     n._value = v;
     n._x!._shown = true;
     if ((n as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
       (n as Computed<any>)._statusFlags &= ~STATUS_UNINITIALIZED;
-  } else if (n._config & CONFIG_GUESS) covers.set(n, v);
-  else n._pendingValue = v;
+  } else n._pendingValue = v;
+}
+/** A guess leaves its lane's record for the screen. With no truth held
+ * beneath it, what it shows over is staged as the value it reverts to: the
+ * revert is its hold's write (F-11). */
+export function reveal(n: Signal<any>): void {
+  const g = covers.get(n);
+  covers.delete(n);
+  if (n._pendingValue === NOT_PENDING) ((n._pendingValue = n._value), (n._x!._revert = true));
+  n._value = g;
+  n._x!._shown = true;
+  if ((n as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
+    (n as Computed<any>)._statusFlags &= ~STATUS_UNINITIALIZED;
 }
 /** What the screen shows of a node: NOT_PENDING when nothing (uninitialized). */
 export function screenOf(el: Signal<any> | Computed<any>): unknown {
-  return (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED
-    ? NOT_PENDING
-    : guessScreen
-      ? guessScreen(el)
-      : el._value;
-}
-/** The guess layer's screen of a node (guesses.ts): a shown guess re-asked
- * keeps the shown one until its lane's next reveal (#4775); `revealed`
- * forgets it. */
-export let guessScreen: ((el: Signal<any>, revealed?: true) => unknown) | null = null;
-
-/** The lane's record of the value the screen showed `n` before the lane
- * revealed it (a guess reverts to it, `covered`) — kept once. */
-function cover(n: Signal<any>): void {
-  if (!covers.has(n)) covers.set(n, n._value);
+  return (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ? NOT_PENDING : el._value;
 }
 /** A truth landed beneath a guess: the parent's staging, held for its
  * landing to commit (CONFIG_HELD) — an older question's answer (A18), or the
  * guess's confirmation (A24). The guess stays the value. */
 export function landBeneath(n: Signal<any> | Computed<any>, truth: unknown): void {
   n._pendingValue = truth;
+  n._x!._revert = false;
   n._config |= CONFIG_HELD;
 }
 
@@ -184,10 +182,8 @@ export let revertLandingHook: ((u: Transaction) => void) | null = null;
 export function installGuessLayer(
   take: NonNullable<typeof takeHook>,
   write: NonNullable<typeof guessWriteHook>,
-  revert: NonNullable<typeof revertLandingHook>,
-  screen: NonNullable<typeof guessScreen>
+  revert: NonNullable<typeof revertLandingHook>
 ): void {
-  guessScreen = screen;
   takeHook = take;
   guessWriteHook = write;
   revertLandingHook = revert;
@@ -390,10 +386,8 @@ export function laneStage(
           !(el._statusFlags & STATUS_PENDING) &&
           (!flushTransaction || !blocked(resolveTx(tx._parent!)))
         ) {
-          if (el._x!._shown) el._value = covers.get(el);
           el._notifiedAt = LEFT_SHOWN;
         }
-        covers.delete(el);
         x._shown = false;
         x._transaction = null;
       }
@@ -454,7 +448,15 @@ export function laneStage(
       resolveTx(el._x!._transaction!._parent!) !== resolveTx(l._parent!)
     )
       takeHook!(el, l);
-    else if (!errored) el._config &= ~CONFIG_GUESS;
+    else if (!errored) {
+      // No longer a guess: what it waited to show and what it would have
+      // reverted to are void.
+      if (guessed && el._config & CONFIG_GUESS) {
+        covers.delete(el);
+        if (el._x!._revert) ((el._pendingValue = NOT_PENDING), (el._x!._revert = false));
+      }
+      el._config &= ~CONFIG_GUESS;
+    }
   }
   // A leaf has no lane value to seat it (`recompute`): one left waiting on
   // the lane's flight runs its next pass as the lane's — the landing that
@@ -522,7 +524,7 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
     // A guess's truth: a landing held beneath it, else the value it covered.
     const truth = guess ? underOf(n) : NOT_PENDING;
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
-    n._x!._shown = false;
+    n._x!._shown = n._x!._revert = false;
     covers.delete(n);
     if (into === null) {
       // The parent landed: a guess lands the truth beneath it or reverts to
@@ -841,22 +843,13 @@ function laneSeam(l: Transaction, leaked: boolean): void {
     const x = n._x!;
     if (x._transaction !== l) continue;
     // The lane's value is the screen's: a guess moves from the lane's
-    // record to `_value` (what it covered takes its place there, for the
-    // revert); a derivation's staging commits (a staged error publishes,
+    // record to `_value` (`reveal`); a derivation's staging commits (a staged error publishes,
     // D-41; the frame it built retires the one it replaces). A truth held
     // beneath a guess stays its staging. An effect's value slot is private.
     if (!(n as any)._type)
       if (n._config & CONFIG_GUESS) {
-        guessScreen!(n, true);
-        if (!n._x!._shown) {
-          const g = covers.get(n);
-          covers.set(n, n._value);
-          n._value = g;
-          n._x!._shown = true;
-          if (n._statusFlags & STATUS_UNINITIALIZED) n._statusFlags &= ~STATUS_UNINITIALIZED;
-        }
+        if (covers.has(n)) reveal(n);
       } else if (n._pendingValue !== NOT_PENDING) {
-        cover(n);
         commitPendingNode(n);
         n._x!._shown = true;
       }
