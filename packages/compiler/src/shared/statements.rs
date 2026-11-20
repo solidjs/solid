@@ -367,7 +367,10 @@ impl<'a> AstDomTransform<'a, '_> {
                 ) {
                     crate::shared::transform::replace_this_in_jsx_root(self, &mut expression);
                 }
-                match expression {
+                self.bindings
+                    .enter_scope(crate::shared::bindings::BindingScopeKind::Function);
+                self.bindings.declare_function_params(&arrow.params);
+                let lowered = match expression {
                     Expression::JSXElement(element) => {
                         match self.lower_root_element_with_setup(&element) {
                             Ok((replacement, setup)) => {
@@ -415,7 +418,9 @@ impl<'a> AstDomTransform<'a, '_> {
                         arrow.body = self.ast().arrow_function_body_expression(expression);
                         Expression::ArrowFunctionExpression(arrow)
                     }
-                }
+                };
+                self.bindings.exit_scope();
+                lowered
             }
             value => {
                 let mut value = value;

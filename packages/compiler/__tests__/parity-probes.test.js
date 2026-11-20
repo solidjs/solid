@@ -1321,6 +1321,38 @@ const a = <Comp ref={getRef()} />;
   "component namespace member prop": `
 import * as styles from "./s.css";
 const a = <Comp class={styles.button} />;
+`,
+  "module const shadowed by function param": `
+const label = "items";
+function Inner(label) {
+  return <div>{count()}{label}</div>;
+}
+`,
+  "module const shadowed by map callback param": `
+const name = "outer";
+const a = <ul>{["a", "b"].map(name => <li>{name}</li>)}</ul>;
+`,
+  "module const shadowed by destructured param": `
+const label = "items";
+const Inner = ({ label }) => <div>{count()}{label}</div>;
+`,
+  "module const shadowed by param in attribute": `
+const label = "items";
+function Inner(label) {
+  return <div title={label}>{count()}</div>;
+}
+`,
+  "module const shadowed by class field arrow param": `
+const label = "items";
+class A {
+  row = label => <li title={label}>{this.n}{label}</li>;
+}
+`,
+  "module const shadowed by class field arrow param in conditional": `
+const label = "items";
+class A {
+  row = label => (ok() ? <li>{count()}{label}</li> : null);
+}
 `
 };
 
