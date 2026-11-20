@@ -967,6 +967,7 @@ function shownBy(r: Computed<any>): unknown {
  * holds — under `o`, or under one of lane `l`'s nodes (by its owner
  * chain). */
 export function heldMountUnder(o: Owner | null, l: Transaction | null): boolean {
+  const hit = (p: any) => (l !== null ? p._x?._transaction === l : p === o);
   collectMounts();
   for (let i = aheadMounts.length - 1; i >= 0; i--) {
     const r = aheadMounts[i];
@@ -994,8 +995,11 @@ export function heldMountUnder(o: Owner | null, l: Transaction | null): boolean 
         (l._links || [l]).some(u => u._reruns.indexOf(r) !== -1))
     )
       continue;
-    for (let p: Owner | null = r._parent; p !== null; p = p._parent)
-      if (l !== null ? (p as Computed<any>)._x?._transaction === l : p === o) return true;
+    for (let p: Owner | null = r._parent; p !== null; p = p._parent) if (hit(p)) return true;
+    // Or the slot that mounts it reads one: `<Show>`'s value memo a hop past
+    // its truthiness memo, a lowered `<Show>`'s ternary the hold's (#5092).
+    for (let d = (r._parent as Computed<any>)?._deps; d; d = d._nextDep)
+      if (hit(d._dep)) return true;
   }
   return false;
 }
