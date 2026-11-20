@@ -28,3 +28,5 @@ const t5 = (
     three statics
   </div>
 );
+
+const t6 = <div class={{ a: true, b: false, c: false, d: false }} />;

@@ -144,11 +144,12 @@ function createHtml() {
         // Props located after spread need to be applied after spread for possible overrides.
         node.props = node.props.filter(prop => {
           if (prop.type === STATIC_PROP) {
-            if (prop.name.startsWith("prop:")) return true;
+            if (prop.name.startsWith("prop:") || prop.name === "children") return true;
             elem.setAttribute(prop.name, prop.value);
             if (!hasSpread && prop.name === claimAttr) node.claim = true;
             return hasSpread;
           } else if (prop.type === BOOLEAN_PROP) {
+            if (prop.name === "children") return true;
             elem.setAttribute(prop.name, "");
             if (!hasSpread && prop.name === claimAttr) node.claim = true;
             return hasSpread;
@@ -201,7 +202,7 @@ function createHtml() {
         const element = renderChildren(node, values, components) as Element;
         const props = gatherProps(node, values, components);
 
-        spread(element, props, true);
+        spread(element, props, node.children.length > 0);
         // Static href/action was baked into the template at build, so the
         // spread above never touched it — claim the clone directly.
         if (node.claim) claimElement(element);
@@ -223,20 +224,22 @@ function createHtml() {
     const walker = document.createTreeWalker(element, 129);
 
     const walkNodes = (nodes: ChildNode[], walker: TreeWalker) => {
+      const parent = walker.currentNode;
       for (const node of nodes) {
         if (
           node.type === ELEMENT_NODE ||
           node.type === EXPRESSION_NODE ||
           node.type === COMPONENT_NODE
         ) {
-          const domNode = walker.nextNode()!;
+          const domNode = (
+            walker.currentNode === parent ? walker.firstChild() : walker.nextSibling()
+          )!;
           if (node.type === EXPRESSION_NODE || node.type === COMPONENT_NODE) {
             insert(domNode.parentNode!, renderNode(node, values, components), domNode);
-            walker.currentNode = domNode;
           } else {
             if (node.props.length) {
               const props = gatherProps(node, values, components);
-              spread(domNode as Element, props, true);
+              spread(domNode as Element, props, node.children.length > 0);
             }
             if (node.claim) claimElement(domNode as Element);
             walkNodes(
@@ -246,6 +249,7 @@ function createHtml() {
                 : walker
             );
           }
+          walker.currentNode = domNode;
         }
       }
     };

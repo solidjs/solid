@@ -51,3 +51,19 @@ const template5 = (
     </noscript>
   </div>
 );
+
+const template6 = (
+  <noscript>
+    <iframe src={trackingUrl()} height="0" width="0" />
+  </noscript>
+);
+
+const template7 = (
+  <div>
+    <noscript data-id={id()}>
+      <a href="/fallback" aria-label={label()}>
+        Fallback
+      </a>
+    </noscript>
+  </div>
+);

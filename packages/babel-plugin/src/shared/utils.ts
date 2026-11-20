@@ -59,9 +59,28 @@ export function isStatementVariableInitializer(path: NodePath): boolean {
  * `else` or loop body it returns the whole `if` or loop: setup inserted there
  * runs on every path, and outside the loop's bindings. Inserting before the
  * return lets Babel wrap that body in a block.
+ *
+ * JSX in a later declarator (`const a = 1, b = <div>{a}</div>`, the shape
+ * minifiers make by joining declarations) splits the declarators before it
+ * into their own statement first, so its setup runs after them.
  */
 export function getSetupStatement(path: NodePath): NodePath | null {
-  return t.isReturnStatement(path.parent) ? path.parentPath : path.getStatementParent();
+  if (t.isReturnStatement(path.parent)) return path.parentPath;
+  const statement = path.getStatementParent();
+  const declaration = path.parentPath?.parentPath;
+  if (statement && declaration?.isVariableDeclaration()) {
+    const index = declaration.node.declarations.indexOf(path.parent as t.VariableDeclarator);
+    if (index > 0) {
+      const before = t.variableDeclaration(
+        declaration.node.kind,
+        declaration.node.declarations.splice(0, index)
+      );
+      statement.insertBefore(
+        statement.isExportNamedDeclaration() ? t.exportNamedDeclaration(before) : before
+      );
+    }
+  }
+  return statement;
 }
 
 export function getConfig(path: NodePath): PluginConfig {

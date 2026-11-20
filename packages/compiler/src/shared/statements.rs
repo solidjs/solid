@@ -136,10 +136,10 @@ impl<'a> AstDomTransform<'a, '_> {
         // `insertBefore` targets the whole statement — including through an
         // `export const` wrapper (`getStatementParent` on an exported
         // declaration inserts before the export statement).
-        let declaration = match statement {
-            Statement::VariableDeclaration(declaration) => declaration,
+        let (declaration, exported) = match statement {
+            Statement::VariableDeclaration(declaration) => (declaration, false),
             Statement::ExportDeclaration(export) => match &mut export.declaration {
-                oxc_ast::ast::Declaration::VariableDeclaration(declaration) => declaration,
+                oxc_ast::ast::Declaration::VariableDeclaration(declaration) => (declaration, true),
                 _ => return None,
             },
             _ => return None,
@@ -157,8 +157,10 @@ impl<'a> AstDomTransform<'a, '_> {
         }
 
         let mut setup: Option<std::vec::Vec<Statement<'a>>> = None;
-        for index in 0..declaration.declarations.len() {
+        let mut index = 0;
+        while index < declaration.declarations.len() {
             let Some(taken) = declaration.declarations[index].init.take() else {
+                index += 1;
                 continue;
             };
             // Babel sees through parentheses: `const a = (<div/>);` is still
@@ -171,9 +173,23 @@ impl<'a> AstDomTransform<'a, '_> {
                 Expression::JSXElement(element) => {
                     match self.lower_root_element_with_setup(&element) {
                         Ok((replacement, statements)) => {
-                            setup
-                                .get_or_insert_with(std::vec::Vec::new)
-                                .extend(statements);
+                            let setup = setup.get_or_insert_with(std::vec::Vec::new);
+                            // Setup reads the declarators before this one
+                            // (`const a = 1, b = <p>{a}</p>`, #5102): they
+                            // split into their own statement ahead of it.
+                            if index > 0 && !statements.is_empty() {
+                                let before = self
+                                    .ast()
+                                    .vec_from_iter(declaration.declarations.drain(..index));
+                                setup.push(self.ast().split_declaration_statement(
+                                    declaration.span,
+                                    declaration.kind,
+                                    before,
+                                    exported,
+                                ));
+                                index = 0;
+                            }
+                            setup.extend(statements);
                             crate::shared::transform::finalize_root_capture(
                                 self,
                                 element.span,
@@ -210,6 +226,7 @@ impl<'a> AstDomTransform<'a, '_> {
                 }
             };
             declaration.declarations[index].init = Some(replaced);
+            index += 1;
         }
         setup
     }
@@ -367,7 +384,10 @@ impl<'a> AstDomTransform<'a, '_> {
                 ) {
                     crate::shared::transform::replace_this_in_jsx_root(self, &mut expression);
                 }
-                match expression {
+                self.bindings
+                    .enter_scope(crate::shared::bindings::BindingScopeKind::Function);
+                self.bindings.declare_function_params(&arrow.params);
+                let lowered = match expression {
                     Expression::JSXElement(element) => {
                         match self.lower_root_element_with_setup(&element) {
                             Ok((replacement, setup)) => {
@@ -415,7 +435,9 @@ impl<'a> AstDomTransform<'a, '_> {
                         arrow.body = self.ast().arrow_function_body_expression(expression);
                         Expression::ArrowFunctionExpression(arrow)
                     }
-                }
+                };
+                self.bindings.exit_scope();
+                lowered
             }
             value => {
                 let mut value = value;
