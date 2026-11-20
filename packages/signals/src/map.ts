@@ -776,7 +776,7 @@ function updateRepeatRows<MappedItem>(
   newLen: number,
   from: number
 ): void {
-  if (newLen === 0) {
+  if (!newLen) {
     if (this._len !== 0) {
       this._owner.dispose(false);
       this._nodes = [];
