@@ -75,6 +75,8 @@ export interface StoreTarget {
   n: Record<PropertyKey, Signal<any>> | null;
   /** Lazy per-key presence nodes (`in` tracks presence, not value — R13). */
   h: Record<PropertyKey, Signal<boolean>> | null;
+  /** live presence-node count (drops `h` without a key scan). */
+  hc: number;
   /** Lazy CONTAINER node: membership/iteration/`$TRACK`/`length`
    * subscriptions (§6) and the backing's staging home (plan sec. 31.3). */
   k: Signal<any> | null;
