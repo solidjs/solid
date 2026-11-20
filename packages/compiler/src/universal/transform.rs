@@ -1661,7 +1661,8 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
             },
             _ => return None,
         };
-        if !declaration.declarations.iter().any(|declarator| {
+        // Only the first declarator's JSX hoists its setup (#5102).
+        if !declaration.declarations.first().is_some_and(|declarator| {
             declarator.init.as_ref().is_some_and(|init| {
                 matches!(
                     init.get_inner_expression(),
@@ -1677,10 +1678,11 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
             let Some(init) = declaration.declarations[index].init.take() else {
                 continue;
             };
-            let init = if matches!(
-                init.get_inner_expression(),
-                Expression::JSXElement(_) | Expression::JSXFragment(_)
-            ) {
+            let init = if index == 0
+                && matches!(
+                    init.get_inner_expression(),
+                    Expression::JSXElement(_) | Expression::JSXFragment(_)
+                ) {
                 let (init, lowered) = self.lower_statement_position_jsx(init);
                 if let Some(lowered) = lowered {
                     setup.get_or_insert_with(std::vec::Vec::new).extend(lowered);

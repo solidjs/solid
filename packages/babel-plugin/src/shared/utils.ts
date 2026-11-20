@@ -35,7 +35,9 @@ export const nonSpreadNameSpaces = new Set(["prop"]);
  * Hoisting generated setup before that declaration preserves evaluation
  * order. A declaration used in a control-flow header (`for (let x = <JSX />)`)
  * is deliberately excluded: its statement parent is the loop, and inserting
- * before it can move JSX work outside a surrounding condition.
+ * before it can move JSX work outside a surrounding condition. So is any
+ * declarator after the first: setup hoisted above the statement would read
+ * the earlier declarators before they are initialized.
  */
 export function isStatementVariableInitializer(path: NodePath): boolean {
   if (!t.isVariableDeclarator(path.parent) || path.parent.init !== path.node) return false;
@@ -43,6 +45,7 @@ export function isStatementVariableInitializer(path: NodePath): boolean {
   const declaration = path.parentPath?.parentPath;
   const statement = path.getStatementParent();
   if (!declaration?.isVariableDeclaration() || !statement) return false;
+  if (declaration.node.declarations[0] !== path.parent) return false;
   if (statement.node === declaration.node) return true;
 
   return (

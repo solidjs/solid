@@ -145,7 +145,10 @@ impl<'a> AstDomTransform<'a, '_> {
             _ => return None,
         };
 
-        if !declaration.declarations.iter().any(|declarator| {
+        // Only the first declarator's JSX hoists its setup: above the
+        // statement, a later one would read the earlier declarators before
+        // they are initialized (#5102).
+        if !declaration.declarations.first().is_some_and(|declarator| {
             declarator.init.as_ref().is_some_and(|init| {
                 matches!(
                     init.get_inner_expression(),
@@ -161,6 +164,12 @@ impl<'a> AstDomTransform<'a, '_> {
             let Some(taken) = declaration.declarations[index].init.take() else {
                 continue;
             };
+            if index > 0 {
+                let mut init = taken;
+                self.visit_expression(&mut init);
+                declaration.declarations[index].init = Some(init);
+                continue;
+            }
             // Babel sees through parentheses: `const a = (<div/>);` is still
             // a var-init JSX root.
             let mut init = peel_jsx_parens(taken);

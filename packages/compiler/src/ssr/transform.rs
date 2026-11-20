@@ -3974,10 +3974,22 @@ impl<'a> AstSsrTransform<'a, '_> {
             if self.jsx_root_span.is_none() {
                 let was_deferring = self.deferring;
                 self.deferring = true;
+                // Setup queued for this statement goes before it, not into a
+                // closure body the deferred pass processes (#5102). A root the
+                // `this` capture wrapped keeps its setup inside that IIFE.
+                let (into_iife, held): (std::vec::Vec<_>, std::vec::Vec<_>) =
+                    std::mem::take(&mut self.pending_statements)
+                        .into_iter()
+                        .partition(|pending| {
+                            self.module_capture_iifes.contains(&pending.span().start)
+                        });
+                self.pending_statements = into_iife;
                 crate::shared::transform::lower_deferred_jsx_statements(
                     self,
                     std::slice::from_mut(&mut statement),
                 );
+                let deferred = std::mem::replace(&mut self.pending_statements, held);
+                self.pending_statements.extend(deferred);
                 self.deferring = was_deferring;
             }
             // While a JSX root is mid-lowering, function bodies visited inside
@@ -4554,6 +4566,16 @@ fn record_statement_jsx_spans(statement: &Statement<'_>, spans: &mut std::vec::V
             _ => None,
         }
     }
+    fn first_declarator_jsx_span(
+        declaration: &oxc_ast::ast::VariableDeclaration<'_>,
+    ) -> Option<Span> {
+        declaration
+            .declarations
+            .first()?
+            .init
+            .as_ref()
+            .and_then(jsx_span)
+    }
     let mut count = 0;
     match statement {
         Statement::ReturnStatement(ret) => {
@@ -4562,23 +4584,20 @@ fn record_statement_jsx_spans(statement: &Statement<'_>, spans: &mut std::vec::V
                 count += 1;
             }
         }
+        // Only the first declarator: setup hoisted above the statement would
+        // read earlier declarators before they are initialized (#5102).
         Statement::VariableDeclaration(declaration) => {
-            for declarator in &declaration.declarations {
-                if let Some(span) = declarator.init.as_ref().and_then(jsx_span) {
-                    spans.push(span);
-                    count += 1;
-                }
+            if let Some(span) = first_declarator_jsx_span(declaration) {
+                spans.push(span);
+                count += 1;
             }
         }
         Statement::ExportDeclaration(export) => {
             if let oxc_ast::ast::Declaration::VariableDeclaration(declaration) = &export.declaration
+                && let Some(span) = first_declarator_jsx_span(declaration)
             {
-                for declarator in &declaration.declarations {
-                    if let Some(span) = declarator.init.as_ref().and_then(jsx_span) {
-                        spans.push(span);
-                        count += 1;
-                    }
-                }
+                spans.push(span);
+                count += 1;
             }
         }
         _ => {}
