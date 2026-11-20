@@ -1623,7 +1623,10 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
       list(c, (t = l));
     if (render && node._config & CONFIG_VERDICT)
       ((c._config |= CONFIG_VERDICT), (c._flags &= ~REACTIVE_LANE_DIRTY));
-    if (t?._lane ? sameLane(t, l) : (c as any)._type) c._flags |= REACTIVE_LANE_DIRTY;
+    // A zombie seated in another lane is still on screen (D-9): it re-stages
+    // with this guess, as the memo beside it does (F-1, #5095).
+    if (t?._lane ? sameLane(t, l) || c._flags & REACTIVE_ZOMBIE : (c as any)._type)
+      c._flags |= REACTIVE_LANE_DIRTY;
   }
 }
 
