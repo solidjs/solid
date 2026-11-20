@@ -5,9 +5,10 @@
 // #5092: a display-ahead gate (`latest(() => s()) > 0`) whose branch reads a
 // pending `a` is born held (S-46, S-58), beside a `latest(() => s())` text and,
 // in the "both" shapes, a plain `<Show when={s() > 0}>`. `<Show>` and the
-// ternary that `lowerShow` makes of it give one screen: the fallback stays,
-// never the branch with its hole empty (F-2), and the verdict lane that
-// opened the mount reveals with the landing (lanes.ts `lanesBlocked`).
+// ternary that `lowerShow` makes of it give one screen: the `latest()` text
+// reads ahead, and only the gate's branch keeps its fallback until the
+// landing, never attaching with its hole empty (F-2, F-6; maintainer
+// 2026-11-20: "Only latest reads ahead").
 import { describe, expect, test } from "vitest";
 import { createMemo, createSignal, Errored, flush, latest, Loading, Show } from "solid-js";
 import { render } from "../src/index.js";
@@ -22,7 +23,7 @@ const settle = async () => {
 type Form = "Show" | "ternary";
 type Shape = "both" | "gate" | "both-siblings" | "gate-siblings";
 
-async function run(form: Form, shape: Shape) {
+async function run(form: Form, shape: Shape, never = false) {
   let setS!: (v: number) => void;
   const resolvers: (() => void)[] = [];
   function App() {
@@ -30,7 +31,8 @@ async function run(form: Form, shape: Shape) {
     setS = set;
     const a = createMemo(() => {
       const v = s();
-      return new Promise<string>(r => resolvers.push(() => r("a" + v)));
+      // `never`: the issue's shape, `a` never answers at all.
+      return new Promise<string>(r => never || resolvers.push(() => r("a" + v)));
     });
     const plain = () =>
       form === "Show" ? (
@@ -89,6 +91,7 @@ async function run(form: Form, shape: Shape) {
   setS(2);
   await settle();
   const held = c.textContent;
+  if (never) return (dispose(), [off, held]);
   await land();
   const landed = c.textContent;
   dispose();
@@ -100,28 +103,42 @@ for (const form of ["Show", "ternary"] as Form[])
     test("gate beside a latest() text", async () => {
       expect(await run(form, "gate")).toEqual([
         "[latest 0] [gate off]",
-        "[latest 0] [gate off]",
+        "[latest 2] [gate off]",
         "[latest 2] [gate on a2]"
       ]);
     });
     test("gate beside a latest() text, siblings", async () => {
       expect(await run(form, "gate-siblings")).toEqual([
         "[latest 0] [gate off]",
-        "[latest 0] [gate off]",
+        "[latest 2] [gate off]",
         "[latest 2] [gate on a2]"
       ]);
     });
     test("plain Show, latest() text and gate", async () => {
       expect(await run(form, "both")).toEqual([
         "[plain off] [latest 0] [gate off]",
-        "[plain off] [latest 0] [gate off]",
+        "[plain off] [latest 2] [gate off]",
         "[plain on a2] [latest 2] [gate on a2]"
       ]);
     });
+    for (const shape of ["gate", "gate-siblings"] as Shape[])
+      test(`${shape}, \`a\` never answers (the issue's repro)`, async () => {
+        expect(await run(form, shape, true)).toEqual([
+          "[latest 0] [gate off]",
+          "[latest 2] [gate off]"
+        ]);
+      });
+    for (const shape of ["both", "both-siblings"] as Shape[])
+      test(`${shape}, \`a\` never answers (the issue's repro)`, async () => {
+        expect(await run(form, shape, true)).toEqual([
+          "[plain off] [latest 0] [gate off]",
+          "[plain off] [latest 2] [gate off]"
+        ]);
+      });
     test("plain Show, latest() text and gate, siblings", async () => {
       expect(await run(form, "both-siblings")).toEqual([
         "[plain off] [latest 0] [gate off]",
-        "[plain off] [latest 0] [gate off]",
+        "[plain off] [latest 2] [gate off]",
         "[plain on a2] [latest 2] [gate on a2]"
       ]);
     });

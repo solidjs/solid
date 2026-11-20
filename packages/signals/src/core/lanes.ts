@@ -508,13 +508,23 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
   }
   for (let i = 0; i < l._nodes.length; i++) {
     const n = l._nodes[i];
-    const x = n._x!;
+    const x = n._x!,
+      held = kept.delete(n);
     // A member disposed since it joined the lane is no reader any more
     // (F-3, D-11): dead, it stays at its last committed value (#3024). Nothing
     // here may queue it: recompute's head wipe would drop REACTIVE_DISPOSED
     // and run it again in a torn-down tree (#4613).
     if (n === except || x._transaction !== l || (n as Computed<any>)._flags & REACTIVE_DISPOSED)
       continue;
+    if (held) {
+      // Kept back at the reveal (`laneSeam`): it re-derives on the landed
+      // world; a born-held mount goes with its owner's re-derivation.
+      n._pendingValue = NOT_PENDING;
+      n._config &= ~(CONFIG_OVERRIDE | CONFIG_STAGED);
+      x._transaction = null;
+      if (!(n._config & CONFIG_MOUNT_AHEAD)) enqueueSub(n as Computed<any>);
+      continue;
+    }
     const effect = (n as any)._type;
     const guess = n._config & CONFIG_GUESS;
     // What the screen shows of it.
@@ -663,6 +673,12 @@ export const readGuesses: unknown[] = [];
 export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   const guess = el._config & CONFIG_GUESS;
   const l = txOf(el);
+  // A node the reveal kept back (`laneSeam`) shows its committed value
+  // until the hold's landing, and its readers re-derive there (#5092).
+  if (c !== null && kept.has(el)) {
+    staleReader(c, resolveTx(l._parent!));
+    return el._value;
+  }
   // A lane a correction folded under (D-34): store/optimistic.ts reads it.
   // Before the authoritative arm: an `until` outside the lane reads the
   // same truth there, and joins the hold it folded into — its posture over
@@ -833,6 +849,17 @@ function laneSeam(l: Transaction, leaked: boolean): void {
   // binding still `false`). Restoring a run `reruns` skipped changes nothing.
   else if (l._queues[0].length > v.length)
     l._queues[0].unshift(() => v.forEach(r => ((r as any)._modified = true)));
+  // The slot that opened a born-held mount, what reads it and what it owns
+  // stay the lane's staging: they re-derive at the hold's landing, which
+  // attaches the mount, never at this reveal with its hole empty (S-46, F-2,
+  // #5092).
+  collectMounts();
+  if (aheadMounts.length)
+    for (let k = -1; k !== kept.size; ) {
+      k = kept.size;
+      for (const n of l._nodes as Computed<any>[])
+        if (n._x!._transaction === l && !kept.has(n) && keptBack(n)) kept.add(n);
+    }
   for (let i = 0; i < l._nodes.length; i++) {
     const n = l._nodes[i] as Computed<any>;
     // (Not once a pass since has notified them — D-37: a lane does not
@@ -840,6 +867,11 @@ function laneSeam(l: Transaction, leaked: boolean): void {
     if (n._notifiedAt === LEFT_SHOWN) insertSubs(n);
     const x = n._x!;
     if (x._transaction !== l) continue;
+    if (kept.has(n)) {
+      const f = (n as any)._boundRunEffect;
+      if (f) for (let q = 0; q < 2; q++) l._queues[q] = l._queues[q].filter(g => g !== f);
+      continue;
+    }
     // The lane's value is the screen's: a guess moves from the lane's
     // record to `_value` (what it covered takes its place there, for the
     // revert); a derivation's staging commits (a staged error publishes,
@@ -914,15 +946,15 @@ function lanesBlocked(t: Transaction): boolean {
         return true;
     }
   // S-46 (D-25): a mount a display-ahead read gates attaches at the
-  // landing; the verdict lane that opened it reveals with that landing, not
-  // ahead of it (shown now, the branch attached with its hole empty, #4417,
-  // or with the committed value a re-derived mount read).
-  if (
-    t._lane &&
-    t._parent!._verdict === t &&
-    ((t._opened && holdsOn(resolveTx(t._parent!))) || heldMountUnder(null, t))
-  )
+  // landing. Content the gate's own pass read over the hold's staging
+  // (`_opened`, #4806) holds its verdict lane until then.
+  if (t._lane && t._parent!._verdict === t && t._opened && holdsOn(resolveTx(t._parent!)))
     return true;
+  // A born-held mount its verdict lane opened holds the hold, not the lane:
+  // the lane's `latest()` readers reveal now, the slot that mounts it stays
+  // staged (`laneSeam`), and the branch attaches at the landing (F-6, S-46;
+  // maintainer 2026-11-20: "only latest reads ahead", #5092).
+  if (!t._lane && t._verdict && heldMountUnder(null, t._verdict)) return true;
   // A frame flight the seam parked beside its reader's lane pass (R5) is the
   // hold's question still: the hold waits on it (`park`).
   if (!t._lane && r5Hook && r5Hook(null, t)) return true;
@@ -959,6 +991,18 @@ function holdsOn(t: Transaction): boolean {
         !((n as Computed<any>)._flags & REACTIVE_DISPOSED)
     )
   );
+}
+/** Lane nodes a reveal kept back for the hold's landing (`laneSeam`, #5092). */
+const kept = new Set<Signal<any>>();
+function keptBack(n: Computed<any>): unknown {
+  if (
+    (n as any)._type
+      ? n._config & CONFIG_MOUNT_AHEAD && n._config & CONFIG_HELD
+      : heldMountUnder(n, null)
+  )
+    return 1;
+  for (let d = n._deps; d; d = d._nextDep) if (kept.has(d._dep)) return 1;
+  for (let p = n._parent; p; p = p._parent) if (kept.has(p as Computed<any>)) return 1;
 }
 function shownBy(r: Computed<any>): unknown {
   for (let s = r._subs; s !== null; s = s._nextSub)
