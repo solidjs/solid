@@ -3181,6 +3181,17 @@ export function createProjection<T extends object = {}>(
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   try {
     result = runProjection();
+    // Synchronous: fn either mutated state directly (void) or returned a new
+    // value. Adopted here, a pending store it returns (`() => rows`) takes
+    // the NotReady retry below like a derive that read it (#5097).
+    if (
+      result !== undefined &&
+      result !== state &&
+      result !== draft &&
+      !isThenable(result) &&
+      typeof (result as any)[Symbol.asyncIterator] !== "function"
+    )
+      replaceState(state, result as T);
   } catch (error) {
     if (!(error instanceof NotReadyError)) throw error;
     // The derive read a client hole synchronously: FINAL at discovery, the
@@ -3411,10 +3422,6 @@ export function createProjection<T extends object = {}>(
     return recordSlot(pending);
   }
 
-  // Synchronous: fn either mutated state directly (void) or returned a new value
-  if (result !== undefined && result !== state && result !== draft) {
-    replaceState(state, result as T);
-  }
   return state;
 }
 
