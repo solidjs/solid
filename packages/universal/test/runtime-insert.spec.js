@@ -780,6 +780,76 @@ describe("universal insert caching", () => {
   });
 });
 
+describe("universal numeric text", () => {
+  function textTypeRenderer(types) {
+    return createRenderer({
+      createElement(string) {
+        return document.createElement(string);
+      },
+      createTextNode(value) {
+        types.push(typeof value);
+        return document.createTextNode(value);
+      },
+      replaceText(textNode, value) {
+        types.push(typeof value);
+        textNode.data = value;
+      },
+      setProperty(node, name, value) {
+        node.setAttribute(name, value);
+      },
+      insertNode(parent, node, anchor) {
+        parent.insertBefore(node, anchor);
+      },
+      isTextNode(node) {
+        return node.nodeType === 3;
+      },
+      removeNode(parent, node) {
+        parent.removeChild(node);
+      },
+      getParentNode(node) {
+        return node.parentNode;
+      },
+      getFirstChild(node) {
+        return node.firstChild;
+      },
+      getNextSibling(node) {
+        return node.nextSibling;
+      }
+    });
+  }
+
+  it("passes a numeric child to createTextNode and replaceText as a string", () => {
+    const types = [];
+    const renderer = textTypeRenderer(types);
+    const parent = document.createElement("div");
+    const [value, setValue] = createSignal(7);
+
+    let dispose;
+    createRoot(d => {
+      dispose = d;
+      renderer.insert(parent, () => value());
+    });
+    flush();
+    setValue(12);
+    flush();
+
+    expect(parent.textContent).toBe("12");
+    expect(types).toEqual(["string", "string"]);
+    dispose();
+  });
+
+  it("passes numeric array items to createTextNode as strings", () => {
+    const types = [];
+    const renderer = textTypeRenderer(types);
+    const parent = document.createElement("div");
+
+    renderer.insert(parent, [4, " apples"]);
+
+    expect(parent.textContent).toBe("4 apples");
+    expect(types).toEqual(["string", "string"]);
+  });
+});
+
 describe("universal render error handling", () => {
   it("disposes the root scope when the init function throws", () => {
     const parent = document.createElement("div");
