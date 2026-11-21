@@ -208,6 +208,10 @@ interface Target {
   hd: ProxyHandler<any> | null;
   /** written: a node may differ from the raw */
   w: boolean;
+  /** the open setter whose draft reached this plain target */
+  ws: number;
+  /** the store this target was first reached from */
+  rt: Target;
   /** a node exists for a key the raw lacks */
   x: boolean;
   /** how many value and presence nodes it holds */
@@ -301,6 +305,8 @@ export function thinWrap(v: any, fam: StoreFamily | null = null, u: Target | nul
       hd: null,
       // Every field up front: one hidden class for every target.
       w: false,
+      ws: 0,
+      rt: null as any,
       x: false,
       q: 0,
       o: null,
@@ -315,6 +321,7 @@ export function thinWrap(v: any, fam: StoreFamily | null = null, u: Target | nul
     };
     const shell: any = r ? [] : {};
     shell[$S] = t;
+    t.rt = u === null ? t : u.rt;
     t.p = new Proxy(shell, BASE);
     map.set(v, t);
   }
@@ -337,6 +344,14 @@ const held = (t: Target, v: any): any =>
 /** Dev: each target's root (the first store it was reached from), the
  * holder the post-await read warning reports once per (store.ts `storeRoot`). */
 const devRoot: WeakMap<Target, Target> | null = __DEV__ ? new WeakMap() : null;
+/** A plain row the open setter reached is its draft's. */
+function reach(t: Target, p: any): any {
+  if (writing !== 0 && t._fam === null && t.ws === session) {
+    const ct = p[$THIN];
+    if (ct) ct.ws = session;
+  }
+  return p;
+}
 function child(t: Target, v: any): any {
   if (t.s) {
     // A shallow slot serves verbatim; a store placed in it is served
@@ -352,23 +367,27 @@ function child(t: Target, v: any): any {
   }
   if (!isWrappable(v) || isRawValue(v)) return v;
   const p = wrap(v, t._fam, t);
+  reach(t, p);
   if (__DEV__) {
     const ct: Target = p[$THIN];
     if (ct !== t && !devRoot!.has(ct)) devRoot!.set(ct, devRoot!.get(t) ?? t);
   }
   return p;
 }
-/** The scopes with an open setter: a family, or PLAIN for every plain store
- * (plain stores share one raw-to-target map, so they share one scope). A
+/** The scopes with an open setter: a family, or a plain store's root. A
  * read of a store outside the open scopes is an ordinary read (a derive
  * reading another store tracks it). */
-const PLAIN = {};
 let scopes: object[] = [];
-const scopeOf = (t: Target): object => t._fam ?? PLAIN;
+/** The innermost open setter. Plain stores share one raw-to-target map, so
+ * a row another plain store reached first is in the draft by reach: read
+ * through the setter's own draft. */
+let session = 0,
+  sessions = 0;
+const scopeOf = (t: Target): object => t._fam ?? t.rt;
 function inDraft(t: Target): boolean {
   if (writing !== 0) {
-    const s = t._fam ?? PLAIN;
-    if (scopes[0] === s || scopes.includes(s)) return true;
+    const s = scopeOf(t);
+    if (scopes[0] === s || scopes.includes(s) || (t._fam === null && t.ws === session)) return true;
     // A store with a setter is written from any store's open setter; an
     // optimistic setter's writes are its own store's guesses.
     if (userWrite && t._fam?.ow && !(scopes[scopes.length - 1] as StoreFamily).opt) return true;
@@ -1141,7 +1160,7 @@ const BASE: ProxyHandler<any> = {
         : polluting(t, key)
           ? undefined
           : Reflect.get(protoOf(t.v) ?? {}, key, receiver);
-    if ((node as any).pxv === v) return (node as any).px;
+    if ((node as any).pxv === v) return reach(t, (node as any).px);
     if (v instanceof Box) return v.d.get ? v.d.get.call(receiver) : child(t, v.d.value);
     const p = child(t, v);
     if (__DEV__ && p?.[$THIN]?.c) subKeys!.set(p[$THIN], key);
@@ -1647,6 +1666,9 @@ export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true
   const t0: Target = (proxy as any)[$THIN];
   scopes.push(scopeOf(t0));
   writing++;
+  const ps = session,
+    pw = t0.ws;
+  t0.ws = session = ++sessions;
   let result: any;
   try {
     result = fn(proxy);
@@ -1666,6 +1688,8 @@ export function thinSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true
     if (L !== null) L.close(open);
     if (!--writing && draftRead !== null) (joinFuture(draftRead), (draftRead = null));
     scopes.pop();
+    session = ps;
+    t0.ws = pw;
     userWrite = prevUser;
     if (__OBSERVE__ && writing === 0 && obsWrites !== null) flushWrites();
   }
@@ -1788,7 +1812,7 @@ function merge(
   if (pv === nv) {
     if (isWrappable(nv)) {
       const pt = map.get(pv);
-      if (pt?.w) (reconcileTarget(pt, nv, keyFn, 0), (pt.w = false));
+      if (pt?.w) ((pt.ws = t.ws), reconcileTarget(pt, nv, keyFn, 0), (pt.w = false));
     }
     return nv;
   }
@@ -1816,6 +1840,7 @@ function merge(
   }
   // The same source re-sent over a row it was merged into, untouched since:
   // nothing to diff (the identity skip a written row lost its raw for).
+  pt.ws = t.ws;
   reconcileTarget(pt, nv, keyFn, 0);
   if (t._fam === null) pt.sv = nv;
   return pv;
