@@ -11,6 +11,13 @@
 const { modes, compileBabel, compileOxc, normalize, unifiedDiff } = require("./parity/harness");
 
 const cases = {
+  "import expression component prop": `const a = <Comp loader={import("./m")} />;`,
+  "import expression attribute": `const a = <div title={import("./m")} />;`,
+  "import expression child": `const a = <div>{import("./m")}</div>;`,
+  "import expression conditional": `const a = <div title={cond ? import("./m") : null} />;`,
+  "import expression element prop": `const a = <mesh loader={import("./m")} />;`,
+  "import expression spread ref": `const a = <div {...props} ref={import("./m")} />;`,
+  "static import expression": `const a = <Comp loader={/*@static*/ import("./m")} />;`,
   "JSX in a later declarator splits the declarators before it (#5102)": `
 function Comp(props) {
   const label = mk(), onClick = () => label, view = <div title={label()} onClick={() => onClick()}>x{label()}<Foo a={label} /></div>, other = 1;
