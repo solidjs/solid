@@ -380,6 +380,21 @@ const a = (
   </div>
 );
 `,
+  "trailing whitespace after a dynamic child keeps the insert anchor": `
+const a = (
+  <div>
+    {count()}\x20\x20
+    <span>s</span>
+  </div>
+);
+const b = (
+  <ul>
+    <Comp />\t
+    <li>a</li>
+  </ul>
+);
+const c = <div>{count()}{""}tail</div>;
+`,
   "deep member component": `
 const a = <mod.ns.Comp x={v()}>{x()}</mod.ns.Comp>;
 `,
