@@ -960,6 +960,16 @@ export function forwardIteratorReturn(it: any, value?: any) {
     : syncThenable(returned ?? { done: true, value });
 }
 
+function pullStep(it: any) {
+  try {
+    return it.next();
+  } catch (e) {
+    const rejected = Promise.reject(e);
+    rejected.catch(noop);
+    return rejected;
+  }
+}
+
 function normalizeIterator(it: any, deferFirst?: boolean) {
   let first = true;
   let buffered: any = null;
@@ -982,22 +992,11 @@ function normalizeIterator(it: any, deferFirst?: boolean) {
         buffered = null;
         return b;
       }
-      let latest;
-      try {
-        latest = it.next();
-      } catch (e) {
-        return Promise.reject(e);
-      }
+      let latest = pullStep(it);
       if (latest && typeof latest.then === "function") return latest;
       let result = latest;
       while (!latest.done) {
-        let peek;
-        try {
-          peek = it.next();
-        } catch (e) {
-          (buffered = Promise.reject(e)).catch(noop);
-          break;
-        }
+        const peek = pullStep(it);
         if (peek && typeof peek.then === "function") {
           buffered = peek;
           break;
