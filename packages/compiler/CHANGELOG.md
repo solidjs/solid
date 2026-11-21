@@ -1,5 +1,17 @@
 # @solidjs/compiler
 
+## 2.0.3
+
+### Patch Changes
+
+- 7044ab4: SSR output, and DOM output for class-field arrows, no longer inline an outer `const` where a function or arrow parameter of the same name shadows it.
+- 5b729a3: Treat dynamic import expressions as dynamic in JSX.
+- 841c506: The DOM output no longer compiles a `<noscript>` element's JSX children when the `<noscript>` is a template root or has its own dynamic attribute or spread, matching `@solidjs/babel-plugin`.
+- 507b1ea: Include HTML template contents when validating markup in the native compiler.
+- 8399755: Keep the props of a `@static` spread whose argument is a member or call expression, such as `{/* @static */ ...props.attrs}`, in DOM output.
+- d364031: JSX in a later declarator of one declaration (`const a = …, b = <div>{a}</div>`, the shape minifiers make by joining declarations) no longer has its setup hoisted above the whole declaration. The declarators before it split into their own statement, so the setup runs after them instead of reading them before initialization.
+- b7d939f: Ship the MIT `LICENSE` file in every published package (#5106).
+
 ## 2.0.2
 
 ### Patch Changes

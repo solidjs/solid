@@ -1,5 +1,14 @@
 # @solidjs/babel-plugin
 
+## 2.0.3
+
+### Patch Changes
+
+- 8de0cfd: Splitting a `style` or `class` object in the compiled DOM output now removes each extracted property by identity. A computed `style` key that follows a dynamic property, such as `style={{ color: c(), [prop()]: v(), background: b() }}`, is no longer dropped, and a static `class` object such as `class={{ a: true, b: false, c: false, d: false }}` no longer leaves `[object Object]` in the class attribute.
+- b377516: Keep source order in DOM output when a child that renders nothing, such as `{""}` or trailing spaces before a line break, sits between a dynamic child and the next node.
+- 8399755: Keep the props of a `@static` spread whose argument is a member or call expression, such as `{/* @static */ ...props.attrs}`, in DOM output.
+- d364031: JSX in a later declarator of one declaration (`const a = …, b = <div>{a}</div>`, the shape minifiers make by joining declarations) no longer has its setup hoisted above the whole declaration. The declarators before it split into their own statement, so the setup runs after them instead of reading them before initialization.
+
 ## 2.0.2
 
 ### Patch Changes

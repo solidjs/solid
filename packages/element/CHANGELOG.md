@@ -1,5 +1,19 @@
 # solid-element
 
+## 2.0.2
+
+### Patch Changes
+
+- b7d939f: Ship the MIT `LICENSE` file in every published package (#5106).
+- Updated dependencies [8bfca0d]
+- Updated dependencies [f353760]
+- Updated dependencies [c075f02]
+- Updated dependencies [b7d939f]
+- Updated dependencies [fc0dac0]
+- Updated dependencies [e2e6ffd]
+  - solid-js@2.0.4
+  - @solidjs/web@2.0.4
+
 ## 2.0.1
 
 ### Patch Changes

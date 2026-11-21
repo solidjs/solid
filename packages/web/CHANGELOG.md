@@ -1,5 +1,19 @@
 # @solidjs/web
 
+## 2.0.4
+
+### Patch Changes
+
+- f353760: Ship the MIT `LICENSE` file in the fixed-group package roots (`solid-js`, `@solidjs/web`, and the same-release `@solidjs/universal` / `@solidjs/diagnostics`) so npm tarballs include the license text for third-party notice generators (#5106).
+- c075f02: A `<select value>` set in the same turn after an unset (`null` or `undefined`) value now keeps the new selection instead of being cleared by the earlier unset write.
+- b7d939f: Ship the MIT `LICENSE` file in every published package (#5106).
+- e2e6ffd: SSR now marks a conditionally rendered `<option>` (a signal-driven `<Show>`, `&&` or ternary) `selected` inside a bound `<select value>`.
+- Updated dependencies [8bfca0d]
+- Updated dependencies [f353760]
+- Updated dependencies [b7d939f]
+- Updated dependencies [fc0dac0]
+  - solid-js@2.0.4
+
 ## 2.0.3
 
 ### Patch Changes

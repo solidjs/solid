@@ -1,5 +1,17 @@
 # @solidjs/universal
 
+## 2.0.4
+
+### Patch Changes
+
+- b7d939f: Ship the MIT `LICENSE` file in every published package (#5106).
+- 842144c: Pass numeric text children to the renderer's `createTextNode` and `replaceText` as strings.
+- Updated dependencies [8bfca0d]
+- Updated dependencies [f353760]
+- Updated dependencies [b7d939f]
+- Updated dependencies [fc0dac0]
+  - solid-js@2.0.4
+
 ## 2.0.3
 
 ### Patch Changes
