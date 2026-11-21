@@ -8,9 +8,9 @@
  * `sel` beside comments derived from the old one (F-1), however the reads
  * are grouped into render effects (#4284). `isPending` is true while the new
  * question is in flight or held (F-9); `latest()` answers the newest truth
- * (F-6). An input set through its own optimistic write shows at once, in
- * its own lane (F-6, F-11); if that action ends without writing the truth,
- * the post's guess comes back in the revert's frame (D-33).
+ * (F-6). An input set through its own optimistic write overlaps the post's
+ * guess the same way: the two actions merge and the switch waits for the
+ * post, the guess on screen throughout (D-33).
  *
  * Controls: a `refresh()` re-ask of the same question keeps the guess until
  * the commit (D-34, #4329); the guess's own action changing the question
@@ -270,87 +270,49 @@ for (const form of forms) {
     // the comments. The post's guess was made over issue 3's answer, so it
     // does not stand in for issue 1's (F-1): the lane waits for its answer
     // (F-6), shows it, and the post's guess is not on screen beside `#1:`.
+    // An input set through its own optimistic write overlaps the post's
+    // guess on the comments: the two actions merge (D-33), so the switch
+    // waits for the post as a plain write does (D-34), and the post's guess
+    // never leaves the screen. Saved or reverted, the only frames are the
+    // guess and the landed truth (F-1), however the reads are grouped.
     for (const reader of ["render", "split"] as const)
-      it(`an input set through its own optimistic write shows without waiting for the post (F-6, F-11; ${reader})`, async () => {
-        const h = await primed(form, reader, true);
-        const go = defer();
-        action(function* () {
-          h.setSel(1);
-          yield go.p;
-          h.setSelTruth(1);
-        })();
-        await tick();
-        expect(h.asks.at(-1)!.id).toBe(1);
-        // The guess's own lane waits on the comments it derives (F-6).
-        expect(h.screen()).toBe("#3: dana | mine (sending)");
-        h.asks.at(-1)!.d.res([]);
-        await tick();
-        expect(h.screen()).toBe("#1: ");
-        go.res();
-        await tick();
-        for (const a of h.asks) if (a.id === 1) a.d.res([]);
-        await tick();
-        expect(h.screen()).toBe("#1: ");
-        h.server.res({});
-        await tick();
-        h.asks.at(-1)!.d.res(["mine"]);
-        await tick();
-        expect(h.screen()).toBe("#1: mine");
-        expect(torn(h.frames)).toEqual([]);
-      });
-
-    // The input's guess reverts (its action ends without writing the
-    // truth). Its lane took the comments over for issue 1's answer; the
-    // revert throws that world away and re-asks issue 3 as the revert's work
-    // (D-34: the screen keeps `#1: ` until it lands). The post's guess was
-    // only displaced by the lane, and lives as long as the post (D-33): it
-    // comes back in the revert's frame, over issue 3's answer. No frame
-    // shows one issue's comments under the other's number (F-1), however the
-    // reads are grouped into render effects (#4284).
-    for (const reader of ["render", "split"] as const) {
-      const pureRevert = async () => {
-        const h = await primed(form, reader, true);
-        const go = defer();
-        action(function* () {
-          h.setSel(1);
-          yield go.p;
-        })();
-        await tick();
-        h.asks.at(-1)!.d.res([]);
-        await tick();
-        expect(h.screen()).toBe("#1: ");
-        const from = h.frames.length;
-        go.res();
-        await tick();
-        expect(h.asks.at(-1)!.id).toBe(3);
-        expect(h.screen()).toBe("#1: ");
-        h.asks.at(-1)!.d.res(["dana"]);
-        await tick();
-        return { h, from };
-      };
-      it(`an optimistic input that reverts shows the post's guess again (F-11, D-33; ${reader})`, async () => {
-        const { h, from } = await pureRevert();
-        expect(h.screen()).toBe("#3: dana | mine (sending)");
-        // One step from the lane's world to the post's guess: no `#3:` frame
-        // between (no issue 1 answer, no bare issue 3 answer under `#3:`).
-        expect(new Set(h.frames.slice(from))).toEqual(new Set(["#3: dana | mine (sending)"]));
-        expect(h.read()).toEqual(["dana", "mine (sending)"]);
-      });
-      it(`an optimistic input that reverts: the post still lands as one frame (${reader})`, async () => {
-        const { h, from } = await pureRevert();
-        h.server.res({});
-        await tick();
-        expect(h.screen()).toBe("#3: dana | mine (sending)");
-        expect(h.asks.at(-1)!.id).toBe(3);
-        h.asks.at(-1)!.d.res(["dana", "mine"]);
-        await tick();
-        expect(h.screen()).toBe("#3: dana | mine");
-        expect(new Set(h.frames.slice(from))).toEqual(
-          new Set(["#3: dana | mine (sending)", "#3: dana | mine"])
-        );
-        expect(torn(h.frames)).toEqual([]);
-      });
-    }
+      for (const ending of ["saved", "reverted"] as const)
+        it(`an optimistic input ${ending}: it waits for the post, whose guess never leaves the screen (D-33, D-34; ${reader})`, async () => {
+          const h = await primed(form, reader, true);
+          const from = h.frames.length;
+          const server: Record<number, string[]> = { 1: [], 3: ["dana"] };
+          /** Answer every question asked so far, and the ones those answers ask. */
+          const land = async () => {
+            for (let n = 0; n < h.asks.length; ) {
+              for (; n < h.asks.length; n++) h.asks[n].d.res([...server[h.asks[n].id]]);
+              await tick();
+            }
+          };
+          const go = defer();
+          action(function* () {
+            h.setSel(1);
+            yield go.p;
+            if (ending === "saved") h.setSelTruth(1);
+          })();
+          await tick();
+          expect(h.asks.at(-1)!.id).toBe(1);
+          expect(h.screen()).toBe("#3: dana | mine (sending)");
+          await land();
+          expect(h.screen()).toBe("#3: dana | mine (sending)");
+          go.res();
+          await tick();
+          await land();
+          expect(h.screen()).toBe("#3: dana | mine (sending)");
+          server[3].push("mine");
+          h.server.res({});
+          await tick();
+          await land();
+          const final = ending === "saved" ? "#1: " : "#3: dana | mine";
+          expect(h.screen()).toBe(final);
+          for (const f of h.frames.slice(from))
+            expect(["#3: dana | mine (sending)", final]).toContain(f);
+          expect(torn(h.frames)).toEqual([]);
+        });
 
     it("control: a refresh() re-ask of the same question keeps the guess until the commit (D-34, #4329)", async () => {
       const h = await primed(form);

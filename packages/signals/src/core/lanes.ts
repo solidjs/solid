@@ -84,6 +84,7 @@ import {
   list,
   stagedReaders,
   staleReader,
+  merge,
   newTransaction,
   ownFlights,
   passLane,
@@ -170,32 +171,19 @@ export function armGuessed(): void {
   guessed = true;
 }
 // The guess layer (guesses.ts; installed with `createOptimistic` or
-// `createOptimisticStore`): the arms only a written guess reaches. `take`
-// — a lane takes another action's guess (`laneStage`); `guessWrite` — a
-// write landing on a guess (`laneWrite`); `revertLanding` — a revert
-// landing gives back the guesses its lane took (`endLanes`). Each site is
-// behind CONFIG_GUESS or `guessed`, which nothing but the layer sets: a
-// bundle without it folds the sites.
-export let takeHook: ((n: Signal<any>, l: Transaction, d?: boolean) => void) | null = null;
-export let guessWriteHook: ((el: Signal<any> | Computed<any>, v: unknown) => boolean) | null = null;
-export let revertLandingHook: ((u: Transaction) => void) | null = null;
-export function installGuessLayer(
-  take: NonNullable<typeof takeHook>,
-  write: NonNullable<typeof guessWriteHook>,
-  revert: NonNullable<typeof revertLandingHook>
-): void {
-  takeHook = take;
+// `createOptimisticStore`): `guessWrite` is a write landing on a guess
+// (`laneWrite`). The site is behind CONFIG_GUESS, which nothing but the
+// layer sets: a bundle without it folds the site.
+export let guessWriteHook: ((el: Signal<any> | Computed<any>, v: unknown) => void) | null = null;
+export function installGuessLayer(write: NonNullable<typeof guessWriteHook>): void {
   guessWriteHook = write;
-  revertLandingHook = revert;
 }
-/** Two kinds of member, one set (a lane is never a node). Lanes a revert
- * dissolved: the guesses they took come back at their parent's landing
- * (`endLanes`). Shown guesses a correction re-homed into their hold
- * (guesses.ts `supersede`, `dissolveLane`): the slot's value for the screen and
- * untracked reads until that hold lands (D-34), each keeps it open on its
- * own flight as it did while a guess (`lanesBlocked`, #4690); the hold's
- * landing clears them (`endLanes`). */
-export const marked = /* @__PURE__ */ new WeakSet<Transaction | Signal<any>>();
+/** Shown guesses a correction re-homed into their hold (guesses.ts
+ * `supersede`, `dissolveLane`): the slot's value for the screen and untracked
+ * reads until that hold lands (D-34). Each keeps the hold open on its own
+ * flight as it did while a guess (`lanesBlocked`); the hold's landing clears
+ * them (`endLanes`). */
+export const marked = /* @__PURE__ */ new WeakSet<Signal<any>>();
 /** A shown guess a correction re-homed into its hold (guesses.ts `supersede`,
  * `dissolveLane`): the screen's and the untracked reads' value until the
  * commit, and `latest`'s (D-34, decision 3 of 2026-11-05, #4689) — the
@@ -436,19 +424,23 @@ export function laneStage(
     // of the lane from here (its value the lane's, its fate the lane's), no
     // longer a written guess. A pass with no answer (pending, errored)
     // leaves the guess.
-    // Nor a pass of another action's guess: the re-ask is this lane's new
-    // question, which the guess (over the old one) does not answer — the
-    // lane waits for its own answer (F-1, F-6, #4336). (A guess of the
-    // lane's own action, D-33's entangled slot, still stands in.)
     // (Read behind `guessed`: a bundle without optimism drops the reads.)
     if (
       guessed &&
       el._config & CONFIG_GUESS &&
       el._x!._transaction?._lane &&
       resolveTx(el._x!._transaction!._parent!) !== resolveTx(l._parent!)
-    )
-      takeHook!(el, l);
-    else if (!errored) {
+    ) {
+      // Another hold's guess is on this slot: the two holds merge, and
+      // this pass is their question, not this lane's work. The lane is
+      // held with them, at once so a reader seated in the other lane
+      // stays on the screen (D-33, D-34).
+      const h = resolveTx(el._x!._transaction!._parent!);
+      merge(resolveTx(l._parent!), h);
+      l.over = resolveTx(h);
+      l._held = true;
+      return false;
+    } else if (!errored) {
       // No longer a guess: what it waited to show and what it would have
       // reverted to are void.
       if (guessed && el._config & CONFIG_GUESS) {
@@ -866,9 +858,6 @@ function laneSeam(l: Transaction, leaked: boolean): void {
  * blocked lane blocks its parent.) */
 function endLanes(u: Transaction): void {
   if (guessed) for (const n of u._nodes) marked.delete(n);
-  // A revert landing (#4336): the guesses its lane took from another
-  // action come back in this frame (guesses.ts `revertLanding`).
-  if (guessed) revertLandingHook!(u);
   for (let k = lanes.length - 1; k >= 0; k--) {
     const l = lanes[k];
     if (resolveTx(l._parent!) !== u) continue;
@@ -1047,11 +1036,9 @@ function nestedBlocked(t: Transaction): boolean {
  * latest: its staging once the lane has shown (promoted at the next
  * reveal), its slot before; the lane's members re-derive as its work. */
 function laneWrite<T>(el: Signal<T> | Computed<T>, v: T): T {
-  // A write on a guess: the guess layer's (guesses.ts `guessWrite`) —
-  // judged against the guess, or held beneath it; false: a store slot's
-  // guess its derive's re-ask in another action's lane writes is that
-  // lane's derivation from here (store `_slotTake`, #4336).
-  if (el._config & CONFIG_GUESS && guessWriteHook!(el, v)) return v;
+  // A write on a guess is the guess layer's: judged against the guess, or
+  // held beneath it (guesses.ts `guessWrite`).
+  if (el._config & CONFIG_GUESS) return (guessWriteHook!(el, v), v);
   const l = txOf(el);
   if (el._equals && el._equals(latestOf(el) as T, v)) return v;
   el._pendingValue = v;

@@ -50,7 +50,7 @@ import { link } from "../core/graph.js";
 import { getObserver } from "../core/owner.js";
 import { devGuardOptimisticBeforeLoad, devWarnOptimisticWhileLoading } from "../core/dev.js";
 import { latestOf, readGuesses, setLaneValue } from "../core/lanes.js";
-import { guessedValueOf, optimisticWrite, pendingGuessOf, take } from "../core/guesses.js";
+import { guessedValueOf, optimisticWrite, pendingGuessOf } from "../core/guesses.js";
 import { covered } from "../core/truth.js";
 import {
   clock,
@@ -647,32 +647,18 @@ GlobalQueue._slotRerun = (n, t) =>
   readersOf(n, node => {
     for (let s = node._subs; s !== null; s = s._nextSub) staleReader(s._sub, t);
   });
-/** Core asks (lanes `laneWrite`): the family's derive, re-asking in a lane of
- * another action than the one that guessed this target, writes it — that
- * lane's new question, which the guess (over the old one) does not answer:
- * the carrier is the lane's derivation from here (F-6, #4336; lanes
- * `laneStage` for a node's own pass). */
-GlobalQueue._slotTake = (n, back) => {
-  const t = (n as any)._host as StoreTarget | undefined;
-  if (back) {
-    // The guess comes back (lanes `endLanes`): on the target's carrier — the
-    // node itself, re-attached if the taker lane's end swept it (as the leaf
-    // path re-made its node).
-    markOverlaid(t!);
-    let kg = kgOf(t!);
-    if (kg === null) carriers.set(t!, (kg = []));
-    if (kg.indexOf(n) === -1) kg.push(n);
-    return n;
-  }
-  const d = t?._fam?.node?._x?._transaction;
+/** Core asks (guesses.ts `guessWrite`): the family's derive, re-asking in a
+ * lane of another hold than the one that guessed this target, writes it.
+ * The two holds merge: the re-ask is their question, and its lane reveals
+ * with them (D-33, D-34). */
+GlobalQueue._slotMerge = n => {
+  const d = ((n as any)._host as StoreTarget | undefined)?._fam?.node?._x?._transaction;
   const g = txOf(n);
-  if (!d?._lane || sameAction(d, g)) return false;
-  // The re-ask takes the target's guess whole (the carrier and the deep
-  // witness): a node other than the written one shows its truth in the
-  // lane's world (lanes `take`).
-  for (const m of [...(kgOf(t!) ?? []), t!.dk])
-    if (m?._config! & CONFIG_GUESS && txOf(m!) === g) take(m!, d, m !== n);
-  return true;
+  if (!d?._lane || sameAction(d, g)) return;
+  const h = resolveTx(g._parent!);
+  merge(resolveTx(d._parent!), h);
+  d.over = resolveTx(h);
+  d._held = true;
 };
 /** Q-D (plan sec. 39): an OLDER question's truth landed beneath a guess
  * (`laneWrite` held it — another action's landing is not this guess's

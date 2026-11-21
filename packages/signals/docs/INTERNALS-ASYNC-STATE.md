@@ -327,6 +327,24 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
 
 ## 7. Decision log
 
+- 2026-11-20b: **Overlap means merge, with no exception for an optimistic
+  input** (D-33's new sentence, ruled the same day; D-34's S-44 clause
+  now covers both kinds of write). Before, a lane pass over a node that
+  carried another hold's guess _took_ the slot: the guess left the screen
+  and the node became the lane's derivation (`take`), the guess was set
+  aside (`kept`) and given back if the taking lane reverted
+  (`revertLanding`, #4336's second half). With an optimistic filter over a
+  list that had adds in flight, the pending rows vanished and came back
+  when the adds landed. Now the two holds merge at that point (lanes.ts
+  `laneStage`; a store's carrier, store/optimistic.ts `_slotMerge`): the
+  lane is held with the merged hold (`over`, `_held` set at once so a
+  reader seated in the other lane stays on the screen), and the pass is the
+  hold's question, judged as a frame pass (`laneOutcome`), exactly as a
+  plain write of the input already was. `take`, `kept`, `revertLanding`,
+  their two hooks and the lane half of `marked` are deleted. Known
+  residue: after such an optimistic change reverts, the merged hold's
+  refresh still asks the reverted question once. The seat table's row L6
+  still describes the take (one shadow class, the re-pinned tests).
 - 2026-11-20: **A node stores two values; a lane stores a guess it has not
   revealed** (the value model in the root `AGENTS.md`; F-11, F-6; no rule or
   screen changes). Ruled the same day: one pending value per hold, a lane is
