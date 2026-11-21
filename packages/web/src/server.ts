@@ -52,6 +52,7 @@ import { observeRender, timesServerWork } from "./server-observe.js";
 import { records } from "./observe.js";
 import {
   createHydrationSerializer,
+  createJSONSerializer,
   rejectUnserializedKey,
   getLocalHeaderScript
 } from "../serialization/src/serializer.js";
@@ -343,6 +344,8 @@ export interface SSRResponseOptions {
   nonce?: CSPNonce;
   /** Rewrites each outgoing HTML chunk (entry script injection, ...). */
   transformChunk?: (chunk: string) => string;
+  /** Emits CSP-inert meta refresh redirect instead of inline script. */
+  inert?: boolean;
 }
 
 /**
@@ -1761,12 +1764,14 @@ const REPLACE_SCRIPT = `function $df(e){return _$HY.f?_$HY.f(e):$dfr(e)}function
 // the client registry restores when every title registration disposes — and
 // this op is the last reader that can still see it.
 const HEAD_SCRIPT = `function $dha(o,i,e,n){for(i=0;i<o.length;i++)e=o[i],"t"==e[0]?((n=document.querySelector("title"))?n.hasAttribute("data-dh")||n.setAttribute("data-dhf",n.textContent):(n=document.createElement("title"),document.head.appendChild(n)),n.textContent=e[1],n.setAttribute("data-dh","title")):"r"==e[0]?$dhr(e[1]):(n=document.createElement(e[2]),Object.keys(e[3]).forEach(function(a){n.setAttribute(a,e[3][a])}),null!=e[4]&&(n.textContent=e[4]),n.setAttribute("data-dh",e[1]),document.head.appendChild(n))}function $dhr(v,l,i){for(l=document.head.querySelectorAll("[data-dh]"),i=0;i<l.length;i++)l[i].getAttribute("data-dh")==v&&l[i].remove()}function $dh(o){_$HY.h?_$HY.h(o):$dha(o)}`;
+export const INERT_PUMP_TRIGGER = "<script>_$HY.p()</script>";
 export function renderToString<T>(
   fn: () => T,
   options?: {
     nonce?: CSPNonce;
     renderId?: string;
     noScripts?: boolean;
+    inert?: boolean;
     plugins?: SerializerPlugin[];
     manifest?: AssetManifest | AssetResolver | AssetResolverFn;
     /**
@@ -1801,26 +1806,31 @@ export function renderToString<T>(
 ): string;
 
 export function renderToString(code, options = {}) {
-  const { renderId = "", noScripts, manifest, onHead } = options;
+  const { renderId = "", noScripts, manifest, onHead, inert } = options;
   const nonce = normalizeNonce(options.nonce);
   const requestEvent = peekRequestEvent();
   // The server error hook's ledger scope (`reportServerError`): the request
   // this render serves, else the render itself — never the process.
   const errorScope = requestEvent || {};
   let scripts = "";
-  const serializer = createHydrationSerializer({
+  const inertRecords = [];
+  const serializer = (inert ? createJSONSerializer : createHydrationSerializer)({
     scopeId: renderId,
     // The container trace plugin rides the DEFAULT plugin set (see
     // serializer-decode.js). In a sync render its value is its ERROR: no
     // stream exists for a container's later yields, and its message beats
     // a bare crash on the pending proxy's property walk.
     plugins: options.plugins,
-    onData(script) {
+    onData(payload) {
       if (noScripts) return;
-      if (!scripts) {
-        scripts = getLocalHeaderScript(renderId);
+      if (inert) {
+        inertRecords.push({ t: "d", k: payload.key, n: payload.node, i: payload.initial });
+      } else {
+        if (!scripts) {
+          scripts = getLocalHeaderScript(renderId);
+        }
+        scripts += payload + ";";
       }
-      scripts += script + ";";
     },
     onError: serializerErrorHook(options.onError)
   });
@@ -1831,6 +1841,7 @@ export function renderToString(code, options = {}) {
   let closed = false;
   sharedConfig.context = {
     nonce: options.nonce,
+    inert: !!inert,
     escape: escape,
     resolve: resolveSSRNode,
     ssr: ssr,
@@ -1904,6 +1915,10 @@ export function renderToString(code, options = {}) {
     serializeFragmentAssets("", tracking.boundaryModules, sharedConfig.context, renderId);
     closed = true;
     serializer.close();
+    if (inert && inertRecords.length) {
+      const json = JSON.stringify(inertRecords).replace(/</g, "\\u003c");
+      scripts = `<script type="application/json" class="_$hy">${json}</script>${INERT_PUMP_TRIGGER}`;
+    }
     withholdForSharedCache(context.trace, requestEvent);
     const head = renderShellHead(
       headRegistry,
@@ -1985,6 +2000,7 @@ export function renderToStream<T>(
     nonce?: CSPNonce;
     renderId?: string;
     noScripts?: boolean;
+    inert?: boolean;
     plugins?: SerializerPlugin[];
     manifest?: AssetManifest | AssetResolver | AssetResolverFn;
     /**
@@ -2079,7 +2095,7 @@ export function renderToStream<T>(
 };
 
 export function renderToStream(code, options = {}) {
-  let { onCompleteShell, onCompleteAll, renderId = "", noScripts, manifest, onHead } = options;
+  let { onCompleteShell, onCompleteAll, renderId = "", noScripts, manifest, onHead, inert } = options;
   const nonce = normalizeNonce(options.nonce);
   // The request this render serves, read at start: the scope-tied response
   // primitives (`httpStatus`/`httpHeader`) write to ITS `response` head, and
@@ -2517,7 +2533,11 @@ export function renderToStream(code, options = {}) {
     // (ids are embedded in the payload, not addressable here). Document
     // behavior: accumulate as a task, flush inside a <script>.
     data(payload) {
-      pushTask(payload);
+      if (inert) {
+        pushInertRecord({ t: "d", k: payload.key, n: payload.node, i: payload.initial });
+      } else {
+        pushTask(payload);
+      }
     },
     // An async fragment resolved post-shell with its normalized HTML payload.
     // Document behavior: <template id=key> plus, when the fragment carries
@@ -2557,14 +2577,22 @@ export function renderToStream(code, options = {}) {
       } else {
         buffer.write(tpl);
         if (!deferActivation) {
-          emitTask(`$df("${key}")`);
+          if (inert) {
+            emitInertRecord({ t: "df", id: key });
+          } else {
+            emitTask(`$df("${key}")`);
+          }
         }
       }
     },
     // Reveal a set of fragments (registration order). Document behavior:
     // $dfj task, or $dflj to materialize fallback content instead.
     reveal(keys, meta) {
-      emitTask(`${meta.fallback ? "$dflj" : "$dfj"}(${JSON.stringify(keys)})`);
+      if (inert) {
+        emitInertRecord({ t: meta.fallback ? "dflj" : "dfj", keys });
+      } else {
+        emitTask(`${meta.fallback ? "$dflj" : "$dfj"}(${JSON.stringify(keys)})`);
+      }
     },
     // A late-registered asset while streaming. Document behavior: style links
     // are handled per-fragment (see fragment()); modules preload immediately;
@@ -2617,7 +2645,7 @@ export function renderToStream(code, options = {}) {
   // flows through onData is a contract between the serializer and the sink
   // (hydration scripts for the document sink, keyed codec records for the
   // frame sink); the core never inspects it.
-  serializer = (options.serializer || createHydrationSerializer)({
+  serializer = (options.serializer || (inert ? createJSONSerializer : createHydrationSerializer))({
     scopeId: options.renderId,
     // Containers (projections) serialize as traces on BOTH faces — the
     // document's hydration serializer and the frame sink's codec resolve
@@ -2872,7 +2900,11 @@ export function renderToStream(code, options = {}) {
     // adopt: unregister it (a document task, ahead of the `_fr` rejection
     // that triggers the fresh render) and the read computes. A frame sink
     // has no reader for these records.
-    if (unregister.length && !options.sink) pushTask(unregister.join(";"));
+    if (inert) {
+      for (const id of unregister) {
+        pushInertRecord({ t: "del", k: id });
+      }
+    } else if (unregister.length && !options.sink) pushTask(unregister.join(";"));
     if ("_SOLID_OBSERVE_" && (fragments || serialized))
       emitFinding(
         {
@@ -2889,6 +2921,15 @@ export function renderToStream(code, options = {}) {
       );
   };
   const writeTasks = () => {
+    if (inert) {
+      if (inertRecords.length && !completed && firstFlushed) {
+        const json = JSON.stringify(inertRecords).replace(/</g, "\\u003c");
+        buffer.write(`<script type="application/json" class="_$hy">${json}</script>${INERT_PUMP_TRIGGER}`);
+        inertRecords = [];
+      }
+      timer = null;
+      return;
+    }
     if (tasks.length && !completed && firstFlushed) {
       buffer.write(`<script${nonceAttr(nonce, "script")}>${tasks}</script>`);
       tasks = "";
@@ -2900,6 +2941,18 @@ export function renderToStream(code, options = {}) {
   let writable;
   let tmp = "";
   let tasks = "";
+  let inertRecords = [];
+  const pushInertRecord = record => {
+    if (noScripts) return;
+    inertRecords.push(record);
+    if (!timer && firstFlushed) {
+      timer = true;
+      queue(() => queue(writeTasks));
+    }
+  };
+  const emitInertRecord = record => {
+    pushInertRecord(record);
+  };
   let firstFlushed = false;
   let completed = false;
   let shellCompleted = false;
@@ -2949,16 +3002,21 @@ export function renderToStream(code, options = {}) {
   // reveal — through style gates and reveal groups alike. `emitTask` (not a
   // bare pushTask) because the ops are useless without $df's hook.
   const emitHeadOps = (key, ops) => {
-    const payload = JSON.stringify(ops).replace(/</g, "\\u003C");
-    emitTask(
-      `${!headScriptFlushed ? HEAD_SCRIPT : ""}(_$HY.hp=_$HY.hp||{})[${JSON.stringify(key)}]=${payload}`
-    );
-    headScriptFlushed = true;
+    if (inert) {
+      emitInertRecord({ t: "hp", k: key, ops });
+    } else {
+      const payload = JSON.stringify(ops).replace(/</g, "\\u003C");
+      emitTask(
+        `${!headScriptFlushed ? HEAD_SCRIPT : ""}(_$HY.hp=_$HY.hp||{})[${JSON.stringify(key)}]=${payload}`
+      );
+      headScriptFlushed = true;
+    }
   };
 
   sharedConfig.context = context = {
     async: true,
     nonce: options.nonce,
+    inert: !!inert,
     // Which face this render is: a document (the default emission) or a
     // frame stream (`options.sink`). Read by the server runtime's dev check
     // on undeclared unbounded sources, which only a document render pays for.
@@ -3461,11 +3519,17 @@ export function renderToStream(code, options = {}) {
     // AND arrives separately through `sink.asset`. Consume them inside this
     // call (the document sink splices the head synchronously) — a sink that
     // stores the meta and re-reads it later sees late entries twice.
+    let shellTasks = tasks;
+    if (inert && inertRecords.length) {
+      const json = JSON.stringify(inertRecords).replace(/</g, "\\u003c");
+      shellTasks = `<script type="application/json" class="_$hy">${json}</script>${INERT_PUMP_TRIGGER}`;
+      inertRecords = [];
+    }
     sink.shell(html, {
       preloads: tracking.emittedAssets,
       preloadLinks: tracking.preloadLinks,
       inlineStyles: tracking.inlineStyles,
-      tasks,
+      tasks: shellTasks,
       head
     });
     tasks = "";
@@ -3824,18 +3888,19 @@ export function renderToStream(code, options = {}) {
     }
   };
 }
-export function HydrationScript(props: { nonce?: CSPNonce; eventNames?: string[] }): JSX.Element;
+export function HydrationScript(props: { nonce?: CSPNonce; eventNames?: string[]; inert?: boolean }): JSX.Element;
 
 // components
 export function HydrationScript(props) {
   // The render owns its bootstrap, so its shell ends with the marker and the
   // bootstrap declares the ledger hydrate() parks on (#3971).
   if (sharedConfig.context) sharedConfig.context.bootstrap = true;
-  const { eventNames, nonce } = {
+  const { eventNames, nonce, inert } = {
     nonce: sharedConfig.context && sharedConfig.context.nonce,
+    inert: (sharedConfig.context && sharedConfig.context.inert) || (props && props.inert),
     ...props
   };
-  return ssr(hydrationBootstrap(eventNames, destinationNonce(nonce, "script"), true));
+  return ssr(hydrationBootstrap(eventNames, destinationNonce(nonce, "script"), true, inert));
 }
 export function ssrGroup<T extends () => any[]>(fn: T, n: number): T;
 
@@ -5945,6 +6010,7 @@ export function applyRef(r, element) {
 export function generateHydrationScript(options?: {
   nonce?: CSPNonce;
   eventNames?: string[];
+  inert?: boolean;
 }): string;
 
 // `r` owns every promise the payload files under it the moment it lands
@@ -5952,8 +6018,8 @@ export function generateHydrationScript(options?: {
 // its fallback, or keyed outside any boundary — would otherwise raise
 // `unhandledrejection` from the inline script alone, and a handler attached
 // later only revokes the report. A consumer still meets the rejection.
-export function generateHydrationScript({ eventNames, nonce } = {}) {
-  return hydrationBootstrap(eventNames, destinationNonce(nonce, "script"), false);
+export function generateHydrationScript({ eventNames, nonce, inert } = {}) {
+  return hydrationBootstrap(eventNames, destinationNonce(nonce, "script"), false, inert);
 }
 
 // `ledger` (#3971): only an in-render <HydrationScript /> declares `_$HY.s`,
@@ -5961,7 +6027,14 @@ export function generateHydrationScript({ eventNames, nonce } = {}) {
 // host-placed bootstrap (generateHydrationScript: hand-built documents,
 // islands hosts like Astro, which await each island's children themselves)
 // declares none, so hydrate() never parks under it.
-function hydrationBootstrap(eventNames = ["click", "input"], nonce, ledger) {
+function hydrationBootstrap(eventNames = ["click", "input"], nonce, ledger, inert) {
+  if (inert) {
+    return `<script${
+      nonce ? ` nonce="${escape(String(nonce), true)}"` : ""
+    }>window._$HY||(e=>{let t=e=>e&&e.hasAttribute&&(e.hasAttribute("_hk")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));["${eventNames.join(
+      '","'
+    )}"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let n=o.composedPath&&o.composedPath()[0]||o.target,s=t(n);s&&!e.completed.has(s)&&e.events.push([s,o,n])}))));e.p=function(){var d=document,q=d.querySelectorAll('script[type="application/json"]._$hy:not([data-r])');for(var i=0;i<q.length;i++){var el=q[i];el.setAttribute("data-r","1");var b=JSON.parse(el.textContent);for(var j=0;j<b.length;j++){var item=b[j];if(item.t==="s"){e.s[item.id]=1;e.sw&&e.sw(item.id)}else if(item.t==="df"){e.f?e.f(item.id):(window.$dfr&&window.$dfr(item.id))}else if(item.t==="dfj"){window.$dfj&&window.$dfj(item.keys)}else if(item.t==="dflj"){window.$dflj&&window.$dflj(item.keys)}else if(item.t==="dh"){e.h?e.h(item.ops):(window.$dha&&window.$dha(item.ops))}else if(item.t==="hp"){(e.hp=e.hp||{})[item.k]=item.ops}else if(item.t==="del"){delete e.r[item.k]}else if(item.t==="d"){e._dt?e._dt.apply({key:item.k,node:item.n,initial:item.i}):(e._dq=e._dq||[]).push(item);if(item.i&&e._dt)e.r[item.k]=e._dt.get(item.k)}}}};})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),${ledger ? "s:{}," : ""}fe(){}});</script><!--xs-->`;
+  }
   return `<script${
     nonce ? ` nonce="${escape(String(nonce), true)}"` : ""
   }>window._$HY||(e=>{let t=e=>e&&e.hasAttribute&&(e.hasAttribute("_hk")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));["${eventNames.join(
@@ -6009,7 +6082,9 @@ function allSettled(promises) {
 function withShellEnd(html, context, renderId, nonce, noScripts) {
   if (noScripts || !context || !context.bootstrap) return html;
   const id = JSON.stringify(renderId).replace(/</g, "\\u003C");
-  const marker = `<script${nonceAttr(nonce, "script")}>_$HY.s[${id}]=1,_$HY.sw&&_$HY.sw(${id})</script>`;
+  const marker = context && context.inert
+    ? `<script type="application/json" class="_$hy">[{"t":"s","id":${id}}]</script>${INERT_PUMP_TRIGGER}`
+    : `<script${nonceAttr(nonce, "script")}>_$HY.s[${id}]=1,_$HY.sw&&_$HY.sw(${id})</script>`;
   const at = html.indexOf("</body>", html.length - 512);
   return at < 0 ? html + marker : html.slice(0, at) + marker + html.slice(at);
 }
@@ -6048,7 +6123,11 @@ function assembleDocument(
   onHead,
   lowModules
 ) {
-  const scriptTag = scripts ? `<script${nonceAttr(nonce, "script")}>${scripts}</script>` : "";
+  const scriptTag = !scripts
+    ? ""
+    : scripts.startsWith("<script")
+    ? scripts
+    : `<script${nonceAttr(nonce, "script")}>${scripts}</script>`;
   const title = headTags ? headTags.title : null;
   let headTagsHtml = headTags ? headTags.html : "";
   const headPrelude = headTags ? headTags.prelude : "";
@@ -7409,13 +7488,17 @@ export function createSSRResponse(result, event, options = {}) {
         // side that can still honor it.
         const location = stub && stub.headers.get("Location");
         if (location && isHttpNavigationTarget(location)) {
-          const attr = nonceAttr(nonce, "script");
-          enqueue(
-            `<script${attr}>window.location=${JSON.stringify(location).replace(
-              /</g,
-              "\\u003c"
-            )}</script>`
-          );
+          if (options.inert) {
+            enqueue(`<meta http-equiv="refresh" content="0; url=${escape(location, true)}">`);
+          } else {
+            const attr = nonceAttr(nonce, "script");
+            enqueue(
+              `<script${attr}>window.location=${JSON.stringify(location).replace(
+                /</g,
+                "\\u003c"
+              )}</script>`
+            );
+          }
         }
         closed = true;
         try {
