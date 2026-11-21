@@ -155,9 +155,12 @@ export function createRenderer({
       initial = [sentinel];
     }
     let current = initial;
+    let ran = false;
     effect(
-      prev => {
+      () => {
         const value = normalize(accessor(), multi, true);
+        const again = ran;
+        ran = true;
         if (typeof value !== "function") return value;
         effect(
           () => normalize(value, multi),
@@ -166,7 +169,7 @@ export function createRenderer({
             current = inner;
             onUpdate && onUpdate(current);
           },
-          prev !== undefined && !(options && options.schedule)
+          again && !(options && options.schedule)
             ? { ...effectOptions, schedule: true }
             : effectOptions
         );
