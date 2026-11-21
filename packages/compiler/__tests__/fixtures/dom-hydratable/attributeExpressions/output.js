@@ -668,4 +668,16 @@ _$runHydrationEvents();
 // expression — a client-only condition memo would allocate a hydration id
 // the ssr generate never does, drifting every id after it.
 const template96 = _el$119;
+var _el$120 = _$getNextElement(_tmpl$4);
+_$spread(_el$120, { ...props.attrs }, false);
+_$runHydrationEvents();
+const template97 = _el$120;
+var _el$121 = _$getNextElement(_tmpl$4);
+_$spread(_el$121, { ...makeProps() }, false);
+_$runHydrationEvents();
+const template98 = _el$121;
+var _el$122 = _$getNextElement(_tmpl$4);
+_$spread(_el$122, [{ ...props.attrs }, propsSpread2], false);
+_$runHydrationEvents();
+const template99 = _el$122;
 _$delegateEvents(["click", "input"]);

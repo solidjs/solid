@@ -763,4 +763,13 @@ _$effect(() => {
 	a !== _p$?.a && _$setStyleProperty(_el$134, "background", a);
 });
 const template108 = _el$134;
+var _el$135 = _tmpl$4();
+_$spread(_el$135, { ...props.attrs }, false);
+const template109 = _el$135;
+var _el$136 = _tmpl$4();
+_$spread(_el$136, { ...makeProps() }, false);
+const template110 = _el$136;
+var _el$137 = _tmpl$4();
+_$spread(_el$137, [{ ...props.attrs }, propsSpread2], false);
+const template111 = _el$137;
 _$delegateEvents(["click", "input"]);
