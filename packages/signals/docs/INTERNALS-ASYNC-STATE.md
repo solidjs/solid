@@ -327,6 +327,24 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
 
 ## 7. Decision log
 
+- 2026-11-21: **A reader waiting only on re-asks follows a guess it reads**
+  (D-34's new sentences). When a guess is written, `laneDirty`
+  (scheduler.ts) seats the readers that are already waiting, before their
+  pass: a pass that reads the hold's flight before the guess throws there
+  and never reaches the guess. Which readers it seated had grown one case
+  at a time (#4629, #4666, #4577, #4824, #5113): a render effect on
+  re-asks, unless a lane already listed it; a memo on re-asks, but only if
+  some hold held it; a memo of the guess's own hold on any question; a
+  user effect never. Counting every reader the walk met across the suite
+  showed one rule under it with three odd cells (a memo nothing holds, a
+  user effect, a render effect another lane lists, each waiting only on
+  re-asks). Now the condition is the rule: waiting only on re-asks
+  (`reasks`), or a memo the guess's own hold holds. A reader in another
+  lane whose removal is staged is also re-staged by the guess, as it is
+  still on screen (D-9, #5095). No test and no generator case (150,000)
+  shows a different screen for the three cells, and no app shape tried
+  reaches them; they follow the rule because nothing separates them from
+  the readers beside them.
 - 2026-11-20b: **Overlap means merge, with no exception for an optimistic
   input** (D-33's new sentence, ruled the same day; D-34's S-44 clause
   now covers both kinds of write). Before, a lane pass over a node that
