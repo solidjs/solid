@@ -1610,13 +1610,13 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
     // two (`enterLane`, A15), and `dissolveLane` skips a node it lost.
     if (
       (c._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
-      // A render effect pending on another hold's re-asks, held by it or
+      // A render effect pending on a hold's re-asks, held by it or
       // by none, the same (#4824): its first read of the re-asked rows threw
       // it back out of the lane, and the guess beside a reader that showed
       // it waited on the refresh (F-1, F-11).
       (t ? (c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD : render) &&
       ((same = !!t && resolveTx(t) === resolveTx(l._parent!)),
-      (c as any)._type ? render && !same && reasks(c) : same || reasks(c))
+      (c as any)._type ? render && reasks(c) : same || reasks(c))
     )
       list(c, (t = l));
     if (render && node._config & CONFIG_VERDICT)
