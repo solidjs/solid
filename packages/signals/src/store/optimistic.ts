@@ -1183,13 +1183,7 @@ function markOverlaid(t: StoreTarget): void {
 // reconciling landings, so a guessed row whose key landed in the source adopts
 // the source's row proxy when the landing frame reads it or its carrier
 // dissolves (#5136).
-function pairChainedRow(
-  t: StoreTarget,
-  rows: any[],
-  key: PropertyKey,
-  row: any,
-  direct?: boolean
-): boolean | undefined {
+function pairChainedRow(t: StoreTarget, rows: any[], key: PropertyKey, row: any): void {
   const fam = t._fam!;
   const keyFn = fam.key;
   if (t.s || !keyFn || !Array.isArray(rows) || !isWrappable(row) || lookupTarget(row, fam)) return;
@@ -1199,22 +1193,44 @@ function pairChainedRow(
     for (const r of rows) {
       const gt = isWrappable(r) ? lookupTarget(r, fam) : undefined;
       if (gt && !gt.ch && sameKey(keyFn(r), k)) {
-        if (isOwned(r)) delete (r as any)[$OWNER];
-        else fam.map.delete(r);
-        gt.pk = key;
-        direct ? runDirect(() => adoptPB(gt, row)) : adoptPB(gt, row);
-        linkChained(gt, row);
-        return true;
+        adoptChainedRow(gt, r, key, row);
+        return;
       }
     }
   });
 }
 
-function pairChained(t: StoreTarget, g: any): void {
+function adoptChainedRow(
+  gt: StoreTarget,
+  raw: object,
+  key: PropertyKey,
+  row: any,
+  direct?: boolean
+) {
+  if (isOwned(raw)) delete (raw as any)[$OWNER];
+  else gt._fam!.map.delete(raw);
+  gt.pk = key;
+  direct ? runDirect(() => adoptPB(gt, row)) : adoptPB(gt, row);
+  linkChained(gt, row);
+}
+
+function pairChained(t: StoreTarget, dropped: Signal<any>[]): void {
   const fam = t._fam!;
-  if (!t.ch || !fam.key || !Array.isArray(g.g)) return;
-  const rows = g.g.filter((r: any) => isWrappable(r) && lookupTarget(r, fam)?.ch === false);
-  if (!rows.length) return;
+  const keyFn = fam.key;
+  if (!t.ch || t.s || !keyFn) return;
+  const rows = new Map<unknown, [StoreTarget, object]>();
+  for (const g of dropped) {
+    const guesses = (g as any).g;
+    if (!Array.isArray(guesses)) continue;
+    for (const r of guesses) {
+      const gt = isWrappable(r) ? lookupTarget(r, fam) : undefined;
+      if (gt && !gt.ch) {
+        const key = keyFn(r);
+        if (key !== undefined) rows.set(key, [gt, r]);
+      }
+    }
+  }
+  if (!rows.size) return;
   const inner = t.v as any;
   for (
     let it: StoreTarget | undefined = inner[$TARGET];
@@ -1223,9 +1239,17 @@ function pairChained(t: StoreTarget, g: any): void {
   )
     if (it._fam?.node?._statusFlags! & (STATUS_UNINITIALIZED | STATUS_ERROR)) return;
   untrack(() => {
-    if (Array.isArray(inner))
-      for (let i = 0, left = rows.length; i < inner.length && left; i++)
-        if (pairChainedRow(t, rows, String(i), inner[i], true)) left--;
+    if (!Array.isArray(inner)) return;
+    for (let i = 0; i < inner.length && rows.size; i++) {
+      const row = inner[i];
+      if (!isWrappable(row) || lookupTarget(row, fam)) continue;
+      const key = keyFn(row);
+      const entry = rows.get(key);
+      if (entry) {
+        rows.delete(key);
+        adoptChainedRow(entry[0], entry[1], String(i), row, true);
+      }
+    }
   });
 }
 
@@ -1263,12 +1287,17 @@ export function sweepOverlaid(): void {
       if (!has) set.delete(t);
       // A carrier that is no lane's and no hold's (a corrected guess waits
       // for its hold's landing, A18 (c)) is done.
-      const live = kgOf(t)?.filter(g =>
-        g._config & (has ? CONFIG_OVERRIDE | CONFIG_GUESS | CONFIG_HELD : CONFIG_HELD) ||
-        g._pendingValue !== NOT_PENDING
-          ? true
-          : (pairChained(t, g), false)
-      );
+      const dropped: Signal<any>[] = [];
+      const live = kgOf(t)?.filter(g => {
+        if (
+          g._config & (has ? CONFIG_OVERRIDE | CONFIG_GUESS | CONFIG_HELD : CONFIG_HELD) ||
+          g._pendingValue !== NOT_PENDING
+        )
+          return true;
+        dropped.push(g);
+        return false;
+      });
+      if (dropped.length) pairChained(t, dropped);
       if (!live?.length) carriers.delete(t);
       else carriers.set(t, live);
     }
