@@ -2,8 +2,7 @@ import {
   guessedValueOf,
   guessesWaiting,
   optimisticWrite,
-  pendingGuessOf,
-  take
+  pendingGuessOf
 } from "../core/guesses.js";
 import { covered, underOf } from "../core/truth.js";
 import { lanes, readGuesses, setLaneValue } from "../core/lanes.js";
@@ -128,22 +127,17 @@ installThinAsk(fam => {
   }
   if ((fam._asked = a) > 0) (asked.add(fam), joinFuture(null));
 });
-// store/optimistic.ts `_slotTake`: the derive re-asking in another
-// action's lane takes the target's guesses of the action that guessed this
-// node — that lane's new question, which they do not answer (F-6, #4336).
-GlobalQueue._slotTake = (n: any, back?: boolean) => {
-  const t = n._host;
-  if (t === undefined) return false;
-  if (back) return n;
-  const d = t._fam?.node?._x?._transaction;
+// The derive re-asking in a lane of another hold than the one that guessed
+// this target writes it: the two holds merge, and the lane reveals with
+// them (D-33, D-34).
+GlobalQueue._slotMerge = (n: any) => {
+  const d = n._host?._fam?.node?._x?._transaction;
   const g = txOf(n);
-  if (!d?._lane || sameAction(d, g)) return false;
-  const all: Signal<any>[] = [];
-  if (t.n !== null) for (const k of Reflect.ownKeys(t.n)) all.push(t.n[k]);
-  if (t.h !== null) for (const k of Reflect.ownKeys(t.h)) all.push(t.h[k]);
-  if (t.k !== null) all.push(t.k);
-  for (const m of all) if (m._config & CONFIG_GUESS && txOf(m) === g) take(m, d, m !== n);
-  return true;
+  if (!d?._lane || sameAction(d, g)) return;
+  const h = resolveTx(g._parent!);
+  merge(resolveTx(d._parent!), h);
+  d.over = resolveTx(h);
+  d._held = true;
 };
 // A truth landing on a keyed list's shown guess folds beneath it (D-34): the
 // guess stays the screen's until its hold commits, where rows pair by key;

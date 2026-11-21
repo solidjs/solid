@@ -854,7 +854,8 @@ const templateEscapes = new Map([
 // literals downstream. @babel/types 8's builder rejects negative and
 // non-finite values (`t.valueToNode` builds `-1` / `0 / 0` expressions
 // instead), so those are built as plain nodes; generators print them as
-// `-1` / `NaN` / `Infinity`, as Babel 7's builder did.
+// `-1` / `NaN` / `Infinity`, as Babel 7's builder did (@babel/generator
+// 8.1.3+ prints NaN as `(0 / 0)` and Infinity as `1e999`).
 export function numberLiteral(value: number): t.NumericLiteral {
   if (value >= 0 && Number.isFinite(value) && !Object.is(value, -0)) return t.numericLiteral(value);
   const node = { type: "NumericLiteral", value } as t.NumericLiteral;
