@@ -1435,10 +1435,12 @@ function transformChildren(
           transformed.loc = sourceLocation(child, child.node);
         const i = memo.length;
         if (transformed.text && i && memo[i - 1].text) {
+          memo[i - 1].templateWithClosingTags =
+            `${memo[i - 1].templateWithClosingTags || (memo[i - 1].template as string)}${
+              transformed.templateWithClosingTags || (transformed.template as string)
+            }`;
           memo[i - 1].template =
             `${memo[i - 1].template as string}${transformed.template as string}`;
-          memo[i - 1].templateWithClosingTags +=
-            transformed.templateWithClosingTags || (transformed.template as string);
         } else memo.push(transformed);
         return memo;
       },
