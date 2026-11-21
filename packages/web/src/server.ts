@@ -5776,7 +5776,14 @@ export function ssrSelect(value) {
 export function ssrIn<T>(state: any, fn: () => T): T;
 
 export function ssrIn(state, fn) {
-  return runWithOwner(state.o, fn);
+  const r = runWithOwner(state.o, fn);
+  if (typeof r !== "function") return r;
+  const w = Object.assign(() => ssrIn(state, r), r);
+  if (r.$fn) {
+    const inner = r.$fn;
+    w.$fn = Object.defineProperty(() => ssrIn(state, inner), "name", { value: inner.name });
+  }
+  return w;
 }
 
 /** Compiler-emitted primitive; not for hand-written code. @internal */

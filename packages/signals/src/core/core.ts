@@ -507,10 +507,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let reask =
     (el._flags & REACTIVE_REASK) !== 0 &&
     !(
-      (el._statusFlags & STATUS_PENDING ||
-        (el._pendingValue !== NOT_PENDING && !(el._flags & REACTIVE_MANUAL_WRITE))) &&
       el._x !== null &&
-      !el._x._reask
+      !el._x._reask &&
+      (el._statusFlags & STATUS_PENDING ||
+        (el._pendingValue !== NOT_PENDING &&
+          !el._x._revert &&
+          !(el._flags & REACTIVE_MANUAL_WRITE)))
     );
 
   // Shadow seat, compared with the seating above (reader-seat-rebuild.md §3.2).
@@ -1593,7 +1595,9 @@ export function runRefCallback(fn: () => void): void {
         prevOwner = effectCallbackOwner;
       setEffectCallback(true, ANY_EVENT, context);
       try {
-        untrack(fn, "a ref callback");
+        // No strict-read window: a ref's reads are imperative, as in an
+        // event handler or an effect callback (#5098).
+        untrack(fn, false);
       } finally {
         setEffectCallback(prev, prevEvent, prevOwner);
       }
@@ -1995,7 +1999,8 @@ export function read<T>(el: any): T {
   }
   if (el._statusFlags & STATUS_PENDING && !committed) {
     // Untracked, an uninitialized node has nothing to serve and throws. A
-    // frame-only reader sees the frame (D-29).
+    // frame-only reader sees the frame (D-29), and so does a ref callback's
+    // own read: a ref is imperative, like an event handler (F-1, #5098).
     if (c) {
       if (__DEV__ && c._config & CONFIG_CHILDREN_FORBIDDEN) {
         const message =
@@ -2016,7 +2021,10 @@ export function read<T>(el: any): T {
           )
         );
       }
-      if (!(c._config & CONFIG_CHILDREN_FORBIDDEN) || el._statusFlags & STATUS_UNINITIALIZED) {
+      if (
+        !(c._config & CONFIG_CHILDREN_FORBIDDEN || (refCallbackDepth && !tracking)) ||
+        el._statusFlags & STATUS_UNINITIALIZED
+      ) {
         // Out of line, so `read` gains a call only where a pending read throws (D-22, F-9).
         if (observeFlightHook && servesStaged(c as Computed<any>, el, el)) {
           if (__TEST__) shadowActual(SLOT_P);
@@ -2470,8 +2478,9 @@ export function staleValues<T>(fn: () => T, set = true): T {
 }
 
 /** Core half of `refresh()` (signals.ts): marks the next recompute a quiet
- * re-ask and schedules it. */
-export function markRefresh(node: Computed<any>): void {
+ * re-ask and schedules it. `check`: the owned-scope check alone, the mark
+ * coming after the answer out lands (#5094). */
+export function markRefresh(node: Computed<any>, check?: boolean): void {
   if (
     __DEV__ &&
     context &&
@@ -2492,7 +2501,7 @@ export function markRefresh(node: Computed<any>): void {
     });
     throw new Error(REACTIVE_WRITE_IN_OWNED_SCOPE_REFRESH_MESSAGE);
   }
-  if (typeof node._fn === "function" && !(node._flags & REACTIVE_DISPOSED)) {
+  if (!check && typeof node._fn === "function" && !(node._flags & REACTIVE_DISPOSED)) {
     // A refresh in a manual write's frame re-asks with the write as `prev`
     // (D-8, #3026). The next pass's flight is a quiet re-ask (F-9), unless an
     // input changed this tick.

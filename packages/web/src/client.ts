@@ -3385,9 +3385,10 @@ function writeSelectValue(node, value) {
     has = value != null && value.map;
   if (has) had || node.addEventListener("change", selectChange, true);
   else had && node.removeEventListener("change", selectChange, true);
+  const write = (node._$n = (node._$n || 0) + 1);
   if (value == null) {
     node._$v = null;
-    return queueMicrotask(() => (node.value = value)) || (node.value = value);
+    return queueMicrotask(() => node._$n === write && (node.value = value)) || (node.value = value);
   }
   node._$v = value;
   (selectInsert ||= applySelectValue)(node);

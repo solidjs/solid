@@ -750,4 +750,26 @@ _$effect(() => {
 	t !== _p$?.t && (_el$133.defaultValue = t ?? "");
 });
 const template107 = _el$133;
+var _el$134 = _tmpl$4();
+_$effect(() => {
+	return {
+		e: { [prop()]: v() },
+		t: c(),
+		a: b()
+	};
+}, ({ e, t, a }, _p$) => {
+	_$style(_el$134, e, _p$?.e);
+	t !== _p$?.t && _$setStyleProperty(_el$134, "color", t);
+	a !== _p$?.a && _$setStyleProperty(_el$134, "background", a);
+});
+const template108 = _el$134;
+var _el$135 = _tmpl$4();
+_$spread(_el$135, { ...props.attrs }, false);
+const template109 = _el$135;
+var _el$136 = _tmpl$4();
+_$spread(_el$136, { ...makeProps() }, false);
+const template110 = _el$136;
+var _el$137 = _tmpl$4();
+_$spread(_el$137, [{ ...props.attrs }, propsSpread2], false);
+const template111 = _el$137;
 _$delegateEvents(["click", "input"]);

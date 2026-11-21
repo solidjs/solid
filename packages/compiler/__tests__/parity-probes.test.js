@@ -11,6 +11,25 @@
 const { modes, compileBabel, compileOxc, normalize, unifiedDiff } = require("./parity/harness");
 
 const cases = {
+  "import expression component prop": `const a = <Comp loader={import("./m")} />;`,
+  "import expression attribute": `const a = <div title={import("./m")} />;`,
+  "import expression child": `const a = <div>{import("./m")}</div>;`,
+  "import expression conditional": `const a = <div title={cond ? import("./m") : null} />;`,
+  "import expression element prop": `const a = <mesh loader={import("./m")} />;`,
+  "import expression spread ref": `const a = <div {...props} ref={import("./m")} />;`,
+  "static import expression": `const a = <Comp loader={/*@static*/ import("./m")} />;`,
+  "JSX in a later declarator splits the declarators before it (#5102)": `
+function Comp(props) {
+  const label = mk(), onClick = () => label, view = <div title={label()} onClick={() => onClick()}>x{label()}<Foo a={label} /></div>, other = 1;
+  return view;
+}
+function Two() {
+  const first = <i>{mk()}</i>, label = mk(), second = <p>{first}{label()}</p>;
+  return second;
+}
+export const exported = mk(), exportedView = <p>{exported()}</p>;
+let a = mk(), frag = <>{a()}</>, st = <b>static</b>;
+`,
   "slot prop hole before children (#3567)": `
 const a = <main>{props.header}{props.children}</main>;
 const z = <p>P</p>;
@@ -367,6 +386,21 @@ const a = (
     {third()}
   </div>
 );
+`,
+  "trailing whitespace after a dynamic child keeps the insert anchor": `
+const a = (
+  <div>
+    {count()}\x20\x20
+    <span>s</span>
+  </div>
+);
+const b = (
+  <ul>
+    <Comp />\t
+    <li>a</li>
+  </ul>
+);
+const c = <div>{count()}{""}tail</div>;
 `,
   "deep member component": `
 const a = <mod.ns.Comp x={v()}>{x()}</mod.ns.Comp>;
@@ -1321,6 +1355,38 @@ const a = <Comp ref={getRef()} />;
   "component namespace member prop": `
 import * as styles from "./s.css";
 const a = <Comp class={styles.button} />;
+`,
+  "module const shadowed by function param": `
+const label = "items";
+function Inner(label) {
+  return <div>{count()}{label}</div>;
+}
+`,
+  "module const shadowed by map callback param": `
+const name = "outer";
+const a = <ul>{["a", "b"].map(name => <li>{name}</li>)}</ul>;
+`,
+  "module const shadowed by destructured param": `
+const label = "items";
+const Inner = ({ label }) => <div>{count()}{label}</div>;
+`,
+  "module const shadowed by param in attribute": `
+const label = "items";
+function Inner(label) {
+  return <div title={label}>{count()}</div>;
+}
+`,
+  "module const shadowed by class field arrow param": `
+const label = "items";
+class A {
+  row = label => <li title={label}>{this.n}{label}</li>;
+}
+`,
+  "module const shadowed by class field arrow param in conditional": `
+const label = "items";
+class A {
+  row = label => (ok() ? <li>{count()}{label}</li> : null);
+}
 `
 };
 

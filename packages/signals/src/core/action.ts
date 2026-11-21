@@ -1,6 +1,6 @@
 import { CONFIG_CHILDREN_FORBIDDEN } from "./constants.js";
 import { isThenable } from "./async.js";
-import { enterCallback, exitCallback, inRefCallback } from "./core.js";
+import { disposalDepth, enterCallback, exitCallback, inRefCallback } from "./core.js";
 import { getOwner } from "./owner.js";
 import type { Owner } from "./types.js";
 import { emitDiagnostic } from "./dev.js";
@@ -104,22 +104,19 @@ function inTransaction<T>(t: Transaction, q: number, fn: () => T): T {
  *
  * Each call returns a `Promise` that resolves with the generator's return
  * value, or rejects if it throws. Pair with `createOptimistic` /
- * `createOptimisticStore` to apply tentative writes that auto-revert if the
- * action fails.
+ * `createOptimisticStore` to show guesses while the action runs. Guesses
+ * always revert when the action settles, whether it succeeded or failed;
+ * what stays is the source of truth the action writes or refreshes.
  *
  * @example
  * ```ts
- * const [todos, setTodos] = createOptimisticStore<Todo[]>([]);
+ * const [todos, setTodos] = createOptimisticStore(() => api.listTodos(), []);
  *
  * const addTodo = action(async function* (text: string) {
- *   const tempId = crypto.randomUUID();
- *   setTodos(t => { t.push({ id: tempId, text, pending: true }); }); // optimistic
+ *   setTodos(t => { t.push({ id: crypto.randomUUID(), text, pending: true }); }); // guess
  *   const saved = await api.createTodo(text); // network round-trip, typed
  *   yield; // re-enter the transaction
- *   setTodos(t => {
- *     const i = t.findIndex(x => x.id === tempId);
- *     if (i >= 0) t[i] = saved;
- *   });
+ *   refresh(todos); // re-fetch the truth; the guess reverts onto it
  *   return saved;
  * });
  *
@@ -136,10 +133,17 @@ export function action<Args extends any[], Y, R>(
     // and a computation tracking what its action writes livelocks (every
     // write retriggers the compute, which fires a fresh invocation). Same
     // scope test as setSignal: leaf imperative scopes (tracked effects,
-    // onSettled) stay legal.
+    // onSettled) stay legal, and so do cleanups during teardown — a cleanup
+    // is not part of the computation disposing its owner (a list pass
+    // removing a row), so invoking an action there is imperative (#4165).
     if (__DEV__) {
       const owner = getOwner();
-      if (owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN) && !inRefCallback()) {
+      if (
+        owner &&
+        !(owner._config & CONFIG_CHILDREN_FORBIDDEN) &&
+        !disposalDepth &&
+        !inRefCallback()
+      ) {
         emitDiagnostic({
           code: "ACTION_CALLED_IN_OWNED_SCOPE",
           kind: "write",

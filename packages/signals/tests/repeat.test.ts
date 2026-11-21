@@ -419,3 +419,49 @@ describe("disjoint window jumps", () => {
     expect(created).toBe(3);
   });
 });
+
+it("disposes rows and shows the fallback when count becomes undefined", () => {
+  const [count, setCount] = createSignal<number | undefined>(2);
+  const disposed: number[] = [];
+
+  const { view, dispose } = createRoot(dispose => ({
+    dispose,
+    view: repeat(
+      () => count()!,
+      index => {
+        onCleanup(() => disposed.push(index));
+        return index;
+      },
+      { fallback: () => "empty" }
+    )
+  }));
+
+  try {
+    expect(view()).toEqual([0, 1]);
+
+    setCount(undefined);
+    flush();
+
+    const rows = view();
+    expect(disposed.sort((a, b) => a - b)).toEqual([0, 1]);
+    expect(rows).toEqual(["empty"]);
+  } finally {
+    dispose();
+  }
+});
+
+it("shows the fallback when count is NaN", () => {
+  createRoot(dispose => {
+    try {
+      const view = repeat(
+        () => NaN,
+        index => index,
+        { fallback: () => "empty" }
+      );
+
+      expect(view()).toEqual(["empty"]);
+    } finally {
+      dispose();
+    }
+  });
+});

@@ -551,6 +551,28 @@ impl<'a> AstBuilder<'a> {
         VariableDeclaration::boxed(span, kind, declarations, declare, &self.inner())
     }
 
+    /// The declarators ahead of a JSX root split into their own statement
+    /// (`export`ed again when the declaration was), so the root's setup can
+    /// go between them and the declarators that follow.
+    pub(crate) fn split_declaration_statement(
+        &self,
+        span: Span,
+        kind: VariableDeclarationKind,
+        declarations: ArenaVec<'a, VariableDeclarator<'a>>,
+        exported: bool,
+    ) -> Statement<'a> {
+        let declaration = self.alloc_variable_declaration(span, kind, declarations, false);
+        if exported {
+            Statement::ExportDeclaration(ExportDeclaration::boxed(
+                span,
+                Declaration::VariableDeclaration(declaration),
+                &self.inner(),
+            ))
+        } else {
+            Statement::VariableDeclaration(declaration)
+        }
+    }
+
     pub(crate) fn import_declaration_specifier_import_specifier(
         &self,
         span: Span,

@@ -373,7 +373,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
                 // declaration still emits and the children compile normally).
                 // Attribute-driven, so like attributes it stays out of `closed`.
                 template.html.push(' ');
-            } else {
+            } else if tag_name != "noscript" {
                 self.lower_dom_children(
                     element,
                     &tag_name,

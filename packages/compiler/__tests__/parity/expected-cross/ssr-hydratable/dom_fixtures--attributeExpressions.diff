@@ -592,7 +592,7 @@
  const o = {
    ref: null
  };
-@@ -495,128 +494,128 @@
+@@ -495,136 +494,136 @@
  };
  const valid = Div({
    ref(r$) {
@@ -787,4 +787,15 @@
    return _$ssrAttribute__r_server("value", _$escape__r_server(other(), true));
  };
 -const template107 = _$ssr__r_server(_g67$, _g246$, _g247$);
+-var _g248$ = _$ssrHydrationKey__r_server();
+-var _g249$ = () => {
 +const template107 = _$ssr__r_server(_g66$, _g245$, _g246$);
++var _g247$ = _$ssrHydrationKey__r_server();
++var _g248$ = () => {
+   return _$ssrStyleProperties__r_server("color:", _$escape__r_server(c(), true), _$escape__r_server(prop(), true) + ":", _$escape__r_server(v(), true), "background:", _$escape__r_server(b(), true));
+ };
+-const template108 = _$ssr__r_server(_g26$, _g248$, _g249$);
++const template108 = _$ssr__r_server(_g26$, _g247$, _g248$);
+ const template109 = _$ssrElement__r_server("div", () => {
+   return props.attrs;
+ }, undefined, true);

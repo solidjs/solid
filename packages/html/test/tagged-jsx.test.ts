@@ -142,6 +142,92 @@ describe("Tagged JSX Integration Tests", () => {
         dispose();
       }));
 
+    it("renders spread children when native elements have no template children", () => {
+      const [child, setChild] = createSignal("first");
+      const props = {
+        get children() {
+          return child();
+        }
+      };
+      const host = document.createElement("div");
+      const dispose = render(
+        () => html`
+          <article ...${props} />
+          <article ...${props}></article>
+          <article ...${props}>own</article>
+        `,
+        host
+      );
+
+      expect(Array.from(host.children, el => el.textContent)).toEqual(["first", "first", "own"]);
+      setChild("second");
+      flush();
+      expect(Array.from(host.children, el => el.textContent)).toEqual(["second", "second", "own"]);
+      dispose();
+    });
+
+    it("renders an explicit native children prop", () => {
+      const [child, setChild] = createSignal("first");
+      const host = document.createElement("div");
+      const dispose = render(() => html`<article children=${child} />`, host);
+
+      expect(host.textContent).toBe("first");
+      setChild("second");
+      flush();
+      expect(host.textContent).toBe("second");
+      dispose();
+    });
+
+    it("renders a static native children prop as content in either spread order", () => {
+      const host = document.createElement("div");
+      const dispose = render(
+        () => html`
+          <article children="text" />
+          <article ...${{ id: "a" }} children="text" />
+          <article children="text" ...${{ id: "b" }} />
+          <article children="text">own</article>
+          <article children />
+          <article ...${{ id: "c" }} children />
+          <article children ...${{ id: "d" }} />
+        `,
+        host
+      );
+
+      expect(Array.from(host.children, el => el.textContent)).toEqual([
+        "text",
+        "text",
+        "text",
+        "own",
+        "",
+        "",
+        ""
+      ]);
+      expect(Array.from(host.children, el => el.hasAttribute("children"))).toEqual([
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]);
+      dispose();
+    });
+
+    it("keeps later siblings in the traversal after inserting nested spread children", () =>
+      createRoot(dispose => {
+        const child = document.createElement("em");
+        const el = html`<section>
+          <article ...${{ children: child }} />
+          <b title=${"later"}>${"sibling"}</b>
+        </section>` as HTMLElement;
+
+        expect(el.querySelector("article")?.firstChild).toBe(child);
+        expect(el.querySelector("b")?.title).toBe("later");
+        expect(el.querySelector("b")?.textContent).toBe("sibling");
+        dispose();
+      }));
+
     it("handles explicit properties and attributes via namespaces", () => {
       const [val, setVal] = createSignal("initial");
       let input!: HTMLInputElement;

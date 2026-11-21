@@ -1852,26 +1852,32 @@ export function createRevealOrder<T>(
 }
 
 /**
- * Creates an optimistic signal — a `Signal<T>` whose writes are
- * tentative inside an `action` transition: they show up immediately,
- * then auto-revert (or reconcile to the action's resolved value) once
- * the transition settles.
+ * Creates an optimistic signal — a `Signal<T>` whose writes inside an
+ * `action` transition are guesses: they show up immediately and always
+ * revert when the transition settles, whether the action succeeded or
+ * failed. A guess never becomes the value. What stays is the source of
+ * truth: write or refresh it in the action, and the guess reverts onto it
+ * in the same frame. With nothing held to guess over (outside an
+ * action), a write does nothing.
  *
  * Use this for single-value optimistic state. For collection-shaped
  * state, prefer `createOptimisticStore`.
  *
- * - **Plain form** — `createOptimistic(value, options?: SignalOptions<T>)`.
  * - **Function form** — `createOptimistic(fn, options?: SignalOptions<T> & MemoOptions<T>)`:
- *   the authoritative value is recomputed by `fn`; the optimistic
- *   overlay reverts after each transition.
+ *   `fn` reads the source of truth. The usual form for data.
+ * - **Plain form** — `createOptimistic(value, options?: SignalOptions<T>)`:
+ *   over a fixed value, so every guess reverts to it. Suits transient
+ *   state such as a "saving" flag set inside the action.
  *
  * @example
  * ```ts
- * const [name, setName] = createOptimistic("Ada");
+ * const [name, setName] = createSignal("Ada"); // the source of truth
+ * const [shownName, guessName] = createOptimistic(() => name());
  *
  * const rename = action(function* (next: string) {
- *   setName(next);                 // optimistic
- *   yield api.rename(next);        // commits or reverts on settle
+ *   guessName(next);        // shows now
+ *   yield api.rename(next);
+ *   setName(next);          // the truth; the guess reverts onto it
  * });
  * ```
  *
@@ -2072,17 +2078,21 @@ export const createStore: {
 
 /**
  * The store equivalent of `createOptimistic`. Writes inside an
- * `action` transition are tentative — they show up immediately but
- * auto-revert (or reconcile to the action's resolved value) once the
- * transition finishes.
+ * `action` transition are guesses: they show up immediately and always
+ * revert when the transition settles, whether the action succeeded or
+ * failed — including writes made after a `yield`. A guess never becomes
+ * the value. What stays is the source of truth: refresh or write it in
+ * the action, and the guesses revert onto it in the same frame.
  *
  * Use this for optimistic UI on collection-shaped data. For
  * single-value optimistic state, prefer `createOptimistic`.
  *
- * - **Plain form** — `createOptimisticStore(initialValue, options?)`.
  * - **Derived form** — `createOptimisticStore(fn, seed, options?)`:
- *   a projection store whose authoritative value is recomputed by
- *   `fn` and whose optimistic overlay reverts after each transition.
+ *   a projection store whose value is recomputed by `fn` from the
+ *   source of truth (a fetch, a store), with guesses laid over it. The
+ *   usual form for data.
+ * - **Plain form** — `createOptimisticStore(initialValue, options?)`:
+ *   over a fixed value, so every guess reverts to it.
  *
  * In the derived form, `options.key` defaults to `"id"`; specify it only when your data
  * uses a different identity field (e.g. `{ key: "uuid" }` or
@@ -2090,23 +2100,20 @@ export const createStore: {
  *
  * @example
  * ```ts
- * const [todos, setTodos] = createOptimisticStore<Todo[]>([]);
+ * const [todos, setTodos] = createOptimisticStore(() => api.listTodos(), []);
  *
- * // Mutation: optimistic add, then in-place reconcile to the saved row.
+ * // Mutation: guess the new row, save it, then re-fetch the truth.
  * const addTodo = action(function* (text: string) {
- *   const tempId = crypto.randomUUID();
- *   setTodos(t => { t.push({ id: tempId, text, pending: true }); });
- *   const saved = yield api.createTodo(text);
- *   setTodos(t => {
- *     const i = t.findIndex(x => x.id === tempId);
- *     if (i >= 0) t[i] = saved;
- *   });
+ *   setTodos(t => { t.push({ id: crypto.randomUUID(), text, pending: true }); });
+ *   yield api.createTodo(text);
+ *   refresh(todos); // the guess reverts onto the re-fetched list
  * });
  *
  * // Return form: filter is the natural shape for removal.
  * const removeTodo = action(function* (id: string) {
  *   setTodos(t => t.filter(x => x.id !== id));
  *   yield api.removeTodo(id);
+ *   refresh(todos);
  * });
  * ```
  *

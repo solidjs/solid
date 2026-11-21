@@ -186,6 +186,7 @@ function TargetShape(
   this.sc = 0;
   this.kc = 0;
   this.nc = 0;
+  this.hc = 0;
   this._fam = fam;
   this.o = fam !== null && fam.opt === true;
   this.s = false;
@@ -298,7 +299,7 @@ function releaseSlot(node: any): void {
     if (--t.nc === 0) t.n = null;
   } else if (t.h?.[key as any] === node) {
     delete t.h![key as any];
-    if (Reflect.ownKeys(t.h!).length === 0) t.h = null;
+    if (--t.hc === 0) t.h = null;
   }
   // The family's index keeps only targets that still carry a node.
   if (t._fam !== null && t.nc === 0 && t.k === null && t.dk === null && t.h === null)
@@ -417,6 +418,7 @@ export function getHasNode(target: StoreTarget, key: PropertyKey): Signal<boolea
     if (pb !== null) bornStaged(target, created, key in pb && !target.del?.has(key), key);
     if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(created, target);
     nodes[key] = node;
+    target.hc++;
     noteNode(target, created, key);
   }
   return node;
@@ -722,9 +724,12 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     // HELD (another transaction's): then the held staging stays the
     // adoption and the draft is a mainline layer above it (#3612/#3688: a
     // mainline setter mid-hold publishes mainline; the held keys stay held).
+    // The holder's own write joins its hold (D-8, A34): the clone is the staging
+    // its landing commits (#5093).
     pb = target.pb = cloneRaw(pb, target);
     const k = target.k;
-    if (k !== null && !(k._config & CONFIG_HELD)) k._pendingValue = pb;
+    if (k !== null && (!(k._config & CONFIG_HELD) || txOf(k) === flushTransaction))
+      k._pendingValue = pb;
   } else if (pb === null) {
     const v = target.v;
     if (!directCommit) queueFold(target);
