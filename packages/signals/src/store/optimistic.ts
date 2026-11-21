@@ -49,7 +49,7 @@ import {
 import { link } from "../core/graph.js";
 import { getObserver } from "../core/owner.js";
 import { devGuardOptimisticBeforeLoad, devWarnOptimisticWhileLoading } from "../core/dev.js";
-import { latestOf, readGuesses, setLaneValue } from "../core/lanes.js";
+import { landBeneath, latestOf, readGuesses, setLaneValue } from "../core/lanes.js";
 import { guessedValueOf, optimisticWrite, pendingGuessOf } from "../core/guesses.js";
 import { covered } from "../core/truth.js";
 import {
@@ -77,6 +77,7 @@ import {
   committed,
   getHasNode,
   getNode,
+  heldKeyChanged,
   linkedTo,
   nameCarrier,
   sameKey,
@@ -155,11 +156,26 @@ function newestGuess(t: StoreTarget): Signal<any> | null {
   return null;
 }
 /** The hold's carrier of a truth staged beneath the screen: the container
- * node while a transaction holds its staging (a landing adopted under an
- * action), else null. A guess made over it carries that truth beneath. */
-function heldCarrier(t: StoreTarget): Signal<any> | null {
+ * node while a transaction holds a staging that changed at least one of
+ * `keys` (D-33), else null. A guess made over it carries that truth beneath. */
+function heldCarrier(t: StoreTarget, keys?: Set<PropertyKey>): Signal<any> | null {
   const k = t.k;
-  return k !== null && k._config & CONFIG_HELD && k._pendingValue !== NOT_PENDING ? k : null;
+  if (k === null || !(k._config & CONFIG_HELD) || k._pendingValue === NOT_PENDING) return null;
+  if (keys === undefined) return k;
+  for (const key of keys) if (heldKeyChanged(t, key)) return k;
+  return null;
+}
+function inheritHeld(t: StoreTarget, g: any, keys: Set<PropertyKey> | undefined): void {
+  const p = heldCarrier(t, keys);
+  if (p === null) return;
+  if (g._config & CONFIG_OVERRIDE) {
+    landBeneath(g, p._pendingValue);
+    merge(txOf(p), resolveTx(txOf(g)._parent!));
+  } else {
+    g._pendingValue = p._pendingValue;
+    if (g._config & CONFIG_HELD) merge(txOf(p), txOf(g));
+    else holdNode(g, txOf(p));
+  }
 }
 /** A guessed key's value from the carrier's frame. */
 function carrierValue(frame: Record<PropertyKey, any>, key: PropertyKey): any {
@@ -264,20 +280,22 @@ function guessCarrier(t: StoreTarget, keys?: Set<PropertyKey>): any {
     const g: any = kg[i];
     const live = g._config & (CONFIG_OVERRIDE | CONFIG_GUESS);
     if (!live && pendingGuessOf(g) === NOT_PENDING && !(g._config & CONFIG_HELD && keys)) continue;
-    if (pendingGuessOf(g) !== NOT_PENDING || (live && keys === undefined))
+    if (pendingGuessOf(g) !== NOT_PENDING || (live && keys === undefined)) {
+      inheritHeld(t, g, keys);
       return entangle(t, g, keys);
-    if (g.wk !== null) for (const key of keys!) if (g.wk.has(key) || g.del?.has(key)) return g;
+    }
+    if (g.wk !== null)
+      for (const key of keys!)
+        if (g.wk.has(key) || g.del?.has(key)) {
+          inheritHeld(t, g, keys);
+          return entangle(t, g, keys);
+        }
   }
   const g: any = slotSignal(committed(t), patchEquals, t, $PATCH, false);
   if (__OBSERVE__) nameCarrier(g, t);
-  // Written over a held truth (a landing the target's hold keeps beneath
-  // the screen): that truth is the one beneath the guess, judged at the
-  // body's end (A18, #3330) — as it was the leaf's staging.
-  const p = heldCarrier(t);
-  if (p !== null) {
-    g._pendingValue = p._pendingValue;
-    holdNode(g, txOf(p));
-  }
+  // Written over a held truth for a key this guess writes: that truth is the
+  // one beneath the guess, judged at the body's end (D-33, D-34).
+  inheritHeld(t, g, keys);
   g.guess = true;
   g.wk = null;
   g.del = null;
