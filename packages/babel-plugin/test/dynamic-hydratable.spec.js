@@ -40,6 +40,7 @@ runFixtures({
           "li",
           "ul",
           "label",
+          "pre",
           "text",
           "namespace:tag",
           "html",
