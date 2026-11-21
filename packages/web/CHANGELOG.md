@@ -1,5 +1,33 @@
 # @solidjs/web
 
+## 2.0.4
+
+### Minor Changes
+
+- feat: **Inert JSON hydration mode** for hash-based CSP (#4028 proposal 1).
+
+  Apps serving cached or static SSR HTML under a strict hash-based Content Security Policy can now pass `{ inert: true }` to `renderToStream` / `renderToString` and add the `inert` prop to `<HydrationScript>`:
+
+  ```tsx
+  // server entry
+  renderToStream(() => <App />, { inert: true });
+  // or in the document shell
+  <HydrationScript inert />
+  ```
+
+  **What changes in inert mode:**
+
+  - All hydration data is emitted as `<script type="application/json" class="_$hy">` blocks — the browser never executes them, so CSP does not apply.
+  - Every executable `<script>` tag written by the runtime has byte-identical content across renders with different data. Its SHA-256 hash is a build-time constant that can be hard-coded in a static `Content-Security-Policy` header — no per-request nonce and no CDN-busting hash rotation.
+  - Each streamed JSON block is followed by the same constant trigger `<script>_$HY.p()</script>` which calls the pump function installed by `<HydrationScript inert>` to decode the records.
+  - Fragment swaps, head ops, the shell-end marker and post-flush redirects all become data records decoded by the pump; the redirect uses `<meta http-equiv="refresh">` instead of `window.location`.
+
+  **Cost and constraints:**
+
+  - Opt-in and pay-for-use: apps that do not set `inert: true` ship zero extra bytes; the pump and JSON decoder are tree-shaken away.
+  - JSON cannot express Seroval's full object graph (cyclic refs, shared identity, Dates, Maps), so the wire format uses the `createJSONSerializer` / `createJSONDataTable` codec — a subset sufficient for plain objects, arrays, primitives, and Promises.
+  - Nonce-based CSP (`{ nonce }`) already works without this flag and remains the simpler option when CDN caching is not needed.
+
 ## 2.0.3
 
 ### Patch Changes
