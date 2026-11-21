@@ -31,6 +31,7 @@ import {
   snapshot,
   type Store
 } from "../../src/index.js";
+import { $THIN } from "../../src/store/types.js";
 
 type SimplePropTypes = {
   a?: string | null;
@@ -887,7 +888,7 @@ describe("view descriptors", () => {
       get(_, key, receiver) {
         if (key === $PROXY) return receiver;
         if (key === $TARGET) return target;
-        if (key === $RECORD) return undefined;
+        if (key === $RECORD || key === $THIN) return undefined;
         log.push(`get ${String(key)}`);
         return data[key as string];
       },
@@ -1723,6 +1724,7 @@ describe("snapshot", () => {
     setState(s => {
       s.a = 3;
     });
+    flush();
     const newImmutable = snapshot(state);
     expect(newImmutable).not.toBe(state);
     expect(newImmutable).toEqual({ a: 3, b: 2 });
@@ -1740,6 +1742,7 @@ describe("snapshot", () => {
     setState(s => {
       s.b.c = 3;
     });
+    flush();
     const newImmutable = snapshot(state);
     expect(newImmutable).not.toBe(state);
     expect(newImmutable).toEqual({ a: 1, b: { c: 3 } });
@@ -1755,6 +1758,7 @@ describe("snapshot", () => {
     setState(s => {
       s.a = 3;
     });
+    flush();
     const newImmutable = snapshot(state);
     expect(newImmutable).not.toBe(state);
     expect(newImmutable).toEqual({ a: 3, b: { c: 2 } });
@@ -1771,6 +1775,7 @@ describe("snapshot", () => {
     setState(s => {
       s.b[0] = 4;
     });
+    flush();
     const newImmutable = snapshot(state);
     expect(newImmutable).not.toBe(state);
     expect(newImmutable).toEqual({ a: 1, b: [4, 3] });

@@ -3,7 +3,7 @@
 // after its readers are disposed.
 import { test, expect } from "vitest";
 import { createEffect, createRoot, createStore, flush } from "../../src/index.js";
-import { $TARGET } from "../../src/store/store.js";
+import { targetOf } from "../_thin/target.js";
 
 test("#5024 releasing the last node of a target drops its dictionaries", () => {
   const [store] = createStore([
@@ -19,15 +19,14 @@ test("#5024 releasing the last node of a target drops its dictionaries", () => {
     );
   });
   flush();
-  const row = (store[0] as any)[$TARGET];
+  const row = targetOf(store[0]);
   expect(row.n).not.toBe(null);
   expect(row.h).not.toBe(null);
   dispose();
   flush();
-  expect(row.nc).toBe(0);
   expect(row.n).toBe(null);
   expect(row.h).toBe(null);
-  expect((store as any)[$TARGET].n).toBe(null);
+  expect(targetOf(store).n).toBe(null);
 
   // a later reader makes fresh nodes and still sees writes
   const seen: number[] = [];

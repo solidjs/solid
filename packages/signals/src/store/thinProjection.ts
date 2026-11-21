@@ -37,10 +37,11 @@ import {
 import { enqueueSub } from "../core/heap.js";
 import { getOwner, isDisposed } from "../core/owner.js";
 import {
+  GlobalQueue,
   insertSubs,
-  laneServedHook,
   observeFlightHook,
   passLane,
+  laneServedHook,
   setPassLane,
   question,
   schedule,
@@ -48,10 +49,24 @@ import {
 } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
-import { optHooks } from "./hooks.js";
-import { reconcileState } from "./reconcile.js";
-import { nameStore, protoOf, runDirect, storeSetter, wrap } from "./store.js";
-import { setLookup, storeOwners, type StoreFamily, type StoreTarget } from "./target.js";
+/** The optimistic engine's re-ask judgement (thinOptimistic.ts installs it). */
+let thinAsk: ((fam: any) => ((n: any) => any) | void) | null = null;
+export function installThinAsk(fn: typeof thinAsk): void {
+  thinAsk = fn;
+}
+const protoOf = Object.getPrototypeOf;
+import {
+  $THIN,
+  isThin,
+  thinChain,
+  thinListRoot,
+  thinReconcile,
+  thinRunDirect as runDirect,
+  thinSetter as storeSetter,
+  thinWrap,
+  thinNameStore as nameStore
+} from "./thin.js";
+import { storeOwners, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $TARGET,
   isWrappable,
@@ -112,7 +127,7 @@ function wrapDraft(
   const traps: ProxyHandler<any> = {
     get(_, prop) {
       const value = read(() => inner[prop]);
-      return !shallow && typeof value === "object" && value !== null && prop !== $TARGET
+      return !shallow && typeof value === "object" && value !== null && prop !== $THIN
         ? wrapDraft(value, isActive, aroundWrite, false, afterWrite, asking)
         : value;
     },
@@ -137,12 +152,7 @@ function wrapDraft(
         Reflect.defineProperty(inner, prop, desc);
       })
   };
-  const px = new Proxy(Array.isArray(inner) ? [] : {}, traps);
-  // The wrapper stands for its store proxy wherever the derive's result
-  // carries it (`wrap`, `unwrapValue`, reconcile's slot matching).
-  const t: StoreTarget | undefined = inner[$TARGET];
-  if (t !== undefined) setLookup(px, t);
-  return px;
+  return new Proxy(Array.isArray(inner) ? [] : {}, traps);
 }
 
 function cloneState<T extends object>(v: T, shallow: boolean): T {
@@ -166,7 +176,7 @@ function wakeFamily(fam: StoreFamily): void {
   const error = new NotReadyError(fw);
   fam._woke = true;
   // A leaf the optimistic engine keeps off the wake (`ask`).
-  const skip = optHooks?.ask(fam);
+  const skip = thinAsk?.(fam);
   forEachFamilyNode(fam, n => {
     if (n._subs === null || skip?.(n)) return;
     // The leaf carries the derive's pending as a propagated copy, as a memo
@@ -231,6 +241,18 @@ function familyStatus(this: StoreFamily, status: number, error?: unknown): void 
   else if (status & STATUS_ERROR) errorFamily(this, error);
 }
 
+/** The family's targets with a node. A write leaves a node where the deep
+ * store mutates the raw, so `size` (core `observeFlight`, #4479: an unread
+ * store's derive holds nothing, F-3, D-11) counts only a target a reader
+ * holds a node of. */
+class Live extends Set<any> {
+  get size(): number {
+    const read = (n: any) => n?._subs != null;
+    for (const t of this)
+      if (read(t.k) || [t.n, t.h].some(m => m && Object.values(m).some(read))) return 1;
+    return 0;
+  }
+}
 function forEachFamilyNode(fam: StoreFamily, fn: (n: Signal<any>) => void): void {
   for (const t of fam.live) {
     const nodes = t.n;
@@ -238,7 +260,6 @@ function forEachFamilyNode(fam: StoreFamily, fn: (n: Signal<any>) => void): void
     const has = t.h;
     if (has !== null) for (const key of Reflect.ownKeys(has)) fn(has[key as any]);
     if (t.k !== null) fn(t.k);
-    if (t.dk !== null) fn(t.dk);
   }
 }
 
@@ -255,7 +276,7 @@ export function runProjectionComputed<T extends object>(
   aroundDraftWrite?: (op: () => void) => void
 ): Computed<void | T> {
   const owner = getOwner() as Computed<void | T>;
-  const target: StoreTarget = (wrappedStore as any)[$TARGET];
+  const target: StoreTarget = (wrappedStore as any)[$THIN];
   const fam = target._fam!;
   const run = (fam.run = (fam.run || 0) + 1);
   // A verdict reader's pass that is the hold's work reads plainly, as a
@@ -319,7 +340,14 @@ export function runProjectionComputed<T extends object>(
               const prevQ = question;
               setQuestion(asking());
               try {
-                storeSetter(wrappedStore, st => reconcileState(v, st, key, true), false);
+                storeSetter(
+                  wrappedStore,
+                  st => (
+                    Array.isArray(v) && !isThin(v) && thinListRoot(st),
+                    thinReconcile(st, v, fam.key ?? null)
+                  ),
+                  false
+                );
               } finally {
                 setQuestion(prevQ);
               }
@@ -327,11 +355,11 @@ export function runProjectionComputed<T extends object>(
             wrapCommit ? wrapCommit(write, v as T) : write();
           }
           // A landing (not the sync pass's own commit): the readers held
-          // pending on the derive settle — unless core keeps the derive
-          // pending: lane work this pass served the committed value of a
-          // flight still in the air (core.ts `recompute`, #4862). The lane
-          // breaks out of the flight, the family's readers do not (F-4,
-          // #4927); they settle at the flight's landing.
+          // pending on the derive settle.
+          // Not a lane's pass served the committed value of a flight still
+          // up: the derive keeps its pending (core `recompute`), and so do
+          // the readers waiting on it — a boundary keeps its fallback (F-4,
+          // #4862, #4927).
           if (
             (!first || !(owner._statusFlags & STATUS_UNINITIALIZED)) &&
             !(
@@ -409,11 +437,18 @@ export function createProjectionInternal<T extends object = {}>(
   // Seedless (`fn` takes no draft): the root starts as an empty record. It is
   // a draft like any seed, never observable before the first landing (A25).
   seed ||= {} as T;
+  // A store as the seed: the derived store chains to it (#2941).
+  let seedStore: any = null;
+  if (isThin(seed)) {
+    seedStore = seed;
+    const raw = (seed as any)[$THIN].v;
+    seed = (Array.isArray(raw) ? [] : Object.create(Object.getPrototypeOf(raw))) as T;
+  }
   const keyOption = options?.key === undefined ? "id" : options.key;
   const fam: StoreFamily = {
     map: new WeakMap(),
     node: null,
-    live: new Set(),
+    live: new Live(),
     st: familyStatus,
     _shallow: !!options?.shallow,
     opt,
@@ -426,9 +461,10 @@ export function createProjectionInternal<T extends object = {}>(
           ? null
           : (row: any) => (isWrappable(row) ? row[keyOption] : undefined)
   };
-  const store = wrap(seed as any, null, null, fam) as Store<T>;
+  const store = thinWrap(seed as any, fam) as Store<T>;
+  if (seedStore !== null) thinChain(store, seedStore);
   if (fam._shallow) {
-    ((store as any)[$TARGET] as StoreTarget).s = true;
+    ((store as any)[$THIN] as StoreTarget).s = true;
     markRawIngest(seed);
   }
   let nodeOptions: { name?: string; loc?: string; loadingValue?: void } | undefined;
@@ -436,7 +472,7 @@ export function createProjectionInternal<T extends object = {}>(
   if (__OBSERVE__ && attrHooks !== null)
     // As createStore: the owner in scope stamps the projection's property
     // nodes, so attribution places them under it (#4035).
-    storeOwners!.set((store as any)[$TARGET] as StoreTarget, getOwner());
+    storeOwners!.set((store as any)[$THIN] as StoreTarget, getOwner());
   if (__OBSERVE__ && (options?.name || options?.loc)) {
     nodeOptions = { ...nodeOptions, name: options.name, loc: options.loc };
     nameStore(store, options.name, options.loc);
@@ -462,17 +498,17 @@ export function createProjectionInternal<T extends object = {}>(
  * firewall). `fn` may be async or an async iterator; the seed is a draft,
  * never an observable value, until the first landing (A25).
  */
-export function createProjection<T extends object = {}>(
+export function createThinProjection<T extends object = {}>(
   fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
   seed?: null,
   options?: Omit<ProjectionOptions, "seedLoadingValue">
 ): Refreshable<Store<T>>;
-export function createProjection<T extends object = {}>(
+export function createThinProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   seed: NoFn<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): Refreshable<Store<T>>;
-export function createProjection<T extends object = {}>(
+export function createThinProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   seed?: T | null,
   options?: ProjectionOptions
@@ -481,11 +517,19 @@ export function createProjection<T extends object = {}>(
 }
 
 /** `createStore(fn, seed, options)`: a projection with a user setter. */
-export function createStoreDerived<T extends object = {}>(
+export function createThinStoreDerived<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   seed: T | null | undefined,
   options?: ProjectionOptions
 ): [Refreshable<Store<T>>, (f: (draft: T) => T | void) => void] {
   const store = createProjectionInternal(fn, seed, options);
+  (store as any)[$THIN]._fam.ow = true;
   return [store, (f: (draft: T) => T | void): void => storeSetter(store, f)];
 }
+
+/** Core asks: is a slot node's truth in flight? Its family's derive is —
+ * lanes (A17, #2864: a guess mid-refetch stands in for the flight) and
+ * marks (an ambient `affects()` over a declared reload lives to the
+ * landing) read it. */
+GlobalQueue._slotFlight = (n: Signal<any>): boolean =>
+  ((n as any)._host?._fam?.node?._statusFlags & STATUS_PENDING) !== 0;

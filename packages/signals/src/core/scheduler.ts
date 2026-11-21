@@ -1007,12 +1007,6 @@ export class GlobalQueue implements IQueue {
   /** A store guess written by a derive re-asking in another hold's lane:
    * the two holds merge (D-33; store/optimistic.ts). */
   declare static _slotMerge: ((n: Signal<any>) => void) | undefined;
-  /** A lane dirtied a store's guess carrier: the readers of the leaves of
-   * the keys it changed re-derive as the lane's work (optimistic.ts). */
-  declare static _slotDirty: ((n: Signal<any>, l: Transaction) => void) | undefined;
-  /** A lane re-derives a store's guess carrier's readers at `t`'s landing
-   * (lanes `rerun`): the readers of the leaves of the keys it changed. */
-  declare static _slotRerun: ((n: Signal<any>, t: Transaction) => void) | undefined;
   /** The store's row judgment for a guessed slot (optimistic.ts): the truth
    * is the guess's echo when reconcile would write nothing into it. */
   declare static _echoes: ((guess: unknown, truth: unknown) => boolean) | undefined;
@@ -1021,10 +1015,18 @@ export class GlobalQueue implements IQueue {
   declare static _truth: ((el: any) => unknown) | undefined;
   declare static _confirmed: ((l: Transaction) => void) | undefined;
   /** `affects()` on a store (store/affects.ts): a store's node for a key
-   * (store/store.ts `getNode`); a bare registration (birth inheritance); a
+   * (store/thin.ts `_storeEngine`); a bare registration (birth inheritance); a
    * witnessed mark on an untracked probe (verdict.ts). */
-  declare static _storeNode: ((t: any, key: PropertyKey) => Signal<any>) | undefined;
-  declare static _storeWrappable: ((v: unknown) => boolean) | undefined;
+  declare static _storeEngine:
+    | {
+        node(t: any, key: PropertyKey): Signal<any>;
+        target(v: any, fam: any): any;
+        keys(t: any): PropertyKey[];
+        value(t: any, k: PropertyKey): any;
+        sub(t: any): Iterable<any>;
+        view(on: boolean): void;
+      }
+    | undefined;
   declare static _mark: ((node: Signal<any> | Computed<any>) => void) | undefined;
   declare static _witnessMark: (() => void) | undefined;
   /** A truth landing on a guess (lanes.ts `laneWrite`), `older` when it
@@ -1584,9 +1586,6 @@ export function reasks(c: Computed<any>, seen: Set<Computed<any>> = new NewSet()
  * `laneRead` re-derives it on the screen if that lane holds (`entered`). */
 export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): void {
   insertSubs(node);
-  // A store's guess carrier: the readers of the keys it changed read their
-  // leaves — dirtied as the lane's work too (store/optimistic.ts).
-  if (node._config & CONFIG_SLOT_NODE) GlobalQueue._slotDirty?.(node as Signal<any>, l);
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const c = s._sub;
     let t = c._x?._transaction,

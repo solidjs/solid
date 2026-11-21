@@ -30,6 +30,10 @@ function deferred<T>() {
 }
 
 describe("Projection async behavior", () => {
+  // F-10 (ruled 2026-11-13): a continuation's write shows at the flush that
+  // carries it — the landing, one hop after the write. The deep engine serves
+  // its pending backing to an untracked read before that (a known deviation,
+  // as #3576); the thin engine (spike) follows F-10.
   it("resolves async draft and transforms into new value", async () => {
     const [$x, setX] = createSignal(1);
 
@@ -61,8 +65,11 @@ describe("Projection async behavior", () => {
     flush();
 
     await Promise.resolve();
-    expect(proj.value).toBe(4);
+    // Written, not landed: the committed value until the landing's flush.
     expect(runs).toBe(2);
+    expect(proj.value).toBe(2);
+    await Promise.resolve();
+    expect(proj.value).toBe(4);
   });
 
   it("does not self-track through array splice has checks", async () => {
@@ -122,6 +129,10 @@ describe("Projection async behavior", () => {
     expect(runs).toBe(2);
   });
 
+  // F-10 (ruled 2026-11-13): a continuation's write shows at the flush that
+  // carries it — the landing, one hop after the write. The deep engine serves
+  // its pending backing to an untracked read before that (a known deviation,
+  // as #3576); the thin engine (spike) follows F-10.
   it("async projection preserves identity only for unchanged paths", async () => {
     const [$x, setX] = createSignal({ a: 1, b: 2 });
 
@@ -153,12 +164,18 @@ describe("Projection async behavior", () => {
     setX({ a: 1, b: 3 });
     flush();
     await Promise.resolve();
+    expect(proj.b).toBe(firstB);
+    await Promise.resolve();
 
     expect(proj).toBe(firstProj);
     expect(proj.a).toBe(firstA);
     expect(proj.b).not.toBe(firstB);
   });
 
+  // F-10 (ruled 2026-11-13): a continuation's write shows at the flush that
+  // carries it — the landing, one hop after the write. The deep engine serves
+  // its pending backing to an untracked read before that (a known deviation,
+  // as #3576); the thin engine (spike) follows F-10.
   it("async iterable projection yields multiple transformed snapshots", async () => {
     let proj;
 
@@ -190,6 +207,9 @@ describe("Projection async behavior", () => {
     await Promise.resolve();
     expect(proj.phase).toBe("start");
 
+    // Each later yield lands one hop after its write (F-10).
+    await Promise.resolve();
+    expect(proj.phase).toBe("start");
     await Promise.resolve();
     expect(proj.phase).toBe("middle");
 

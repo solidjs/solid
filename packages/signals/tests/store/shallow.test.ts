@@ -11,7 +11,7 @@ import {
 } from "../../src/index.js";
 // internal for now — shallow stores mark automatically; direct marking is
 // package-internal until the standalone use cases are designed
-import { markRaw } from "../../src/store/store.js";
+import { markRaw } from "../../src/store/types.js";
 
 describe("markRaw", () => {
   test("raw values never wrap — served as-is through deep stores", () => {
@@ -323,6 +323,7 @@ describe("createStore shallow", () => {
     const [state, setState] = createStore(rows, { shallow: true });
     const reversed = rows.slice().reverse();
     setState(reconcile(reversed));
+    flush(); // F-10: the reconcile shows at its flush
     expect(state[0]).toBe(rows[3]);
     expect(state[0].id).toBe(3);
   });

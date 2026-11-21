@@ -23,6 +23,9 @@ import type { Computed, Owner, Signal } from "../core/types.js";
 export interface StoreFamily {
   /** Optimistic family (S4): the setter's writes are guesses. */
   opt?: boolean;
+  /** `createStore(fn)`: a store with a setter is written from any open
+   * setter, as a plain store is; a projection owns its proxies. */
+  ow?: boolean;
   /** Targets carrying a lane value on one of their nodes (reads compose the
    * view over the truth — optimistic.ts); dropped lazily once none is. */
   _overlaid?: Set<StoreTarget>;
@@ -75,8 +78,6 @@ export interface StoreTarget {
   n: Record<PropertyKey, Signal<any>> | null;
   /** Lazy per-key presence nodes (`in` tracks presence, not value — R13). */
   h: Record<PropertyKey, Signal<boolean>> | null;
-  /** live presence-node count (drops `h` without a key scan). */
-  hc: number;
   /** Lazy CONTAINER node: membership/iteration/`$TRACK`/`length`
    * subscriptions (§6) and the backing's staging home (plan sec. 31.3). */
   k: Signal<any> | null;
@@ -136,64 +137,6 @@ export interface StoreTarget {
   _fam: StoreFamily | null;
   /** Shallow store root (values served raw). */
   s: boolean;
-}
-
-/**
- * Ownership stamp (#3360): every backing the store ALLOCATES (CoW clones,
- * privatized committed backings) carries its owning target under this
- * enumerable symbol. One property write replaces the two weak-collection
- * registrations (ownership set + raw→target map) a fresh object used to pay
- * per draft — V8's identity-hash + ephemeron cost dominated the one-key
- * write floor. Enumerable so a spread copy (the plain-data clone path) stays
- * on the fast path and carries the stamp along.
- *
- * Owned backings are never user-reachable (`snapshot` copies them, the traps
- * hide the key), so every raw key walk in the store must skip `$OWNER`, and
- * ownership is answered by `isOwned` — a user object never carries it.
- * Overlay drafts (`Object.create(v)` over an owned `v`) inherit the stamp.
- */
-export const $OWNER: unique symbol = Symbol(__DEV__ ? "STORE_OWNER" : 0);
-
-/** raw → target for plain (family-less) stores. Family stores use their own
- * map so one raw can wrap once per family (§7b). */
-export const storeLookup = new WeakMap<object, StoreTarget>();
-
-export function setLookup(raw: object, t: StoreTarget): void {
-  (t._fam?.map ?? storeLookup).set(raw, t);
-}
-
-export function isOwned(raw: object): boolean {
-  return (raw as any)[$OWNER] !== undefined;
-}
-
-/** The target wrapping `raw` in `fam` (or the plain lookup). An owned raw
- * answers from its stamp; a user raw from the map. */
-export function lookupTarget(raw: object, fam: StoreFamily | null): StoreTarget | undefined {
-  const owner: StoreTarget | undefined = (raw as any)[$OWNER];
-  return owner !== undefined && owner._fam === fam ? owner : (fam?.map ?? storeLookup).get(raw);
-}
-
-/** Test-tier oracle (INTERNALS §5): no write path ever mutates a
- * user-provided (non-owned) object. */
-export const ingestedRaw: WeakSet<object> | null = __TEST__ ? new WeakSet<object>() : null;
-
-export function devAssertNeverUserMutation(target: object): void {
-  if (!__TEST__ || !ingestedRaw) return;
-  if (ingestedRaw.has(target) && !isOwned(target)) {
-    throw new Error(
-      "store invariant: attempted mutation of a user-provided object (not store-owned)"
-    );
-  }
-}
-
-/** Sticky descendants flag up the parent chain (§6d): adoption descends
- * into a changed child pair only where a target with nodes exists below. */
-export function markDescendants(target: StoreTarget): void {
-  let t: StoreTarget | null = target;
-  while (t && !t.d) {
-    t.d = true;
-    t = t.u;
-  }
 }
 
 /** Observe tier: the owner in scope at `createStore` (attribution names and

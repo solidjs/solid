@@ -372,7 +372,7 @@ describe("@solidjs/signals bundled under `sideEffects: false`", () => {
       );
       // `affects()` without stores never reaches the store engine.
       expect(storeModules((await bundle(AFFECTS_APP, [...BUILDS[tier]])).retained)).not.toContain(
-        `dist/${tier}/store/store.js`
+        `dist/${tier}/store/thin.js`
       );
       expect(storeModules((await bundle(SIGNALS_APP, [...BUILDS[tier]])).retained)).toEqual([]);
     });
