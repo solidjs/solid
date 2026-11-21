@@ -1232,12 +1232,9 @@ function pairChained(t: StoreTarget, dropped: Signal<any>[]): void {
   }
   if (!rows.size) return;
   const inner = t.v as any;
-  for (
-    let it: StoreTarget | undefined = inner[$TARGET];
-    it;
-    it = it.ch ? (it.v as any)[$TARGET] : undefined
-  )
-    if (it._fam?.node?._statusFlags! & (STATUS_UNINITIALIZED | STATUS_ERROR)) return;
+  let it: StoreTarget | undefined = inner[$TARGET];
+  while (it?.ch) it = (it.v as any)[$TARGET];
+  if (it?._fam?.node && it._fam.node._statusFlags & (STATUS_UNINITIALIZED | STATUS_ERROR)) return;
   untrack(() => {
     if (!Array.isArray(inner)) return;
     for (let i = 0; i < inner.length && rows.size; i++) {

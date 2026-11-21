@@ -2,4 +2,4 @@
 "@solidjs/signals": patch
 ---
 
-Reduce the bundle size of chained optimistic store row adoption while preserving carrier precedence.
+Reduce chained optimistic store bundle size while preserving carrier precedence and terminal source checks.
