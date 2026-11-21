@@ -1627,7 +1627,7 @@ function readSource(
 
 /** Did the HELD staging (the container node's, not a mainline layer above
  * it) change `key`? */
-function heldKeyChanged(target: StoreTarget, key: PropertyKey, shape = true): boolean {
+export function heldKeyChanged(target: StoreTarget, key: PropertyKey, shape = true): boolean {
   return (
     changedBetween(target, target.k!._value, target.k!._pendingValue, key, shape) &&
     !adoptChild(target, key)
