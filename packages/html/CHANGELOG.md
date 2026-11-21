@@ -1,5 +1,23 @@
 # @solidjs/html
 
+## 2.0.2
+
+### Patch Changes
+
+- c74567a: Clarify how to write a literal less-than sign in tagged JSX text when a tag start is invalid.
+- ebe4cf3: Render spread and explicit children props on native elements with no template children.
+- eca83db: Keep nested template renders from interrupting traversal of the outer template.
+- 4805dea: Let nested component children override an explicit children prop, including function-valued props.
+- 41b4b7e: Preserve whitespace-only content and normalize an initial newline in pre and textarea elements.
+- bab8a53: Preserve character references literally in HTML script and style raw text.
+- 4238d2d: Reject table rows directly under a table, matching the JSX compiler's malformed HTML validation.
+- b7d939f: Ship the MIT `LICENSE` file in every published package (#5106).
+- Updated dependencies [f353760]
+- Updated dependencies [c075f02]
+- Updated dependencies [b7d939f]
+- Updated dependencies [e2e6ffd]
+  - @solidjs/web@2.0.4
+
 ## 2.0.1
 
 ### Patch Changes

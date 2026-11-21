@@ -1,5 +1,30 @@
 # solid-js
 
+## 2.0.4
+
+### Patch Changes
+
+- 8bfca0d: Docs: the `createOptimistic`, `createOptimisticStore` and `action` JSDoc now say that optimistic writes always revert when the action settles, and their examples keep the result by refreshing or writing the source of truth. The previous examples kept nothing (#5129).
+- f353760: Ship the MIT `LICENSE` file in the fixed-group package roots (`solid-js`, `@solidjs/web`, and the same-release `@solidjs/universal` / `@solidjs/diagnostics`) so npm tarballs include the license text for third-party notice generators (#5106).
+- b7d939f: Ship the MIT `LICENSE` file in every published package (#5106).
+- fc0dac0: On the server, a projection or derived optimistic store whose function returns a pending async store (`createProjection(() => rows, …)`, `createOptimisticStore(() => rows, …)`) now waits for that store like a derive that read it, so `<Loading>` shows its fallback and the answer streams in. Before, adopting the pending store threw `NotReadyError` out of the component body.
+- Updated dependencies [543066e]
+- Updated dependencies [83d42ba]
+- Updated dependencies [21bfd2d]
+- Updated dependencies [3774ebe]
+- Updated dependencies [6ab70e2]
+- Updated dependencies [b4212bf]
+- Updated dependencies [da28cd5]
+- Updated dependencies [a4b4025]
+- Updated dependencies [8bfca0d]
+- Updated dependencies [3f655db]
+- Updated dependencies [c467fcd]
+- Updated dependencies [d165a5b]
+- Updated dependencies [99db9bc]
+- Updated dependencies [672c992]
+- Updated dependencies [e2757be]
+  - @solidjs/signals@2.0.4
+
 ## 2.0.3
 
 ### Patch Changes
