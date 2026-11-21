@@ -73,7 +73,11 @@ pub(crate) fn lower_static_native_template<'a>(
         (None, None) => &element.children,
     };
     let last_element = ctx.find_last_element(children);
-    for (index, child) in children.iter().enumerate() {
+    let dropped = ctx.leading_line_break_end(&tag_name, children);
+    if dropped > 0 {
+        template.push_both("\n");
+    }
+    for (index, child) in children.iter().enumerate().skip(dropped) {
         match child {
             JSXChild::Text(text) => {
                 let text = trim_jsx_text(&text.value);
