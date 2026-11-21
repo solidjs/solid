@@ -504,6 +504,27 @@ export function notifyOptimisticWrites(
     const d = t._fam!.node;
     if (removed && d?._statusFlags! & STATUS_PENDING && !reasked(d!)) g.g = null;
   }
+  // A foreign store proxy placed in a guess carries any live guesses on its
+  // target (or chained inner target / overlaid descendant): entangle with
+  // their holds so those guesses survive this hold's settlement without
+  // mutating the foreign store on landing (D-33, F-11, CS-R4).
+  if (actionDepth)
+    for (const key of changed) {
+      let cur = pb[key as any];
+      let ft: StoreTarget | undefined = cur?.[$TARGET];
+      if (!ft || ft.px !== cur || ft._fam === t._fam) continue;
+      for (; ft && ft.px === cur; cur = ft.v, ft = (cur as any)?.[$TARGET]) {
+        if (ft._fam?._overlaid?.size)
+          for (const o of ft._fam._overlaid)
+            for (let p: StoreTarget | null = o; p !== null; p = p.u)
+              if (p === ft) {
+                for (const cg of kgOf(o) ?? [])
+                  if (cg._config & CONFIG_OVERRIDE) readGuesses.push(txOf(cg), question);
+                break;
+              }
+        if (!ft.ch) break;
+      }
+    }
   // By value: the draft is the guess as written (a function leaf is a
   // value, not an updater, #3017).
   optimisticWrite(g, () => pb);
@@ -845,10 +866,9 @@ function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>, viewed?: boolean
   const list = Array.isArray(pb);
   // One rule (Q-D, plan sec. 31.7): a row with a target keeps it under the
   // landing's new object at its slot — in a keyed list, the one with its
-  // key (an unkeyed list pairs nothing). The target adopts the object; a
-  // row another store lent keeps its proxy in the slot.
+  // key (an unkeyed list pairs nothing). The target adopts the object.
   let at: Map<unknown, number> | undefined;
-  const pair = (k: unknown, px: any, lent?: boolean) => {
+  const pair = (k: unknown, px: any) => {
     if (list && at === undefined) {
       at = new Map();
       (pb as any[]).forEach((r, i) => {
@@ -866,10 +886,7 @@ function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>, viewed?: boolean
     const nv = i === undefined ? undefined : pb[i];
     // A new object only: not the row's own, nor one another row serves
     // (pairing it would alias the two).
-    if (isWrappable(nv) && !lookupTarget(nv, fam)) {
-      reconcileState(nv, px, keyFn, true);
-      if (lent) pb[i] = px;
-    }
+    if (isWrappable(nv) && !lookupTarget(nv, fam)) reconcileState(nv, px, keyFn, true);
   };
   // A guessed row, or its ancestor directly under `t`.
   for (let c of fam._overlaid ?? []) {
@@ -885,20 +902,6 @@ function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>, viewed?: boolean
       const rt = isWrappable(ov) ? lookupTarget(ov, fam) : undefined;
       if (rt !== undefined) pair(keyFn(ov), rt.px);
     }
-  // A row another store's guess added as it is (that store's proxy, not a
-  // copy): a guess of that store's still out on the row shows on through
-  // its own carrier until its action ends (F-11, #4902). A returned landing
-  // (`viewed`) is diffed against the view, which already holds the lent row
-  // by key: its slot stays this store's row (#4918).
-  if (!viewed)
-    kgOf(t)?.forEach(c => {
-      const f = guessedValueOf(c);
-      if (Array.isArray(f))
-        for (const r of f) {
-          const ft = r?.[$TARGET];
-          if (ft?.px === r && ft._fam !== fam) pair(keyFn(r), r, true);
-        }
-    });
 }
 
 /** #4788 (D-33): an action read `key` of `t` (`v`, else the writer's view
