@@ -675,7 +675,10 @@ export function readHydratedValue(initP: any, refresh: () => void, options?: any
         initP.then?.(undefined, noop);
         throw initP.v;
       }
-      if (initP.s === 1) return initP.v;
+      if (initP.s === 1)
+        return isAsyncIterable(initP.v)
+          ? { [Symbol.asyncIterator]: () => normalizeIterator(initP.v[Symbol.asyncIterator]()) }
+          : initP.v;
     }
     // Still in flight (or a loading window's): the runtime lands it, in a
     // served pass for the node it lands.
@@ -979,11 +982,22 @@ function normalizeIterator(it: any, deferFirst?: boolean) {
         buffered = null;
         return b;
       }
-      let latest = it.next();
+      let latest;
+      try {
+        latest = it.next();
+      } catch (e) {
+        return Promise.reject(e);
+      }
       if (latest && typeof latest.then === "function") return latest;
       let result = latest;
       while (!latest.done) {
-        const peek = it.next();
+        let peek;
+        try {
+          peek = it.next();
+        } catch (e) {
+          (buffered = Promise.reject(e)).catch(noop);
+          break;
+        }
         if (peek && typeof peek.then === "function") {
           buffered = peek;
           break;
