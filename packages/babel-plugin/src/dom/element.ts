@@ -1765,11 +1765,13 @@ function processSpreads(
         runningObject = [];
       }
 
-      const s = isDynamic(attribute.get("argument"), {
-        checkMember: true
-      })
-        ? inlineCallExpression(node.argument)
-        : node.argument;
+      const s =
+        !isStatic &&
+        isDynamic(attribute.get("argument"), {
+          checkMember: true
+        })
+          ? inlineCallExpression(node.argument)
+          : node.argument;
 
       spreadArgs.push(isStatic ? t.objectExpression([t.spreadElement(s)]) : s);
     } else if (key && key !== "ref") {

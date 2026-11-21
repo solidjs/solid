@@ -375,3 +375,9 @@ const template95 = <div class={["todo", "item", { todo: false, active: isActive(
 // expression — a client-only condition memo would allocate a hydration id
 // the ssr generate never does, drifting every id after it.
 const template96 = <svg {...spread} stroke-width={cond() ? width() : 2} fill={cond() && color()} />;
+
+const template97 = <div {/* @static */ ...props.attrs} />;
+
+const template98 = <div {/* @static */ ...makeProps()} />;
+
+const template99 = <div {/* @static */ ...props.attrs} {...propsSpread2} />;
