@@ -4372,6 +4372,9 @@ fn calls_outside_functions(expression: &Expression<'_>) -> bool {
         fn visit_call_expression(&mut self, _it: &oxc_ast::ast::CallExpression<'b>) {
             self.found = true;
         }
+        fn visit_import_expression(&mut self, _it: &oxc_ast::ast::ImportExpression<'b>) {
+            self.found = true;
+        }
         fn visit_new_expression(&mut self, _it: &oxc_ast::ast::NewExpression<'b>) {
             self.found = true;
         }

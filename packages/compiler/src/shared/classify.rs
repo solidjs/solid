@@ -182,6 +182,9 @@ pub(crate) fn is_dynamic_deep(value: &Expression<'_>, check_tags: bool) -> bool 
         fn visit_call_expression(&mut self, _it: &oxc_ast::ast::CallExpression<'b>) {
             self.dynamic = true;
         }
+        fn visit_import_expression(&mut self, _it: &oxc_ast::ast::ImportExpression<'b>) {
+            self.dynamic = true;
+        }
         fn visit_tagged_template_expression(
             &mut self,
             _it: &oxc_ast::ast::TaggedTemplateExpression<'b>,

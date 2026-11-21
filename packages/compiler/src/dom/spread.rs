@@ -44,7 +44,8 @@ impl<'a> AstDomTransform<'a, '_> {
                     }
                     let is_static =
                         source_from_span(spread.span, self.source).contains(&self.static_marker);
-                    let dynamic = self.classify().is_dynamic(None, &spread.argument, false);
+                    let dynamic =
+                        !is_static && self.classify().is_dynamic(None, &spread.argument, false);
                     let value = spread.argument.clone_in(self.allocator);
                     let value = if dynamic {
                         // Babel's `inlineCallExpression`: `{...results()}`

@@ -946,4 +946,34 @@ _$effect(
   }
 );
 const template108 = _el$132;
+var _el$133 = _tmpl$4();
+_$spread(
+  _el$133,
+  {
+    ...props.attrs
+  },
+  false
+);
+const template109 = _el$133;
+var _el$134 = _tmpl$4();
+_$spread(
+  _el$134,
+  {
+    ...makeProps()
+  },
+  false
+);
+const template110 = _el$134;
+var _el$135 = _tmpl$4();
+_$spread(
+  _el$135,
+  [
+    {
+      ...props.attrs
+    },
+    propsSpread2
+  ],
+  false
+);
+const template111 = _el$135;
 _$delegateEvents(["click", "input"]);
