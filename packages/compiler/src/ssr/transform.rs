@@ -2620,7 +2620,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             } else {
                 let key =
                     crate::shared::attr_plan::static_style_key(&property.key).unwrap_or_default();
-                let name = format!("{}:", key);
+                let name = format!("{}:", escape_html_attribute(&key));
                 self.ast()
                     .expression_string_literal(span, self.ast().str(&name), None)
             };
@@ -2697,7 +2697,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                         Some(identifier.name.to_string())
                     }
                     oxc_ast::ast::PropertyKey::StringLiteral(value) => {
-                        Some(escape_html_text_expression(&value.value))
+                        Some(escape_html_attribute(&value.value))
                     }
                     oxc_ast::ast::PropertyKey::NumericLiteral(value) => {
                         Some(format_number(value.value))
@@ -2781,13 +2781,16 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         let quasi_count = quasis.len();
         let elements =
             self.ast()
-                .vec_from_iter(quasis.into_iter().enumerate().map(|(index, raw)| {
-                    let atom = self.ast().str(&raw);
+                .vec_from_iter(quasis.into_iter().enumerate().map(|(index, cooked)| {
+                    let raw = cooked
+                        .replace('\\', "\\\\")
+                        .replace('`', "\\`")
+                        .replace("${", "\\${");
                     self.ast().template_element_with_lone_surrogates(
                         SPAN,
                         oxc_ast::ast::TemplateElementValue {
-                            raw: atom,
-                            cooked: Some(atom),
+                            raw: self.ast().str(&raw),
+                            cooked: Some(self.ast().str(&cooked)),
                         },
                         index == quasi_count - 1,
                         true,
@@ -4370,6 +4373,9 @@ fn calls_outside_functions(expression: &Expression<'_>) -> bool {
     }
     impl<'b> Visit<'b> for CallFinder {
         fn visit_call_expression(&mut self, _it: &oxc_ast::ast::CallExpression<'b>) {
+            self.found = true;
+        }
+        fn visit_import_expression(&mut self, _it: &oxc_ast::ast::ImportExpression<'b>) {
             self.found = true;
         }
         fn visit_new_expression(&mut self, _it: &oxc_ast::ast::NewExpression<'b>) {

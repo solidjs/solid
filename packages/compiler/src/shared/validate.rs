@@ -30,7 +30,8 @@ pub(crate) fn is_invalid_markup(html: &str) -> Option<InvalidMarkup> {
 
     // Text nodes are problematic ("doesn't" vs "doesn&#39;t"), so they all
     // become `#text` — the browser moving a text node still moves the
-    // placeholder.
+    // placeholder. A whitespace-only run between tags becomes one space,
+    // which the parser keeps in place wherever it keeps the original.
     html = replace_leading_text(&html);
     html = replace_trailing_text(&html);
     html = replace_inner_text(&html);
@@ -196,7 +197,7 @@ fn replace_trailing_text(html: &str) -> String {
     }
 }
 
-/// `>[^<]+<` -> `>#text<` (global)
+/// `>[^<]+<` -> `>#text<`, or `> <` for a whitespace-only run (global)
 fn replace_inner_text(html: &str) -> String {
     let bytes = html.as_bytes();
     let mut output = String::with_capacity(html.len());
@@ -207,7 +208,10 @@ fn replace_inner_text(html: &str) -> String {
         match html[start..].find('<') {
             Some(0) => cursor = start,
             Some(gap) => {
-                output.push_str("#text");
+                let whitespace = bytes[start..start + gap]
+                    .iter()
+                    .all(|byte| b"\t\n\x0C\r ".contains(byte));
+                output.push_str(if whitespace { " " } else { "#text" });
                 cursor = start + gap;
             }
             None => {
