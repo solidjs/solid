@@ -1,4 +1,5 @@
 import * as babelTypes from "@babel/types";
+import { decode } from "html-entities";
 
 const t = babelTypes;
 
@@ -1369,6 +1370,23 @@ function countDynamicSlots(children: JSXChildPath[]): number {
   return count;
 }
 
+function leadingLineBreakChildren(tagName: string, children: JSXChildPath[]): number {
+  if (tagName !== "pre" && tagName !== "listing") return 0;
+  let html = "",
+    count = 0;
+  for (const child of children) {
+    if (t.isJSXText(child.node)) {
+      html += trimWhitespace((child.node.extra?.raw as string | undefined) ?? "");
+    } else {
+      const value = getStaticExpression(child as BabelPath<babelTypes.JSXExpressionContainer>);
+      if (value === false) break;
+      html += escapeHTML(String(value)) as string;
+    }
+    count++;
+  }
+  return decode(html.replace(/\r\n?/g, "\n")) === "\n" ? count : 0;
+}
+
 function findLastElement(children: JSXChildPath[], hydratable?: boolean): number {
   let lastElement = -1,
     tagName;
@@ -1410,8 +1428,10 @@ function transformChildren(
     i = 0;
   const filteredChildren = filterChildren(path.get("children")),
     lastElement = findLastElement(filteredChildren, config.hydratable),
+    droppedLineBreak = leadingLineBreakChildren(tagName, filteredChildren),
     childNodes = filteredChildren.reduce(
       (memo: TransformResult[], child: JSXChildPath, index: number) => {
+        if (index < droppedLineBreak) return memo;
         if (child.isJSXFragment()) {
           throw new Error(
             `Fragments can only be used top level in JSX. Not used under a <${tagName}>.`
@@ -1451,6 +1471,11 @@ function transformChildren(
   // the marker is truthy — shared or null markers let one slot's cleanup
   // destroy a node that migrated to its neighbor (solidjs/solid#2830).
   const dynamicSlots = childNodes.reduce((n, c) => (c && !c.id && c.exprs.length ? n + 1 : n), 0);
+
+  if (droppedLineBreak) {
+    results.template += "\n";
+    results.templateWithClosingTags += "\n";
+  }
 
   childNodes.forEach((child, index) => {
     if (!child) return;

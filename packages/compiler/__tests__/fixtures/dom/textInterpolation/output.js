@@ -19,6 +19,12 @@ var _tmpl$14 = /* @__PURE__ */ _$template(`<span> `);
 var _tmpl$15 = /* @__PURE__ */ _$template(`<div normal=Search… title=Search&amp;hellip;>`);
 var _tmpl$16 = /* @__PURE__ */ _$template(`<div><div>`);
 var _tmpl$17 = /* @__PURE__ */ _$template(`<p>\${blah}`);
+var _tmpl$18 = /* @__PURE__ */ _$template(`<pre>
+<span>`);
+var _tmpl$19 = /* @__PURE__ */ _$template(`<pre>
+
+<span>`);
+var _tmpl$20 = /* @__PURE__ */ _$template(`<pre>&#13;<span>`);
 const trailing = _tmpl$();
 const leading = _tmpl$2();
 /* prettier-ignore */
@@ -104,3 +110,21 @@ var _el$37 = _tmpl$16();
 _$insert(_el$37, expr, null);
 const lastElementExpression = _el$37;
 const messwithTemplates = _tmpl$17();
+var _el$40 = _tmpl$18();
+var _el$41 = _el$40.firstChild;
+_$insert(_el$41, expr);
+const preLeadingLineBreak = _el$40;
+var _el$42 = _tmpl$18();
+var _el$43 = _el$42.firstChild;
+_$insert(_el$43, expr);
+const preLeadingLineBreakEntity = _el$42;
+var _el$44 = _tmpl$19();
+var _el$45 = _el$44.firstChild;
+var _el$46 = _el$45.nextSibling;
+_$insert(_el$46, expr);
+const preLeadingDoubleLineBreak = _el$44;
+var _el$47 = _tmpl$20();
+var _el$48 = _el$47.firstChild;
+var _el$49 = _el$48.nextSibling;
+_$insert(_el$49, expr);
+const preLeadingCarriageReturnEntity = _el$47;

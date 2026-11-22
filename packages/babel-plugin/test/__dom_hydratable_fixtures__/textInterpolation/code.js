@@ -93,3 +93,31 @@ const lastElementExpression = (
     {expr()}
   </div>
 );
+
+const preLeadingLineBreak = (
+  <pre>
+    {"\n"}
+    <span>{expr()}</span>
+  </pre>
+);
+
+const preLeadingLineBreakEntity = (
+  <pre>
+    &#10;
+    <span>{expr()}</span>
+  </pre>
+);
+
+const preLeadingDoubleLineBreak = (
+  <pre>
+    {"\n\n"}
+    <span>{expr()}</span>
+  </pre>
+);
+
+const preLeadingCarriageReturnEntity = (
+  <pre>
+    &#13;
+    <span>{expr()}</span>
+  </pre>
+);
