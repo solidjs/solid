@@ -1634,19 +1634,29 @@ function nextChild(children: TransformResult[], index: number): babelTypes.Ident
   return children[index + 1] && (children[index + 1].id || nextChild(children, index + 1));
 }
 
+function rendersNothing(child: JSXChildPath): boolean {
+  const node = child.node;
+  if (t.isJSXText(node)) return !trimWhitespace((node.extra?.raw as string | undefined) ?? "");
+  return (
+    t.isJSXExpressionContainer(node) &&
+    getStaticExpression(child as BabelPath<babelTypes.JSXExpressionContainer>) === ""
+  );
+}
+
 // reduce unnecessary refs
 function detectExpressions(
   children: JSXChildPath[],
   index: number,
   config: DOMTransformInfo
 ): boolean | undefined {
-  if (children[index - 1]) {
-    const node = children[index - 1].node;
+  let prev = index - 1;
+  while (prev >= 0 && rendersNothing(children[prev])) prev--;
+  if (children[prev]) {
+    const node = children[prev].node;
     if (
       t.isJSXExpressionContainer(node) &&
       !t.isJSXEmptyExpression(node.expression) &&
-      getStaticExpression(children[index - 1] as BabelPath<babelTypes.JSXExpressionContainer>) ===
-        false
+      getStaticExpression(children[prev] as BabelPath<babelTypes.JSXExpressionContainer>) === false
     )
       return true;
     let tagName;
@@ -1755,11 +1765,13 @@ function processSpreads(
         runningObject = [];
       }
 
-      const s = isDynamic(attribute.get("argument"), {
-        checkMember: true
-      })
-        ? inlineCallExpression(node.argument)
-        : node.argument;
+      const s =
+        !isStatic &&
+        isDynamic(attribute.get("argument"), {
+          checkMember: true
+        })
+          ? inlineCallExpression(node.argument)
+          : node.argument;
 
       spreadArgs.push(isStatic ? t.objectExpression([t.spreadElement(s)]) : s);
     } else if (key && key !== "ref") {

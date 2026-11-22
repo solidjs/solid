@@ -1589,38 +1589,24 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const c = s._sub;
     let t = c._x?._transaction,
-      render = (c as any)._type === EFFECT_RENDER,
-      same: boolean;
-    // A reader a hold has pending on its re-ask (a correction's
-    // re-derivation waiting on a refresh) re-derives from the guess as the
-    // lane's work, seated there before its pass: lane work reads the
-    // hold's flight as the screen (D-26, D-37), whether it reads the
-    // flight before the guess or after (D-28), and whether it reads the
-    // guess itself or a derivation of it — this walk runs at every lane
-    // node's change. Seated at the guess read, the earlier read threw the
-    // pass back into the hold (#4629). The hold is the lane's parent's (the
-    // same slot, D-33), or any hold whose flights the reader waits on are all
-    // `refresh()` re-asks (`_reask`; with none, its own flight): a re-ask
-    // asks no new question and holds nothing new (D-34 ¶3), so a guess into
-    // another log shows beside it at once (F-11, #4666). A reader pending on
-    // another hold's new question stays with that hold (#4577: seated, it
-    // would ask its question over the screen's input). One seated in another
-    // lane this flush moves; its pass reads that lane's guess and links the
-    // two (`enterLane`, A15), and `dissolveLane` skips a node it lost.
+      render = (c as any)._type === EFFECT_RENDER;
+    // A reader waiting only on re-asks follows the guess, as the lane's
+    // work, seated before its pass: a re-ask asks no new question and holds
+    // nothing new (D-34), so the guess shows beside it at once (F-11, F-1).
+    // One waiting on a new question stays with the hold that asked it
+    // (D-33): seated, it would ask over the screen's input. A memo the
+    // guess's own hold holds is that hold's question either way.
     if (
       (c._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
-      // A render effect pending on another hold's re-asks, held by it or
-      // by none, the same (#4824): its first read of the re-asked rows threw
-      // it back out of the lane, and the guess beside a reader that showed
-      // it waited on the refresh (F-1, F-11).
-      (t ? (c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD : render) &&
-      ((same = !!t && resolveTx(t) === resolveTx(l._parent!)),
-      (c as any)._type ? render && !same && reasks(c) : same || reasks(c))
+      !(c._config & CONFIG_OVERRIDE) &&
+      (reasks(c) || (!(c as any)._type && t && !t._lane && resolveTx(t) === resolveTx(l._parent!)))
     )
       list(c, (t = l));
     if (render && node._config & CONFIG_VERDICT)
       ((c._config |= CONFIG_VERDICT), (c._flags &= ~REACTIVE_LANE_DIRTY));
-    if (t?._lane ? sameLane(t, l) : (c as any)._type) c._flags |= REACTIVE_LANE_DIRTY;
+    // A reader in another lane whose removal is staged is still on screen (D-9).
+    if (t?._lane ? sameLane(t, l) || c._flags & REACTIVE_ZOMBIE : (c as any)._type)
+      c._flags |= REACTIVE_LANE_DIRTY;
   }
 }
 

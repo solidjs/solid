@@ -441,3 +441,9 @@ const template106 = <input type="checkbox" value={value()} defaultValue={other()
 const template107 = <input type="email" value={value()} defaultValue={other()} />;
 
 const template108 = <div style={{ color: c(), [prop()]: v(), background: b() }} />;
+
+const template109 = <div {/* @static */ ...props.attrs} />;
+
+const template110 = <div {/* @static */ ...makeProps()} />;
+
+const template111 = <div {/* @static */ ...props.attrs} {...propsSpread2} />;

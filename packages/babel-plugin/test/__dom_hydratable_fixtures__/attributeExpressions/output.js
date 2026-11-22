@@ -821,4 +821,37 @@ _$spread(
 );
 _$runHydrationEvents();
 const template96 = _el$115;
+var _el$116 = _$getNextElement(_tmpl$4);
+_$spread(
+  _el$116,
+  {
+    ...props.attrs
+  },
+  false
+);
+_$runHydrationEvents();
+const template97 = _el$116;
+var _el$117 = _$getNextElement(_tmpl$4);
+_$spread(
+  _el$117,
+  {
+    ...makeProps()
+  },
+  false
+);
+_$runHydrationEvents();
+const template98 = _el$117;
+var _el$118 = _$getNextElement(_tmpl$4);
+_$spread(
+  _el$118,
+  [
+    {
+      ...props.attrs
+    },
+    propsSpread2
+  ],
+  false
+);
+_$runHydrationEvents();
+const template99 = _el$118;
 _$delegateEvents(["click", "input"]);
