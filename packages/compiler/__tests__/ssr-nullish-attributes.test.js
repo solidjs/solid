@@ -109,6 +109,29 @@ for (const compiler of ["babel", "oxc"]) {
           render("App", { style: { color: "red" }, class: ["a", { b: true, c: false }] })
         ).toBe(div(' style="color:red" class="a b"'));
       });
+      const renderSource = async (code, name, props = {}) => {
+        const options = { moduleName: "@solidjs/web", generate: "ssr", hydratable };
+        const keys = await loadRuntime(
+          'export { renderToString } from "@solidjs/web";' +
+            (compiler === "babel"
+              ? compileBabel(code, options)
+              : compileOxc(code, "literal-keys", options))
+        );
+        return keys.renderToString(() => keys[name](props));
+      };
+      test("escapes literal class and style object keys once", async () => {
+        const code = `export const Keys = p => <div style={{ 'x"': p.color }} class={{ 'a"&': true, 'b"': p.on, base: true }} />;`;
+        expect(await renderSource(code, "Keys", { color: "<&", on: true })).toBe(
+          div(' style="x&quot;:&lt;&amp;" class="a&quot;&amp; b&quot;  base"')
+        );
+      });
+      test("keeps template delimiters in literal class object keys", async () => {
+        const code =
+          "export const Keys = p => <div class={{ 'a\\\\b': true, 'c`d': true, 'e${f}': true, g: p.on }} />;";
+        expect(await renderSource(code, "Keys", { on: true })).toBe(
+          div(' class="a\\b  c`d  e${f} g"')
+        );
+      });
       test("evaluates each getter and call once, in attribute order", () => {
         const reads = [];
         expect(

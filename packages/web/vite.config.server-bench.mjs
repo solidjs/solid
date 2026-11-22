@@ -29,6 +29,8 @@ export default defineConfig({
     codspeedPlugin()
   ],
   test: {
+    // Unpinned tiering makes some counts flip between two levels from run to run (#5141).
+    execArgv: ["--always-sparkplug"],
     environment: "node",
     include: ["test/server/**/*.bench.tsx"],
     globals: true,

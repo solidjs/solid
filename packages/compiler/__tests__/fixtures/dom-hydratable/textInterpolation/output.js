@@ -24,6 +24,12 @@ var _tmpl$16 = /* @__PURE__ */ _$template(`<span> <!$><!/>`);
 var _tmpl$17 = /* @__PURE__ */ _$template(`<span><!$><!/> `);
 var _tmpl$18 = /* @__PURE__ */ _$template(`<div normal=Search… title=Search&amp;hellip;>`);
 var _tmpl$19 = /* @__PURE__ */ _$template(`<div><div></div><!$><!/>`);
+var _tmpl$20 = /* @__PURE__ */ _$template(`<pre>
+<span>`);
+var _tmpl$21 = /* @__PURE__ */ _$template(`<pre>
+
+<span>`);
+var _tmpl$22 = /* @__PURE__ */ _$template(`<pre>&#13;<span>`);
 const trailing = _$getNextElement(_tmpl$);
 const leading = _$getNextElement(_tmpl$2);
 /* prettier-ignore */
@@ -129,3 +135,29 @@ _$insert(_el$65, _$scope(() => {
 	return expr();
 }), _el$68, _el$69);
 const lastElementExpression = _el$65;
+var _el$70 = _$getNextElement(_tmpl$20);
+var _el$71 = _el$70.firstChild;
+_$insert(_el$71, _$scope(() => {
+	return expr();
+}));
+const preLeadingLineBreak = _el$70;
+var _el$72 = _$getNextElement(_tmpl$20);
+var _el$73 = _el$72.firstChild;
+_$insert(_el$73, _$scope(() => {
+	return expr();
+}));
+const preLeadingLineBreakEntity = _el$72;
+var _el$74 = _$getNextElement(_tmpl$21);
+var _el$75 = _el$74.firstChild;
+var _el$76 = _el$75.nextSibling;
+_$insert(_el$76, _$scope(() => {
+	return expr();
+}));
+const preLeadingDoubleLineBreak = _el$74;
+var _el$77 = _$getNextElement(_tmpl$22);
+var _el$78 = _el$77.firstChild;
+var _el$79 = _el$78.nextSibling;
+_$insert(_el$79, _$scope(() => {
+	return expr();
+}));
+const preLeadingCarriageReturnEntity = _el$77;
