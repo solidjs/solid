@@ -67,8 +67,8 @@ export function isInvalidMarkup(html: string): { html: string; browser: string }
     // replace text nodes that isnt in between tags by `#text`
     .replace(/^[^<]+/, "#text")
     .replace(/[^>]+$/, "#text")
-    // replace text nodes in between tags by `#text`
-    .replace(/>[^<]+</gi, ">#text<")
+    // replace text nodes in between tags by `#text`, and whitespace-only ones by one space
+    .replace(/>[^<]+</gi, text => (/^>[\t\n\f\r ]+<$/.test(text) ? "> <" : ">#text<"))
 
     // remove attributes (the lack of quotes will make it mismatch)
     // attributes are not longer added to `templateWithClosingTags`
