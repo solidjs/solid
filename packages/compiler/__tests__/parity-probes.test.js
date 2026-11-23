@@ -1296,6 +1296,35 @@ const a = <Comp p={state.x /*@static*/} />;
   "static marker in condition branch": `
 const a = <div>{cond() ? /*@static*/ x() : y()}</div>;
 `,
+  "static marker named inside a comment stays dynamic": `
+const a = <div title={/* not @static */ t()}>{/* see @staticMethod */ text()}</div>;
+const b = <div style={{ color: /* not @static */ c() }} class={{ on: /* not @static */ on() }} />;
+const c = <div>{cond() ? /* not @static */ x() : y()}</div>;
+`,
+  "static marker as second comment stays dynamic": `
+const a = <div title={/* note */ /* @static */ t()}>{/* note */ /* @static */ text()}</div>;
+`,
+  "jsdoc static marker stays dynamic": `
+const a = <div title={/** @static */ t()}>{/** @static */ text()}</div>;
+`,
+  "static marker text inside a spread stays dynamic": `
+const a = <div {...{ title: t(), "data-src": "@static/logo.png" }} />;
+const b = <div {...props() /* @static */} />;
+`,
+  "static marker line comment and parentheses": `
+const a = <div title={// @static
+t()}>{/* @static */ (text())}{(/* @static */ text())}</div>;
+const b = <div style={{ color /* note */ : /* @static */ c() }} />;
+const c = <div style={{ "--a//b": /* @static */ c() }} />;
+`,
+  "static marker trimmed and skipped as ECMAScript whitespace": `
+const a = <div title={/*\uFEFF@static */ t()}>{/* @static */\uFEFF text()}</div>;
+const b = <div {\uFEFF/*\uFEFF@static */ ...props()} />;
+`,
+  "static marker followed by a next-line character stays dynamic": `
+const a = <div title={/* @static\u0085 */ t()}>{/* @static\u0085 */ text()}</div>;
+const b = <div {/* @static\u0085 */ ...props()} />;
+`,
 
   // --- Round 9: spread children through the unified classifier. Babel's
   // JSXSpreadChild handling is one transformNode branch (dynamic spreads

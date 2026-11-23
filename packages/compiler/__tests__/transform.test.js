@@ -376,6 +376,19 @@ describe("@solidjs/compiler transform", () => {
     expect(result.code).toContain("get other()");
   });
 
+  it("only treats a comment that is exactly the custom static marker as the marker", () => {
+    const result = transform(
+      "const view = <Comp value={/* runs more than once */ state.value} />;",
+      {
+        filename: "input.jsx",
+        moduleName: "r-dom",
+        staticMarker: "once"
+      }
+    );
+
+    expect(result.code).toContain("get value()");
+  });
+
   it("accepts validate false as an output-preserving option", () => {
     const result = transform("<button onClick={() => click()} />", {
       filename: "input.jsx",
@@ -901,6 +914,17 @@ describe("@solidjs/compiler transform", () => {
     expect(result.code).toContain("get title()");
     expect(result.code).toMatch(/\},\s*props,\s*\{\s*get title\(\)/);
     expect(result.code).toMatch(/\}\s*\], false\)/);
+  });
+
+  it("passes a DOM spread argument with its own static marker through unwrapped", () => {
+    const result = transform("<div {.../* @static */ props()} />", {
+      filename: "input.jsx",
+      moduleName: "r-dom"
+    });
+
+    expect(result.code).toMatch(
+      /_\$spread\(\s*_el\$\d*,\s*(?:\/\* @static \*\/\s*)?props\(\),\s*false\s*\)/
+    );
   });
 
   it("lowers plain dynamic DOM attributes through effect and setAttribute", () => {
