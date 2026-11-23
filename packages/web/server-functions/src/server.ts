@@ -2338,7 +2338,8 @@ async function foldFlightData(hooks, event, headers, outcome, context = {}) {
 //   produce data for) and for redirects leaving the app's origin.
 function digestOutcome(event, outcome) {
   const { request, response } = outcome;
-  outcome.revalidateKeys = response?.headers.get(REVALIDATE_HEADER)?.split(",");
+  const declared = response?.headers.get(REVALIDATE_HEADER);
+  outcome.revalidateKeys = declared === "," ? [""] : declared?.split(",");
   outcome.foldedHeaders = foldSetCookies(request.headers, [
     ...(event.response?.headers?.getSetCookie() ?? []),
     ...(response?.headers?.getSetCookie() ?? [])

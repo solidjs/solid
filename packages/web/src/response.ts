@@ -155,7 +155,7 @@ export interface ResponseHelperInit extends ResponseInit {
    * scopes: omitted sends no header — the host's default (Solid Router
    * revalidates everything after any mutation, form action or direct call;
    * a router without that convention reloads only what it owns); an empty
-   * list (or `""`) sends an empty header — nothing, explicitly; `REVALIDATE_ALL` (`"*"`) — every entry,
+   * list (or `""`) sends `,`, a header naming no key — nothing, explicitly; `REVALIDATE_ALL` (`"*"`) — every entry,
    * whatever the host's default. How named keys are matched (prefixes,
    * namespaces) is each integration's business.
    */
@@ -219,6 +219,7 @@ function initWithRevalidate(init: number | ResponseHelperInit = {}) {
       );
     }
     headers.set(REVALIDATE_HEADER, keys);
+    if (!headers.get(REVALIDATE_HEADER)) headers.set(REVALIDATE_HEADER, ",");
   }
   return { responseInit, headers };
 }

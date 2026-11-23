@@ -212,6 +212,27 @@ describe("the invalidation scope", () => {
     expect(all.revalidateKeys).toEqual(["*"]);
   });
 
+  it("answers an empty declaration with a non-empty header that names no key", async () => {
+    registerServerFunction("digest-empty-wire", async () => respond({}, { revalidate: [] }));
+
+    let outcome!: ServerFunctionOutcome;
+    const response = await handleServerFunctionRequest(
+      post("digest-empty-wire", { referer: "https://app.example/cart" }),
+      {
+        createEvent,
+        collectFlightData: (_event, received) => {
+          outcome = received;
+          return { collected: true };
+        }
+      }
+    );
+
+    const declared = response.headers.get("X-Revalidate");
+    expect(declared).toBe(",");
+    expect(declared!.split(",").filter(Boolean)).toEqual([]);
+    expect(outcome.revalidateKeys).toEqual([""]);
+  });
+
   it("the helpers refuse the all key beside named keys", () => {
     // "everything and also these" is a mistake, not a scope — refused at
     // the helper, inside the function body, so it lands on the ordinary

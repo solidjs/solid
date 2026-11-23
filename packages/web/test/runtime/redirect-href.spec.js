@@ -109,4 +109,13 @@ describe("composed response headers refuse rather than overflow (#3131)", () => 
     const ordinary = reload({ revalidate: ["orders", "orders:list"] });
     expect(ordinary.headers.get(REVALIDATE_HEADER)).toBe("orders,orders:list");
   });
+
+  it("writes an empty revalidate declaration as a non-empty header naming no key", () => {
+    for (const revalidate of [[], "", [""], " \t "]) {
+      expect(reload({ revalidate }).headers.get(REVALIDATE_HEADER)).toBe(",");
+      expect(redirect("/done", { revalidate }).headers.get(REVALIDATE_HEADER)).toBe(",");
+    }
+    expect(reload().headers.has(REVALIDATE_HEADER)).toBe(false);
+    expect(reload({ revalidate: "\u00a0*" }).headers.get(REVALIDATE_HEADER)).toBe("\u00a0*");
+  });
 });
