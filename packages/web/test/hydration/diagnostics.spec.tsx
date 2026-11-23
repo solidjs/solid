@@ -7,6 +7,14 @@ import { createMemo, createSignal, flush, Errored, Loading } from "solid-js";
 import { hydrate, insert } from "@solidjs/web";
 import type * as WebServer from "../../types/server.js";
 
+declare module "@solidjs/web/jsx-runtime" {
+  namespace JSX {
+    interface IntrinsicElements {
+      "my-widget": JSX.HTMLAttributes<HTMLElement>;
+    }
+  }
+}
+
 function setupHydration() {
   (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
 }
