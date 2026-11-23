@@ -93,6 +93,40 @@ describe("Phase 1: Hydration error diagnostics", () => {
     warn.mockRestore();
   });
 
+  test("no tag mismatch warning for a matching custom element (#5168)", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    container.innerHTML = '<my-widget _hk="0" data-role="target"><span>child</span></my-widget>';
+    const [role] = createSignal("target");
+
+    dispose = hydrate(
+      () => (
+        <my-widget data-role={role()}>
+          <span>child</span>
+        </my-widget>
+      ),
+      container
+    );
+
+    const tagWarns = warn.mock.calls.filter(
+      c => typeof c[0] === "string" && c[0].includes("tag mismatch")
+    );
+    expect(tagWarns).toHaveLength(0);
+    warn.mockRestore();
+  });
+
+  test("tag mismatch warning names the full custom element tag", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    container.innerHTML = '<my-other _hk="0">Wrong tag</my-other>';
+
+    dispose = hydrate(() => <my-widget>Expected widget</my-widget>, container);
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("expected <my-widget> but found"),
+      expect.any(Object)
+    );
+    warn.mockRestore();
+  });
+
   test("orphan detection fires automatically via drainHydrationCallbacks", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     container.innerHTML = '<div _hk="0">Claimed</div><span _hk="1">Orphan</span>';
