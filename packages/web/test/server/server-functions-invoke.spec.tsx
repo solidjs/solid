@@ -254,6 +254,80 @@ describe("invoke — per-call invocation (built bundles)", () => {
     }
   });
 
+  it("a streamed result stays a ReadableStream; cancel and break sever the wire", async () => {
+    registerServerFunction("inv-stream-0", async () => {
+      let n = 0;
+      return new ReadableStream(
+        { pull: c => (n < 3 ? c.enqueue(n++) : new Promise<void>(() => {})) },
+        { highWaterMark: 0 }
+      );
+    });
+    const transport = connectTransport();
+    try {
+      const ref = createServerReference("inv-stream-0") as () => Promise<ReadableStream<number>>;
+
+      const stream = await ref();
+      expect(stream).toBeInstanceOf(ReadableStream);
+      const reader = stream.getReader();
+      expect(await reader.read()).toEqual({ done: false, value: 0 });
+      await reader.cancel("left the page");
+      expect(transport.inits[0].signal?.reason).toBe("left the page");
+
+      const values: number[] = [];
+      for await (const value of await ref()) {
+        values.push(value);
+        if (value === 2) break;
+      }
+      expect(values).toEqual([0, 1, 2]);
+      expect(transport.inits[1].signal?.aborted).toBe(true);
+    } finally {
+      transport.restore();
+    }
+  });
+
+  it("a streamed result errors as soon as its producer does, dropping chunks it read ahead", async () => {
+    let source!: ReadableStreamDefaultController<number>;
+    registerServerFunction(
+      "inv-stream-1",
+      async () =>
+        new ReadableStream<number>({
+          start: c => {
+            source = c;
+            c.enqueue(0);
+            c.enqueue(1);
+          }
+        })
+    );
+    const transport = connectTransport();
+    try {
+      const ref = createServerReference("inv-stream-1") as () => Promise<ReadableStream<number>>;
+      const reader = (await ref()).getReader();
+      expect(await reader.read()).toEqual({ done: false, value: 0 });
+      source.error(new Error("producer failed"));
+      await expect(reader.closed).rejects.toMatchObject({ message: "Internal Server Error" });
+      await expect(reader.read()).rejects.toMatchObject({ message: "Internal Server Error" });
+    } finally {
+      transport.restore();
+    }
+  });
+
+  it("a plain result resolves in a runtime with no global ReadableStream", async () => {
+    registerServerFunction("inv-stream-2", async () => 42);
+    const transport = connectTransport();
+    const RS = globalThis.ReadableStream;
+    const send = globalThis.fetch;
+    globalThis.fetch = ((...args: Parameters<typeof send>) =>
+      send(...args).finally(() =>
+        Reflect.deleteProperty(globalThis, "ReadableStream")
+      )) as typeof fetch;
+    try {
+      await expect(createServerReference("inv-stream-2")()).resolves.toBe(42);
+    } finally {
+      globalThis.ReadableStream = RS;
+      transport.restore();
+    }
+  });
+
   it("server mirror: in-process call, signal rejects the caller", async () => {
     let calls = 0;
     let finished = 0;

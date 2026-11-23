@@ -1018,6 +1018,17 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // this, `return()` (a `break` in for-await) only detaches the local
   // iterator — the fetch keeps downloading and the server keeps producing.
   // Top-level only, matching the server's value-tier teardown scope.
+  if (controller && typeof ReadableStream !== "undefined" && result instanceof ReadableStream) {
+    const reader = result.getReader();
+    return new ReadableStream({
+      start(sink) {
+        reader.closed.catch(error => sink.error(error));
+      },
+      pull: sink =>
+        reader.read().then(step => (step.done ? sink.close() : sink.enqueue(step.value))),
+      cancel: reason => controller.abort(reason)
+    });
+  }
   if (controller && result?.[Symbol.asyncIterator]) {
     return {
       [Symbol.asyncIterator]() {
