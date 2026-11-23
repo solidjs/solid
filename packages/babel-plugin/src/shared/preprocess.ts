@@ -42,5 +42,6 @@ export default (path: NodePath<t.Program>, state: PluginPass) => {
           (element.node as t.JSXElement & { _foreignContent?: boolean })._foreignContent = true;
       }
     });
-  if (merged.lowerShow ?? !merged.dev) lowerShow(path, merged);
+  if ((merged.lowerShow ?? !merged.dev) && merged.wrapConditionals && merged.memoWrapper)
+    lowerShow(path, merged);
 };

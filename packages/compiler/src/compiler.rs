@@ -367,7 +367,8 @@ fn compile_lowered<'a>(
 
     crate::shared::component_children::anchor_coverage_pragmas(&mut program, source);
 
-    if options.lower_show {
+    if options.lower_show && options.wrap_conditionals && options.memo_wrapper != Wrapper::Disabled
+    {
         crate::shared::lower_show::lower_show(
             allocator,
             &mut program,
