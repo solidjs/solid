@@ -546,15 +546,15 @@ export function setContext<T>(
  * are dropped here: `_context` holds the render's provided values (and, under
  * a boundary, its error handler and HTML), and a pooled owner can sit idle
  * for as long as the process runs while concurrent renders fill the pool
- * (#4890). `_parent` / `_nextSibling` are cleared by `unlinkOwner`,
- * `_firstChild` / `_disposal` by the dispose walk.
+ * (#4890). An owner a full pool turns away is reset too: a closure of an
+ * earlier render that reused it can still reach it (#5180). `_parent` /
+ * `_nextSibling` are cleared by `unlinkOwner`, `_firstChild` / `_disposal` by
+ * the dispose walk.
  */
 function recycleOwner(node: SSROwner): void {
-  if (ownerPool.length < OWNER_POOL_MAX) {
-    node.id = undefined;
-    node._context = defaultSSRContext;
-    ownerPool.push(node);
-  }
+  node.id = undefined;
+  node._context = defaultSSRContext;
+  if (ownerPool.length < OWNER_POOL_MAX) ownerPool.push(node);
 }
 
 function unlinkOwner(node: SSROwner): void {
