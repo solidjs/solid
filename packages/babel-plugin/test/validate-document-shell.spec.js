@@ -22,8 +22,18 @@ const clientCompile = src =>
     plugins: [[plugin, { generate: "dom", hydratable: false }]],
     configFile: false,
     babelrc: false,
-    filename: "root.jsx"
+    filename: "root.jsx",
+    highlightCode: false
   });
+
+const malformedError = src => {
+  try {
+    clientCompile(src);
+  } catch (error) {
+    return error.message;
+  }
+  throw new Error("expected a malformed-markup error");
+};
 
 describe("validate accepts well-formed document shells (#3259)", () => {
   test("an <html> root document compiles in plain client mode", () => {
@@ -74,5 +84,24 @@ describe("validate accepts well-formed document shells (#3259)", () => {
 
   test("ordinary malformed markup outside a shell still fails", () => {
     expect(() => clientCompile(`const view = <p>a<div>b</div></p>;`)).toThrow(/malformed/);
+  });
+});
+
+describe("validate errors frame the offending JSX (#3099)", () => {
+  test("a template returned from a multiline component", () => {
+    const message = malformedError(`export function App() {
+  return (
+    <p><div>bad</div></p>
+  );
+}`);
+    expect(message).toContain("> 3 |     <p><div>bad</div></p>");
+    expect(message).not.toContain("internal node");
+  });
+
+  test("a template in a variable initializer", () => {
+    const message = malformedError(`const ok = 1;
+const view = <p><div>bad</div></p>;`);
+    expect(message).toContain("> 2 | const view = <p><div>bad</div></p>;");
+    expect(message).not.toContain("internal node");
   });
 });

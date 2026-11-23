@@ -188,7 +188,7 @@ function registerTemplate(path: NodePath, results: TransformResult) {
           // templates dedupe on markup, so the FIRST site carries the blame
           // for a validate failure (#3099) — good enough: every site with
           // this markup has the same problem
-          path
+          node: path.node
         });
       }
     }
