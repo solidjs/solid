@@ -21,10 +21,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  GET as serverGET,
+  createServerReference as createServerSideReference,
   handleServerFunctionRequest,
-  registerServerFunction
+  registerServerFunction,
+  registerServerReference
 } from "@solidjs/web/server-functions/server";
-import { createServerReference } from "@solidjs/web/server-functions/client";
+import { GET, createServerReference } from "@solidjs/web/server-functions/client";
 
 const RequestContext = Symbol.for("solid.RequestContext");
 const BODY_FORMAT_HEADER = "X-Server-Function-Format";
@@ -170,6 +173,46 @@ describe("an argument with a natural HTTP encoding", () => {
     } finally {
       transport.restore();
     }
+  });
+});
+
+describe("a GET call with a natural-encoding argument", () => {
+  it("sends a File over POST without the codec", async () => {
+    serverGET(
+      createServerSideReference(
+        registerServerReference("rich-get-file", async (upload: File) => ({
+          name: upload.name,
+          text: await upload.text()
+        }))
+      )
+    );
+    const transport = connectTransport();
+    try {
+      const read = GET(createServerReference("rich-get-file"));
+      expect(await read(new File(["hello"], "a.txt", { type: "text/plain" }))).toEqual({
+        name: "a.txt",
+        text: "hello"
+      });
+    } finally {
+      transport.restore();
+    }
+    const [request] = transport.requests;
+    expect(request.method).toBe("POST");
+    expect(request.headers.get(BODY_FORMAT_HEADER)).toBe(FILE_FORMAT);
+  });
+
+  it("still asks for the codec when a nested Date needs it", async () => {
+    serverGET(
+      createServerSideReference(registerServerReference("rich-get-date", async () => "ran"))
+    );
+    const transport = connectTransport();
+    try {
+      const read = GET(createServerReference("rich-get-date"));
+      await expect(read({ at: new Date(5) })).rejects.toThrow(/enableRichArguments/);
+    } finally {
+      transport.restore();
+    }
+    expect(transport.requests).toEqual([]);
   });
 });
 

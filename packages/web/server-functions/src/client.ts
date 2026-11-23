@@ -756,19 +756,18 @@ async function initializeResponse(base, id, options, args, meta) {
   // uploads.js). No content type is set here: fetch gives a string body
   // `text/plain` and a form its multipart boundary, which is how the handler
   // tells the two apart.
-  return createRequest(
-    base,
-    id,
-    {
-      ...options,
-      body: await serializeArguments(args),
-      headers: {
-        ...options.headers,
-        [BODY_FORMAT_HEADER]: BodyFormat.Serialized
-      }
-    },
-    meta
-  );
+  return createRequest(base, id, withCodecBody(options, await serializeArguments(args)), meta);
+}
+
+function withCodecBody(options, body) {
+  return {
+    ...options,
+    body,
+    headers: {
+      ...options.headers,
+      [BODY_FORMAT_HEADER]: BodyFormat.Serialized
+    }
+  };
 }
 
 // `args` is the wire encoding's argument list; `callArgs` is the call's REAL
@@ -1208,7 +1207,10 @@ export function GET(fn) {
     }
     // The handler accepts both encodings: plain JSON and the codec's framed
     // string (distinguished by the `;0x` frame prefix).
-    const encoded = isJSONSafe(args) ? JSON.stringify(args) : await serializeArguments(args);
+    const json = isJSONSafe(args);
+    const encoded = json
+      ? JSON.stringify(args)
+      : config.serializeArgs && (await serializeArguments(args));
     const url = `${address}?args=${encodeURIComponent(encoded)}`;
     const absolute = new URL(url, globalThis.location?.href || "http://localhost").href;
     // Arguments too long for a url call over POST instead: a cache miss, not
@@ -1218,8 +1220,17 @@ export function GET(fn) {
     // chain draws the line first. `read` keeps it a read: the declaration
     // says so, and a POST-shaped read must not ask the server for
     // single-flight collection, which is mutation policy.
-    if (absolute.length > MAX_GET_URL_LENGTH) {
-      return fetchServerFunction(address, id, { ...opts, read: true }, args, metadata);
+    if (typeof encoded !== "string" || absolute.length > MAX_GET_URL_LENGTH) {
+      return json || !encoded
+        ? fetchServerFunction(address, id, { ...opts, read: true }, args, metadata)
+        : fetchServerFunction(
+            address,
+            id,
+            withCodecBody({ ...opts, read: true }, encoded),
+            [],
+            metadata,
+            args
+          );
     }
     return fetchServerFunction(url, id, { ...opts, method: "GET" }, [], metadata, args);
   };

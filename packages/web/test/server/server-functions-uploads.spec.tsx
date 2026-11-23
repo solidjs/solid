@@ -11,10 +11,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  GET as serverGET,
+  createServerReference as createServerSideReference,
   handleServerFunctionRequest,
-  registerServerFunction
+  registerServerFunction,
+  registerServerReference
 } from "@solidjs/web/server-functions/server";
-import { createServerReference } from "@solidjs/web/server-functions/client";
+import { GET, createServerReference } from "@solidjs/web/server-functions/client";
 // @ts-ignore — the rich-args dist has no adjacent type declarations.
 import { enableRichArguments } from "../../server-functions/dist/rich-args.js";
 
@@ -283,6 +286,104 @@ describe("files in codec arguments", () => {
     );
     expect(response.status).toBe(413);
     expect(ran).toBe(1);
+  });
+});
+
+describe("files in the arguments of a GET call", () => {
+  const declareRead = <A extends unknown[]>(id: string, fn: (...args: A) => unknown) => {
+    serverGET(createServerSideReference(registerServerReference(id, fn)));
+    return GET(createServerReference(id));
+  };
+  const file = () => new File(["hello"], "a.txt", { type: "text/plain" });
+  const described = { file: "a.txt", type: "text/plain", text: "hello" };
+  async function* chunks() {
+    yield "one";
+    yield "two";
+  }
+
+  it("sends a File, (1, File) and FormData holding a file over POST", async () => {
+    const read = declareRead("get-upload-files", async (...args: unknown[]) =>
+      Promise.all(args.map(arg => describeFile(arg instanceof FormData ? arg.get("doc") : arg)))
+    );
+    const form = new FormData();
+    form.set("doc", file());
+    const transport = connectTransport();
+    try {
+      expect(await read(file())).toEqual([described]);
+      expect(await read(1, file())).toEqual([{ notAFile: "1" }, described]);
+      expect(await read(form)).toEqual([described]);
+    } finally {
+      transport.restore();
+    }
+    expect(
+      transport.requests.map(request => `${request.method} ${new URL(request.url).pathname}`)
+    ).toEqual(Array(3).fill("POST /_server/data/get-upload-files"));
+  });
+
+  it("reads a one-shot argument once when the call goes over POST", async () => {
+    const read = declareRead(
+      "get-upload-once",
+      async (input: { upload?: File; padding?: string; source: AsyncIterable<string> }) => {
+        const seen: string[] = [];
+        for await (const chunk of input.source) seen.push(chunk);
+        return { upload: await input.upload?.text(), chunks: seen };
+      }
+    );
+    const transport = connectTransport();
+    try {
+      expect(await read({ upload: file(), source: chunks() })).toEqual({
+        upload: "hello",
+        chunks: ["one", "two"]
+      });
+      expect(await read({ padding: "x".repeat(3000), source: chunks() })).toEqual({
+        chunks: ["one", "two"]
+      });
+    } finally {
+      transport.restore();
+    }
+    expect(transport.requests.map(request => request.method)).toEqual(["POST", "POST"]);
+  });
+
+  it("keeps a long argument beside a file out of the url", async () => {
+    const read = declareRead("get-upload-long", async (text: string, upload: File) => ({
+      length: text.length,
+      ...(await describeFile(upload))
+    }));
+    const transport = connectTransport();
+    try {
+      expect(await read("x".repeat(4000), file())).toEqual({ length: 4000, ...described });
+    } finally {
+      transport.restore();
+    }
+    expect(new URL(transport.requests[0].url).search).toBe("");
+  });
+
+  it("sends a nested file as multipart", async () => {
+    const read = declareRead("get-upload-nested", async (record: { doc: File }) =>
+      describeFile(record.doc)
+    );
+    const transport = connectTransport();
+    try {
+      expect(await read({ doc: file() })).toEqual(described);
+    } finally {
+      transport.restore();
+    }
+    const [request] = transport.requests;
+    expect(request.method).toBe("POST");
+    expect(request.headers.get("content-type")).toMatch(/^multipart\/form-data/);
+  });
+
+  it("keeps arguments without files in the url", async () => {
+    const read = declareRead("get-upload-date", async (at: Date) => at.getTime());
+    const transport = connectTransport();
+    try {
+      expect(await read(new Date(5))).toBe(5);
+    } finally {
+      transport.restore();
+    }
+    const [request] = transport.requests;
+    expect(request.method).toBe("GET");
+    expect(new URL(request.url).searchParams.get("args")).toMatch(/^;0x/);
   });
 });
 
