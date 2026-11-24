@@ -9,6 +9,7 @@ import {
   createMemo,
   createRenderEffect,
   flush,
+  getOwner,
   $PROXY
 } from "solid-js";
 import {
@@ -102,7 +103,8 @@ const effect = (fn, effectFn, options) =>
     effectFn,
     options ? { sync: true, ...options, transparent: !options.scope } : transparentOptions
   );
-const memo = fn => createMemo(() => fn(), syncOptions);
+// No owner means an imperative read (a handler), which reads the screen (F-1).
+const memo = fn => (getOwner() ? createMemo(() => fn(), syncOptions) : fn);
 
 // Renderer-owned effects get stable fallback names so diagnostics and
 // attribution can locate updates flowing through renderer output (#3063);
