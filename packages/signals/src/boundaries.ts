@@ -131,6 +131,9 @@ interface Boundary {
    * child: instantiated once per show and kept across the output's
    * re-derives while it shows (#3991). */
   _fb: Computed<unknown> | null;
+  /** Held writes a first load waits on only while a render effect outside
+   * shows them (`shownOutside`): re-checked each seam (F-3). */
+  _outside?: Set<Computed<any>>;
 }
 
 /** Context key: the nearest boundary of a node, inherited at creation. */
@@ -478,6 +481,36 @@ export function ready(b: Boundary): boolean {
   );
 }
 
+/** A render effect on screen outside `b` shows the frame before a held write
+ * that `h` is or (`up`) derives from (F-1). The output and what the fallback
+ * owns leave the screen with the reveal (F-3). */
+function shownOutside(b: Boundary, h: Computed<any>, seen: Set<object>, up?: Set<object>): unknown {
+  for (let s = h._subs, r: Computed<any>, o: any; s; s = s._nextSub) {
+    for (r = s._sub as Computed<any>, o = boundaryOf(r); o && o !== b; ) o = o._parent;
+    if (
+      !o &&
+      r !== b._output &&
+      seen.size !== seen.add(r).size &&
+      !(r._config & CONFIG_VERDICT) &&
+      !hiddenBy(r)
+    ) {
+      if (!(r as any)._type) {
+        if (shownOutside(b, r, seen)) return 1;
+      } else if ((r as any)._type === EFFECT_RENDER) {
+        for (o = r._parent; o && o !== b._fb; ) o = o._parent;
+        if (!o) return 1;
+      }
+    }
+  }
+  for (let d = up && h._deps; d; d = d._nextDep)
+    if (
+      d._dep._config & CONFIG_HELD &&
+      up!.size !== up!.add(d._dep).size &&
+      shownOutside(b, d._dep as Computed<any>, seen, up)
+    )
+      return 1;
+}
+
 /** `boundarySeamHook` (scheduler.ts), end of the seam: readers that settled, died,
  * or landed and committed are dropped; a fallback with none left reveals
  * next round. An arm resolves: nothing collected, nothing happened. */
@@ -499,16 +532,26 @@ function boundarySeam(): void {
     // reads: the seam keeps a loading source out of every hold (#2937,
     // D-6), so its answer landed mainline, torn from the frame a write's
     // hold keeps on screen (F-1, #4593); under an open action it still
-    // reveals at its landing (#2937). Not a held reader: it reveals with its
+    // reveals at its landing (#2937) unless the screen shows that write
+    // outside the boundary (F-1). Not a held reader: it reveals with its
     // own commit.
-    if (!b._initialized)
+    if (!b._initialized) {
+      const out = b._outside;
+      if (out)
+        for (const h of out)
+          if (!b._readers.has(h) || !shownOutside(b, h, new Set(), new Set()))
+            (out.delete(h), b._readers.delete(h));
       for (const [r] of b._readers)
         for (const n of r._statusFlags & STATUS_PENDING ? r._x?._pendingSources || [] : [r])
           if (!(n._config & CONFIG_HELD))
             for (let d = n._deps; d; d = d._nextDep) {
               const h = d._dep as Computed<any>;
-              if (h._config & CONFIG_HELD && (n === r || !txOf(h)._open)) record(b, h);
+              if (h._config & CONFIG_HELD)
+                if (n === r || !txOf(h)._open) (record(b, h), b._outside?.delete(h));
+                else if (b._outside?.has(h) || shownOutside(b, h, new Set(), new Set()))
+                  (record(b, h), (b._outside ||= new Set()).add(h));
             }
+    }
     prune(b);
     const o = b._output!;
     // A fallback staged into the very hold its readers landed in folds back:
@@ -531,6 +574,7 @@ function boundarySeam(): void {
     b._armed = false;
     if (b._readers.size === 0) {
       collecting.delete(b);
+      b._outside &&= undefined;
       if (b._fallback) redraw(b);
       if (revealHooks && b._reveal !== null) revealHooks._changed(b._reveal);
     }
