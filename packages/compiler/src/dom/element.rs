@@ -578,7 +578,7 @@ pub(crate) fn element_is_claim_target(element: &JSXElement<'_>) -> bool {
     is_claim_target(&tag_name, &element.opening_element.attributes)
 }
 
-fn has_attribute_named(element: &JSXElement<'_>, attribute_name: &str) -> bool {
+pub(crate) fn has_attribute_named(element: &JSXElement<'_>, attribute_name: &str) -> bool {
     element.opening_element.attributes.iter().any(|attr| {
         matches!(
             attr,

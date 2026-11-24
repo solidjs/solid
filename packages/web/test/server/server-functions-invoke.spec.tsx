@@ -254,6 +254,35 @@ describe("invoke — per-call invocation (built bundles)", () => {
     }
   });
 
+  it("a streamed ReadableStream result stays a ReadableStream (#5175)", async () => {
+    let source!: ReadableStreamDefaultController<number>;
+    registerServerFunction(
+      "inv-readable-stream",
+      async () =>
+        new ReadableStream<number>({
+          start: c => {
+            source = c;
+            c.enqueue(0);
+            c.enqueue(1);
+          }
+        })
+    );
+    const transport = connectTransport();
+    try {
+      const ref = createServerReference("inv-readable-stream") as () => Promise<
+        ReadableStream<number>
+      >;
+      const stream = await ref();
+      expect(stream).toBeInstanceOf(ReadableStream);
+      const reader = stream.getReader();
+      expect(await reader.read()).toEqual({ done: false, value: 0 });
+      source.error(new Error("producer failed"));
+      await expect(reader.closed).rejects.toBeTruthy();
+    } finally {
+      transport.restore();
+    }
+  });
+
   it("server mirror: in-process call, signal rejects the caller", async () => {
     let calls = 0;
     let finished = 0;

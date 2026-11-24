@@ -936,7 +936,7 @@ export namespace JSX {
   /** Global `MathMLElement` interface keys only. */
   interface MathMLAttributes<T> extends ElementAttributes<T> {
     dir?: FunctionMaybe<HTMLDir | RemoveAttribute>;
-    displaystyle?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
+    displaystyle?: FunctionMaybe<EnumeratedPseudoBoolean | RemoveAttribute>;
     scriptlevel?: FunctionMaybe<string | RemoveAttribute>;
     xmlns?: FunctionMaybe<string | RemoveAttribute>;
 
@@ -2930,23 +2930,23 @@ export namespace JSX {
   }
   interface MathMLMnElementAttributes<T> extends MathMLAttributes<T> {}
   interface MathMLMoElementAttributes<T> extends MathMLAttributes<T> {
-    fence?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
+    fence?: FunctionMaybe<EnumeratedPseudoBoolean | RemoveAttribute>;
     form?: FunctionMaybe<"prefix" | "infix" | "postfix" | RemoveAttribute>;
-    largeop?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
+    largeop?: FunctionMaybe<EnumeratedPseudoBoolean | RemoveAttribute>;
     lspace?: FunctionMaybe<string | RemoveAttribute>;
     maxsize?: FunctionMaybe<string | RemoveAttribute>;
     minsize?: FunctionMaybe<string | RemoveAttribute>;
-    movablelimits?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
+    movablelimits?: FunctionMaybe<EnumeratedPseudoBoolean | RemoveAttribute>;
     rspace?: FunctionMaybe<string | RemoveAttribute>;
-    separator?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
-    stretchy?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
-    symmetric?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
+    separator?: FunctionMaybe<EnumeratedPseudoBoolean | RemoveAttribute>;
+    stretchy?: FunctionMaybe<EnumeratedPseudoBoolean | RemoveAttribute>;
+    symmetric?: FunctionMaybe<EnumeratedPseudoBoolean | RemoveAttribute>;
 
     /** @non-standard */
-    accent?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
+    accent?: FunctionMaybe<EnumeratedPseudoBoolean | RemoveAttribute>;
   }
   interface MathMLMoverElementAttributes<T> extends MathMLAttributes<T> {
-    accent?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
+    accent?: FunctionMaybe<EnumeratedPseudoBoolean | RemoveAttribute>;
   }
   interface MathMLMpaddedElementAttributes<T> extends MathMLAttributes<T> {
     depth?: FunctionMaybe<string | RemoveAttribute>;
@@ -3067,11 +3067,11 @@ export namespace JSX {
     rowalign?: FunctionMaybe<"axis" | "baseline" | "bottom" | "center" | "top" | RemoveAttribute>;
   }
   interface MathMLMunderElementAttributes<T> extends MathMLAttributes<T> {
-    accentunder?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
+    accentunder?: FunctionMaybe<EnumeratedPseudoBoolean | RemoveAttribute>;
   }
   interface MathMLMunderoverElementAttributes<T> extends MathMLAttributes<T> {
-    accent?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
-    accentunder?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
+    accent?: FunctionMaybe<EnumeratedPseudoBoolean | RemoveAttribute>;
+    accentunder?: FunctionMaybe<EnumeratedPseudoBoolean | RemoveAttribute>;
   }
   interface MathMLSemanticsElementAttributes<T> extends MathMLAttributes<T> {}
 

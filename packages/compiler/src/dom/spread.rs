@@ -1,14 +1,14 @@
 use crate::error::{Error, Result};
 use oxc_allocator::CloneIn;
 use oxc_ast::ast::{JSXAttributeItem, JSXAttributeValue, ObjectPropertyKind, Statement};
-use oxc_span::Span;
+use oxc_span::{GetSpan, Span};
 
 use crate::dom::element::AstDomTransform;
 use crate::shared::array::expression_to_array_element;
 use crate::shared::ast::arrow_return_expression;
 use crate::shared::condition::zero_arg_call_thunk;
 use crate::shared::constants::dom_with_state;
-use crate::shared::utils::{decode_html_entities, source_from_span};
+use crate::shared::utils::{decode_jsx_attribute_entities, opening_comment_is};
 
 impl<'a> AstDomTransform<'a, '_> {
     /// Port of Babel's `processSpreads` (dom/element.ts).
@@ -42,10 +42,18 @@ impl<'a> AstDomTransform<'a, '_> {
                             self.ast().vec_from_iter(running_props.drain(..)),
                         ));
                     }
-                    let is_static =
-                        source_from_span(spread.span, self.source).contains(&self.static_marker);
-                    let dynamic =
-                        !is_static && self.classify().is_dynamic(None, &spread.argument, false);
+                    let is_static = opening_comment_is(
+                        self.source,
+                        spread.span.start + 1,
+                        spread.argument.span().start,
+                        &self.static_marker,
+                    );
+                    let dynamic = !is_static
+                        && self.classify().is_dynamic(
+                            Some(spread.span.start),
+                            &spread.argument,
+                            false,
+                        );
                     let value = spread.argument.clone_in(self.allocator);
                     let value = if dynamic {
                         // Babel's `inlineCallExpression`: `{...results()}`
@@ -181,7 +189,7 @@ impl<'a> AstDomTransform<'a, '_> {
             match &attr.value {
                 Some(JSXAttributeValue::StringLiteral(value)) => {
                     let planner = self.attr_planner();
-                    let text = decode_html_entities(&value.value);
+                    let text = decode_jsx_attribute_entities(&value.value);
                     let template = planner.style_string_template_literal(attr.span, &text);
                     let wrapped = planner.style_no_inline_iife(attr.span, template);
                     return Ok(self.object_getter_property(attr.span, &name, wrapped));
@@ -204,7 +212,7 @@ impl<'a> AstDomTransform<'a, '_> {
                 self.ast().expression_boolean_literal(attr.span, true),
             )),
             Some(JSXAttributeValue::StringLiteral(value)) => {
-                let value = decode_html_entities(&value.value);
+                let value = decode_jsx_attribute_entities(&value.value);
                 Ok(self.object_property(
                     attr.span,
                     &name,

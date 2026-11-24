@@ -940,7 +940,7 @@ export namespace JSX {
   /** Global `MathMLElement` interface keys only. */
   interface MathMLAttributes<T> extends ElementAttributes<T> {
     dir?: HTMLDir | RemoveAttribute;
-    displaystyle?: BooleanAttribute | RemoveAttribute;
+    displaystyle?: EnumeratedPseudoBoolean | RemoveAttribute;
     scriptlevel?: string | RemoveAttribute;
     xmlns?: string | RemoveAttribute;
 
@@ -2919,23 +2919,23 @@ export namespace JSX {
   }
   interface MathMLMnElementAttributes<T> extends MathMLAttributes<T> {}
   interface MathMLMoElementAttributes<T> extends MathMLAttributes<T> {
-    fence?: BooleanAttribute | RemoveAttribute;
+    fence?: EnumeratedPseudoBoolean | RemoveAttribute;
     form?: "prefix" | "infix" | "postfix" | RemoveAttribute;
-    largeop?: BooleanAttribute | RemoveAttribute;
+    largeop?: EnumeratedPseudoBoolean | RemoveAttribute;
     lspace?: string | RemoveAttribute;
     maxsize?: string | RemoveAttribute;
     minsize?: string | RemoveAttribute;
-    movablelimits?: BooleanAttribute | RemoveAttribute;
+    movablelimits?: EnumeratedPseudoBoolean | RemoveAttribute;
     rspace?: string | RemoveAttribute;
-    separator?: BooleanAttribute | RemoveAttribute;
-    stretchy?: BooleanAttribute | RemoveAttribute;
-    symmetric?: BooleanAttribute | RemoveAttribute;
+    separator?: EnumeratedPseudoBoolean | RemoveAttribute;
+    stretchy?: EnumeratedPseudoBoolean | RemoveAttribute;
+    symmetric?: EnumeratedPseudoBoolean | RemoveAttribute;
 
     /** @non-standard */
-    accent?: BooleanAttribute | RemoveAttribute;
+    accent?: EnumeratedPseudoBoolean | RemoveAttribute;
   }
   interface MathMLMoverElementAttributes<T> extends MathMLAttributes<T> {
-    accent?: BooleanAttribute | RemoveAttribute;
+    accent?: EnumeratedPseudoBoolean | RemoveAttribute;
   }
   interface MathMLMpaddedElementAttributes<T> extends MathMLAttributes<T> {
     depth?: string | RemoveAttribute;
@@ -3056,11 +3056,11 @@ export namespace JSX {
     rowalign?: "axis" | "baseline" | "bottom" | "center" | "top" | RemoveAttribute;
   }
   interface MathMLMunderElementAttributes<T> extends MathMLAttributes<T> {
-    accentunder?: BooleanAttribute | RemoveAttribute;
+    accentunder?: EnumeratedPseudoBoolean | RemoveAttribute;
   }
   interface MathMLMunderoverElementAttributes<T> extends MathMLAttributes<T> {
-    accent?: BooleanAttribute | RemoveAttribute;
-    accentunder?: BooleanAttribute | RemoveAttribute;
+    accent?: EnumeratedPseudoBoolean | RemoveAttribute;
+    accentunder?: EnumeratedPseudoBoolean | RemoveAttribute;
   }
   interface MathMLSemanticsElementAttributes<T> extends MathMLAttributes<T> {}
 

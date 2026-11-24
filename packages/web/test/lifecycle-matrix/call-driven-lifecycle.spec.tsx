@@ -35,6 +35,7 @@ const getShellErr = createServerReference("matrix/lc/shell-err");
 const getSwitch = createServerReference("matrix/lc/switch");
 const getSwitchFb = createServerReference("matrix/lc/switch-fb");
 const getSwitchErr = createServerReference("matrix/lc/switch-err");
+const getSwitchErrBatch = createServerReference("matrix/lc/switch-err-batch");
 const getSwitchSame = createServerReference("matrix/lc/switch-same");
 const getSwitchTwice = createServerReference("matrix/lc/switch-twice");
 
@@ -863,6 +864,40 @@ describe("call-driven/args-switch-gate", () => {
     // The frame errored: the <Errored> shows the record; the mount (still
     // showing the previous call's content) stands behind the fallback, not
     // torn down (same policy as error/after-html).
+    expect(m.error()).toBe("boom");
+    expect(m.div.querySelector("h1")).toBeNull();
+
+    m.cleanup();
+  });
+
+  test("the server's errored response, `:error` and `:complete` in one batch, is an answer through the switch too: the <Errored> shows it", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    const held = heldPerArg();
+
+    const [count, setCount] = createSignal(0);
+    const Page = dynamic(() => getSwitchErrBatch(count()) as any);
+    const m = mountWithProbe(Page, count);
+
+    await pump();
+    held[0].send({ type: "start", id: "srv", version: 1 });
+    held[0].send({ type: "html", id: "srv", version: 1, html: articleHtml("Zero") });
+    await pump();
+    expect(m.probe()).toBe("idle");
+
+    setCount(1);
+    await pump();
+    expect(m.probe()).toBe("pending");
+
+    held[1].send({ type: "start", id: "srv", version: 1 });
+    held[1].send({
+      id: "srv",
+      version: 1,
+      r: { ":error": { message: "boom" }, ":complete": true }
+    });
+    held[1].close();
+    await pump();
+    expect(m.probe()).toBe("idle");
     expect(m.error()).toBe("boom");
     expect(m.div.querySelector("h1")).toBeNull();
 

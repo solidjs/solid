@@ -15,6 +15,7 @@ use oxc_ast::ast::{Expression, JSXChild};
 use oxc_span::GetSpan;
 
 use crate::shared::bindings::BindingTable;
+use crate::shared::utils::leading_comment_is;
 
 /// Borrowed view over the state Babel's `isDynamic` reads through
 /// `path.scope` / `getConfig(path)`: the binding table (namespace imports),
@@ -34,16 +35,12 @@ impl<'c> Classify<'c> {
         }
     }
 
-    /// Whether the configured static marker comment appears between two
-    /// source offsets (e.g. between an expression container's `{` and the
-    /// expression itself — Babel's `leadingComments[0]` check).
+    /// Whether the first comment of the run directly before `end` (only
+    /// whitespace and `(` between it and the expression), scanned from
+    /// `start` (e.g. an expression container's `{`), trims to exactly the
+    /// configured static marker — Babel's `leadingComments[0]` check.
     pub(crate) fn marker_between(&self, start: u32, end: u32) -> bool {
-        let start = start as usize;
-        let end = (end as usize).min(self.source.len());
-        if start >= end {
-            return false;
-        }
-        self.source[start..end].contains(self.static_marker)
+        leading_comment_is(self.source, start, end, self.static_marker)
     }
 
     /// Full port of Babel's `isDynamic(path, { checkMember: true, checkTags })`:

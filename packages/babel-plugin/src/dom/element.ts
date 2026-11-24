@@ -42,7 +42,7 @@ import { transformNode } from "../shared/transform";
 import { decodedAttrValue } from "../universal/element";
 import { namesBindings } from "../config";
 import { bindingOptions, sourceLocation } from "../shared/location";
-import { InlineElements, BlockElements } from "./constants";
+import { BlockElements } from "./constants";
 import type {
   BabelPath,
   DOMTransformResult,
@@ -129,8 +129,35 @@ const alwaysClose = [
   "script",
   "noscript",
   "template",
-  "fieldset"
+  "fieldset",
+  "form",
+  "marquee",
+  "applet",
+  "xmp",
+  "noembed",
+  "noframes",
+  "big",
+  "font",
+  "nobr",
+  "strike",
+  "tt",
+  "svg",
+  "math"
 ];
+
+const integrationPoints = [
+  "foreignobject",
+  "desc",
+  "title",
+  "mi",
+  "mo",
+  "mn",
+  "ms",
+  "mtext",
+  "annotation-xml"
+];
+
+const isIntegrationPoint = (tagName: string) => integrationPoints.includes(tagName.toLowerCase());
 
 export function transformElement(
   path: BabelPath<babelTypes.JSXElement>,
@@ -328,13 +355,21 @@ export function transformElement(
     const toBeClosed =
       !info.lastElement ||
       !config.omitLastClosingTag ||
-      (info.toBeClosed && (!config.omitNestedClosingTags || info.toBeClosed.has(tagName)));
+      (info.toBeClosed &&
+        (!config.omitNestedClosingTags ||
+          info.toBeClosed.has(tagName) ||
+          info.toBeClosed.has("*")));
     if (toBeClosed) {
       results.toBeClosed = new Set(info.toBeClosed || alwaysClose);
+      results.toBeClosed.delete("*");
       results.toBeClosed.add(tagName);
-      if (InlineElements.includes(tagName))
+      if (tagName === "form" || isIntegrationPoint(tagName)) results.toBeClosed.add("*");
+      if (tagName === "li") results.toBeClosed.add("ol").add("ul");
+      if (!BlockElements.includes(tagName))
         BlockElements.forEach((i: string) => results.toBeClosed!.add(i));
-    } else results.toBeClosed = info.toBeClosed;
+    } else if (info.toBeClosed && isIntegrationPoint(tagName))
+      results.toBeClosed = new Set([...info.toBeClosed, "*"]);
+    else results.toBeClosed = info.toBeClosed;
     if (tagName !== "noscript") transformChildren(path, results, config);
     if (toBeClosed) results.template += `</${tagName}>`;
     results.templateWithClosingTags += `</${tagName}>`;
@@ -1718,6 +1753,10 @@ function detectExpressions(
             t.isJSXSpreadAttribute(attr) ||
             (t.isJSXIdentifier(attr.name) &&
               ["textContent", "innerHTML", "innerText"].includes(attr.name.name)) ||
+            (tagName === "select" &&
+              t.isJSXIdentifier(attr.name) &&
+              attr.name.name === "value" &&
+              attr.value != null) ||
             // inlineStyles: false rewrites every style value into an IIFE
             // expression, so even literal styles compile to dynamic
             // bindings that need an element reference.

@@ -38,17 +38,39 @@ pub(crate) fn delegated_events(name: &str) -> bool {
 
 pub(crate) const ALWAYS_CLOSE_ELEMENTS: &[&str] = &[
     "title", "style", "a", "strong", "small", "b", "u", "i", "em", "s", "code", "object", "table",
-    "button", "textarea", "select", "iframe", "script", "noscript", "template", "fieldset",
+    "button", "textarea", "select", "iframe", "script", "noscript", "template", "fieldset", "form",
+    "marquee", "applet", "xmp", "noembed", "noframes", "big", "font", "nobr", "strike", "tt",
+    "svg", "math",
 ];
+
+const INTEGRATION_POINTS: &[&str] = &[
+    "foreignobject",
+    "desc",
+    "title",
+    "mi",
+    "mo",
+    "mn",
+    "ms",
+    "mtext",
+    "annotation-xml",
+];
+
+pub(crate) fn is_integration_point(name: &str) -> bool {
+    INTEGRATION_POINTS
+        .iter()
+        .any(|point| point.eq_ignore_ascii_case(name))
+}
 
 pub(crate) const BLOCK_ELEMENTS: &[&str] = &[
     "address",
     "article",
     "aside",
     "blockquote",
+    "center",
     "dd",
     "details",
     "dialog",
+    "dir",
     "div",
     "dl",
     "dt",
@@ -67,28 +89,19 @@ pub(crate) const BLOCK_ELEMENTS: &[&str] = &[
     "hgroup",
     "hr",
     "li",
+    "listing",
     "main",
     "menu",
     "nav",
     "ol",
     "p",
     "pre",
+    "search",
     "section",
+    "summary",
     "table",
     "ul",
 ];
-
-pub(crate) const INLINE_ELEMENTS: &[&str] = &[
-    "a", "abbr", "acronym", "b", "bdi", "bdo", "big", "br", "button", "canvas", "cite", "code",
-    "data", "datalist", "del", "dfn", "em", "embed", "i", "iframe", "img", "input", "ins", "kbd",
-    "label", "map", "mark", "meter", "noscript", "object", "output", "picture", "progress", "q",
-    "ruby", "s", "samp", "script", "select", "slot", "small", "span", "strong", "sub", "sup",
-    "svg", "template", "textarea", "time", "u", "tt", "var", "video",
-];
-
-pub(crate) fn inline_elements(name: &str) -> bool {
-    INLINE_ELEMENTS.contains(&name)
-}
 
 /// SVG element names, mirroring the runtime's `SVGElements` set (`a`,
 /// `script`, `style`, and `title` excluded as HTML-ambiguous).

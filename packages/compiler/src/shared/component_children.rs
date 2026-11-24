@@ -21,7 +21,8 @@ use crate::shared::fragment::lower_fragment;
 use crate::shared::mode_lower::{ModeLower, mode_ast};
 use crate::shared::classify::is_dynamic_deep;
 use crate::shared::utils::{
-    coverage_ignore_block_comments, decode_html_entities, is_component_name, trim_jsx_text,
+    coverage_ignore_block_comments, decode_html_entities, is_component_name, leading_comment_is,
+    trim_jsx_text,
 };
 
 // Component element start → pragma anchor, for a pragma written immediately
@@ -289,11 +290,12 @@ fn nested_component_has_children_getter(element: &JSXElement<'_>, source: &str) 
                 }
                 let dynamic = container.expression.as_expression().is_some_and(|expression| {
                     // Match Classify's default `/*@static*/` leading-comment gate.
-                    let from = container.span.start as usize;
-                    let to = expression.span().start as usize;
-                    let marked_static = source
-                        .get(from..to)
-                        .is_some_and(|slice| slice.contains("@static"));
+                    let marked_static = leading_comment_is(
+                        source,
+                        container.span.start,
+                        expression.span().start,
+                        "@static",
+                    );
                     !marked_static && is_dynamic_deep(expression, true)
                 });
                 kinds.push(dynamic);

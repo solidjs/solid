@@ -258,6 +258,48 @@ describe.each(VIA)("a frame's error is an errored async value (3.3) — via %s",
     m.cleanup();
   });
 
+  test("(c') another call to the address errors while the re-ask awaits its response: no unhandled rejection, the <Errored> shows the error", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    let call = 0;
+    let release!: () => void;
+    const retryHeld = new Promise<void>(r => (release = r));
+    vi.stubGlobal("fetch", async () => {
+      if (++call === 2) await retryHeld;
+      return frameResponse("srv", [
+        { type: "start", id: "srv", version: 1 },
+        { id: "srv", version: 1, r: { ":error": { message: "boom" }, ":complete": true } }
+      ]);
+    });
+    const getStory = createServerReference("frames-reset/overlap");
+    const Page = dyn(() => getStory() as any);
+    let resetFn: (() => void) | undefined;
+    const m = mount(() => (
+      <Errored
+        fallback={(err, reset) => {
+          resetFn = reset;
+          return <span class="err">failed: {(err() as any)?.message}</span>;
+        }}
+      >
+        <Page />
+      </Errored>
+    ));
+    await pump();
+    expect(m.div.querySelector(".err")!.textContent).toBe("failed: boom");
+
+    resetFn!();
+    await pump();
+    expect(call).toBe(2);
+    await getStory();
+    await pump();
+    expect(call).toBe(3);
+
+    release();
+    await pump();
+    expect(m.div.querySelector(".err")!.textContent).toBe("failed: boom");
+    m.cleanup();
+  });
+
   test("(d) with NO client <Errored> the error propagates as any uncaught async error: the reactive system halts (REACTIVITY_HALTED) and the cause is reported", async () => {
     const { host } = makeHost();
     installServerComponents(host);
