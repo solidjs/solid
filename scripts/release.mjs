@@ -118,24 +118,27 @@ if (!packageIsPublished(compiler.name, compiler.version)) {
   const runId =
     dispatchOutput.match(/actions\/runs\/(\d+)/)?.[1] ?? (await findDispatchedRun(startedAt));
 
-  // `gh workflow run` prints the new run's URL as soon as the dispatch is
-  // accepted, before the run is readable: a `gh run watch` right away can
-  // 404. Wait until the run resolves, then watch it.
-  for (let attempt = 0; ; attempt++) {
-    const visible =
-      spawnSync("gh", ["run", "view", runId, "--repo", repository, "--json", "status"], {
-        cwd: process.cwd(),
-        env: process.env,
-        stdio: "ignore"
-      }).status === 0;
-    if (visible) break;
-    if (attempt === 30)
-      throw new Error(`The dispatched compiler binary run ${runId} never became visible.`);
-    await new Promise(resolve => setTimeout(resolve, 2000));
-  }
-
+  // Poll the run instead of `gh run watch`: right after the dispatch the run,
+  // and then its jobs, can 404 for a while (both 2.0.4 attempts stopped there).
+  // A read that fails is retried; only the run's own conclusion decides.
   console.log(`Waiting for compiler platform packages: ${runId}`);
-  run("gh", ["run", "watch", runId, "--repo", repository, "--exit-status"]);
+  let state;
+  for (let attempt = 0; attempt < 480; attempt++) {
+    const view = spawnSync(
+      "gh",
+      ["run", "view", runId, "--repo", repository, "--json", "status,conclusion"],
+      { cwd: process.cwd(), env: process.env, encoding: "utf8" }
+    );
+    if (view.status === 0) {
+      state = JSON.parse(view.stdout);
+      if (state.status === "completed") break;
+    }
+    await new Promise(resolve => setTimeout(resolve, 15000));
+  }
+  if (state?.status !== "completed")
+    throw new Error(`The compiler binary run ${runId} did not finish in two hours.`);
+  if (state.conclusion !== "success")
+    throw new Error(`The compiler binary run ${runId} concluded ${state.conclusion}.`);
 } else {
   console.log(`${compiler.name}@${compiler.version} is already published; skipping binaries.`);
 }
