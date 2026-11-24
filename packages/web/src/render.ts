@@ -92,5 +92,6 @@ export function effect<T>(
 // onto the parent's live counter and breaks async-hole parity (pinned by the
 // async-cond-before-for harness scenario).
 export function memo<T>(fn: () => T): () => T {
-  return createMemo(() => fn(), syncOptions);
+  // No owner means an imperative read (a handler), which reads the screen (F-1).
+  return getOwner() ? createMemo(() => fn(), syncOptions) : fn;
 }
