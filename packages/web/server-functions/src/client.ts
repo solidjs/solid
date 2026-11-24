@@ -1019,11 +1019,7 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // iterator — the fetch keeps downloading and the server keeps producing.
   // Top-level only, matching the server's value-tier teardown scope. A
   // decoded `ReadableStream` passes through as one, as it does nested.
-  if (
-    controller &&
-    result?.[Symbol.asyncIterator] &&
-    !(typeof ReadableStream !== "undefined" && result instanceof ReadableStream)
-  ) {
+  if (controller && result?.[Symbol.asyncIterator] && !result.getReader) {
     return {
       [Symbol.asyncIterator]() {
         const it = result[Symbol.asyncIterator]();
