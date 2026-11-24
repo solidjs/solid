@@ -139,6 +139,7 @@ address's first content, server fallback, or error applies (#2977).
 | switch holds pending until the new address's first content applies | `call-driven-lifecycle` › `call-driven/args-switch-gate` | pass |
 | a shell carrying a server `<Loading>` fallback IS an answer (pending drops at the shell, not the late reveal) | `call-driven-lifecycle` › `args-switch-gate` (server fallback) | pass |
 | an errored stream is an answer (pending must not outlive the response) | `call-driven-lifecycle` › `args-switch-gate` (error) | pass |
+| the server's errored response, `:error` and `:complete` in one batch, is an answer too | `call-driven-lifecycle` › `args-switch-gate` (error, one batch) | pass |
 | byte-identical shell across the switch still answers (root affinity is per stream — dom-expressions#564; the difference ships as records) | `call-driven-lifecycle` › `args-switch-gate` (byte-identical) | pass |
 | double-switch mid-flight: the gate re-arms; the superseded call's late answer warms its store, never the live boundary; switching back re-materializes from that warm | `call-driven-lifecycle` › `args-switch-gate` (mid-flight) | pass |
 | adopted site: t=0 zero-network mount, then a switch holds pending until the new address answers | `document-adoption` › `t=0/adopted-switch-gate` | pass |

@@ -382,6 +382,7 @@ function reask<T>(address: string, wait: Promise<T>): Promise<T> {
       `Server component boundary "${address}" errored, but no call is recorded for it; ` +
         `reset() cannot re-ask the server. (The address was written by hand, not by a call.)`
     );
+  wait.catch(() => {});
   return call ? call.retry().then(() => wait) : wait;
 }
 
