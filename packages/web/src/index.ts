@@ -131,7 +131,10 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
  *
  * @description https://docs.solidjs.com/reference/solid-web/components/portal
  */
-export function Portal(props: { mount?: Element; children: JSX.Element }): JSX.Element {
+export function Portal(props: {
+  mount?: Element | ShadowRoot;
+  children: JSX.Element;
+}): JSX.Element {
   // Everything the portal allocates (content memo, effects, anchor memo)
   // lives under one dedicated id scope: the server Portal renders nothing,
   // so without this the client primitives would advance the parent's
@@ -149,7 +152,7 @@ export function Portal(props: { mount?: Element; children: JSX.Element }): JSX.E
 // already in its mount.
 let claimPortal: ((start: Node) => void) | undefined;
 
-function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Element {
+function portalImpl(props: { mount?: Element | ShadowRoot; children: JSX.Element }): JSX.Element {
   let kids: Node[] = [];
   const treeMarker = document.createTextNode(""),
     startMarker = document.createTextNode(""),
@@ -182,7 +185,7 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
     );
 
   claimPortal && claimPortal(startMarker);
-  createRenderEffect<[Element, JSX.Element, Owner | null]>(
+  createRenderEffect<[Element | ShadowRoot, JSX.Element, Owner | null]>(
     // `getOwner()` is captured in the compute-half: the effect-half runs from
     // the queue with no ambient owner, so the insert effect must be parented
     // explicitly or it leaks (NO_OWNER_EFFECT, #2758).

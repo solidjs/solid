@@ -152,7 +152,7 @@ export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.E
  * so consume the matching slot here or every hydration id after the portal
  * drifts.
  */
-export function Portal(props: { mount?: Element; children: JSX.Element }) {
+export function Portal(props: { mount?: Element | ShadowRoot; children: JSX.Element }) {
   const o = getOwner();
   if (o?.id != null) getNextChildId(o);
   return undefined as unknown as JSX.Element;
