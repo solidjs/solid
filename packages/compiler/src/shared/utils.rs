@@ -2,6 +2,8 @@ use crate::error::{Error, Result};
 use oxc_ast::ast::BinaryOperator;
 use oxc_ast::ast::{Expression, JSXChild, JSXElementName, JSXExpression};
 use oxc_span::Span;
+use oxc_syntax::identifier::is_white_space;
+use oxc_syntax::line_terminator::is_line_terminator;
 use oxc_syntax::xml_entities::XML_ENTITIES;
 
 use crate::shared::constants::void_elements;
@@ -244,8 +246,43 @@ fn static_binary_expression(
     }
 }
 
-pub(crate) fn source_from_span(span: Span, source: &str) -> &str {
-    &source[span.start as usize..span.end as usize]
+pub(crate) fn leading_comment_is(source: &str, start: u32, end: u32, marker: &str) -> bool {
+    let mut rest = source.get(start as usize..end as usize).unwrap_or_default();
+    let mut first = None;
+    while let Some(character) = rest.chars().next() {
+        if let Some((comment, after)) = split_comment(rest) {
+            first.get_or_insert(comment);
+            rest = after;
+            continue;
+        }
+        if !is_js_whitespace(character) && character != '(' {
+            first = None;
+        }
+        rest = &rest[character.len_utf8()..];
+    }
+    first.is_some_and(|comment| comment.trim_matches(is_js_whitespace) == marker)
+}
+
+pub(crate) fn opening_comment_is(source: &str, start: u32, end: u32, marker: &str) -> bool {
+    source
+        .get(start as usize..end as usize)
+        .and_then(|text| split_comment(text.trim_start_matches(is_js_whitespace)))
+        .is_some_and(|(comment, _)| comment.trim_matches(is_js_whitespace) == marker)
+}
+
+fn is_js_whitespace(character: char) -> bool {
+    is_white_space(character) || is_line_terminator(character)
+}
+
+fn split_comment(text: &str) -> Option<(&str, &str)> {
+    if let Some(body) = text.strip_prefix("/*") {
+        return body.split_once("*/");
+    }
+    let body = text.strip_prefix("//")?;
+    let end = body
+        .find(['\n', '\r', '\u{2028}', '\u{2029}'])
+        .unwrap_or(body.len());
+    Some(body.split_at(end))
 }
 
 /// Spans of the coverage-pragma block comments inside a JSX empty expression

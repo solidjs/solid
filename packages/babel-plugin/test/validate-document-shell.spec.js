@@ -57,15 +57,13 @@ describe("validate accepts well-formed document shells (#3259)", () => {
   });
 
   test("a <body> root compiles", () => {
-    expect(clientCompile(`const view = <body><div>App</div></body>;`).code).toContain(
-      "_$template"
-    );
+    expect(clientCompile(`const view = <body><div>App</div></body>;`).code).toContain("_$template");
   });
 
   test("a shell the browser restructures still fails: missing <head>", () => {
-    expect(() =>
-      clientCompile(`const view = <html><body><div>App</div></body></html>;`)
-    ).toThrow(/malformed/);
+    expect(() => clientCompile(`const view = <html><body><div>App</div></body></html>;`)).toThrow(
+      /malformed/
+    );
   });
 
   test("a shell the browser restructures still fails: flow content in <head>", () => {
