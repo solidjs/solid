@@ -82,3 +82,18 @@ describe("option-matrix parity", () => {
     });
   }
 });
+
+describe("<Show> lowering needs the conditional memo", () => {
+  const source = `import { Show } from "solid-js";
+const view = <div><Show when={count()} fallback={<i>none</i>}><input /></Show></div>;`;
+
+  for (const modeName of ["dom", "ssr"]) {
+    for (const variantName of ["wrapConditionals:false", "memoWrapper:false"]) {
+      test(`${modeName} + ${variantName} keeps the component`, () => {
+        const options = { ...modes[modeName].options, ...variants[variantName] };
+        expect(compileBabel(source, options, "show.jsx")).toContain("get when()");
+        expect(compileOxc(source, "show", options)).toContain("get when()");
+      });
+    }
+  }
+});
