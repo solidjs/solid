@@ -2789,7 +2789,7 @@ export function getNextElement(template) {
     return template(true);
   }
   if ("_SOLID_DEV_" && template && template._html) {
-    const expected = template._html.match(/^<(\w+)/)?.[1];
+    const expected = template._html.match(/^<([^\s/>]+)/)?.[1];
     if (expected && node.localName !== expected) {
       console.warn(
         `Hydration tag mismatch for key "${key}": expected <${expected}> but found`,

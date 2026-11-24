@@ -12,7 +12,7 @@ use crate::dom::set_attr::SetAttrOptions;
 use crate::shared::attr_plan::{AttrPlan, AttrPlanOutcome, AttrPlanner, ConfidentValue, PlanValue};
 use crate::shared::bindings::push_unique;
 use crate::shared::constants::{
-    ALWAYS_CLOSE_ELEMENTS, BLOCK_ELEMENTS, child_properties, inline_elements, is_event_name,
+    ALWAYS_CLOSE_ELEMENTS, BLOCK_ELEMENTS, child_properties, is_event_name, is_integration_point,
 };
 use crate::shared::refs::{callable_test, ref_assignment_fallback};
 use crate::shared::utils::{
@@ -591,7 +591,9 @@ impl<'a> AstDomTransform<'a, '_> {
             || !self.omit_last_closing_tag
             || context.to_be_closed.as_ref().is_some_and(|to_be_closed| {
                 !self.omit_nested_closing_tags
-                    || to_be_closed.iter().any(|candidate| candidate == tag_name)
+                    || to_be_closed
+                        .iter()
+                        .any(|candidate| candidate == tag_name || candidate == "*")
             })
     }
 
@@ -616,7 +618,15 @@ impl<'a> AstDomTransform<'a, '_> {
         context: CloseTagContext,
     ) -> Option<std::vec::Vec<String>> {
         if !self.should_close_tag(tag_name, context.clone()) {
-            return context.to_be_closed;
+            return context.to_be_closed.map(|mut to_be_closed| {
+                if is_integration_point(tag_name) {
+                    push_unique(&mut to_be_closed, "*");
+                }
+                to_be_closed
+            });
+        }
+        if !self.omit_nested_closing_tags {
+            return Some(std::vec::Vec::new());
         }
 
         let mut to_be_closed = context.to_be_closed.unwrap_or_else(|| {
@@ -625,8 +635,16 @@ impl<'a> AstDomTransform<'a, '_> {
                 .map(|name| (*name).to_string())
                 .collect()
         });
+        to_be_closed.retain(|name| name != "*");
         push_unique(&mut to_be_closed, tag_name);
-        if inline_elements(tag_name) {
+        if tag_name == "form" || is_integration_point(tag_name) {
+            push_unique(&mut to_be_closed, "*");
+        }
+        if tag_name == "li" {
+            push_unique(&mut to_be_closed, "ol");
+            push_unique(&mut to_be_closed, "ul");
+        }
+        if !BLOCK_ELEMENTS.contains(&tag_name) {
             for element in BLOCK_ELEMENTS {
                 push_unique(&mut to_be_closed, element);
             }

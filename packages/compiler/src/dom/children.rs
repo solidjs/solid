@@ -1,9 +1,10 @@
 use crate::dom::attrs::CloseTagContext;
-use crate::dom::element::{AstDomTransform, jsx_expression_to_expression};
+use crate::dom::element::{AstDomTransform, has_attribute_named, jsx_expression_to_expression};
 use crate::dom::static_template::lower_static_native_template;
 use crate::dom::template::InsertMarker;
 use crate::error::{Error, Result};
 use crate::shared::classify::check_length;
+use crate::shared::constants::{DomPropertyState, dom_with_state};
 use crate::shared::utils::{
     child_slot_allocates_ids, decode_html_entities, element_name, escape_html_text,
     escape_html_text_expression, is_component_name, jsx_child_is_function_hole,
@@ -525,10 +526,33 @@ impl<'a> AstDomTransform<'a, '_> {
                                 JSXAttributeItem::SpreadAttribute(_) => true,
                                 JSXAttributeItem::Attribute(attr) => {
                                     let named_dynamic = match &attr.name {
-                                        JSXAttributeName::Identifier(name) => matches!(
-                                            name.name.as_str(),
-                                            "textContent" | "innerHTML" | "innerText"
-                                        ),
+                                        JSXAttributeName::Identifier(name) => {
+                                            matches!(
+                                                name.name.as_str(),
+                                                "textContent" | "innerHTML" | "innerText"
+                                            ) || (tag_name == "select"
+                                                && name.name == "value"
+                                                && attr.value.is_some())
+                                                || stateful_prop_beside_default(
+                                                    element, &tag_name, &name.name,
+                                                )
+                                                || (!self.inline_styles
+                                                    && name.name == "style"
+                                                    && match &attr.value {
+                                                        Some(JSXAttributeValue::StringLiteral(
+                                                            _,
+                                                        )) => true,
+                                                        Some(
+                                                            JSXAttributeValue::ExpressionContainer(
+                                                                container,
+                                                            ),
+                                                        ) => !matches!(
+                                                            container.expression,
+                                                            JSXExpression::EmptyExpression(_)
+                                                        ),
+                                                        _ => false,
+                                                    })
+                                        }
                                         JSXAttributeName::NamespacedName(namespaced) => {
                                             namespaced.namespace.name == "prop"
                                         }
@@ -1134,4 +1158,12 @@ fn dynamic_run_end(children: &[JSXChild<'_>], start: usize) -> usize {
         index += 1;
     }
     index
+}
+
+fn stateful_prop_beside_default(element: &JSXElement<'_>, tag_name: &str, name: &str) -> bool {
+    if dom_with_state(tag_name, name) != Some(DomPropertyState::Stateful) {
+        return false;
+    }
+    let default_name = format!("default{}{}", name[..1].to_uppercase(), &name[1..]);
+    dom_with_state(tag_name, &default_name).is_some() && has_attribute_named(element, &default_name)
 }

@@ -8,7 +8,7 @@ use crate::shared::array::expression_to_array_element;
 use crate::shared::ast::arrow_return_expression;
 use crate::shared::condition::zero_arg_call_thunk;
 use crate::shared::constants::dom_with_state;
-use crate::shared::utils::{decode_html_entities, opening_comment_is};
+use crate::shared::utils::{decode_jsx_attribute_entities, opening_comment_is};
 
 impl<'a> AstDomTransform<'a, '_> {
     /// Port of Babel's `processSpreads` (dom/element.ts).
@@ -189,7 +189,7 @@ impl<'a> AstDomTransform<'a, '_> {
             match &attr.value {
                 Some(JSXAttributeValue::StringLiteral(value)) => {
                     let planner = self.attr_planner();
-                    let text = decode_html_entities(&value.value);
+                    let text = decode_jsx_attribute_entities(&value.value);
                     let template = planner.style_string_template_literal(attr.span, &text);
                     let wrapped = planner.style_no_inline_iife(attr.span, template);
                     return Ok(self.object_getter_property(attr.span, &name, wrapped));
@@ -212,7 +212,7 @@ impl<'a> AstDomTransform<'a, '_> {
                 self.ast().expression_boolean_literal(attr.span, true),
             )),
             Some(JSXAttributeValue::StringLiteral(value)) => {
-                let value = decode_html_entities(&value.value);
+                let value = decode_jsx_attribute_entities(&value.value);
                 Ok(self.object_property(
                     attr.span,
                     &name,

@@ -20,8 +20,8 @@ use crate::shared::condition::{
 };
 use crate::shared::refs::{assignment_fallback, callable_test, unwrap_ts_ref_value};
 use crate::shared::utils::{
-    decode_html_entities, element_name, get_numbered_id, is_component_name, static_jsx_expression,
-    trim_jsx_text,
+    decode_html_entities, decode_jsx_attribute_entities, element_name, get_numbered_id,
+    is_component_name, static_jsx_expression, trim_jsx_text,
 };
 
 pub(crate) struct AstUniversalTransform<'a, 'source> {
@@ -592,7 +592,7 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                             value.span,
                             JSXExpression::from(self.ast().expression_string_literal(
                                 value.span,
-                                self.ast().str(&decode_html_entities(&value.value)),
+                                self.ast().str(&decode_jsx_attribute_entities(&value.value)),
                                 None,
                             )),
                         ));
@@ -605,7 +605,7 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                 // string, no HTML parser downstream. oxc keeps the raw source.
                 let value = self.ast().expression_string_literal(
                     value.span,
-                    self.ast().str(&decode_html_entities(&value.value)),
+                    self.ast().str(&decode_jsx_attribute_entities(&value.value)),
                     None,
                 );
                 self.add_static_attr(
@@ -764,7 +764,8 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                                     // JSX entities decode (#3127), as above.
                                     self.ast().expression_string_literal(
                                         value.span,
-                                        self.ast().str(&decode_html_entities(&value.value)),
+                                        self.ast()
+                                            .str(&decode_jsx_attribute_entities(&value.value)),
                                         None,
                                     )
                                 }

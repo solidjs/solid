@@ -373,6 +373,18 @@ const b = <pre>{"line1"}
   "html entities": `
 const a = <div title="a&amp;b &lt;c&gt; &quot;d&quot;">&nbsp;&lt;tag&gt; &amp;&amp; &#169; text</div>;
 `,
+  "attribute entities without a semicolon stay literal": `
+const a = <a href="/s?a=1&param=2&region=3" title="&amp x &copy y &#65 &#x+41; &notit; &amp;" style="content: '&copy'">x</a>;
+`,
+  "component prop entities without a semicolon stay literal": `
+const a = <Comp href="/s?a=1&param=2&region=3" title="&amp x &copy y &amp;" />;
+`,
+  "spread attribute entities without a semicolon stay literal": `
+const a = <a {...props} href="/s?a=1&param=2&region=3" title="&amp x &copy y &amp;" style="content: '&copy'">x</a>;
+`,
+  "attribute surrogate pair references decode to one character": `
+const a = <a title="&#xD83D;&#xDE00; &#55357;&#56832; &#xD83D;&#56832;">x</a>;
+`,
   "comment only child": `
 const a = <div>{/* just a comment */}</div>;
 const b = <div>{ }</div>;
