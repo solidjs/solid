@@ -1718,6 +1718,10 @@ function detectExpressions(
             t.isJSXSpreadAttribute(attr) ||
             (t.isJSXIdentifier(attr.name) &&
               ["textContent", "innerHTML", "innerText"].includes(attr.name.name)) ||
+            (tagName === "select" &&
+              t.isJSXIdentifier(attr.name) &&
+              attr.name.name === "value" &&
+              attr.value != null) ||
             // inlineStyles: false rewrites every style value into an IIFE
             // expression, so even literal styles compile to dynamic
             // bindings that need an element reference.
