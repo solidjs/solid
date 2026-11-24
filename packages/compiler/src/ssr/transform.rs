@@ -33,8 +33,8 @@ use crate::shared::constants::{
     reserved_namespace,
 };
 use crate::shared::utils::{
-    child_slot_allocates_ids, decode_html_entities, element_name, escape_html_attribute,
-    escape_html_text_expression, expression_can_return_hydratable_child,
+    child_slot_allocates_ids, decode_html_entities, decode_jsx_attribute_entities, element_name,
+    escape_html_attribute, escape_html_text_expression, expression_can_return_hydratable_child,
     expression_is_function_shaped, format_number, is_component_name, is_void_element,
     normalize_static_attribute_value, trim_jsx_text,
 };
@@ -1200,7 +1200,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     std::vec::Vec::new(),
                 ),
                 Some(JSXAttributeValue::StringLiteral(value)) => {
-                    let value = decode_html_entities(&value.value);
+                    let value = decode_jsx_attribute_entities(&value.value);
                     (
                         self.ast().expression_string_literal(
                             attr.span,
@@ -1859,7 +1859,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 self.ast().expression_boolean_literal(attr.span, true),
             )))),
             Some(JSXAttributeValue::StringLiteral(value)) => {
-                let value = decode_html_entities(&value.value);
+                let value = decode_jsx_attribute_entities(&value.value);
                 Ok(Some(SpreadProp::Source(
                     self.object_property(
                         attr.span,
@@ -4246,8 +4246,10 @@ impl<'a> AstSsrTransform<'a, '_> {
         match &attr.value {
             None => markup.push_str(&format!(" {key}")),
             Some(JSXAttributeValue::StringLiteral(value)) => {
-                let text =
-                    normalize_static_attribute_value(key, &decode_html_entities(&value.value));
+                let text = normalize_static_attribute_value(
+                    key,
+                    &decode_jsx_attribute_entities(&value.value),
+                );
                 append_ssr_static_attribute(&mut markup, key, &text);
             }
             Some(JSXAttributeValue::ExpressionContainer(container)) => {

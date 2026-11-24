@@ -9,7 +9,7 @@ use oxc_span::{GetSpan, SPAN, Span};
 use crate::shared::ast_builder::AstBuilder;
 use crate::shared::bindings::BindingTable;
 use crate::shared::utils::{
-    StaticValue, decode_html_entities, escape_html_text_expression, format_number,
+    StaticValue, decode_jsx_attribute_entities, escape_html_text_expression, format_number,
 };
 
 /// Planned attribute value, mirroring the states a Babel JSX attribute value
@@ -378,7 +378,7 @@ impl<'a> AttrPlanner<'a, '_> {
             let (value, marker_static) = match &attr.value {
                 None => (PlanValue::None, false),
                 Some(JSXAttributeValue::StringLiteral(value)) => (
-                    PlanValue::Literal(decode_html_entities(&value.value)),
+                    PlanValue::Literal(decode_jsx_attribute_entities(&value.value)),
                     false,
                 ),
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
