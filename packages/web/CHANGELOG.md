@@ -1,5 +1,29 @@
 # @solidjs/web
 
+## 2.0.4
+
+### Patch Changes
+
+- c66e1cc: The JSX types for MathML attributes whose values are the strings `"true"` and `"false"` (`displaystyle`, `stretchy`, `largeop`, `movablelimits`, `symmetric`, `fence`, `separator`, `accent`, `accentunder`) now accept those strings and reject `{true}`, the bare attribute and `""`, which write an empty value that MathML ignores, as well as `boolean`-typed values. `{false}` still removes the attribute.
+- 21822b2: An empty `revalidate` declaration (`[]` or `""`) is now sent as `X-Revalidate: ,` instead of an empty header value, which intermediaries such as CDNs drop, turning "revalidate nothing" into "revalidate everything".
+- 0791152: Navigating a frame to an address whose server render throws now shows the error in the nearest `<Errored>` and drops `isPending`, instead of keeping the previous content up while pending forever: the server sends that response's `:error` and `:complete` as one batch, and the landing now rejects on it.
+- 6d3cdef: The dev-mode hydration tag check reads the template's full tag name, so a correctly claimed custom element (a tag with a hyphen) no longer warns `Hydration tag mismatch`.
+- f353760: Ship the MIT `LICENSE` file in the fixed-group package roots (`solid-js`, `@solidjs/web`, and the same-release `@solidjs/universal` / `@solidjs/diagnostics`) so npm tarballs include the license text for third-party notice generators (#5106).
+- 898af32: `Portal`'s `mount` prop now accepts a `ShadowRoot` as well as an `Element`, matching what the runtime already supports.
+- c075f02: A `<select value>` set in the same turn after an unset (`null` or `undefined`) value now keeps the new selection instead of being cleared by the earlier unset write.
+- e847ed1: A server function that returns a `ReadableStream` resolves on the client to that `ReadableStream` (`getReader()`, `pipeTo()`, `tee()`), not to a plain async iterable. The top-level abort wrapper applies only to other async iterables, such as an async generator's result. To cancel the call behind a returned stream, call it through `invoke(fn, { signal })` and abort the signal; `cancel()` on the stream stops reading but does not abort the call, the same as for a stream nested in an object.
+- b7d939f: Ship the MIT `LICENSE` file in every published package (#5106).
+- e2e6ffd: SSR now marks a conditionally rendered `<option>` (a signal-driven `<Show>`, `&&` or ternary) `selected` inside a bound `<select value>`.
+- ef08c1e: A prop whose expression is a ternary over an async source (`n={ans() == null ? -1 : ans().length}`) now reads the value on screen from an event handler while the source re-asks, instead of throwing `NotReadyError`. Called with no owner (an event handler, an effect callback), the compiled `memo` helper returns its function instead of creating a memo, so an effect callback that reads such a prop no longer reports `PRIMITIVE_IN_EFFECT_CALLBACK` in dev. A template created with no owner therefore has no condition memo: its conditional rebuilds the branch each time the condition's sources change, not only when the condition flips.
+- Updated dependencies [fcaa051]
+- Updated dependencies [a406a5d]
+- Updated dependencies [8bfca0d]
+- Updated dependencies [f353760]
+- Updated dependencies [b7d939f]
+- Updated dependencies [430314c]
+- Updated dependencies [fc0dac0]
+  - solid-js@2.0.4
+
 ## 2.0.3
 
 ### Patch Changes

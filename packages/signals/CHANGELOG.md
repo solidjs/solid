@@ -1,5 +1,26 @@
 # @solidjs/signals
 
+## 2.0.4
+
+### Patch Changes
+
+- 543066e: A store array that an action replaces with a returned array, then pushes to after a `yield`, now maps the pushed row in `mapArray` and `<For>` instead of `undefined` (#5093).
+- 83d42ba: Allow calling an action from a cleanup during teardown, as #4165 allowed writes. Removing a keyed row ran its cleanups inside the list's pass, so an action invoked from an `onCleanup` or an effect's returned cleanup threw `ACTION_CALLED_IN_OWNED_SCOPE` in development, while the same cleanup under a branch switching away ran. The dev-only action guard now stands down while cleanups run, like the owned-scope write guard. Production builds are unchanged.
+- 30e7805: A cleanup that runs while a transition lands and writes a node that transition still holds no longer evicts another live transition (its `isPending` stayed `true` forever) or folds a live transition into the landed one (#5159).
+- 21bfd2d: Coalesce synchronous subscription bursts in `from()` before settling a pending pull.
+- 3774ebe: A declined optimistic edit now reverts in a list row that a `Show` is about to replace, at the same moment as everywhere else (#5077). Before, when the frame that would remove the old row was still waiting on another action, the row kept showing the declined value while a memo over the same store showed the truth.
+- 6ab70e2: Render the fallback for falsy client-side Repeat counts and dispose any existing rows.
+- b4212bf: A memo over an optimistic store now shows a fresh guess at the same moment as a binding over the same row, even when the memo also reads another list whose `refresh()` is still out (#5090). Before, the list row showed the guess while the memo kept the old value until the other list answered.
+- da28cd5: After a list's re-ask fails while other re-asks are out, a fresh guess on one of its rows now shows in the `For` row as it does in a memo over the same row (#5095). More generally, a reader that is only waiting on a `refresh()` now follows an optimistic write it reads, whatever kind of reader it is; a reader waiting on a new question still stays with the change that asked it.
+- a4b4025: A `latest()` loading flag no longer stays `true` forever when a memo's branch creates a memo and a render effect that reads it (#5073). The render effect waited on the verdict lane's reveal, and the lane waited on that render effect.
+- 8bfca0d: Docs: the `createOptimistic`, `createOptimisticStore` and `action` JSDoc now say that optimistic writes always revert when the action settles, and their examples keep the result by refreshing or writing the source of truth. The previous examples kept nothing (#5129).
+- 3f655db: Keep optimistic list counts in sync with rendered rows when one of several refreshes has already answered.
+- c467fcd: An optimistic change of an input no longer takes a slot away from another hold's guess. When an action guesses an input (a filter, a selection) and something derived from it carries a guess from another action that is still out (a pending row, a comment being sent), the two holds now merge, as they already did for a plain write of that input: the guess stays on screen and both reveal when the last of them settles. Before, the other guess left the screen as soon as the new answer loaded and came back only when its own request landed, or if the optimistic change reverted. To show the change at once, guess its effect too, in the same action.
+- d165a5b: A ref callback reads like an event handler or an effect callback: a pending value that has a committed one serves the committed value instead of throwing `NotReadyError`, and dev no longer opens a strict-read window there (no `STRICT_READ_UNTRACKED` or `PENDING_ASYNC_UNTRACKED_READ` in a ref). A node with no value yet still throws.
+- 99db9bc: `refresh()` called while the same question's answer is still out no longer drops that answer (#5094). It waits for the answer to land, then re-asks once, however many times it was called meanwhile. Polling on an interval shorter than the response time now shows each answer, and other changes no longer wait behind the poll. A `refresh()` inside an action still re-asks at once in the action's hold.
+- 672c992: Releasing a store's presence nodes no longer scans the remaining keys on each release, so disposing a reader of a tracked array iteration is linear in the array's length again (#5120).
+- e2757be: A guessed node now stores two values, and its lane stores at most one more: `_value` is always what the screen shows, `_pendingValue` is what the hold will commit (the value the guess reverts to, staged when the guess is revealed, or a truth that landed beneath it), and the lane's record holds only a guess it has not revealed yet. The covered value kept beside a guess and beside lane derivations is gone, and so is the note of what the screen showed while a second guess on a shown guess waited (#4775): the screen's value is no longer written before the reveal. No rule or screen changes.
+
 ## 2.0.3
 
 ### Patch Changes
