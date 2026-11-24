@@ -180,7 +180,7 @@ export interface ServerFunctionOutcome {
   /**
    * The outcome's `X-Revalidate` keys, split — the invalidation scope the
    * mutation declared. Undefined when the outcome carries none (integrations
-   * typically collect everything for the target in that case); `[""]` for
+   * typically collect everything for the target in that case); `[]` for
    * an empty declaration (nothing); `["*"]` for `REVALIDATE_ALL`, delivered
    * as declared so a collector can tell "everything" from named keys.
    */
@@ -2338,8 +2338,7 @@ async function foldFlightData(hooks, event, headers, outcome, context = {}) {
 //   produce data for) and for redirects leaving the app's origin.
 function digestOutcome(event, outcome) {
   const { request, response } = outcome;
-  const declared = response?.headers.get(REVALIDATE_HEADER);
-  outcome.revalidateKeys = declared === "," ? [""] : declared?.split(",");
+  outcome.revalidateKeys = response?.headers.get(REVALIDATE_HEADER)?.split(",").filter(Boolean);
   outcome.foldedHeaders = foldSetCookies(request.headers, [
     ...(event.response?.headers?.getSetCookie() ?? []),
     ...(response?.headers?.getSetCookie() ?? [])

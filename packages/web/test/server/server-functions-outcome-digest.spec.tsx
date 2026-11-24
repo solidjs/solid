@@ -206,7 +206,7 @@ describe("the invalidation scope", () => {
     registerServerFunction("digest-all", async () => reload({ revalidate: REVALIDATE_ALL }));
 
     const empty = await collect(post("digest-empty", { referer: "https://app.example/cart" }));
-    expect(empty.revalidateKeys).toEqual([""]);
+    expect(empty.revalidateKeys).toEqual([]);
 
     const all = await collect(post("digest-all", { referer: "https://app.example/cart" }));
     expect(all.revalidateKeys).toEqual(["*"]);
@@ -230,7 +230,7 @@ describe("the invalidation scope", () => {
     const declared = response.headers.get("X-Revalidate");
     expect(declared).toBe(",");
     expect(declared!.split(",").filter(Boolean)).toEqual([]);
-    expect(outcome.revalidateKeys).toEqual([""]);
+    expect(outcome.revalidateKeys).toEqual([]);
   });
 
   it("the helpers refuse the all key beside named keys", () => {

@@ -218,8 +218,9 @@ function initWithRevalidate(init: number | ResponseHelperInit = {}) {
           `the runtime refuses rather than trims.`
       );
     }
-    headers.set(REVALIDATE_HEADER, keys);
-    if (!headers.get(REVALIDATE_HEADER)) headers.set(REVALIDATE_HEADER, ",");
+    // An empty value is droppable in transit (#5167): "nothing" goes as `,`,
+    // which every reader splits into no key.
+    headers.set(REVALIDATE_HEADER, keys.trim() ? keys : ",");
   }
   return { responseInit, headers };
 }
