@@ -66,7 +66,7 @@ export default (path: NodePath<t.Program>, state: PluginPass) => {
               `User HTML:\n ${result.html}\n` +
               `Browser HTML:\n ${result.browser}\n` +
               `Original HTML:\n ${html}`;
-            throw (template.path ?? path).buildCodeFrameError(message);
+            throw path.hub.buildError(template.node ?? path.node, message, SyntaxError);
           }
         }
       }
