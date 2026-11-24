@@ -1623,8 +1623,9 @@ export function installHydrationRuntime() {
     // hydration, dropping server text-hole separators.
     claimInitial(parent, multi, initial) {
       if (isHydrating(parent)) {
-        if (!multi && initial === undefined && parent) initial = claimChildNodes(parent);
-        else if (Array.isArray(initial)) stripTextSeparators(initial);
+        if (!multi && initial === undefined && parent)
+          initial = collectClaimNodes(parent.childNodes, true);
+        else if (Array.isArray(initial)) collectClaimNodes(initial);
       }
       return initial;
     },
@@ -1661,8 +1662,8 @@ export function installHydrationRuntime() {
           nodes.unshift(node);
           node = node.previousSibling;
         }
-      } else return claimChildNodes(parent);
-      return stripTextSeparators(nodes);
+      } else return collectClaimNodes(parent.childNodes, true);
+      return collectClaimNodes(nodes);
     },
     // eventHandler(): replayed server events are deduped against the live
     // event queue during hydration.
@@ -1677,7 +1678,8 @@ export function installHydrationRuntime() {
 }
 
 // Drop the `<!--!$-->` text-hole separators the server emits so adjacent
-// text nodes stay individually claimable; the array is compacted in place.
+// text nodes stay individually claimable. Compact captured arrays in place;
+// copy live child nodes in one pass.
 // A pending boundary's placeholder scaffolding — `<template id="pl-X">` and
 // its `<!--pl-X-->` end marker — is excluded from the claim array but KEPT in
 // the DOM (the $df swap still needs it). While the boundary is pending its
@@ -1685,48 +1687,30 @@ export function installHydrationRuntime() {
 // shifted every positional text claim, so the fallback's reactive text never
 // adopted the server node and updates appended beside it as permanent debris
 // (solidjs/solid#2936).
-function stripTextSeparators(nodes) {
-  let j = 0;
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i],
-      t = node.nodeType;
-    if (t === 8 && node.nodeValue === "!$") {
+function collectClaimNodes(nodes, live = false) {
+  const out = live ? [] : nodes;
+  let write = 0;
+  for (let read = 0, length = nodes.length; read < length; read++) {
+    const node = nodes[read];
+    const type = node.nodeType;
+    if (type === 8 && node.nodeValue === "!$") {
       node.remove();
-      continue;
+      // The live list shifts, while a captured marker array stays fixed.
+      if (live) {
+        read--;
+        length--;
+      }
+    } else if (!isPlaceholderScaffolding(node, type)) {
+      out[write++] = node;
     }
-    if (isPlaceholderScaffolding(node, t)) continue;
-    nodes[j++] = node;
   }
-  nodes.length = j;
-  return nodes;
-}
-
-// The claim array for a parent's children: one indexed pass over the live
-// childNodes with the separators dropped as it copies. This runs for every
-// insert() during hydration, so it avoids `[...parent.childNodes]` (the
-// iterator protocol over a live NodeList) followed by a second compacting
-// pass. Removing a `<!--!$-->` shifts the live list, so the index holds.
-function claimChildNodes(parent) {
-  const live = parent.childNodes;
-  const out = [];
-  for (let i = 0, n = live.length; i < n; i++) {
-    const node = live[i],
-      t = node.nodeType;
-    if (t === 8 && node.nodeValue === "!$") {
-      node.remove();
-      i--;
-      n--;
-      continue;
-    }
-    if (isPlaceholderScaffolding(node, t)) continue;
-    out.push(node);
-  }
+  out.length = write;
   return out;
 }
 
 // A pending boundary's placeholder scaffolding — `<template id="pl-X">` and
 // its `<!--pl-X-->` end marker — is excluded from claim arrays but kept in
-// the DOM (see stripTextSeparators).
+// the DOM (see collectClaimNodes).
 function isPlaceholderScaffolding(node, t) {
   return t === 8
     ? node.nodeValue.startsWith("pl-")
