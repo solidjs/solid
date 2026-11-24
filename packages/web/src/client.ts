@@ -3255,6 +3255,18 @@ function insertExpression(parent, value, current, marker) {
           return current;
         }
       }
+      // A deferred Loading boundary may claim nothing while its siblings
+      // claim in place. Keep the whole region tracked until a mutation pass
+      // can replace the boundary's server nodes if its module preload fails.
+      if (arr && Array.isArray(current) && value.length < current.length) {
+        let next = 0;
+        for (const node of value) {
+          const index = current.indexOf(node, next);
+          if (index === -1) return value;
+          next = index + 1;
+        }
+        return current;
+      }
     }
     return value;
   }
