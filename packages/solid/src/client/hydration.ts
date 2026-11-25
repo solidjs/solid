@@ -28,6 +28,7 @@ import {
   type Accessor,
   type ComputeFunction,
   type MemoOptions,
+  type NoFn,
   type NoInfer,
   type Owner,
   type ProjectionOptions,
@@ -2003,7 +2004,6 @@ export const createProjection: {
     : (coreProjection as Function)(...args);
 }) as any;
 
-type NoFn<T> = T extends Function ? never : T;
 type NoArray<T> = Extract<T, readonly unknown[]> extends never ? unknown : never;
 
 /**
