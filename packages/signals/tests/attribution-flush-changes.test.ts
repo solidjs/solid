@@ -15,12 +15,14 @@ import {
   action,
   createMemo,
   createOptimistic,
+  createOptimisticStore,
   createRenderEffect,
   createRoot,
   createSignal,
   createStore,
   flush,
-  OBSERVE
+  OBSERVE,
+  refresh
 } from "../src/index.js";
 import type { RecordSubscribeOptions } from "../src/core/dev.js";
 
@@ -206,5 +208,202 @@ describe("FlushEvent.changes", () => {
     flush();
     // `count` changed (0 → 2); the effect's output did not, and effects are never listed.
     expect(flushes.map(names)).toEqual([["count"]]);
+  });
+});
+
+/**
+ * A store guess shows through the store's guess carrier while the guessed
+ * keys' own nodes stay silent (F-11). The record still names each property
+ * whose shown value the guess changed — when it appears and when it lifts —
+ * with the values the screen showed, as a plain store write is listed.
+ */
+describe("FlushEvent.changes: store guesses", () => {
+  /** An optimistic store whose fetcher answers `db` when its gate opens. */
+  function server<T>(initial: T) {
+    let db = initial;
+    let gate = Promise.resolve();
+    return {
+      fetch: async () => {
+        await gate;
+        return structuredClone(db);
+      },
+      set: (v: T) => void (db = v),
+      hold: () => {
+        const d = deferred();
+        gate = d.promise;
+        return d.resolve;
+      }
+    };
+  }
+  const settle = async () => {
+    flush();
+    await new Promise(r => setTimeout(r, 0));
+    flush();
+  };
+  /** The store-property changes of the flushes: `name[key] prev → value`. */
+  const props = (flushes: Flush[]) =>
+    seen(flushes)
+      .filter(c => c.nodeName.startsWith("list.") && !c.nodeName.endsWith(".$guess"))
+      .map(c => `${c.nodeName}[${c.key}] ${JSON.stringify(c.prev)} → ${JSON.stringify(c.value)}`);
+
+  it("names the length and the new index of a push, and confirms an equal answer silently", async () => {
+    const flushes = arm({ bodies: true });
+    const db = server(["a", "b"]);
+    const [list, setList] = createOptimisticStore(db.fetch, [] as string[], { name: "list" });
+    const shown: string[] = [];
+    createRoot(() =>
+      createRenderEffect(
+        () => list.join(","),
+        v => void shown.push(v),
+        { name: "paint" }
+      )
+    );
+    await settle();
+    expect(shown.at(-1)).toBe("a,b");
+    flushes.length = 0;
+
+    const open = db.hold();
+    const add = action(function* addItem(x: string) {
+      setList(l => {
+        l.push(x);
+      });
+      db.set(["a", "b", x]);
+      yield refresh(list);
+    });
+    const done = add("c");
+    flush();
+    expect(shown.at(-1)).toBe("a,b,c");
+    expect(props(flushes).sort()).toEqual([
+      'list.2[2] undefined → "c"',
+      "list.length[length] 2 → 3"
+    ]);
+    expect(flushes[0].changes.find(c => c.key === "length")!.origin).toMatchObject({
+      kind: "action",
+      name: "addItem"
+    });
+    flushes.length = 0;
+
+    open();
+    await done;
+    await settle();
+    expect(shown.at(-1)).toBe("a,b,c");
+    // The answer equals the guess: nothing shown changed, nothing is named again.
+    expect(props(flushes)).toEqual([]);
+  });
+
+  it("names a guessed nested property, and lifts it when the action ends without an answer", async () => {
+    const flushes = arm({ bodies: true });
+    type Row = { id: number; read: boolean };
+    const db = server<Row[]>([
+      { id: 1, read: false },
+      { id: 2, read: false }
+    ]);
+    const [list, setList] = createOptimisticStore(db.fetch, [] as Row[], {
+      key: "id",
+      name: "list"
+    });
+    createRoot(() =>
+      createRenderEffect(
+        () => list.map(r => r.read).join(","),
+        () => {},
+        { name: "paint" }
+      )
+    );
+    await settle();
+    flushes.length = 0;
+
+    const gate = deferred();
+    const markRead = action(function* markRead() {
+      setList(l => {
+        l[0].read = true;
+      });
+      yield gate.promise;
+    });
+    const done = markRead();
+    flush();
+    expect(list[0].read).toBe(true);
+    expect(props(flushes)).toEqual(["list.read[read] false → true"]);
+    flushes.length = 0;
+
+    gate.resolve();
+    await done;
+    await settle();
+    expect(list[0].read).toBe(false);
+    expect(props(flushes)).toEqual(["list.read[read] true → false"]);
+  });
+
+  it("names the property again when the answer differs from the guess", async () => {
+    const flushes = arm({ bodies: true });
+    const db = server({ count: 1 });
+    const [state, setState] = createOptimisticStore(db.fetch, { count: 0 }, { name: "list" });
+    createRoot(() =>
+      createRenderEffect(
+        () => state.count,
+        () => {},
+        { name: "paint" }
+      )
+    );
+    await settle();
+    expect(state.count).toBe(1);
+    flushes.length = 0;
+
+    const open = db.hold();
+    const bump = action(function* bump() {
+      setState(s => {
+        s.count = 2;
+      });
+      db.set({ count: 3 });
+      yield refresh(state);
+    });
+    const done = bump();
+    flush();
+    expect(props(flushes)).toEqual(["list.count[count] 1 → 2"]);
+    flushes.length = 0;
+
+    open();
+    await done;
+    await settle();
+    expect(state.count).toBe(3);
+    // Listed once: the guess lifting and the truth landing are one change on screen.
+    expect(props(flushes)).toEqual(["list.count[count] 2 → 3"]);
+  });
+
+  it("lines the live side up with the record, index for index", async () => {
+    const flushes = arm({ bodies: true });
+    const db = server(["a"]);
+    const [list, setList] = createOptimisticStore(db.fetch, [] as string[], { name: "list" });
+    createRoot(() =>
+      createRenderEffect(
+        () => list.join(","),
+        () => {},
+        { name: "paint" }
+      )
+    );
+    await settle();
+    const gate = deferred();
+    const add = action(function* add() {
+      setList(l => {
+        l.push("b");
+      });
+      yield gate.promise;
+    });
+    const done = add();
+    flush();
+    gate.resolve();
+    await done;
+    await settle();
+    expect(props(flushes)).toEqual(
+      expect.arrayContaining(['list.1[1] undefined → "b"', 'list.1[1] "b" → undefined'])
+    );
+    for (const f of flushes) {
+      expect(f.live.changes).toHaveLength(f.changes.length);
+      f.changes.forEach((c, i) => {
+        const node = f.live.changes[i].node as { _name?: string; _key?: PropertyKey };
+        expect(node._name ?? "signal").toBe(c.nodeName);
+        if (c.key !== undefined) expect(String(node._key)).toBe(c.key);
+      });
+      // One entry per node.
+      expect(new Set(f.live.changes.map(c => c.node)).size).toBe(f.changes.length);
+    }
   });
 });
