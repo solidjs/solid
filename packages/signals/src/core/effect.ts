@@ -265,13 +265,19 @@ function runEffect(node: Effect<any>, type: number): void {
   try {
     prevCleanup?.();
     const nextCleanup = node._effectFn(node._value, node._prevValue);
-    if (__DEV__ && nextCleanup !== undefined && typeof nextCleanup !== "function") {
-      throw new Error(
-        `${node._name || "effect"} callback returned an invalid cleanup value. Return a cleanup function or undefined.`
-      );
+    if (nextCleanup !== undefined && typeof nextCleanup !== "function") {
+      if (__DEV__) {
+        throw new Error(
+          `${node._name || "effect"} callback returned an invalid cleanup value. Return a cleanup function or undefined.`
+        );
+      }
+      // Production has no diagnostic, but storing the bad value would make the
+      // next run's `prevCleanup?.()` throw and halt the whole reactive system.
+      // Ignore it so later effects still run.
+    } else {
+      // The final cleanup is invoked by disposeChildren at true disposal.
+      node._cleanup = nextCleanup as (() => void) | undefined;
     }
-    // The final cleanup is invoked by disposeChildren at true disposal.
-    node._cleanup = nextCleanup as (() => void) | undefined;
   } catch (error) {
     // (D-42, dev: as above — a boundary takes it or the system halts.)
     if (__DEV__) forgetThrownRead();
