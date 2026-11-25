@@ -4026,16 +4026,14 @@ interface KeyedChange {
   origin: ChangeOrigin | undefined;
 }
 
-// A store's guess carrier (store/optimistic.ts) is the engine's unit, the
-// property is the author's: a guessed key's leaf is silent while the carrier
-// shows its value (F-11), so the record names it from the carrier's frames.
+// A guessed key's own node is silent while its carrier shows the guess, so
+// its change is read off the carrier's frames (F-11).
 function guessedKeys(g: any, w: Watched, now: any, out: KeyedChange[]): void {
   const t = g._host,
     shown: any = w.shown,
     covered = w.guess,
     origin = w.origin;
-  // A key's node a reader let go once the lift took the key away (a pushed
-  // row reverted) is still the one the screen showed it through.
+  // The node the screen showed a key through, kept past its release (F-11).
   const keys = (w.keys ??= new Map());
   const visit = (key: PropertyKey) => {
     const seen = keys.get(key);
@@ -4044,7 +4042,8 @@ function guessedKeys(g: any, w: Watched, now: any, out: KeyedChange[]): void {
     keys.set(key, [leaf, has]);
     const a = shown?.[key],
       b = now?.[key];
-    if (leaf !== undefined && !leaf._equals?.call(leaf, a, b))
+    // Method call: store slot nodes share one comparator that reads `this._host` (#3687).
+    if (leaf !== undefined && (!leaf._equals || !leaf._equals(a, b)))
       out.push({ node: leaf, prev: a, value: b, covered, origin });
     if (has !== undefined && key in Object(shown) !== key in Object(now))
       out.push({
@@ -4059,9 +4058,8 @@ function guessedKeys(g: any, w: Watched, now: any, out: KeyedChange[]): void {
   if (g.del) for (const key of g.del) if (!g.wk?.has(key)) visit(key);
 }
 
-/** One entry per node: a leaf the drain also changed directly keeps its
- * entry, with the value the screen showed before the drain when the guess
- * covered it. */
+/** One entry per node, as `FlushEvent.changes` promises: a node the drain
+ * also changed directly keeps the value the screen showed under the guess. */
 function mergeKeyed(
   keyed: KeyedChange[],
   changes: FlushChange[],

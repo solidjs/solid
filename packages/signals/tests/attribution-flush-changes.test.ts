@@ -368,6 +368,71 @@ describe("FlushEvent.changes: store guesses", () => {
     expect(props(flushes)).toEqual(["list.count[count] 2 → 3"]);
   });
 
+  it("names the properties of an optimistic store chained to another store", async () => {
+    const flushes = arm({ bodies: true });
+    const [truth, setTruth] = createStore(["a", "b"], { name: "truth" });
+    const [source] = createSignal(truth, { name: "source" });
+    const [list, setList] = createOptimisticStore(() => source(), [] as string[], {
+      name: "list"
+    });
+    createRoot(() =>
+      createRenderEffect(
+        () => list.join(","),
+        () => {},
+        { name: "paint" }
+      )
+    );
+    flush();
+    flushes.length = 0;
+
+    const gate = deferred();
+    const add = action(function* addItem(x: string) {
+      setList(l => {
+        l.push(x);
+      });
+      yield gate.promise;
+      setTruth(t => [...t, x]);
+    });
+    const done = add("c");
+    flush();
+    expect(list.join(",")).toBe("a,b,c");
+    expect(props(flushes).sort()).toEqual([
+      'list.2[2] undefined → "c"',
+      "list.length[length] 2 → 3"
+    ]);
+    flushes.length = 0;
+
+    gate.resolve();
+    await done;
+    await settle();
+    expect(list.join(",")).toBe("a,b,c");
+    // The answer equals the guess: nothing shown changed.
+    expect(props(flushes)).toEqual([]);
+
+    // A guess the action ends without answering lifts back to the store under it.
+    const failed = deferred();
+    const drop = action(function* dropFirst() {
+      setList(l => {
+        l.shift();
+      });
+      yield failed.promise;
+    });
+    const dropped = drop();
+    flush();
+    expect(list.join(",")).toBe("b,c");
+    flushes.length = 0;
+    failed.resolve();
+    await dropped;
+    await settle();
+    expect(list.join(",")).toBe("a,b,c");
+    expect(props(flushes).sort()).toEqual([
+      'list.0[0] "b" → "a"',
+      'list.1[1] "c" → "b"',
+      'list.2[2] undefined → "c"',
+      "list.length[length] 2 → 3"
+    ]);
+  });
+
   it("lines the live side up with the record, index for index", async () => {
     const flushes = arm({ bodies: true });
     const db = server(["a"]);
