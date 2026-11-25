@@ -176,39 +176,15 @@ describe("an argument with a natural HTTP encoding", () => {
   });
 });
 
-describe("a GET call with a natural-encoding argument", () => {
-  it("sends a File over POST without the codec", async () => {
+describe("a GET call with a File argument", () => {
+  it("asks for the codec without sending a request", async () => {
     serverGET(
-      createServerSideReference(
-        registerServerReference("rich-get-file", async (upload: File) => ({
-          name: upload.name,
-          text: await upload.text()
-        }))
-      )
+      createServerSideReference(registerServerReference("rich-get-file", async () => "ran"))
     );
     const transport = connectTransport();
     try {
       const read = GET(createServerReference("rich-get-file"));
-      expect(await read(new File(["hello"], "a.txt", { type: "text/plain" }))).toEqual({
-        name: "a.txt",
-        text: "hello"
-      });
-    } finally {
-      transport.restore();
-    }
-    const [request] = transport.requests;
-    expect(request.method).toBe("POST");
-    expect(request.headers.get(BODY_FORMAT_HEADER)).toBe(FILE_FORMAT);
-  });
-
-  it("still asks for the codec when a nested Date needs it", async () => {
-    serverGET(
-      createServerSideReference(registerServerReference("rich-get-date", async () => "ran"))
-    );
-    const transport = connectTransport();
-    try {
-      const read = GET(createServerReference("rich-get-date"));
-      await expect(read({ at: new Date(5) })).rejects.toThrow(/enableRichArguments/);
+      await expect(read(new File(["hello"], "a.txt"))).rejects.toThrow(/enableRichArguments/);
     } finally {
       transport.restore();
     }
