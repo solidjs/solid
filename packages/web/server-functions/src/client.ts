@@ -755,13 +755,14 @@ async function initializeResponse(base, id, options, args, meta) {
   // The encoder answers `FormData` when the arguments hold files (see
   // uploads.js). No content type is set here: fetch gives a string body
   // `text/plain` and a form its multipart boundary, which is how the handler
-  // tells the two apart.
+  // tells the two apart. A GET call too long for its url brings the encoding
+  // it already made, so a one-shot argument is read once.
   return createRequest(
     base,
     id,
     {
       ...options,
-      body: await serializeArguments(args),
+      body: options.body ?? (await serializeArguments(args)),
       headers: {
         ...options.headers,
         [BODY_FORMAT_HEADER]: BodyFormat.Serialized
@@ -1210,6 +1211,9 @@ export function GET(fn) {
     // The handler accepts both encodings: plain JSON and the codec's framed
     // string (distinguished by the `;0x` frame prefix).
     const encoded = isJSONSafe(args) ? JSON.stringify(args) : await serializeArguments(args);
+    if (typeof encoded !== "string") {
+      throw new Error("A GET server function cannot send files: use POST");
+    }
     const url = `${address}?args=${encodeURIComponent(encoded)}`;
     const absolute = new URL(url, globalThis.location?.href || "http://localhost").href;
     // Arguments too long for a url call over POST instead: a cache miss, not
@@ -1220,7 +1224,13 @@ export function GET(fn) {
     // says so, and a POST-shaped read must not ask the server for
     // single-flight collection, which is mutation policy.
     if (absolute.length > MAX_GET_URL_LENGTH) {
-      return fetchServerFunction(address, id, { ...opts, read: true }, args, metadata);
+      return fetchServerFunction(
+        address,
+        id,
+        { ...opts, read: true, body: encoded },
+        args,
+        metadata
+      );
     }
     return fetchServerFunction(url, id, { ...opts, method: "GET" }, [], metadata, args);
   };

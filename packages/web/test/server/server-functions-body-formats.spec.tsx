@@ -21,10 +21,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  GET as serverGET,
+  createServerReference as createServerSideReference,
   handleServerFunctionRequest,
-  registerServerFunction
+  registerServerFunction,
+  registerServerReference
 } from "@solidjs/web/server-functions/server";
-import { createServerReference } from "@solidjs/web/server-functions/client";
+import { GET, createServerReference } from "@solidjs/web/server-functions/client";
 
 const RequestContext = Symbol.for("solid.RequestContext");
 const BODY_FORMAT_HEADER = "X-Server-Function-Format";
@@ -170,6 +173,22 @@ describe("an argument with a natural HTTP encoding", () => {
     } finally {
       transport.restore();
     }
+  });
+});
+
+describe("a GET call with a File argument", () => {
+  it("asks for the codec without sending a request", async () => {
+    serverGET(
+      createServerSideReference(registerServerReference("rich-get-file", async () => "ran"))
+    );
+    const transport = connectTransport();
+    try {
+      const read = GET(createServerReference("rich-get-file"));
+      await expect(read(new File(["hello"], "a.txt"))).rejects.toThrow(/enableRichArguments/);
+    } finally {
+      transport.restore();
+    }
+    expect(transport.requests).toEqual([]);
   });
 });
 

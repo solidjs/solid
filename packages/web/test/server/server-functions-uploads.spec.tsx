@@ -11,10 +11,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  GET as serverGET,
+  createServerReference as createServerSideReference,
   handleServerFunctionRequest,
-  registerServerFunction
+  registerServerFunction,
+  registerServerReference
 } from "@solidjs/web/server-functions/server";
-import { createServerReference } from "@solidjs/web/server-functions/client";
+import { GET, createServerReference } from "@solidjs/web/server-functions/client";
 // @ts-ignore — the rich-args dist has no adjacent type declarations.
 import { enableRichArguments } from "../../server-functions/dist/rich-args.js";
 
@@ -283,6 +286,53 @@ describe("files in codec arguments", () => {
     );
     expect(response.status).toBe(413);
     expect(ran).toBe(1);
+  });
+});
+
+describe("a GET call with the codec", () => {
+  const declareRead = <A extends unknown[]>(id: string, fn: (...args: A) => unknown) => {
+    serverGET(createServerSideReference(registerServerReference(id, fn)));
+    return GET(createServerReference(id));
+  };
+
+  it("refuses arguments holding a file without sending a request", async () => {
+    const read = declareRead("get-upload-files", async (..._args: unknown[]) => "ran");
+    const file = () => new File(["hello"], "a.txt", { type: "text/plain" });
+    const form = new FormData();
+    form.set("doc", file());
+    const transport = connectTransport();
+    try {
+      for (const args of [[file()], [1, file()], [form], [{ doc: new Blob(["hi"]) }]]) {
+        await expect(read(...args)).rejects.toThrow("A GET server function cannot send files");
+      }
+    } finally {
+      transport.restore();
+    }
+    expect(transport.requests).toEqual([]);
+  });
+
+  it("reads a one-shot argument once when long arguments go over POST", async () => {
+    const read = declareRead(
+      "get-upload-once",
+      async (input: { padding: string; source: AsyncIterable<string> }) => {
+        const seen: string[] = [];
+        for await (const chunk of input.source) seen.push(chunk);
+        return seen;
+      }
+    );
+    async function* chunks() {
+      yield "one";
+      yield "two";
+    }
+    const transport = connectTransport();
+    try {
+      expect(await read({ padding: "x".repeat(3000), source: chunks() })).toEqual(["one", "two"]);
+    } finally {
+      transport.restore();
+    }
+    const [request] = transport.requests;
+    expect(request.method).toBe("POST");
+    expect(new URL(request.url).search).toBe("");
   });
 });
 
