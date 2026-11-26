@@ -499,15 +499,20 @@ describe("#3336: lazily created companions and store nodes carry the hold", () =
       expect([s.count, "added" in s, deep(s).count]).toEqual([0, false, 0]);
     });
 
-    it("a same-tick plain write (no transaction) keeps the snapshot peek", () => {
+    // F-10 (Ryan, 2026-11-13; re-pinned 2026-11-14): `snapshot()` sees a
+    // setter's write at the flush that carries it, like every read. The
+    // deep engine's snapshot peeks the pending backing, so this pin fails
+    // there.
+    it("a same-tick plain write (no transaction) shows in snapshot at its flush (F-10)", () => {
       const [s, setS] = createStore({ a: 1 });
       setS(d => {
         d.a = 3;
       });
-      expect(snapshot(s).a).toBe(3);
+      expect(snapshot(s).a).toBe(1);
       expect(s.a).toBe(1);
       flush();
       expect(s.a).toBe(3);
+      expect(snapshot(s).a).toBe(3);
     });
   });
 });

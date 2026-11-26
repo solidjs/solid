@@ -194,9 +194,6 @@ export function keptGuess(n: Signal<any> | Computed<any>): boolean {
 /** `n`'s readers are stale readers of `t` (re-derived at its landing). */
 export function rerun(n: Signal<any>, t: Transaction): void {
   for (let s = n._subs; s !== null; s = s._nextSub) staleReader(s._sub, t);
-  // A store's guess carrier: the readers of the keys it changed read their
-  // leaves (store/optimistic.ts).
-  if (n._config & CONFIG_SLOT_NODE) GlobalQueue._slotRerun?.(n, t);
 }
 /** A guess's own truth is in flight: the node's own refetch — or, a store
  * leaf's, its family's derive (the slot's flight; store/optimistic.ts
@@ -685,8 +682,8 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     if (__TEST__) shadowActual(SLOT_LV);
     // #4788 (D-33): an action's imperative read of a guess — its body, a
     // setter — that a guess it writes next may derive from.
-    // A store target's carrier is noted per key (store/optimistic.ts).
-    if (guess && actionDepth && !(el._config & CONFIG_SLOT_NODE)) readGuesses.push(l, question);
+    // A store's node is its own key (store/thin.ts), noted like any other.
+    if (guess && actionDepth) readGuesses.push(l, question);
     return latestOf(el);
   }
   const pending = !guess && status & STATUS_PENDING;

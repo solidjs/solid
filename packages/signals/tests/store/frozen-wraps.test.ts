@@ -6,7 +6,6 @@
 // use a shallow store (`{ shallow: true }`), not `Object.freeze`.
 import { describe, expect, test } from "vitest";
 import {
-  $TARGET,
   createEffect,
   createRoot,
   createStore,
@@ -14,6 +13,7 @@ import {
   reconcile,
   snapshot
 } from "../../src/index.js";
+import { targetOf } from "../_thin/target.js";
 
 const deepFreeze = <T>(o: T): T => {
   if (o && typeof o === "object") {
@@ -27,9 +27,9 @@ describe("frozen sources wrap (core R50)", () => {
   test("a frozen nested object is served as a store proxy", () => {
     const data = deepFreeze({ user: { name: "a" }, list: [{ id: 1 }] });
     const [s] = createStore({ data });
-    expect((s.data as any)[$TARGET]).toBeDefined();
-    expect((s.data.user as any)[$TARGET]).toBeDefined();
-    expect((s.data.list[0] as any)[$TARGET]).toBeDefined();
+    expect(targetOf(s.data)).toBeDefined();
+    expect(targetOf(s.data.user)).toBeDefined();
+    expect(targetOf(s.data.list[0])).toBeDefined();
     expect(s.data).not.toBe(data);
     expect(snapshot(s).data).toBe(data);
   });

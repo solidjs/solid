@@ -3,7 +3,7 @@
 // made disposing its reader quadratic in the array's length.
 import { test, expect, vi } from "vitest";
 import { createEffect, createRoot, createStore, flush } from "../../src/index.js";
-import { $TARGET } from "../../src/store/store.js";
+import { $THIN } from "../../src/store/types.js";
 
 test("#5120 disposing a reader of a tracked array iteration scans no keys per release", () => {
   const N = 2000;
@@ -17,7 +17,7 @@ test("#5120 disposing a reader of a tracked array iteration scans no keys per re
     );
   });
   flush();
-  const t = (store as any)[$TARGET];
+  const t = (store as any)[$THIN];
   expect(t.h).not.toBe(null);
   expect(Object.keys(t.h).length).toBeGreaterThanOrEqual(N);
 
@@ -53,7 +53,7 @@ test("#5120 a target keeps its presence dictionary until its last presence node 
     );
   });
   flush();
-  const t = (store as any)[$TARGET];
+  const t = (store as any)[$THIN];
   disposeA();
   flush();
   expect(t.h).not.toBe(null);
