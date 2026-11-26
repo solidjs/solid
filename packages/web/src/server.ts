@@ -526,7 +526,16 @@ function registerEntryAssets(manifest, noScripts) {
 
 // Header values must be ASCII, and `<`/`>` would end the link target early.
 function linkTarget(url) {
-  return `<${url.replace(/[^!-~]|[<>]/g, c => encodeURIComponent(c))}>`;
+  return `<${url.replace(/[^!-~]|[<>]/gu, encodeLinkChar)}>`;
+}
+
+function encodeLinkChar(c) {
+  try {
+    return encodeURIComponent(c);
+  } catch {
+    // A lone surrogate has no UTF-8 form.
+    return "%EF%BF%BD";
+  }
 }
 
 // CDNs such as Cloudflare build 103 Early Hints from `Link` headers, honoring only preload/preconnect.

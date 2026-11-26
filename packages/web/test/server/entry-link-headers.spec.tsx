@@ -107,11 +107,11 @@ describe("entry Link headers", () => {
     const event = makeEvent();
     storage.run(event, () =>
       renderToString(() => <App />, {
-        manifest: { "src/entry.tsx": { file: "assets/é>.js", isEntry: true } }
+        manifest: { "src/entry.tsx": { file: "assets/é>😀.js", isEntry: true } }
       })
     );
     expect(event.response.headers.get("link")).toBe(
-      "</assets/%C3%A9%3E.js>; rel=preload; as=script; crossorigin"
+      "</assets/%C3%A9%3E%F0%9F%98%80.js>; rel=preload; as=script; crossorigin"
     );
   });
 
