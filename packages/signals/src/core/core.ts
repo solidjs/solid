@@ -608,15 +608,17 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // A re-park drops sources this pass no longer reaches, from dependents that
       // reached them only through here; their landing walk stops at this node and
       // would never find them (#3456, #4541). Dependents with another path keep
-      // the source. A still-pending source has its own walk to come.
+      // the source. A still-pending source has its own walk to come, unless it is
+      // disposed: then it has none and holds nothing (F-3).
       if ((notReady || stagedErr) && outgoingPendingSources)
         for (const source of outgoingPendingSources)
           if (
             source !== el &&
-            !(
-              el._x?._pendingSources?.has(source) &&
-              (source._statusFlags & STATUS_PENDING || retryReaches(el, source))
-            )
+            (source._flags & REACTIVE_DISPOSED ||
+              !(
+                el._x?._pendingSources?.has(source) &&
+                (source._statusFlags & STATUS_PENDING || retryReaches(el, source))
+              ))
           )
             settlePendingSource(el, source);
     }
