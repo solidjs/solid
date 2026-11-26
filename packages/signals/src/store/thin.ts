@@ -1,10 +1,9 @@
 /**
- * SPIKE (not for merge): a signal-per-touched-key deep store.
+ * The store engine: a signal per touched key.
  *
  * The raw object is the seed and the identity; it is never mutated. Every key
  * that is tracked or written gets one core signal, and that signal is the
  * key's whole state: committed value, staging, holds and lanes are core's.
- * There is no pending backing, no fold, no commit hook.
  */
 import { checkForeignRead } from "../core/copies.js";
 import { forEachDependent } from "../core/async.js";

@@ -110,7 +110,7 @@ export type NotWrappable =
 const rawValues = new WeakSet<object>();
 export let rawValuesUsed = false;
 
-/** SPIKE: the thin engine's target brand (here so other engines can ignore it). */
+/** The store engine's target brand. */
 export const $THIN = Symbol(__DEV__ ? "THIN_TARGET" : 0);
 
 /** A store record's keys as its `ownKeys` trap answers them (store/thin.ts),

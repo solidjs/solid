@@ -1,4 +1,3 @@
-(globalThis as any).THIN_STORE = true;
 import {
   action,
   createOptimisticStore,
