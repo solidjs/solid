@@ -529,7 +529,7 @@ function linkTarget(url) {
   return `<${url.replace(/[^!-~]|[<>]/g, c => encodeURIComponent(c))}>`;
 }
 
-// CDNs such as Cloudflare build 103 Early Hints from a response's `Link` headers.
+// CDNs such as Cloudflare build 103 Early Hints from `Link` headers, honoring only preload/preconnect.
 function appendEntryLinkHeader(assets, noScripts) {
   const response = peekRequestEvent()?.response;
   if (!response || response.committed || !response.headers) return;
@@ -541,7 +541,9 @@ function appendEntryLinkHeader(assets, noScripts) {
     if (!existing.includes(target)) links.push(`${target}; ${params}`);
   };
   for (let i = 0; i < assets.css.length; i++) add(assets.css[i], "rel=preload; as=style");
-  if (!noScripts) for (let i = 0; i < assets.js.length; i++) add(assets.js[i], "rel=modulepreload");
+  if (!noScripts)
+    for (let i = 0; i < assets.js.length; i++)
+      add(assets.js[i], "rel=preload; as=script; crossorigin");
   if (links.length) headers.append("link", links.join(", "));
 }
 

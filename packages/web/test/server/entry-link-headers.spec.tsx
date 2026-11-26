@@ -39,7 +39,7 @@ const manifest = {
 
 const ENTRY_LINKS =
   "</assets/entry.css>; rel=preload; as=style, </assets/shared.css>; rel=preload; as=style, " +
-  "</assets/entry-client.js>; rel=modulepreload, </assets/shared.js>; rel=modulepreload";
+  "</assets/entry-client.js>; rel=preload; as=script; crossorigin, </assets/shared.js>; rel=preload; as=script; crossorigin";
 
 function App() {
   return (
@@ -91,7 +91,7 @@ describe("entry Link headers", () => {
     expect(event.response.headers.get("link")).toBe(
       "</assets/entry.css>; rel=preload; as=style, " +
         "</assets/shared.css>; rel=preload; as=style, " +
-        "</assets/entry-client.js>; rel=modulepreload, </assets/shared.js>; rel=modulepreload"
+        "</assets/entry-client.js>; rel=preload; as=script; crossorigin, </assets/shared.js>; rel=preload; as=script; crossorigin"
     );
   });
 
@@ -110,7 +110,9 @@ describe("entry Link headers", () => {
         manifest: { "src/entry.tsx": { file: "assets/é>.js", isEntry: true } }
       })
     );
-    expect(event.response.headers.get("link")).toBe("</assets/%C3%A9%3E.js>; rel=modulepreload");
+    expect(event.response.headers.get("link")).toBe(
+      "</assets/%C3%A9%3E.js>; rel=preload; as=script; crossorigin"
+    );
   });
 
   test("does not write to a committed response head", () => {
