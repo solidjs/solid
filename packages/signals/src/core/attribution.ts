@@ -302,7 +302,9 @@ export interface FlushEvent {
    * whose shown value differs from what it showed before the drain — a
    * commit, a held transition's landing, an optimistic value appearing or
    * lifting. One entry per node, in no promised order. Nodes that got their
-   * first value, and effects, are not listed.
+   * first value, and effects, are not listed. An optimistic store's guess
+   * lists the property nodes whose shown value it changed, as a plain store
+   * write does, beside the store's guess carrier (`<name>.$guess`).
    */
   changes: FlushChange[];
 }
@@ -3918,6 +3920,8 @@ interface Watched {
   covered: unknown;
   /** Who staged the value the drain will show, when an origin was open. */
   origin: ChangeOrigin | undefined;
+  /** A store guess carrier's: the nodes of the keys it showed, by key (`guessedKeys`). */
+  keys?: Map<PropertyKey, [Signal<any> | undefined, Signal<any> | undefined]>;
 }
 // Strong on the node, walked at every drain end: a node leaves when it
 // settles (`unsettled`) or is disposed, and a held or lane node always
@@ -3973,6 +3977,7 @@ function drainChanges(record: boolean, live: FlushLive["changes"]): FlushChange[
   const changes: FlushChange[] = [];
   if (watched.size === 0) return changes;
   const bodies = record && records.observed("flush", "bodies");
+  let keyed: KeyedChange[] | null = null;
   for (const [n, w] of watched) {
     if ((n as Computed<any>)._flags & REACTIVE_DISPOSED) {
       watched.delete(n);
@@ -3996,6 +4001,7 @@ function drainChanges(record: boolean, live: FlushLive["changes"]): FlushChange[
         if (w.origin !== undefined) change.origin = w.origin;
         changes.push(change);
         live.push(bodies ? { node: n, prev: w.shown, value: now } : { node: n });
+        if ((n as any).guess) guessedKeys(n, w, now, (keyed ??= []));
       }
       // A guess's truth is what the screen showed before it appeared; a new
       // guess over a shown guess keeps covering the same truth.
@@ -4006,7 +4012,79 @@ function drainChanges(record: boolean, live: FlushLive["changes"]): FlushChange[
     }
     if (!unsettled(n) && !pendingFallbacks.has(n as Computed<any>)) watched.delete(n);
   }
+  if (keyed !== null) mergeKeyed(keyed, changes, live, bodies);
   return changes;
+}
+
+/** A property whose shown value a store guess changed: read through its carrier. */
+interface KeyedChange {
+  node: Signal<any>;
+  prev: unknown;
+  value: unknown;
+  /** The screen showed the carrier's frame for the key before the drain. */
+  covered: boolean;
+  origin: ChangeOrigin | undefined;
+}
+
+// A guessed key's own node is silent while its carrier shows the guess, so
+// its change is read off the carrier's frames (F-11).
+function guessedKeys(g: any, w: Watched, now: any, out: KeyedChange[]): void {
+  const t = g._host,
+    shown: any = w.shown,
+    covered = w.guess,
+    origin = w.origin;
+  // The node the screen showed a key through, kept past its release (F-11).
+  const keys = (w.keys ??= new Map());
+  const visit = (key: PropertyKey) => {
+    const seen = keys.get(key);
+    const leaf = t.n?.[key] ?? seen?.[0],
+      has = t.h?.[key] ?? seen?.[1];
+    keys.set(key, [leaf, has]);
+    const a = shown?.[key],
+      b = now?.[key];
+    // Method call: store slot nodes share one comparator that reads `this._host` (#3687).
+    if (leaf !== undefined && (!leaf._equals || !leaf._equals(a, b)))
+      out.push({ node: leaf, prev: a, value: b, covered, origin });
+    if (has !== undefined && key in Object(shown) !== key in Object(now))
+      out.push({
+        node: has,
+        prev: key in Object(shown),
+        value: key in Object(now),
+        covered,
+        origin
+      });
+  };
+  if (g.wk) for (const key of g.wk) visit(key);
+  if (g.del) for (const key of g.del) if (!g.wk?.has(key)) visit(key);
+}
+
+/** One entry per node, as `FlushEvent.changes` promises: a node the drain
+ * also changed directly keeps the value the screen showed under the guess. */
+function mergeKeyed(
+  keyed: KeyedChange[],
+  changes: FlushChange[],
+  live: FlushLive["changes"],
+  bodies: boolean
+): void {
+  const at = new Map<object, number>();
+  for (let i = 0; i < live.length; i++) at.set(live[i].node, i);
+  for (const k of keyed) {
+    if (excludedNode(k.node)) continue;
+    const i = at.get(k.node);
+    if (i !== undefined) {
+      if (bodies && k.covered) live[i].prev = k.prev;
+      continue;
+    }
+    at.set(k.node, live.length);
+    const change: FlushChange = {
+      nodeId: devId(k.node),
+      nodeName: nodeName(k.node),
+      key: String((k.node as { _key?: PropertyKey })._key)
+    };
+    if (k.origin !== undefined) change.origin = k.origin;
+    changes.push(change);
+    live.push(bodies ? { node: k.node, prev: k.prev, value: k.value } : { node: k.node });
+  }
 }
 
 function trackFlushStart(): void {
