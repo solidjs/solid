@@ -86,6 +86,7 @@ pub(crate) struct AstDomTransform<'a, 'source> {
     /// transform declares). The next retained child's lowering must consume
     /// this instead of allocating a fresh id.
     pub(crate) pending_child_walk: Option<String>,
+    pub(crate) dropped_leading_children: usize,
     /// Whether the current template root saw a delegated event handler or a
     /// spread (which may carry one); consumed at the root to emit a single
     /// `runHydrationEvents()` after setup.
@@ -195,6 +196,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
             hydration_walk_anchor: None,
             last_child_walk: None,
             pending_child_walk: None,
+            dropped_leading_children: 0,
             has_hydratable_event: false,
             element_index: 0,
             this_index: 0,
@@ -576,7 +578,7 @@ pub(crate) fn element_is_claim_target(element: &JSXElement<'_>) -> bool {
     is_claim_target(&tag_name, &element.opening_element.attributes)
 }
 
-fn has_attribute_named(element: &JSXElement<'_>, attribute_name: &str) -> bool {
+pub(crate) fn has_attribute_named(element: &JSXElement<'_>, attribute_name: &str) -> bool {
     element.opening_element.attributes.iter().any(|attr| {
         matches!(
             attr,

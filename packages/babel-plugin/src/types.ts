@@ -15,7 +15,7 @@ export interface TemplateRecord {
   isWrapped?: boolean;
   renderer: RendererName;
   /** First registration site, so `validate` failures point at the JSX (#3099). */
-  path?: NodePath;
+  node?: t.Node;
 }
 
 /** A hoisted `ssrElement` skip predicate (ssr/template.ts `registerSkip`). */

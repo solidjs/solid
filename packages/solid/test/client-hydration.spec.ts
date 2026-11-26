@@ -1961,6 +1961,17 @@ function createCompletableBufferedIterable(values: any[], completed = false) {
   };
 }
 
+function createThrowingBufferedIterable(values: any[], error: unknown) {
+  let index = 0;
+  const iter = {
+    next(): any {
+      if (index < values.length) return { done: false, value: values[index++] };
+      throw error;
+    }
+  };
+  return { [Symbol.asyncIterator]: () => iter };
+}
+
 describe("Async Iterable Hydration — buffered multi-yield replay", () => {
   afterEach(() => {
     stopHydration();
@@ -1990,6 +2001,117 @@ describe("Async Iterable Hydration — buffered multi-yield replay", () => {
     // The batched replay must land on the LATEST buffered yield — not stay on
     // the first, and not be clobbered by the stream's done result.
     expect(result()).toBe(3);
+  });
+
+  test("all-buffered: a stream that threw after its first yield errors after the claim pass", async () => {
+    const ai = createThrowingBufferedIterable(["tick 1"], new TypeError("feed closed"));
+    startHydration({ t000: ai });
+
+    let read: any;
+    createRoot(
+      () => {
+        read = createErrorBoundary(
+          () => {
+            const tick = createMemo(() => "client");
+            return `content: ${tick()}`;
+          },
+          (err: any) => `fallback: ${err().message}`
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(read()).toBe("content: tick 1");
+
+    stopHydration();
+    await Promise.resolve();
+    flush();
+
+    expect(read()).toBe("fallback: feed closed");
+  });
+
+  test("all-buffered: a settled promise of a stream that threw after several yields claims the first one", async () => {
+    const ai = createThrowingBufferedIterable(
+      ["tick 1", "tick 2", "tick 3"],
+      new TypeError("feed closed")
+    );
+    startHydration({ t0: { s: 1, v: ai } });
+
+    let read: any;
+    createRoot(
+      () => {
+        const tick = createMemo(() => "client");
+        read = createErrorBoundary(
+          () => `content: ${tick()}`,
+          (err: any) => `fallback: ${err().message}`
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(read()).toBe("content: tick 1");
+
+    stopHydration();
+    await Promise.resolve();
+    flush();
+
+    expect(read()).toBe("content: tick 3");
+
+    await Promise.resolve();
+    flush();
+
+    expect(read()).toBe("fallback: feed closed");
+  });
+
+  test("all-buffered: a settled promise of a completed stream claims the first yield, then lands on the latest", async () => {
+    const ai = createCompletableBufferedIterable([1, 2, 3], true);
+    startHydration({ t0: { s: 1, v: ai } });
+
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => 0);
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(result()).toBe(1);
+
+    stopHydration();
+    await Promise.resolve();
+    flush();
+
+    expect(result()).toBe(3);
+  });
+
+  test("all-buffered: a throw behind a buffered yield lands after that yield", async () => {
+    const ai = createThrowingBufferedIterable([1, 2], new TypeError("feed closed"));
+    startHydration({ t0: ai });
+
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => 0);
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(result()).toBe(1);
+
+    stopHydration();
+    await Promise.resolve();
+    flush();
+
+    expect(result()).toBe(2);
+
+    await Promise.resolve();
+    flush();
+
+    expect(() => result()).toThrow("feed closed");
   });
 
   test("done result does not clobber the last buffered yield", async () => {

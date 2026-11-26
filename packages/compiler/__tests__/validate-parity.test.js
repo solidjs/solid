@@ -47,6 +47,24 @@ const cases = {
   colPartial: { code: "const t = <col />;", throws: false },
   theadPartial: { code: "const t = <thead><tr><th>h</th></tr></thead>;", throws: false },
   emptyTbody: { code: "const t = <tbody></tbody>;", throws: false },
+  cellWhitespace: { code: "const t = <tr><td>a</td> <td>b</td></tr>;", throws: false },
+  cellSpaceExpression: {
+    code: 'const t = <table><thead><tr><th>a</th>{" "}<th>{x()}</th></tr></thead></table>;',
+    options: { hydratable: true },
+    throws: false
+  },
+  cellCarriageReturn: { code: 'const t = <tr><td>a</td>{"\\r"}<td>b</td></tr>;', throws: false },
+  rowWhitespace: {
+    code: "const t = <tbody><tr><td>a</td></tr> <tr><td>b</td></tr></tbody>;",
+    throws: false
+  },
+  colWhitespace: { code: "const t = <colgroup><col /> <col /></colgroup>;", throws: false },
+  cellMergedWhitespace: {
+    code: 'const t = <tr><td>a</td> {" "}<td>b</td></tr>;',
+    throws: false
+  },
+  headWhitespace: { code: "const t = <head> <title>x</title></head>;", throws: false },
+  cellText: { code: "const t = <tr><td>a</td> x <td>b</td></tr>;", throws: true },
   // Escaped text must not be re-interpreted as markup.
   scriptEscape: { code: 'const t = <div>{"<script>a();</script>"}<b>ok</b></div>;', throws: false },
   liOrphan: { code: "const t = <li>item</li>;", throws: false },
@@ -135,6 +153,12 @@ const ssrCases = {
     throws: false
   },
   tdPartial: { code: "const t = <td title={t()}>cell</td>;", throws: false },
+  cellWhitespace: {
+    code: "const t = <tr><td>{x()}</td> <td>b</td></tr>;",
+    options: { hydratable: true },
+    throws: false
+  },
+  cellText: { code: "const t = <tr><td>a</td> x <td>b</td></tr>;", throws: true },
   // SVG partials parse under an `<svg>` like the DOM compile's (#4241).
   svgImageUnderShow: {
     code: "const t = <svg><Show when={on()}><image href='a.png' /></Show></svg>;",

@@ -1,5 +1,26 @@
 # @solidjs/h
 
+## 2.0.3
+
+### Patch Changes
+
+- 87d3711: Keep sibling children when a reactive child is the first item of a nested child array in `h()`.
+- c66e1cc: The JSX types for MathML attributes whose values are the strings `"true"` and `"false"` (`displaystyle`, `stretchy`, `largeop`, `movablelimits`, `symmetric`, `fence`, `separator`, `accent`, `accentunder`) now accept those strings and reject `{true}`, the bare attribute and `""`, which write an empty value that MathML ignores, as well as `boolean`-typed values. `{false}` still removes the attribute.
+- 28a8c93: fix(h): resolve tagged `h()` thunks in a component's multi-child array. Before, `componentProps` passed the raw thunk array through, and `insert` read its elements as accessors and re-invoked them on every signal change, re-creating child components. The children array is now exposed through a getter that resolves thunks in the consumer's scope, matching the single-child getter path. Note: `h.Fragment` with multiple children now returns resolved DOM nodes instead of the original thunks (#5072).
+- b7d939f: Ship the MIT `LICENSE` file in every published package (#5106).
+- Updated dependencies [c66e1cc]
+- Updated dependencies [21822b2]
+- Updated dependencies [0791152]
+- Updated dependencies [6d3cdef]
+- Updated dependencies [f353760]
+- Updated dependencies [898af32]
+- Updated dependencies [c075f02]
+- Updated dependencies [e847ed1]
+- Updated dependencies [b7d939f]
+- Updated dependencies [e2e6ffd]
+- Updated dependencies [ef08c1e]
+  - @solidjs/web@2.0.4
+
 ## 2.0.2
 
 ### Patch Changes

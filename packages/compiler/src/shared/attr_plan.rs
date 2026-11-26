@@ -9,7 +9,8 @@ use oxc_span::{GetSpan, SPAN, Span};
 use crate::shared::ast_builder::AstBuilder;
 use crate::shared::bindings::BindingTable;
 use crate::shared::utils::{
-    StaticValue, decode_html_entities, escape_html_text_expression, format_number,
+    StaticValue, decode_jsx_attribute_entities, escape_html_text_expression, format_number,
+    leading_comment_is,
 };
 
 /// Planned attribute value, mirroring the states a Babel JSX attribute value
@@ -313,16 +314,12 @@ impl<'a> AttrPlanner<'a, '_> {
         }
     }
 
-    /// Whether the configured static marker comment appears between two
-    /// source offsets (e.g. between `{` and the expression, or between an
-    /// object property's key and its value).
+    /// Whether the first comment of the run directly before `end` (only
+    /// whitespace and `(` between it and the value), scanned from `start`
+    /// (e.g. `{`, or an object property's key end), trims to exactly the
+    /// configured static marker.
     pub(crate) fn marker_between(&self, start: u32, end: u32) -> bool {
-        let start = start as usize;
-        let end = (end as usize).min(self.source.len());
-        if start >= end {
-            return false;
-        }
-        self.source[start..end].contains(self.static_marker)
+        leading_comment_is(self.source, start, end, self.static_marker)
     }
 
     /// Builds the ordered attribute plan for an element without spreads,
@@ -378,7 +375,7 @@ impl<'a> AttrPlanner<'a, '_> {
             let (value, marker_static) = match &attr.value {
                 None => (PlanValue::None, false),
                 Some(JSXAttributeValue::StringLiteral(value)) => (
-                    PlanValue::Literal(decode_html_entities(&value.value)),
+                    PlanValue::Literal(decode_jsx_attribute_entities(&value.value)),
                     false,
                 ),
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
@@ -737,7 +734,7 @@ impl<'a> AttrPlanner<'a, '_> {
                 continue;
             };
             let marker = attr_marker
-                || self.marker_between(property.span.start, property.value.span().start);
+                || self.marker_between(property.key.span().end, property.value.span().start);
             split_plans.push(AttrPlan {
                 span: property.span,
                 source_offset,
@@ -872,7 +869,7 @@ impl<'a> AttrPlanner<'a, '_> {
                 continue;
             };
             let marker = attr_marker
-                || self.marker_between(property.span.start, property.value.span().start);
+                || self.marker_between(property.key.span().end, property.value.span().start);
             match self.evaluate_confident(&property.value) {
                 Some(value) => {
                     if value.truthy() {

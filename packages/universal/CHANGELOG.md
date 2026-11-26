@@ -1,5 +1,22 @@
 # @solidjs/universal
 
+## 2.0.4
+
+### Patch Changes
+
+- f5252dd: A custom renderer's single-child hole now mounts content that arrives during a held action at the commit, like `@solidjs/web` does, instead of showing a bare element before it.
+- b7d939f: Ship the MIT `LICENSE` file in every published package (#5106).
+- ef08c1e: A prop whose expression is a ternary over an async source (`n={ans() == null ? -1 : ans().length}`) now reads the value on screen from an event handler while the source re-asks, instead of throwing `NotReadyError`. Called with no owner (an event handler, an effect callback), the compiled `memo` helper returns its function instead of creating a memo, so an effect callback that reads such a prop no longer reports `PRIMITIVE_IN_EFFECT_CALLBACK` in dev. A template created with no owner therefore has no condition memo: its conditional rebuilds the branch each time the condition's sources change, not only when the condition flips.
+- 842144c: Pass numeric text children to the renderer's `createTextNode` and `replaceText` as strings.
+- Updated dependencies [fcaa051]
+- Updated dependencies [a406a5d]
+- Updated dependencies [8bfca0d]
+- Updated dependencies [f353760]
+- Updated dependencies [b7d939f]
+- Updated dependencies [430314c]
+- Updated dependencies [fc0dac0]
+  - solid-js@2.0.4
+
 ## 2.0.3
 
 ### Patch Changes

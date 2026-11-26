@@ -44,6 +44,7 @@ runFixtures({
           "text",
           "namespace:tag",
           "p",
+          "pre",
           "noscript",
           "select",
           "option",

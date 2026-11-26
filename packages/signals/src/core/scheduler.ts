@@ -502,10 +502,15 @@ function unappend(into: unknown[] | null, own: unknown[] | null): void {
 export function joinFuture(t: Transaction | null): void {
   // A lane is never the flush's transaction (D-37, #4440).
   if (laneStageHook && t?._lane) return;
-  const f = flushTransaction;
+  // A landed transaction holds nothing: a write to a node it still lists
+  // (a cleanup its own landing ran) is the landing's, committed after it
+  // (#4089). Joining it would park the flush in it, or merge it while it is
+  // no longer in `transactions` (#5159). `liveTx` resolves the merges.
+  const l = t && liveTx(t),
+    f = flushTransaction;
   if (f === null) {
-    flushTransaction = t === null ? newTransaction(false) : resolveTx(t);
-  } else if (t !== null) merge(resolveTx(t), f);
+    if (t === null || l) flushTransaction = l || newTransaction(false);
+  } else if (l) merge(l, f);
   if (!globalQueue._running) schedule();
 }
 /** `t` merges into `f`: the work that touched both entangles them (A15).
@@ -1430,10 +1435,6 @@ function land(u: Transaction): void {
     n._x!._transaction = null;
     commitPendingNode(n);
   }
-  // A cleanup those commits ran that wrote a node `u` still held joined
-  // `u`, which has left `transactions`: the write is this landing's, and
-  // the next flush must not park in it (#4089).
-  if (flushTransaction === u) flushTransaction = null;
   // An effect re-derives next round (`reruns`): the held runs wait for it
   // (D-9, the A15 reveal corollary, #4071). Its re-derivation can discover a
   // flight — a stale reader whose mainline pass stopped reading it, now

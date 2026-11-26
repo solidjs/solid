@@ -21,7 +21,7 @@ use crate::shared::component_props::{
 use crate::shared::condition::{is_condition_shape, transform_condition_inline};
 use crate::shared::mode_lower::mode_ast;
 use crate::shared::refs::component_ref_property;
-use crate::shared::utils::decode_html_entities;
+use crate::shared::utils::decode_jsx_attribute_entities;
 
 /// The per-mode seams of the component prop loop beyond the children and
 /// prop-emission contexts: helper-usage bookkeeping, root-tag detection, and
@@ -106,7 +106,7 @@ pub(crate) fn lower_component_with_setup<'a, C: ComponentLower<'a>>(
             ),
             Some(JSXAttributeValue::StringLiteral(value)) => {
                 let span = value.span;
-                let value = decode_html_entities(&value.value);
+                let value = decode_jsx_attribute_entities(&value.value);
                 (
                     ast.expression_string_literal(span, ast.str(&value), None),
                     false,

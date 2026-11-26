@@ -92,6 +92,42 @@ describe("Testing Portal delegated event containers", () => {
     mount.remove();
   });
 
+  test("shadow root portal renders, updates, bubbles through the logical tree and cleans up", () => {
+    const root = document.createElement("div");
+    const host = document.createElement("div");
+    const shadow = host.attachShadow({ mode: "open" });
+    const [count, setCount] = createSignal(0);
+    const calls: string[] = [];
+    let portalButton!: HTMLButtonElement;
+
+    document.body.append(root, host);
+    const dispose = render(
+      () => (
+        <section onClick={() => calls.push("logical")}>
+          <Portal mount={shadow}>
+            <button ref={portalButton} onClick={() => calls.push(`portal ${count()}`)}>
+              {count()}
+            </button>
+          </Portal>
+        </section>
+      ),
+      root
+    );
+
+    expect(shadow.innerHTML).toBe("<button>0</button>");
+    setCount(1);
+    flush();
+    expect(shadow.innerHTML).toBe("<button>1</button>");
+
+    portalButton.click();
+
+    expect(calls).toEqual(["portal 1", "logical"]);
+    dispose();
+    expect(shadow.innerHTML).toBe("");
+    root.remove();
+    host.remove();
+  });
+
   test("delegated event targeting the render root itself does not crash with a body portal (#3008)", () => {
     const root = document.createElement("div");
     const calls: string[] = [];

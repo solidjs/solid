@@ -1,12 +1,14 @@
 use crate::dom::attrs::CloseTagContext;
-use crate::dom::element::{AstDomTransform, jsx_expression_to_expression};
+use crate::dom::element::{AstDomTransform, has_attribute_named, jsx_expression_to_expression};
 use crate::dom::static_template::lower_static_native_template;
 use crate::dom::template::InsertMarker;
 use crate::error::{Error, Result};
 use crate::shared::classify::check_length;
+use crate::shared::constants::{DomPropertyState, dom_with_state};
 use crate::shared::utils::{
-    child_slot_allocates_ids, element_name, escape_html_text, escape_html_text_expression,
-    is_component_name, jsx_child_is_function_hole, static_jsx_expression, trim_jsx_text,
+    child_slot_allocates_ids, decode_html_entities, element_name, escape_html_text,
+    escape_html_text_expression, is_component_name, jsx_child_is_function_hole,
+    static_jsx_expression, trim_jsx_text,
 };
 use oxc_allocator::CloneIn;
 use oxc_ast::ast::Expression;
@@ -32,6 +34,7 @@ impl<'a> AstDomTransform<'a, '_> {
         // from its own reference, not an outer marker.
         let saved_anchor = self.hydration_walk_anchor.take();
         let saved_walk = self.last_child_walk.take();
+        let saved_dropped = std::mem::take(&mut self.dropped_leading_children);
         let result = self.lower_dom_children_inner(
             element,
             tag_name,
@@ -44,6 +47,7 @@ impl<'a> AstDomTransform<'a, '_> {
         );
         self.hydration_walk_anchor = saved_anchor;
         self.last_child_walk = saved_walk;
+        self.dropped_leading_children = saved_dropped;
         result
     }
 
@@ -73,7 +77,12 @@ impl<'a> AstDomTransform<'a, '_> {
         // shell, so positional walks are unreliable there.
         let html_tag_walk = self.hydratable && tag_name == "html";
         let mut previous_html_child: Option<String> = None;
-        let mut index = 0;
+        let dropped = self.leading_line_break_end(tag_name, &element.children);
+        self.dropped_leading_children = dropped;
+        if dropped > 0 {
+            template.push_both("\n");
+        }
+        let mut index = dropped;
         let mut child_node_index = 0;
         // Mirrors Babel's `filterChildren`: `detectExpressions` receives the
         // filtered list, so previous-sibling checks index into it.
@@ -275,7 +284,7 @@ impl<'a> AstDomTransform<'a, '_> {
                     // always use `<!$><!/>` marker pairs instead.
                     let shared_marker_name = if !self.hydratable
                         && !per_slot
-                        && has_previous_static_text(&element.children[..index])
+                        && has_previous_static_text(&element.children[dropped..index])
                         && has_next_static_text(&element.children[run_end..])
                     {
                         template.push_both("<!>");
@@ -517,10 +526,33 @@ impl<'a> AstDomTransform<'a, '_> {
                                 JSXAttributeItem::SpreadAttribute(_) => true,
                                 JSXAttributeItem::Attribute(attr) => {
                                     let named_dynamic = match &attr.name {
-                                        JSXAttributeName::Identifier(name) => matches!(
-                                            name.name.as_str(),
-                                            "textContent" | "innerHTML" | "innerText"
-                                        ),
+                                        JSXAttributeName::Identifier(name) => {
+                                            matches!(
+                                                name.name.as_str(),
+                                                "textContent" | "innerHTML" | "innerText"
+                                            ) || (tag_name == "select"
+                                                && name.name == "value"
+                                                && attr.value.is_some())
+                                                || stateful_prop_beside_default(
+                                                    element, &tag_name, &name.name,
+                                                )
+                                                || (!self.inline_styles
+                                                    && name.name == "style"
+                                                    && match &attr.value {
+                                                        Some(JSXAttributeValue::StringLiteral(
+                                                            _,
+                                                        )) => true,
+                                                        Some(
+                                                            JSXAttributeValue::ExpressionContainer(
+                                                                container,
+                                                            ),
+                                                        ) => !matches!(
+                                                            container.expression,
+                                                            JSXExpression::EmptyExpression(_)
+                                                        ),
+                                                        _ => false,
+                                                    })
+                                        }
                                         JSXAttributeName::NamespacedName(namespaced) => {
                                             namespaced.namespace.name == "prop"
                                         }
@@ -559,6 +591,35 @@ impl<'a> AstDomTransform<'a, '_> {
             }
         }
         false
+    }
+
+    pub(crate) fn leading_line_break_end(
+        &self,
+        tag_name: &str,
+        children: &[JSXChild<'a>],
+    ) -> usize {
+        if !matches!(tag_name, "pre" | "listing") {
+            return 0;
+        }
+        let values: std::vec::Vec<String> = children
+            .iter()
+            .map_while(|child| match child {
+                JSXChild::Text(text) => Some(trim_jsx_text(&text.value)),
+                JSXChild::ExpressionContainer(container) => match &container.expression {
+                    JSXExpression::EmptyExpression(_) => Some(String::new()),
+                    expression => self
+                        .static_jsx_expression_value(expression)
+                        .map(|value| escape_html_text_expression(&value)),
+                },
+                _ => None,
+            })
+            .collect();
+        let html = values.concat().replace("\r\n", "\n").replace('\r', "\n");
+        if decode_html_entities(&html) == "\n" {
+            values.len()
+        } else {
+            0
+        }
     }
 
     /// Number of children that compile to `insert()` calls: dynamic expression
@@ -752,8 +813,9 @@ impl<'a> AstDomTransform<'a, '_> {
     /// the Babel generate's `wrappedByText`): dynamic slots and components are
     /// transparent to the walk; a native element or slot-free boundary stops it.
     fn slot_boxed_by_text(&self, children: &[JSXChild<'a>], index: usize) -> bool {
-        self.nearest_template_sibling_is_text(children[..index].iter().rev())
-            && self.nearest_template_sibling_is_text(children[index + 1..].iter())
+        self.nearest_template_sibling_is_text(
+            children[self.dropped_leading_children..index].iter().rev(),
+        ) && self.nearest_template_sibling_is_text(children[index + 1..].iter())
     }
 
     fn nearest_template_sibling_is_text<'b>(
@@ -1096,4 +1158,12 @@ fn dynamic_run_end(children: &[JSXChild<'_>], start: usize) -> usize {
         index += 1;
     }
     index
+}
+
+fn stateful_prop_beside_default(element: &JSXElement<'_>, tag_name: &str, name: &str) -> bool {
+    if dom_with_state(tag_name, name) != Some(DomPropertyState::Stateful) {
+        return false;
+    }
+    let default_name = format!("default{}{}", name[..1].to_uppercase(), &name[1..]);
+    dom_with_state(tag_name, &default_name).is_some() && has_attribute_named(element, &default_name)
 }

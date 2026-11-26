@@ -1,5 +1,45 @@
 # @solidjs/diagnostics
 
+## 2.0.4
+
+### Patch Changes
+
+- b7d939f: Ship the MIT `LICENSE` file in every published package (#5106).
+- Updated dependencies [543066e]
+- Updated dependencies [83d42ba]
+- Updated dependencies [30e7805]
+- Updated dependencies [21bfd2d]
+- Updated dependencies [3774ebe]
+- Updated dependencies [fcaa051]
+- Updated dependencies [c66e1cc]
+- Updated dependencies [6ab70e2]
+- Updated dependencies [21822b2]
+- Updated dependencies [0791152]
+- Updated dependencies [b4212bf]
+- Updated dependencies [da28cd5]
+- Updated dependencies [a406a5d]
+- Updated dependencies [6d3cdef]
+- Updated dependencies [a4b4025]
+- Updated dependencies [8bfca0d]
+- Updated dependencies [3f655db]
+- Updated dependencies [c467fcd]
+- Updated dependencies [f353760]
+- Updated dependencies [898af32]
+- Updated dependencies [d165a5b]
+- Updated dependencies [99db9bc]
+- Updated dependencies [c075f02]
+- Updated dependencies [e847ed1]
+- Updated dependencies [b7d939f]
+- Updated dependencies [430314c]
+- Updated dependencies [fc0dac0]
+- Updated dependencies [e2e6ffd]
+- Updated dependencies [672c992]
+- Updated dependencies [ef08c1e]
+- Updated dependencies [e2757be]
+  - @solidjs/signals@2.0.4
+  - solid-js@2.0.4
+  - @solidjs/web@2.0.4
+
 ## 2.0.3
 
 ### Patch Changes

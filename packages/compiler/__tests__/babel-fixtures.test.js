@@ -27,6 +27,7 @@ const fixtureParity = {
   lowerShow: parityLevel.subset,
   multipleClassAttributes: parityLevel.subset,
   namespaceElements: parityLevel.subset,
+  omitNestedClosingTags: parityLevel.subset,
   simpleElements: parityLevel.subset,
   textInterpolation: parityLevel.subset
 };
@@ -42,13 +43,19 @@ function readFixture(name) {
   return fs.readFileSync(path.join(babelDomFixtures, name, "code.js"), "utf8");
 }
 
+function fixtureOptions(fixture) {
+  const file = path.join(babelDomFixtures, fixture, "options.json");
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
+}
+
 function transformDom(code, fixture) {
   return (
     transform(code, {
       filename: `${fixture}.jsx`,
       moduleName: "r-dom",
       contextToCustomElements: true,
-      ...(fixture === "components" ? { builtIns: ["For", "Show"] } : null)
+      ...(fixture === "components" ? { builtIns: ["For", "Show"] } : null),
+      ...fixtureOptions(fixture)
     }).code.trimEnd() + "\n"
   );
 }
@@ -146,6 +153,7 @@ function supportedSubset(fixture) {
     case "insertChildren":
       return source;
     case "multipleClassAttributes":
+    case "omitNestedClosingTags":
       return source;
     case "namespaceElements":
       return [

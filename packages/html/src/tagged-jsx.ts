@@ -122,7 +122,10 @@ function createHtml() {
       case TEXT_NODE:
         if (rawText) return document.createTextNode(node.value);
         textTemplate.innerHTML = trustedHTML(
-          stripFirstLF && node.value.startsWith("\n") ? node.value.slice(1) : node.value
+          (stripFirstLF && node.value.startsWith("\n") ? node.value.slice(1) : node.value).replace(
+            /</g,
+            "&lt;"
+          )
         );
         return document.createTextNode(textTemplate.content.textContent ?? "");
       case EXPRESSION_NODE:

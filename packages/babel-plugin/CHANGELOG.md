@@ -1,5 +1,21 @@
 # @solidjs/babel-plugin
 
+## 2.0.3
+
+### Patch Changes
+
+- 8de0cfd: Splitting a `style` or `class` object in the compiled DOM output now removes each extracted property by identity. A computed `style` key that follows a dynamic property, such as `style={{ color: c(), [prop()]: v(), background: b() }}`, is no longer dropped, and a static `class` object such as `class={{ a: true, b: false, c: false, d: false }}` no longer leaves `[object Object]` in the class attribute.
+- b377516: Keep source order in DOM output when a child that renders nothing, such as `{""}` or trailing spaces before a line break, sits between a dynamic child and the next node.
+- c06d0a1: Malformed-HTML `validate` errors now show a code frame at the offending JSX instead of reporting an internal node when the template is the root of an expression.
+- 611ed0f: Keep the DOM template walk in step with the HTML parser when a `<pre>` or `<listing>` holds a line break the parser drops after its start tag, so a lone leading `{"\n"}` or `&#10;` no longer breaks rendering, hydration, or event handlers.
+- 39d6f6a: Keep `<Show>` as a component when `wrapConditionals` or `memoWrapper` is off, so its children are no longer re-created each time `when` changes between truthy values.
+- 2161129: With `omitNestedClosingTags: true`, both compilers now keep the closing tags the HTML parser needs inside forms, custom elements, `<legend>`, nested lists, and the SVG and MathML elements that hold HTML (`<foreignObject>`, `<desc>`, `<title>`, `<mi>`, `<mo>`, `<mn>`, `<ms>`, `<mtext>` and `<annotation-xml>`, in any letter case), so the template parses to the tree the JSX describes instead of throwing at render.
+- 1f61a95: SSR escapes string keys of inline `class` and `style` objects for the attribute, the way the runtime helpers do, so a key such as `'before:content-["*"]'` no longer breaks the attribute and a key with a backslash, backtick or `${` compiles to the same class name.
+- a24e7d2: Keep an element reference for static props that compile to runtime writes, so a nested static `<select value>` no longer crashes the Babel plugin and the native compiler no longer writes a static select `value`, or a `selected`, `checked`, `value` or `muted` beside its `default*` prop, to the previous sibling (also a static `style` with `inlineStyles: false`).
+- 8399755: Keep the props of a `@static` spread whose argument is a member or call expression, such as `{/* @static */ ...props.attrs}`, in DOM output.
+- d364031: JSX in a later declarator of one declaration (`const a = …, b = <div>{a}</div>`, the shape minifiers make by joining declarations) no longer has its setup hoisted above the whole declaration. The declarators before it split into their own statement, so the setup runs after them instead of reading them before initialization.
+- 1906e04: The `validate` check no longer reports whitespace that the HTML parser keeps in place as malformed HTML: whitespace between table cells, rows or columns (`<td>a</td> <td>b</td>`), and in a document shell between `<head>` children or between `</head>` and `<body>`.
+
 ## 2.0.2
 
 ### Patch Changes

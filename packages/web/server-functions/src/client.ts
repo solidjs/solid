@@ -1017,8 +1017,9 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // Streaming result: wrap so stopping consumption stops the CALL. Without
   // this, `return()` (a `break` in for-await) only detaches the local
   // iterator — the fetch keeps downloading and the server keeps producing.
-  // Top-level only, matching the server's value-tier teardown scope.
-  if (controller && result?.[Symbol.asyncIterator]) {
+  // Top-level only, matching the server's value-tier teardown scope. A
+  // decoded `ReadableStream` passes through as one, as it does nested.
+  if (controller && result?.[Symbol.asyncIterator] && !result.getReader) {
     return {
       [Symbol.asyncIterator]() {
         const it = result[Symbol.asyncIterator]();

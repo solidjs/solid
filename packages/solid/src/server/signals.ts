@@ -546,15 +546,15 @@ export function setContext<T>(
  * are dropped here: `_context` holds the render's provided values (and, under
  * a boundary, its error handler and HTML), and a pooled owner can sit idle
  * for as long as the process runs while concurrent renders fill the pool
- * (#4890). `_parent` / `_nextSibling` are cleared by `unlinkOwner`,
- * `_firstChild` / `_disposal` by the dispose walk.
+ * (#4890). An owner a full pool turns away is reset too: a closure of an
+ * earlier render that reused it can still reach it (#5180). `_parent` /
+ * `_nextSibling` are cleared by `unlinkOwner`, `_firstChild` / `_disposal` by
+ * the dispose walk.
  */
 function recycleOwner(node: SSROwner): void {
-  if (ownerPool.length < OWNER_POOL_MAX) {
-    node.id = undefined;
-    node._context = defaultSSRContext;
-    ownerPool.push(node);
-  }
+  node.id = undefined;
+  node._context = defaultSSRContext;
+  if (ownerPool.length < OWNER_POOL_MAX) ownerPool.push(node);
 }
 
 function unlinkOwner(node: SSROwner): void {
@@ -3207,16 +3207,33 @@ export function createProjection<T extends object = {}>(
     const deferred = createDeferredPromise<T>();
     const [pending, markReady, markError] = createPendingProxy(state, deferred.promise);
     if (seedLoading) markReady(frozenSeed);
+    // Sync derives that only waited on a pending source must not serialize:
+    // on the client they run live against their hydrated source (#5146).
+    // Serialize only when commit #0 was served as seed, or when retry yields
+    // its own async result (Promise / AsyncIterable).
+    let serialized = false;
+    const serializeOnce = () => {
+      if (serializes && !serialized) {
+        serialized = true;
+        ctx.serialize(id, deferred.promise, options?.deferStream);
+      }
+    };
+    if (seedLoading) serializeOnce();
     settleServerAsync<void | T, T>(
       Promise.reject(error),
-      () => normalizeAsync(runProjection()),
+      () => {
+        const res = runProjection();
+        if (isThenable(res) || typeof (res as any)?.[Symbol.asyncIterator] === "function") {
+          serializeOnce();
+        }
+        return normalizeAsync(res);
+      },
       deferred,
       settleWith(markReady),
       markError,
       () => disposed
     );
     registerSettledTrace(pending, deferred.promise, state, options?.shallow);
-    if (serializes) ctx.serialize(id, deferred.promise, options?.deferStream);
     return recordSlot(pending);
   }
 

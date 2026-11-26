@@ -683,6 +683,23 @@ describe("Tagged JSX Integration Tests", () => {
         dispose();
       }));
 
+    it("preserves literal markup while decoding character references in textarea", () =>
+      createRoot(dispose => {
+        // prettier-ignore
+        const textarea = html`<textarea><p>Hello &amp; goodbye</p><!-- draft --></textarea>` as HTMLTextAreaElement;
+
+        expect(textarea.value).toBe("<p>Hello & goodbye</p><!-- draft -->");
+        dispose();
+      }));
+
+    it("preserves literal markup while decoding character references in title", () =>
+      createRoot(dispose => {
+        const title = html`<title><b>Docs</b> &copy; &#x3c;v2&gt;</title>` as HTMLTitleElement;
+
+        expect(title.textContent).toBe("<b>Docs</b> © <v2>");
+        dispose();
+      }));
+
     it("treats <script> and <style> as raw text", () =>
       createRoot(dispose => {
         const style = html` <style>
