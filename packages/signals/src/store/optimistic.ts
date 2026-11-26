@@ -34,7 +34,10 @@ import {
   CONFIG_OVERRIDE,
   EFFECT_RENDER,
   NOT_PENDING,
+  REACTIVE_RECOMPUTING_DEPS,
+  STATUS_ERROR,
   STATUS_PENDING,
+  STATUS_UNINITIALIZED,
   REACTIVE_REASK
 } from "../core/constants.js";
 import {
@@ -68,17 +71,20 @@ import {
   question,
   type Transaction
 } from "../core/scheduler.js";
-import type { Computed, Signal } from "../core/types.js";
+import type { Computed, Link, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { createProjectionInternal } from "./projection.js";
 import { reconcileState } from "./reconcile.js";
 import {
+  adoptPB,
   cloneRaw,
   committed,
+  getContainerNode,
   getHasNode,
   getNode,
   linkedTo,
   nameCarrier,
+  runDirect,
   sameKey,
   serveKeyValue,
   storeSetter,
@@ -86,7 +92,7 @@ import {
   unwrapValue
 } from "./store.js";
 import { installOptHooks } from "./hooks.js";
-import { $OWNER, lookupTarget, type StoreFamily, type StoreTarget } from "./target.js";
+import { $OWNER, isOwned, lookupTarget, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $PATCH,
   $TARGET,
@@ -976,6 +982,7 @@ installOptHooks({
     if (obs !== null) link(node!, obs as Computed<any>);
     const v = carrierValue(frame, key);
     if (obs === null) noteRead(t, key, v);
+    if (t.ch && frame === t.v) pairChainedRow(t, (g as any).g, key, v);
     return serveKeyValue(t, key, v, false, node);
   },
   drafted: (t, key, shape) => (shape ? noteShape(t, key) : noteRead(t, key!)),
@@ -1172,29 +1179,125 @@ function markOverlaid(t: StoreTarget): void {
   overlaidFamilies.add(fam);
 }
 
+// A chained optimistic list reads through to its source store without
+// reconciling landings, so a guessed row whose key landed in the source adopts
+// the source's row proxy when the landing frame reads it or its carrier
+// dissolves (#5136).
+function pairChainedRow(t: StoreTarget, rows: any[], key: PropertyKey, row: any): void {
+  const fam = t._fam!;
+  const keyFn = fam.key;
+  if (t.s || !keyFn || !Array.isArray(rows) || !isWrappable(row) || lookupTarget(row, fam)) return;
+  return untrack(() => {
+    const k = keyFn(row);
+    if (k === undefined) return;
+    for (const r of rows) {
+      const gt = isWrappable(r) ? lookupTarget(r, fam) : undefined;
+      if (gt && !gt.ch && sameKey(keyFn(r), k)) {
+        adoptChainedRow(gt, r, key, row);
+        return;
+      }
+    }
+  });
+}
+
+function adoptChainedRow(
+  gt: StoreTarget,
+  raw: object,
+  key: PropertyKey,
+  row: any,
+  direct?: boolean
+) {
+  if (isOwned(raw)) delete (raw as any)[$OWNER];
+  else gt._fam!.map.delete(raw);
+  gt.pk = key;
+  direct ? runDirect(() => adoptPB(gt, row)) : adoptPB(gt, row);
+  linkChained(gt, row);
+}
+
+function pairChained(t: StoreTarget, dropped: Signal<any>[]): void {
+  const fam = t._fam!;
+  const keyFn = fam.key;
+  if (!t.ch || t.s || !keyFn) return;
+  const rows = new Map<unknown, [StoreTarget, object]>();
+  for (const g of dropped) {
+    const guesses = (g as any).g;
+    if (!Array.isArray(guesses)) continue;
+    for (const r of guesses) {
+      const gt = isWrappable(r) ? lookupTarget(r, fam) : undefined;
+      if (gt && !gt.ch) {
+        const key = keyFn(r);
+        if (key !== undefined) rows.set(key, [gt, r]);
+      }
+    }
+  }
+  if (!rows.size) return;
+  const inner = t.v as any;
+  let it: StoreTarget | undefined = inner[$TARGET];
+  while (it?.ch) it = (it.v as any)[$TARGET];
+  if (it?._fam?.node && it._fam.node._statusFlags & (STATUS_UNINITIALIZED | STATUS_ERROR)) return;
+  untrack(() => {
+    if (!Array.isArray(inner)) return;
+    for (let i = 0; i < inner.length && rows.size; i++) {
+      const row = inner[i];
+      if (!isWrappable(row) || lookupTarget(row, fam)) continue;
+      const key = keyFn(row);
+      const entry = rows.get(key);
+      if (entry) {
+        rows.delete(key);
+        adoptChainedRow(entry[0], entry[1], String(i), row, true);
+      }
+    }
+  });
+}
+
+// Transitioning a row from unchained to chained: link subscribers of unchanged
+// nodes directly to the source row's nodes so future source writes reach them
+// without re-running unchanged effects (#5136).
+function linkChained(t: StoreTarget, row: any): void {
+  const hop = (
+    n: Signal<any> | null,
+    fn: (a: StoreTarget, b: any) => Signal<any>,
+    a: StoreTarget,
+    b?: any
+  ) => {
+    if (n?._subs && n._pendingValue === NOT_PENDING)
+      for (let s: Link | null = n._subs, d = fn(a, b); s; s = s._nextSub)
+        if (!(s._sub._flags & REACTIVE_RECOMPUTING_DEPS)) link(d, s._sub);
+  };
+  for (
+    let at: StoreTarget | undefined = row[$TARGET];
+    at;
+    at = at.ch ? (at.v as any)[$TARGET] : undefined
+  ) {
+    if (t.n) for (const k of Reflect.ownKeys(t.n)) hop(t.n[k as any], getNode, at, k);
+    if (t.h) for (const k of Reflect.ownKeys(t.h)) hop(t.h[k as any], getHasNode, at, k);
+    hop(t.k, getContainerNode, at);
+  }
+}
+
 export function sweepOverlaid(): void {
   if (overlaidFamilies.size === 0) return;
   for (const fam of overlaidFamilies) {
     const set = fam._overlaid!;
-    for (const t of set)
-      if (!laneNodeOf(t)) {
-        set.delete(t);
-        const live = kgOf(t)?.filter(
-          g => g._config & CONFIG_HELD || g._pendingValue !== NOT_PENDING
-        );
-        if (!live || live.length === 0) carriers.delete(t);
-        else carriers.set(t, live);
-      } else if (kgOf(t) !== null) {
-        // A carrier that is no lane's and no hold's (a corrected guess waits
-        // for its hold's landing, A18 (c)) is done.
-        const live = kgOf(t)!.filter(
-          g =>
-            g._config & (CONFIG_OVERRIDE | CONFIG_GUESS | CONFIG_HELD) ||
-            g._pendingValue !== NOT_PENDING
-        );
-        if (live.length === 0) carriers.delete(t);
-        else carriers.set(t, live);
-      }
+    for (const t of set) {
+      const has = laneNodeOf(t);
+      if (!has) set.delete(t);
+      // A carrier that is no lane's and no hold's (a corrected guess waits
+      // for its hold's landing, A18 (c)) is done.
+      const dropped: Signal<any>[] = [];
+      const live = kgOf(t)?.filter(g => {
+        if (
+          g._config & (has ? CONFIG_OVERRIDE | CONFIG_GUESS | CONFIG_HELD : CONFIG_HELD) ||
+          g._pendingValue !== NOT_PENDING
+        )
+          return true;
+        dropped.push(g);
+        return false;
+      });
+      if (dropped.length) pairChained(t, dropped);
+      if (!live?.length) carriers.delete(t);
+      else carriers.set(t, live);
+    }
     if (set.size === 0) overlaidFamilies.delete(fam);
   }
 }
