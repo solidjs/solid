@@ -373,7 +373,9 @@ on a target sets a sticky descendants flag up the parent-target chain.
 Adoption descends into a changed child pair only where a target with the
 flag (or nodes) exists below — never-subscribed subtrees are pruned wholesale
 (recon-snap R17), while a subscriber several untracked levels down keeps its
-ancestors walkable (recon-snap R16). Reference-equal unowned pairs skip
+ancestors walkable (recon-snap R16). A list row the keyed pass matched by key
+keeps its proxy even with no flag: it is merged one level, and its node-less
+children are swapped whole (#5220). Reference-equal unowned pairs skip
 before reachability is even consulted (§3). The flag is monotone (sticky)
 exactly as shipped — clearing it buys nothing measurable and risks pruning a
 live path.

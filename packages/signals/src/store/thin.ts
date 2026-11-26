@@ -1826,11 +1826,13 @@ function merge(
   // identity travels with the raw (#4001).
   // (A row chained to a store is that store's alias, never a plain row's.)
   if (pt === undefined || pt.c !== null || map.has(nv) || resent(t, next, pv)) return nv;
-  // A keyed diff of a plain store skips a row nothing below ever read
-  // through a node (a proxy alone, read untracked): the slot takes the new
-  // raw whole and a capture may detach (#2902, the pruning contract, as
-  // store/reconcile.ts `descend`). Positional and derived diffs adopt.
-  if (!pt.d && keyFn !== null && t._fam === null) return nv;
+  // A keyed diff of a plain store does not walk a value nothing below ever
+  // read through a node (a proxy alone, read untracked): the slot takes the
+  // new raw whole and a capture may detach (#2902, the pruning contract).
+  // A list row matched by key keeps its proxy and is merged one level; its
+  // node-less children are still swapped whole (#5220). Positional and
+  // derived diffs adopt.
+  if (!pt.d && keyFn !== null && t._fam === null && !paired) return nv;
   // `paired`: the list pass already matched the two rows' keys.
   if (keyFn !== null && !paired) {
     const pk = pt.w || pt.c !== null ? keyAt(keyFn, pt) : keyFn(pv);
