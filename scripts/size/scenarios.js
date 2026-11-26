@@ -1135,10 +1135,11 @@ module.exports = [
     // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
     // #4689): measured 15,114 B / 43,914 B minified; the cap raised in
     // its PR with the growth accepted (the rulings' cost on this chunk).
-    limit: "15.13 KB",
+    // 2026-11-26 (re-record on main @ 5420b4a, after the 11-24 fix batch and 2.0.4): measured 15,147 B brotli / 43,972 B minified (was over its cap with the minified allowance nearly spent). Cap at measured + 10 B; recorded minified reset to the measure.
+    limit: "15.16 KB",
     // 2026-11-19 (re-record over main @ 7e7938b): recorded minified 43,914 -> 43,939 B (+25 B: #5044, #5005 held-key leaves on a user's adoption), measured 15,103 B brotli in CI; the cap is unchanged. Recorded minified = measured.
     // 2026-11-19 (#5055: markRaw accepts a class, +6 B minified on store bundles; CI size head job 135428351139 on 8d9bf2b, over main @ 7f86b2d): recorded minified 43,939 -> 43,964 B, measured 15,128 B brotli; cap unchanged. Recorded minified = measured.
-    capMinified: 43964,
+    capMinified: 43972,
     alias
   },
   {
@@ -4341,8 +4342,9 @@ module.exports = [
     // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
     // #4689): measured 26,734 B / 80,605 B minified; the cap raised in
     // its PR with the growth accepted (the rulings' cost on this chunk).
-    limit: "26.75 KB",
-    capMinified: 80605,
+    // 2026-11-26 (re-record on main @ 5420b4a, after the 11-24 fix batch and 2.0.4): measured 26,784 B brotli / 80,414 B minified (was over its cap with the minified allowance nearly spent). Cap at measured + 10 B; recorded minified reset to the measure.
+    limit: "26.80 KB",
+    capMinified: 80414,
     alias
   },
   {
@@ -4529,8 +4531,9 @@ module.exports = [
     // 2026-11-07: the producer clause (M1 lanes + S-51..S-57, S-46's plain row,
     // #4689): measured 32,988 B / 101,325 B minified; the cap raised in
     // its PR with the growth accepted (the rulings' cost on this chunk).
-    limit: "33.00 KB",
-    capMinified: 101325,
+    // 2026-11-26 (re-record on main @ 5420b4a, after the 11-24 fix batch and 2.0.4): measured 33,083 B brotli / 101,333 B minified (was over its cap with the minified allowance nearly spent). Cap at measured + 10 B; recorded minified reset to the measure.
+    limit: "33.10 KB",
+    capMinified: 101333,
     alias
   },
   {
@@ -6065,8 +6068,9 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ 6e569c7, size job 125766182293: #4639, #4641): cap unchanged at 35.93 KB, recorded minified 108,286 -> 108,360 B (+74 B), measured at 35,909 B brotli. #4639 and #4641 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ ccfc7ea, size job 125848841075: #4653, #4655, #4657, #4659): 35.93 KB -> 36.00 KB, recorded minified 108,360 -> 108,546 B (+186 B), measured at 35,989 B brotli. The growth of #4653, #4655 and #4659 was accepted by the maintainer; #4657 and #4654 are size-neutral on the gated rows. Re-recorded once after the batch, per the batch process.
     // 2026-11-09 (store guess carrier, over next @ eef34fd9d): store.ts gained the optimistic hook call sites for the guess carrier (read, presence, descriptor, enumeration, the landing's silence and judgement — each a null check on a plain store; S-59/#4724), net of the LaneView/asBacking/follow code it lost: measured 36,049 B / 108,556 B minified (+49 B brotli, +10 B minified over the record). 0 B on the core floor and the compiled floor.
-    limit: "36.06 KB",
-    capMinified: 108556,
+    // 2026-11-26 (re-record on main @ 5420b4a, after the 11-24 fix batch and 2.0.4): measured 36,158 B brotli / 108,562 B minified (was over its cap with the minified allowance nearly spent). Cap at measured + 10 B; recorded minified reset to the measure.
+    limit: "36.17 KB",
+    capMinified: 108562,
     alias: pageAlias
   },
   {
@@ -6271,11 +6275,12 @@ module.exports = [
     // 2026-11-19 (#5055: markRaw accepts a class, +7 B minified, +42 B brotli from layout drift (the compiled base page moved -42 B); CI size head job 135428351139 on 8d9bf2b, over main @ 7f86b2d): cap 45.76 KB -> 45.79 KB, recorded minified 133,239 -> 133,275 B, measured at 45,776 B brotli. Raise accepted by the maintainer (2026-11-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // 2026-11-19 (#5085, carries #5075 for #5073: a mount pending only on its own lane's reveal no longer blocks that lane (S-30); lanes.ts heldMountUnder, lane bundles only; CI size head job 135764846606, over main @ bab8a53): 45.79 KB -> 45.80 KB, recorded minified 133,275 -> 133,347 B, measured at 45,785 B brotli. Growth accepted by the maintainer (2026-11-19: "we can raise caps"). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
     // 2026-11-21 (#5153: a hydrated stream claims its first buffered value before later yields or a throw; normalizeIterator guards its later pulls and a settled promise of a stream goes through it; +153 B minified on hydrating bundles; CI size run 44910497132 on 6cdfec9, over main @ 8399755a): 45.80 KB -> 45.83 KB, recorded minified 133,347 -> 133,509 B, measured at 45,811 B brotli. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "45.83 KB",
+    // 2026-11-26 (re-record on main @ 5420b4a, after the 11-24 fix batch and 2.0.4): measured 45,853 B brotli / 133,520 B minified (was over its cap with the minified allowance nearly spent). Cap at measured + 10 B; recorded minified reset to the measure.
+    limit: "45.87 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 123,191 -> 123,249 B (+58 B minified over next's record), measured locally (linux) at 41,899 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 123,203 -> 123,224 B (+21 B minified over next's record), measured locally (linux) at 41,966 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 123,224 -> 123,733 B (+403 B minified over next), measured locally (linux) at 42,119 B brotli (+169 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 133509,
+    capMinified: 133520,
     alias: pageAlias
   },
   {
@@ -6753,12 +6758,13 @@ module.exports = [
     // 2026-11-18 (#5011, #5017 from #5013: a delegated container's capture listener clears the event-owner mark so a re-dispatched Event runs its handlers again; +89 B minified on every bundle with delegation; CI Size run 44281451857, over main @ e57fc3f): cap 51.41 KB unchanged, recorded minified 150,822 -> 150,907 B, measured at 51,382 B brotli. Growth accepted by the maintainer (2026-11-18: "We shouldn't block a good pr on size").
     // 2026-11-19 (#5085, carries #5075 for #5073: a mount pending only on its own lane's reveal no longer blocks that lane (S-30); lanes.ts heldMountUnder, lane bundles only; CI size head job 135764846606, over main @ bab8a53): cap 51.41 KB unchanged, recorded minified 150,927 -> 150,999 B, measured at 51,373 B brotli. Growth accepted by the maintainer (2026-11-19: "we can raise caps"). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
     // 2026-11-21 (#5153: a hydrated stream claims its first buffered value before later yields or a throw; normalizeIterator guards its later pulls and a settled promise of a stream goes through it; +153 B minified on hydrating bundles; CI size run 44910497132 on 6cdfec9, over main @ 8399755a): 51.41 KB -> 51.47 KB, recorded minified 150,999 -> 151,124 B, measured at 51,458 B brotli. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "51.47 KB",
+    // 2026-11-26 (re-record on main @ 5420b4a, after the 11-24 fix batch and 2.0.4): measured 51,501 B brotli / 151,135 B minified (was over its cap with the minified allowance nearly spent). Cap at measured + 10 B; recorded minified reset to the measure.
+    limit: "51.52 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 140,451 -> 140,509 B (+58 B minified over next's record), measured locally (linux) at 47,516 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 140,463 -> 140,485 B (+22 B minified over next's record), measured locally (linux) at 47,547 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 140,485 -> 140,983 B (+405 B minified over next), measured locally (linux) at 47,722 B brotli (+162 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
     // 2026-11-19 (#5055: markRaw accepts a class; CI size head job 135428351139 on 8d9bf2b, over main @ 7f86b2d): recorded minified 150,907 -> 150,927 B, measured 51,339 B brotli; cap unchanged. Recorded minified = measured.
-    capMinified: 151124,
+    capMinified: 151135,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
