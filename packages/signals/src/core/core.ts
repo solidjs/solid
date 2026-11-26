@@ -177,6 +177,7 @@ import {
   laneReadHook,
   laneStageHook,
   laneSeamsHook,
+  collecting,
   laneServedHook,
   laneAdoptHook,
   holdStagingHook,
@@ -583,7 +584,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // No `_x` means no status to clear. Lane work served the committed value of a
     // flight in the air keeps its pending, so a boundary keeps its fallback
     // (F-4, #4862).
-    if (
+    // A node never pending or errored has only the flag to clear, and its
+    // notify reaches a boundary only while one is collecting readers.
+    if (!el._x && el._statusFlags === STATUS_UNINITIALIZED && !collecting.size) {
+      if (create) el._statusFlags = 0;
+    } else if (
       (el._statusFlags !== 0 || el._x !== null) &&
       !(laneServedHook && el._statusFlags & STATUS_PENDING && laneServedHook(el, null, true))
     )

@@ -65,6 +65,7 @@ import {
   clock,
   flushTransaction,
   GlobalQueue,
+  collecting,
   globalQueue,
   haltReactivity,
   haltReactivityAt,
@@ -157,9 +158,6 @@ export function setRevealHooks(h: RevealHooks): void {
   revealHooks = h;
 }
 export type { Boundary };
-
-/** Boundaries with readers to sweep (or an arm to resolve) at the seam. */
-const collecting = new Set<Boundary>();
 
 const boundaryOf = (node: Owner): Boundary | undefined =>
   node._context[BOUNDARY] as Boundary | undefined;

@@ -59,6 +59,7 @@ import { deleteFromHeap, enqueueSub, markNode, runHeap, type Heap } from "./heap
 import { devCheckQuiescent } from "./invariants.js";
 import { rethrowCleanupError } from "./owner.js";
 import type { Computed, Owner, Signal } from "./types.js";
+import type { Boundary } from "../boundaries.js";
 
 // Optional-module hooks: module bindings, not `GlobalQueue` statics, so a
 // bundle that never imports the installing module never assigns them — its
@@ -165,6 +166,9 @@ export let freshHook: ((node: Computed<any>, held?: unknown) => unknown) | null 
 export let hiddenHook: ((r: Computed<any>) => unknown) | null = null;
 export let boundarySeamHook: (() => void) | null = null;
 export let heldRunHook: ((node: Computed<any>) => boolean) | null = null;
+/** Boundaries with readers to sweep (or an arm to resolve) at the seam
+ * (boundaries.ts). Empty: a cleared status reaches no boundary. */
+export const collecting = new NewSet<Boundary>();
 export function installBoundaryHooks(
   caught: NonNullable<typeof catchHook>,
   fresh: NonNullable<typeof freshHook>,
