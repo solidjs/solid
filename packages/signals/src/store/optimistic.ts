@@ -320,13 +320,12 @@ function reasked(d: Computed<any>): boolean {
 function patchEquals(this: any, a: any, b: any): boolean {
   if (a === b) return true;
   if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
-  // A chained backing (a proxy) is judged as the inner store's committed
-  // frame: the proxy would serve the inner's staging, and a guess equal to
-  // that staging is still a guess over the committed world.
+  // A chained backing is judged as the inner store's committed frame with its
+  // live guesses, never its staging: the world this guess sits over (F-11).
   const at: StoreTarget | undefined = a[$TARGET];
-  if (at !== undefined) a = writerBacking(at, true);
+  if (at !== undefined) a = writerBacking(at);
   const bt: StoreTarget | undefined = b[$TARGET];
-  if (bt !== undefined) b = writerBacking(bt, true);
+  if (bt !== undefined) b = writerBacking(bt);
   const fam: StoreFamily = this._host._fam;
   // A structural guess (a list's, the only kind that records `g`): the
   // arrangement, rows by identity or key, as the container judged it.
