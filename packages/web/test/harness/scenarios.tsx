@@ -1583,9 +1583,11 @@ function PostflushRejectionAsyncFallback() {
 }
 
 // The same failure with markup between the Errored and the Loading: the
-// Loading's position is not the Errored's, so the server draws nothing there
-// (the client twin's fallback replaces the whole <section>) and the client
-// renders the failure fresh, then recovers.
+// Loading's position is not the Errored's, and after the shell the
+// Errored's markup is already out, so the server draws nothing there (the
+// client twin's fallback replaces the whole <section>) and the client
+// renders the failure fresh, then recovers. (Before the shell it draws a
+// fallback ready as it renders in the shell: `preflushNested` below.)
 let setNestedKey!: (v: string) => void;
 function PostflushRejectionNested() {
   const [key, setKey] = createSignal("u7");
@@ -3302,6 +3304,97 @@ export function erroredOutsideLoading(shape: ErroredOutsideLoadingShape) {
 }
 export const erroredOutsideLoadingName = (shape: ErroredOutsideLoadingShape) =>
   `errored-outside-loading-4372-${shape}`;
+
+// #4287 follow-up: the #4287 failure with the `<Loading>` NOT all of the
+// `<Errored>`'s content, failing before the shell is handed to the sink
+// (the read rejects at 5ms; `<b>{outer()}</b>` holds the shell to 15ms).
+// `element`: markup between the two (`<section>`); `sibling`: content beside
+// the `<Loading>`; `settled-sibling`: a sibling `<Loading>` that settled
+// (2ms) and inlined before the failure; `pending-sibling`: one still pending
+// (30ms) when it lands, discarded with the markup the fallback replaces. The
+// shell carries the Errored fallback in place of its content, as a client
+// render shows it; hydrated, the client adopts it, asks nothing, and
+// recovers when the read's input changes. `twin`: no `<Loading>` around the
+// read — the failure met in the Errored's own pull, which the nested failure
+// must send the same text as.
+export const preflushNestedShapes = [
+  "element",
+  "sibling",
+  "settled-sibling",
+  "pending-sibling"
+] as const;
+export type PreflushNestedShape = (typeof preflushNestedShapes)[number];
+export const preflushNestedName = (shape: PreflushNestedShape, twin = false) =>
+  `errored-nested-loading-preflush-rejection-${shape}${twin ? "-twin" : ""}-4287`;
+let preflushNestedAsks = 0;
+export const preflushNestedAskCount = () => preflushNestedAsks;
+export const preflushNestedControl: { setKey?: (v: string) => void } = {};
+export function preflushNested(shape: PreflushNestedShape, twin = false) {
+  return function PreflushNested() {
+    const [key, setKey] = createSignal("u7");
+    preflushNestedControl.setKey = setKey;
+    const outer = createMemo(async () => {
+      await sleep(15);
+      return "outer";
+    });
+    const user = createMemo(async (): Promise<string> => {
+      const k = key();
+      if (!isServer && Promise === RealPromise) preflushNestedAsks++;
+      await sleep(5);
+      if (k === "u7") throw new Error("no user 7");
+      return k;
+    });
+    // Async, settled long before the failure: the fallback reading it is
+    // finished as it renders, so it is drawn.
+    const hint = createMemo(async () => "");
+    const sib = createMemo(async () => {
+      await sleep(shape === "pending-sibling" ? 30 : 2);
+      return "sib";
+    });
+    const read = () => <span>user:{user()}</span>;
+    const failing = () => (twin ? read() : <Loading fallback={<i>loading</i>}>{read()}</Loading>);
+    const content = () => {
+      if (shape === "sibling")
+        return (
+          <>
+            {failing()}
+            <h1>title</h1>
+          </>
+        );
+      if (shape === "settled-sibling" || shape === "pending-sibling")
+        return (
+          <section>
+            <Loading fallback={<i>sib loading</i>}>
+              <em>{sib()}</em>
+            </Loading>
+            {failing()}
+          </section>
+        );
+      return (
+        <section>
+          <h1>title</h1>
+          {failing()}
+        </section>
+      );
+    };
+    return (
+      <div>
+        <Errored
+          fallback={(e: any) => (
+            <p>
+              failed: {e().message}
+              {hint()}
+            </p>
+          )}
+        >
+          {content()}
+        </Errored>
+        <b>{outer()}</b>
+        <span>tail</span>
+      </div>
+    );
+  };
+}
 
 export const scenarios: Scenario[] = [
   {
