@@ -158,6 +158,14 @@ export function createStore(first: any, second?: any, third?: any): any {
   return createThinStore(first, second?.shallow, second) as any;
 }
 
+// One key function per name: the optimizer's code for the merge depends on
+// its shape, which a collection reclaims once no function of it is alive.
+const keyFns = new Map<string, (item: any) => any>();
+const named = (k: string): ((item: any) => any) => {
+  let fn = keyFns.get(k);
+  if (fn === undefined) keyFns.set(k, (fn = Object.assign((i: any) => i?.[k], { k })));
+  return fn;
+};
 /**
  * A setter transform that reconciles `value` into the store by key
  * (`"id"` by default; `null` positional), preserving store identity for
@@ -170,12 +178,7 @@ export function reconcile<T extends U, U>(
   return (state: U): T => {
     if (isThin(state)) {
       const k: any = key;
-      thinReconcile(
-        state,
-        value,
-        k === null ? null : typeof k === "string" ? Object.assign((i: any) => i?.[k], { k }) : k,
-        2
-      );
+      thinReconcile(state, value, k === null ? null : typeof k === "string" ? named(k) : k, 2);
       return undefined as any;
     }
     if (state == null) throw new Error(__DEV__ ? "Cannot reconcile null or undefined state" : "");

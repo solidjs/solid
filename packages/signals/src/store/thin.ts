@@ -195,7 +195,8 @@ interface Target {
   /** the raw's own properties are all plain data (enumerable, writable, no
    * accessor): snapshot copies by assignment (undefined: not asked yet) */
   pl: boolean | undefined;
-  /** an array raw's non-index own keys (symbols, named), asked once */
+  /** asked once: an array raw's non-index own keys (symbols, named), a
+   * record raw's own keys */
   mk: PropertyKey[] | null;
   /** a plain store's deep() node: bumped by every write to this target */
   dv: Signal<number> | null;
@@ -1045,7 +1046,6 @@ function frameRead(t: Target, node: Signal<any>, tracked: boolean): any {
   if (serving !== null && serving === context && node._config & CONFIG_GUESS) v = guessed!(node);
   return v;
 }
-const isFrozen = Object.isFrozen;
 /** `Reflect.ownKeys` of a plain raw, several times faster on a fast-mode
  * object (same order: names, then symbols). */
 const ownOf = (o: object): (string | symbol)[] => {
@@ -1763,6 +1763,8 @@ let sentSet: Set<any> | null = null;
 /** `pv` is re-sent elsewhere in `next`, the parent's new value. */
 function resent(t: Target, next: any, pv: any): boolean {
   if (t.r) {
+    // A Set costs more to build than a short list costs to scan.
+    if (next.length < 9) return next.includes(pv);
     if (sentFor !== next) ((sentFor = next), (sentSet = new Set(next)));
     return sentSet!.has(pv);
   }
@@ -1791,14 +1793,9 @@ function keyAt(keyFn: (v: any) => any, pt: Target): any {
   return keyFn(pt.p);
 }
 /** The source last merged into a plain store's row, re-sent and nothing
- * written since: the row stays, with nothing to diff (a source merged was
- * wrappable, so only a freeze since can unwrap it). */
+ * written since: the row stays, with nothing to diff. */
 const kept = (t: Target, next: any, map: WeakMap<object, any>, pv: any, nv: any): boolean =>
-  t._fam === null &&
-  map.get(pv)?.sv === nv &&
-  !isFrozen(nv) &&
-  !map.has(nv) &&
-  !resent(t, next, pv);
+  t._fam === null && map.get(pv)?.sv === nv && !map.has(nv) && !resent(t, next, pv);
 function merge(
   t: Target,
   next: any,
@@ -1817,6 +1814,8 @@ function merge(
     return nv;
   }
   if (typeof nv !== "object" || nv === null) return nv;
+  // A row nothing ever wrapped has no identity or readers to keep.
+  if (t._fam === null && map.get(pv) === undefined && !isThin(nv)) return nv;
   if (kept(t, next, map, pv, nv)) return pv;
   // A store inside a derive's value: the slot chains to it (#2864).
   if (t._fam !== null && isThin(nv) && nv[$THIN]._fam !== t._fam) return chainSlot(t, nv);
@@ -1961,7 +1960,7 @@ function reconcileTarget(
   if (t.c !== null) {
     for (const key of keysOf(t)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
   } else {
-    for (const key of ownOf(t.v)) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
+    for (const key of (t.mk ??= ownOf(t.v))) if (!hasOwn.call(next, key)) write(t, key, ABSENT);
     const n = t.n;
     if (n !== null && t.x)
       for (const key of Reflect.ownKeys(n))
