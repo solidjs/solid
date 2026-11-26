@@ -655,14 +655,7 @@ function keepReaders(el: Computed<any>): void {
 
 /** A run the landing holds (lanes.ts `waiting`) runs next round with its held runs. */
 function attachWaits(node: Computed<any>): boolean {
-  if (waiting?.has(node))
-    return (
-      globalQueue.enqueue(
-        (node as any)._type,
-        ((node as any)._boundRunEffect ??= GlobalQueue._runEffect.bind(null, node))
-      ),
-      true
-    );
+  if (waiting?.has(node)) return (globalQueue.enqueue((node as any)._type, node), true);
   return false;
 }
 

@@ -742,14 +742,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       unstaged
     ) {
       (el as any)._modified = !el._x?._error;
-      // One bound runner per effect. Lane work's run is the lane's; a first pass's
-      // run is `effect()`'s to queue (#4557).
-      if (!create)
-        globalQueue.enqueue(
-          isEffect,
-          ((el as any)._boundRunEffect ??= GlobalQueue._runEffect.bind(null, el)),
-          lane
-        );
+      // Lane work's run is the lane's; a first pass's run is `effect()`'s to
+      // queue (#4557).
+      if (!create) globalQueue.enqueue(isEffect, el, lane);
     }
 
     // A guess's own pass from the frame is its truth: staged under the lane's

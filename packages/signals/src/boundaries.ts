@@ -380,9 +380,7 @@ function release(b: Boundary): void {
     const type = (n as any)._type;
     globalQueue.enqueue(
       type === EFFECT_TRACKED ? EFFECT_USER : type,
-      type === EFFECT_TRACKED
-        ? (n as any)._run
-        : ((n as any)._boundRunEffect ??= GlobalQueue._runEffect.bind(null, n))
+      type === EFFECT_TRACKED ? (n as any)._run : n
     );
   }
   b._runs = null;
