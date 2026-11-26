@@ -60,6 +60,7 @@ import {
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SCREEN_READ,
   REACTIVE_STAGED_READ,
+  REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
@@ -939,6 +940,12 @@ function holdsOn(t: Transaction): boolean {
     )
   );
 }
+function replacedIn(r: Computed<any>, l: Transaction): boolean {
+  let o: any = r._parent;
+  while (o._flags & REACTIVE_ZOMBIE) o = o._parent;
+  const t = o._x?._transaction;
+  return t === l || (!!t && !!l._links && l._links.indexOf(t) !== -1);
+}
 function shownBy(r: Computed<any>): unknown {
   for (let s = r._subs; s !== null; s = s._nextSub)
     if ((s._sub as any)._type === EFFECT_RENDER && !hiddenHook?.(s._sub)) return 1;
@@ -972,7 +979,9 @@ export function heldMountUnder(o: Owner | null, l: Transaction | null): boolean 
       (l !== null &&
         !holds &&
         !r._x!._pendingSources?.size &&
-        (l._links || [l]).some(u => u._reruns.indexOf(r) !== -1))
+        (l._links || [l]).some(u => u._reruns.indexOf(r) !== -1)) ||
+      // On a frame `l`'s own re-run replaced: `l`'s reveal disposes it, so it never shows (S-46, #5211).
+      (l !== null && r._flags & REACTIVE_ZOMBIE && replacedIn(r, l))
     )
       continue;
     for (let p: Owner | null = r._parent; p !== null; p = p._parent)
