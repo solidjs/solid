@@ -2439,7 +2439,9 @@ export function setMemo<T>(el: Computed<T>, v: T | ((prev: T) => T)): T {
  * }
  * ```
  */
-export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
+export function runWithOwner<T>(owner: Owner | null, fn: () => T): T;
+// `arg` is `createRoot`'s only: `fn(arg)` without a closure per root. Not in the public type.
+export function runWithOwner(owner: Owner | null, fn: (arg?: unknown) => unknown, arg?: unknown) {
   if (__DEV__ && owner && (owner as any)._flags & REACTIVE_DISPOSED) {
     const message =
       "[RUN_WITH_DISPOSED_OWNER] runWithOwner called with a disposed owner. Children created inside will never be disposed.";
@@ -2462,7 +2464,7 @@ export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   context = owner;
   tracking = false;
   try {
-    return fn();
+    return arg === undefined ? fn() : fn(arg);
   } finally {
     context = oldContext;
     tracking = prevTracking;

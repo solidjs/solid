@@ -491,5 +491,9 @@ export function createRoot<T>(
   // A bound function, not an arrow: an arrow would share this scope, which
   // holds `init`, so keeping `dispose` would keep `init` and all it closes
   // over alive (#4095).
-  return runWithOwner(owner, () => init(disposeRootSelf.bind(owner, true)));
+  return (runWithOwner as (owner: Owner, fn: typeof init, dispose: () => void) => T)(
+    owner,
+    init,
+    disposeRootSelf.bind(owner, true)
+  );
 }
