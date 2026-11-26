@@ -80,6 +80,7 @@ export type {
   ExternalSourceFactory,
   FromSource,
   Merge,
+  NoFn,
   NoInfer,
   NotWrappable,
   Omit,

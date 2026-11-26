@@ -89,6 +89,7 @@ export type {
   ExternalSourceConfig,
   ExternalSourceFactory,
   MemoOptions,
+  NoFn,
   NoInfer,
   SignalOptions,
   Setter,
@@ -131,6 +132,7 @@ import type {
   EffectBundle,
   EffectOptions,
   MemoOptions,
+  NoFn,
   SignalOptions,
   Setter,
   Signal,
@@ -994,7 +996,6 @@ type ServerMemoOptions<T> = MemoOptions<T> & {
   serialize?: false;
 };
 type ServerSignalOptions<T> = SignalOptions<T>;
-type NoFn<T> = T extends Function ? never : T;
 type NoArray<T> = Extract<T, readonly unknown[]> extends never ? unknown : never;
 
 /**
