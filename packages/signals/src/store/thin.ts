@@ -1945,7 +1945,8 @@ function reconcileTarget(
       if (made?.has(pv)) holdIn = L!.hold(t);
       const m = merge(t, next, map, keyFn, pv, nv, nk !== undefined);
       holdIn = hi;
-      write(t, i, m, t._fam === null ? cur : write);
+      if (t._fam !== null) write(t, i, m);
+      else if (!Object.is(cur, m)) write(t, i, m, cur);
     }
     ((sentFor = sf), (sentSet = ss));
     for (let i = next.length; i < len; i++) write(t, i, ABSENT);
@@ -1981,14 +1982,13 @@ function reconcileTarget(
           key,
           new Box({ value: nv, writable: true, enumerable: false, configurable: true })
         );
-    } else if (pv === nv && (typeof nv !== "object" || nv === null || !map.get(nv)?.w)) continue;
-    else
-      write(
-        t,
-        key,
-        merge(t, next, map, keyFn, pv === ABSENT ? undefined : pv, nv),
-        t._fam === null ? pv : write
-      );
+    } else if (typeof nv !== "object" || nv === null) {
+      if (pv !== nv) write(t, key, nv, t._fam === null ? pv : write);
+    } else if (pv !== nv || map.get(nv)?.w) {
+      const m = merge(t, next, map, keyFn, pv === ABSENT ? undefined : pv, nv);
+      if (t._fam !== null) write(t, key, m);
+      else if (!Object.is(pv, m)) write(t, key, m, pv);
+    }
   }
   const np = protoOf(next);
   if (t.c === null && np !== protoNow(t)) (put(t, protoNode(t), () => np), (t.w = true));

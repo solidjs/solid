@@ -6,12 +6,17 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import {
+  action,
+  createOptimisticStore,
+  createProjection,
   createRenderEffect,
   createRoot,
+  createSignal,
   createStore,
   flush,
   mapArray,
   reconcile,
+  snapshot,
   untrack
 } from "../../src/index.js";
 
@@ -214,5 +219,215 @@ describe("keyed reconcile keeps a matched row's proxy with nothing subscribed to
     expect(child.deep.v).toBe(1);
     expect(row.child.deep.v).toBe(2);
     expect(row.items[0].v).toBe(2);
+  });
+});
+
+describe("key-matched rows use the store's write and identity rules", () => {
+  it("stages values like an ordinary write and composes across setters (F-10)", () => {
+    const [state, set] = createStore({ rows: fetchRows(), ordinary: 2 });
+    const row = state.rows[1];
+
+    set(draft => {
+      reconcile(fetchRows(3), "id")(draft.rows);
+      draft.ordinary = 3;
+      expect(draft.rows[1]).toBe(row);
+      expect(row.v).toBe(draft.ordinary);
+    });
+    expect(state.rows[1]).toBe(row);
+    expect(row.v).toBe(state.ordinary);
+    expect(snapshot(state).rows[1].v).toBe(2);
+
+    set(draft => {
+      expect(draft.rows[1].v).toBe(3);
+      reconcile(fetchRows(5), "id")(draft.rows);
+      draft.rows[1].v++;
+      draft.ordinary = 6;
+    });
+    expect(row.v).toBe(2);
+    flush();
+    expect(state.rows[1]).toBe(row);
+    expect(row.v).toBe(6);
+    expect(row.v).toBe(state.ordinary);
+  });
+
+  it("a held reconcile and a copy from its draft publish together (F-1, D-33)", async () => {
+    const [state, set] = createStore({ rows: fetchRows(), copy: 2 });
+    const row = state.rows[1];
+    const gate = Promise.withResolvers<void>();
+    const update = action(function* () {
+      set(draft => {
+        reconcile(fetchRows(3), "id")(draft.rows);
+      });
+      yield gate.promise;
+    });
+
+    const done = update();
+    flush();
+    expect(state.rows[1]).toBe(row);
+    expect(row.v).toBe(2);
+    set(draft => {
+      draft.copy = draft.rows[1].v;
+    });
+    flush();
+    expect(state.copy).toBe(2);
+
+    // A reader first attached after the reconcile must still see both frames.
+    const seen: number[] = [];
+    const dispose = createRoot(d => {
+      createRenderEffect(
+        () => row.v,
+        value => void seen.push(value)
+      );
+      return d;
+    });
+    try {
+      flush();
+      expect(seen).toEqual([2]);
+      gate.resolve();
+      await done;
+      flush();
+      expect(state.rows[1]).toBe(row);
+      expect(state.copy).toBe(3);
+      expect(seen).toEqual([2, 3]);
+    } finally {
+      gate.resolve();
+      dispose();
+    }
+  });
+
+  it("updates aliases of the old raw and leaves snapshots coherent", () => {
+    const original = { id: "a", v: 1 };
+    const next = { id: "a", v: 2 };
+    const [state, set] = createStore({ rows: [original], selected: original });
+    const row = state.rows[0];
+
+    set(draft => {
+      reconcile([next], "id")(draft.rows);
+    });
+    flush();
+
+    expect(state.rows[0]).toBe(row);
+    expect(state.selected).toBe(row);
+    expect(state.selected.v).toBe(2);
+    const copy = snapshot(state);
+    expect(copy.selected).toBe(copy.rows[0]);
+    expect(copy.selected.v).toBe(2);
+    expect(original.v).toBe(1);
+
+    // Re-sending the same source restores values changed through an alias.
+    set(draft => {
+      draft.selected.v = 3;
+    });
+    flush();
+    expect(row.v).toBe(3);
+    set(draft => {
+      reconcile([next], "id")(draft.rows);
+    });
+    flush();
+    expect(row.v).toBe(2);
+
+    // If the incoming raw is used independently, it has its own identity.
+    const [other] = createStore([next]);
+    expect(other[0]).not.toBe(row);
+  });
+
+  it("updates a descendant observed through a different path", () => {
+    const child = { id: 1, v: 1 };
+    const [state, set] = createStore({ selected: child, rows: [{ id: "a", child }] });
+    const seen: number[] = [];
+    // The child's first parent is the root, so tracking it leaves the row node-less.
+    const dispose = createRoot(d => {
+      createRenderEffect(
+        () => state.selected.v,
+        value => void seen.push(value)
+      );
+      return d;
+    });
+    try {
+      flush();
+      const row = state.rows[0];
+      set(draft => {
+        reconcile([{ id: "a", child: { id: 1, v: 2 } }], "id")(draft.rows);
+      });
+      flush();
+
+      expect(state.rows[0]).toBe(row);
+      expect(row.child).toBe(state.selected);
+      expect(seen).toEqual([1, 2]);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("keeps an accessor live if it already answers the incoming value", () => {
+    let value = 1;
+    const [rows, set] = createStore([
+      {
+        id: "a",
+        get v() {
+          return value;
+        }
+      }
+    ]);
+    const row = rows[0];
+
+    set(
+      reconcile(
+        [
+          {
+            id: "a",
+            get v() {
+              value = 2;
+              return value;
+            }
+          }
+        ],
+        "id"
+      )
+    );
+    flush();
+    expect(rows[0]).toBe(row);
+    expect(row.v).toBe(2);
+    value = 3;
+    expect(row.v).toBe(3);
+  });
+
+  it("keeps derived row identity across a keyed answer", () => {
+    const dispose = createRoot(d => {
+      const [value, setValue] = createSignal(2, { ownedWrite: true });
+      const rows = createProjection(() => fetchRows(value()), [] as Row[]);
+      const row = rows[1];
+      setValue(3);
+      expect(row.v).toBe(2);
+      flush();
+      expect(rows[1]).toBe(row);
+      expect(row.v).toBe(3);
+      return d;
+    });
+    dispose();
+  });
+
+  it("an optimistic keyed reconcile reveals and reverts in its action (F-10, F-11)", async () => {
+    const [rows, set] = createOptimisticStore(fetchRows());
+    const row = rows[1];
+    const gate = Promise.withResolvers<void>();
+    const update = action(function* () {
+      set(reconcile(fetchRows(3), "id"));
+      yield gate.promise;
+    });
+
+    const done = update();
+    try {
+      expect(row.v).toBe(2);
+      flush();
+      expect(rows[1]).toBe(row);
+      expect(row.v).toBe(3);
+    } finally {
+      gate.resolve();
+      await done;
+      flush();
+    }
+    expect(rows[1]).toBe(row);
+    expect(row.v).toBe(2);
   });
 });
