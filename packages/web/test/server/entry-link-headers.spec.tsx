@@ -78,6 +78,15 @@ describe("entry Link headers", () => {
     await response.text();
   });
 
+  test("keeps a Link value the host passes as the base response head", () => {
+    const event = makeEvent();
+    const html = storage.run(event, () => renderToString(() => <App />, { manifest }));
+    const response = createSSRResponse(html, event, {
+      responseInit: { headers: { Link: '</feed.xml>; rel="alternate"' } }
+    });
+    expect(response.headers.get("link")).toBe(`</feed.xml>; rel="alternate", ${ENTRY_LINKS}`);
+  });
+
   test("leaves out lazy chunks", () => {
     const event = makeEvent();
     storage.run(event, () => renderToString(() => <App />, { manifest }));

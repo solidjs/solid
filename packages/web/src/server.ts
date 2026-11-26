@@ -7134,6 +7134,7 @@ function mergeStubHeaders(target, stub) {
   if (!stub) return target;
   stub.headers.forEach((value, key) => {
     if (key === "server-timing") mergeServerTiming(target, value);
+    else if (key === "link") target.append(key, value);
     else if (key !== "set-cookie") target.set(key, value);
   });
   const setCookies = stub.headers.getSetCookie ? stub.headers.getSetCookie() : [];
