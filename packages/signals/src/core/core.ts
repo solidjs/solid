@@ -1454,18 +1454,35 @@ export function enterCallback(): void {
 export function exitCallback(): void {
   callbackDepth--;
 }
-/** Dev: > 0 while teardown runs cleanups: their writes are imperative too, so
- * the owned-scope guard stands down (#4165). No try/finally here (prod), so
+/** Dev: > 0 while teardown runs cleanups. No try/finally here (prod), so
  * dev.ts resets it on the next microtask. */
 export let disposalDepth = 0;
-export function enterDisposal(): void {
+/** Dev: the owner whose `onCleanup` is running: it belongs to that owner's
+ * computation, so its writes are owned wherever teardown runs it. `false`
+ * while an effect's returned cleanup runs: that one is imperative (#4165). */
+let cleaning: Owner | false | null = null;
+export function enterDisposal(of: Owner | false): Owner | false | null {
+  const was = cleaning;
   disposalDepth++;
+  cleaning = of;
+  return was;
 }
-export function exitDisposal(): void {
+export function exitDisposal(was: Owner | false | null): void {
   disposalDepth--;
+  cleaning = was;
 }
 export function resetDisposalDepth(): void {
   disposalDepth = 0;
+  cleaning = null;
+}
+/** Dev: the owner a write made here is owned by, if any. */
+export function ownedScope(): Owner | false | null {
+  return cleaning === null
+    ? context !== null &&
+        !(context._config & CONFIG_CHILDREN_FORBIDDEN) &&
+        !inRefCallback() &&
+        context
+    : cleaning;
 }
 /** Dev: the event current when the strict-read window opened, or `ANY_EVENT`.
  * A handler dispatched synchronously from an effect callback is a snapshot,
@@ -2306,25 +2323,19 @@ export function landThroughSetSignal(el: Computed<any>, value: unknown): boolean
 
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   if (writeHook !== null) writeHook(el);
-  if (
-    __DEV__ &&
-    !(el._config & CONFIG_OWNED_WRITE) &&
-    !(context && context._config & CONFIG_CHILDREN_FORBIDDEN) &&
-    context &&
-    !disposalDepth &&
-    !inRefCallback()
-  ) {
+  const owned = __DEV__ && !(el._config & CONFIG_OWNED_WRITE) && ownedScope();
+  if (__DEV__ && owned) {
     emitDiagnostic({
       code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
       kind: "write",
       severity: "error",
       message: REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE,
-      ownerId: context.id,
-      ownerName: (context as any)._name,
+      ownerId: owned.id,
+      ownerName: (owned as any)._name,
       nodeName: (el as any)._name,
       data: { operation: "setSignal" }
     });
-    throw new Error(ownedScopeWriteMessage(context));
+    throw new Error(ownedScopeWriteMessage(owned));
   }
 
   const currentValue = el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T);
@@ -2489,21 +2500,15 @@ export function staleValues<T>(fn: () => T, set = true): T {
  * re-ask and schedules it. `check`: the owned-scope check alone, the mark
  * coming after the answer out lands (#5094). */
 export function markRefresh(node: Computed<any>, check?: boolean): void {
-  if (
-    __DEV__ &&
-    context &&
-    !((node._config ?? 0) & CONFIG_OWNED_WRITE) &&
-    !(context._config & CONFIG_CHILDREN_FORBIDDEN) &&
-    !disposalDepth &&
-    !inRefCallback()
-  ) {
+  const owned = __DEV__ && !((node._config ?? 0) & CONFIG_OWNED_WRITE) && ownedScope();
+  if (__DEV__ && owned) {
     emitDiagnostic({
       code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
       kind: "write",
       severity: "error",
       message: REACTIVE_WRITE_IN_OWNED_SCOPE_REFRESH_MESSAGE,
-      ownerId: context.id,
-      ownerName: (context as any)._name,
+      ownerId: owned.id,
+      ownerName: (owned as any)._name,
       nodeName: (node as any)._name,
       data: { operation: "refresh" }
     });

@@ -912,7 +912,8 @@ function armLiveTakeover(o: Owner, streaming?: boolean) {
     const scope = streaming ? null : liveScopeOf(o);
     let entry = liveGates.get(scope);
     if (!entry) {
-      entry = coreSignal(false);
+      // A boundary's cleanup can end hydration, and write this (dev: `ownedWrite`).
+      entry = IS_DEV ? coreSignal(false, { ownedWrite: true }) : coreSignal(false);
       liveGates.set(scope, entry);
       if (scope === null)
         onHydrationEnd(() => {
