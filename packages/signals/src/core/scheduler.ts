@@ -1235,6 +1235,12 @@ export class GlobalQueue implements IQueue {
     for (let k = transactions.length - 1; k >= 0; k--) {
       const u = transactions[k];
       if (blocked(u)) continue;
+      // A landed transaction holds nothing (#5161): the flush stops calling
+      // `u` its own before its lanes end and its commits run. A cleanup an
+      // earlier landing ran can have opened it; a callback either step runs
+      // (a cleanup, a guess's `equals`) that starts an action must start a
+      // transaction of its own, not merge into `u` (#5233).
+      if (flushTransaction && resolveTx(flushTransaction) === u) flushTransaction = null;
       transactions.splice(k, 1);
       endLanesHook?.(u);
       land(u);
@@ -1426,10 +1432,6 @@ function land(u: Transaction): void {
   if (__OBSERVE__ && attrHooks !== null) attrHooks.transitionSettled(u);
   const frame = reruns(u);
   if (releaseMarksHook && u._marks !== null) releaseMarksHook(u._marks);
-  // A landed transaction holds nothing (D-9): the flush must not keep it as
-  // its own, or the next join merges into it and is never committed (D-7).
-  // A cleanup an earlier landing ran can have opened `u`.
-  if (flushTransaction !== null && resolveTx(flushTransaction) === u) flushTransaction = null;
   // Old children die in the commits (cleanups first), then the stashed
   // effects run ahead of this flush's own. A node a lane took over since
   // (a guess written over the staged truth) is the lane's to land.
