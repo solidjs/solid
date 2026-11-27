@@ -53,6 +53,18 @@ button.onclick = () => refresh(user);
 const [ref, setRef] = createSignal(null, { ownedWrite: true });
 ```
 
+A cleanup is judged by the scope it belongs to, not by where teardown happens to run it. An `onCleanup` registered in a component body or a computation is part of that computation, so a write from it throws, whether a `<For>` drops the row or a `<Show>` switches the branch. A cleanup returned from an effect callback or from `onSettled` is imperative, like the callback that returned it, and may write.
+
+```js
+function Row() {
+  // Throws in dev when the row is removed
+  onCleanup(() => setOpenCount(n => n - 1));
+
+  // Fix: return the cleanup from onSettled (or from an effect callback)
+  onSettled(() => () => setOpenCount(n => n - 1));
+}
+```
+
 #### `ASYNC_STORE_SETTER`
 
 **Message:** "Store setter callback returned a Promise. A store setter is a synchronous transaction: the draft closes when the callback returns, so writes after an `await` are lost. Move the await into an action() and call the setter from there."
@@ -343,7 +355,7 @@ The flush cycle exceeded 100,000 iterations. This usually means a reactive write
 
 **Message:** "Calling an action inside an owned scope (component, computation) is not allowed. Call it from an event handler or another imperative scope."
 
-An `action()` was invoked from a component body or a computation. Actions are imperative transactions; start them from an event handler, an effect callback, or another imperative scope.
+An `action()` was invoked from a component body or a computation. Actions are imperative transactions; start them from an event handler, an effect callback, or another imperative scope. A cleanup returned from an effect callback or from `onSettled` is such a scope; an `onCleanup` belongs to the computation that registered it, so calling an action from it throws (see `REACTIVE_WRITE_IN_OWNED_SCOPE`).
 
 #### `MISSING_EFFECT_FN`
 

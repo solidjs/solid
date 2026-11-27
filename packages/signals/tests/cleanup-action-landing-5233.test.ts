@@ -1,5 +1,7 @@
 /**
  * #5233 — a cleanup that a landing's commits run calls a synchronous action.
+ * (An effect's returned cleanup: an `onCleanup` belongs to its computation,
+ * where calling an action is an owned call, #5123.)
  * The action's transaction became the flush's, and with nothing to wait on
  * it landed in the same landing loop, so the flush still pointed at it once
  * it had landed. The next action merged into that landed transaction: its
@@ -30,7 +32,7 @@ const settle = async () => {
   }
 };
 
-type Mode = "onCleanup" | "effect" | "throws" | "async";
+type Mode = "effect" | "throws" | "async";
 
 async function run(mode: Mode) {
   const rendered: string[] = [];
@@ -60,12 +62,10 @@ async function run(mode: Mode) {
     // a child that does.
     const branch = createMemo(() => {
       if (!open()) return null;
-      if (mode === "effect")
-        createEffect(
-          () => title(),
-          () => () => void onClose().catch(() => {})
-        );
-      else onCleanup(() => void onClose().catch(() => {}));
+      createEffect(
+        () => title(),
+        () => () => void onClose().catch(() => {})
+      );
       return "Part";
     });
     createRenderEffect(branch, () => {});
@@ -88,7 +88,7 @@ async function run(mode: Mode) {
 describe("#5233 an action called from a cleanup during a landing", () => {
   // `async` is the control: its transaction is still open when the landing
   // loop ends, so it never lands in it.
-  for (const mode of ["onCleanup", "effect", "throws", "async"] as const) {
+  for (const mode of ["effect", "throws", "async"] as const) {
     it(`${mode}: the next action's write commits`, async () => {
       expect(await run(mode)).toEqual({
         rendered: "F T F T F",
@@ -118,13 +118,19 @@ describe("#5233 an action called from a cleanup during a landing", () => {
       );
       const branch = createMemo(() => {
         if (!open()) return null;
-        onCleanup(() => void onClose());
+        createEffect(
+          () => 1,
+          () => () => void onClose()
+        );
         return "Part";
       });
       createRenderEffect(branch, () => {});
       const titled = createMemo(() => {
         title();
-        onCleanup(() => void second());
+        createEffect(
+          () => 1,
+          () => () => void second()
+        );
         return "Title";
       });
       createRenderEffect(titled, () => {});
@@ -176,7 +182,11 @@ describe("#5233 an action called from a cleanup during a landing", () => {
         });
         createRenderEffect(branch, () => {});
         const nested = createMemo(() => {
-          if (!step() && mode === "regular commit") onCleanup(startThird);
+          if (!step() && mode === "regular commit")
+            createEffect(
+              () => 1,
+              () => startThird
+            );
           return step();
         });
         createRenderEffect(nested, () => {});

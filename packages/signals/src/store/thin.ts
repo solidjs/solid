@@ -9,7 +9,6 @@ import { checkForeignRead } from "../core/copies.js";
 import { forEachDependent } from "../core/async.js";
 import {
   $REFRESH,
-  CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
   CONFIG_HELD,
   CONFIG_MANUAL_WRITE,
@@ -29,8 +28,7 @@ import {
 } from "../core/constants.js";
 import {
   context,
-  disposalDepth,
-  inRefCallback,
+  ownedScope,
   isEqual,
   ownedScopeWriteMessage,
   REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE,
@@ -1567,22 +1565,18 @@ function devGuardStoreSetterResult(result: any): void {
 /** Dev: a store setter inside an owned scope (a memo body) is the
  * owned-scope write violation (store.ts `devGuardStoreSetterWrite`). */
 function devGuardOwnedWrite(): void {
-  if (
-    context &&
-    !(context._config & CONFIG_CHILDREN_FORBIDDEN) &&
-    !disposalDepth &&
-    !inRefCallback()
-  ) {
+  const owned = ownedScope();
+  if (owned) {
     emitDiagnostic({
       code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
       kind: "write",
       severity: "error",
       message: REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE,
-      ownerId: context.id,
-      ownerName: (context as any)._name,
+      ownerId: owned.id,
+      ownerName: (owned as any)._name,
       data: { operation: "setStore" }
     });
-    throw new Error(ownedScopeWriteMessage(context));
+    throw new Error(ownedScopeWriteMessage(owned));
   }
 }
 

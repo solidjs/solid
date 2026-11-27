@@ -195,9 +195,9 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
   if (self && node._cleanup) {
     const effectCleanup = node._cleanup;
     node._cleanup = undefined;
-    if (__DEV__) enterDisposal();
+    const was = __DEV__ ? enterDisposal(false) : null;
     runCleanup(effectCleanup);
-    if (__DEV__) exitDisposal();
+    if (__DEV__) exitDisposal(was);
   }
 }
 
@@ -222,7 +222,7 @@ function runDisposal(node: Owner, zombie?: boolean): void {
   else node._disposal = null;
 
   // Each cleanup is guarded (`runCleanup`), so the depth is always lowered.
-  if (__DEV__) enterDisposal();
+  const was = __DEV__ ? enterDisposal(node) : null;
   if (Array.isArray(disposal)) {
     // Unwind order (#3572, restores 1.x #1562): later registrations run
     // before earlier ones. Children have already been disposed by the caller,
@@ -234,7 +234,7 @@ function runDisposal(node: Owner, zombie?: boolean): void {
   } else {
     runCleanup(disposal);
   }
-  if (__DEV__) exitDisposal();
+  if (__DEV__) exitDisposal(was);
 }
 
 function childId(counter: Owner, consume: boolean): string {
