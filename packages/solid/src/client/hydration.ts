@@ -28,6 +28,7 @@ import {
   type Accessor,
   type ComputeFunction,
   type MemoOptions,
+  type NoFn,
   type NoInfer,
   type Owner,
   type ProjectionOptions,
@@ -675,7 +676,10 @@ export function readHydratedValue(initP: any, refresh: () => void, options?: any
         initP.then?.(undefined, noop);
         throw initP.v;
       }
-      if (initP.s === 1) return initP.v;
+      if (initP.s === 1)
+        return isAsyncIterable(initP.v)
+          ? { [Symbol.asyncIterator]: () => normalizeIterator(initP.v[Symbol.asyncIterator]()) }
+          : initP.v;
     }
     // Still in flight (or a loading window's): the runtime lands it, in a
     // served pass for the node it lands.
@@ -908,7 +912,8 @@ function armLiveTakeover(o: Owner, streaming?: boolean) {
     const scope = streaming ? null : liveScopeOf(o);
     let entry = liveGates.get(scope);
     if (!entry) {
-      entry = coreSignal(false);
+      // A boundary's cleanup can end hydration, and write this (dev: `ownedWrite`).
+      entry = IS_DEV ? coreSignal(false, { ownedWrite: true }) : coreSignal(false);
       liveGates.set(scope, entry);
       if (scope === null)
         onHydrationEnd(() => {
@@ -957,6 +962,16 @@ export function forwardIteratorReturn(it: any, value?: any) {
     : syncThenable(returned ?? { done: true, value });
 }
 
+function pullStep(it: any) {
+  try {
+    return it.next();
+  } catch (e) {
+    const rejected = Promise.reject(e);
+    rejected.catch(noop);
+    return rejected;
+  }
+}
+
 function normalizeIterator(it: any, deferFirst?: boolean) {
   let first = true;
   let buffered: any = null;
@@ -979,11 +994,11 @@ function normalizeIterator(it: any, deferFirst?: boolean) {
         buffered = null;
         return b;
       }
-      let latest = it.next();
+      let latest = pullStep(it);
       if (latest && typeof latest.then === "function") return latest;
       let result = latest;
       while (!latest.done) {
-        const peek = it.next();
+        const peek = pullStep(it);
         if (peek && typeof peek.then === "function") {
           buffered = peek;
           break;
@@ -1852,26 +1867,32 @@ export function createRevealOrder<T>(
 }
 
 /**
- * Creates an optimistic signal — a `Signal<T>` whose writes are
- * tentative inside an `action` transition: they show up immediately,
- * then auto-revert (or reconcile to the action's resolved value) once
- * the transition settles.
+ * Creates an optimistic signal — a `Signal<T>` whose writes inside an
+ * `action` transition are guesses: they show up immediately and always
+ * revert when the transition settles, whether the action succeeded or
+ * failed. A guess never becomes the value. What stays is the source of
+ * truth: write or refresh it in the action, and the guess reverts onto it
+ * in the same frame. With nothing held to guess over (outside an
+ * action), a write does nothing.
  *
  * Use this for single-value optimistic state. For collection-shaped
  * state, prefer `createOptimisticStore`.
  *
- * - **Plain form** — `createOptimistic(value, options?: SignalOptions<T>)`.
  * - **Function form** — `createOptimistic(fn, options?: SignalOptions<T> & MemoOptions<T>)`:
- *   the authoritative value is recomputed by `fn`; the optimistic
- *   overlay reverts after each transition.
+ *   `fn` reads the source of truth. The usual form for data.
+ * - **Plain form** — `createOptimistic(value, options?: SignalOptions<T>)`:
+ *   over a fixed value, so every guess reverts to it. Suits transient
+ *   state such as a "saving" flag set inside the action.
  *
  * @example
  * ```ts
- * const [name, setName] = createOptimistic("Ada");
+ * const [name, setName] = createSignal("Ada"); // the source of truth
+ * const [shownName, guessName] = createOptimistic(() => name());
  *
  * const rename = action(function* (next: string) {
- *   setName(next);                 // optimistic
- *   yield api.rename(next);        // commits or reverts on settle
+ *   guessName(next);        // shows now
+ *   yield api.rename(next);
+ *   setName(next);          // the truth; the guess reverts onto it
  * });
  * ```
  *
@@ -1984,7 +2005,6 @@ export const createProjection: {
     : (coreProjection as Function)(...args);
 }) as any;
 
-type NoFn<T> = T extends Function ? never : T;
 type NoArray<T> = Extract<T, readonly unknown[]> extends never ? unknown : never;
 
 /**
@@ -2072,17 +2092,21 @@ export const createStore: {
 
 /**
  * The store equivalent of `createOptimistic`. Writes inside an
- * `action` transition are tentative — they show up immediately but
- * auto-revert (or reconcile to the action's resolved value) once the
- * transition finishes.
+ * `action` transition are guesses: they show up immediately and always
+ * revert when the transition settles, whether the action succeeded or
+ * failed — including writes made after a `yield`. A guess never becomes
+ * the value. What stays is the source of truth: refresh or write it in
+ * the action, and the guesses revert onto it in the same frame.
  *
  * Use this for optimistic UI on collection-shaped data. For
  * single-value optimistic state, prefer `createOptimistic`.
  *
- * - **Plain form** — `createOptimisticStore(initialValue, options?)`.
  * - **Derived form** — `createOptimisticStore(fn, seed, options?)`:
- *   a projection store whose authoritative value is recomputed by
- *   `fn` and whose optimistic overlay reverts after each transition.
+ *   a projection store whose value is recomputed by `fn` from the
+ *   source of truth (a fetch, a store), with guesses laid over it. The
+ *   usual form for data.
+ * - **Plain form** — `createOptimisticStore(initialValue, options?)`:
+ *   over a fixed value, so every guess reverts to it.
  *
  * In the derived form, `options.key` defaults to `"id"`; specify it only when your data
  * uses a different identity field (e.g. `{ key: "uuid" }` or
@@ -2090,23 +2114,20 @@ export const createStore: {
  *
  * @example
  * ```ts
- * const [todos, setTodos] = createOptimisticStore<Todo[]>([]);
+ * const [todos, setTodos] = createOptimisticStore(() => api.listTodos(), []);
  *
- * // Mutation: optimistic add, then in-place reconcile to the saved row.
+ * // Mutation: guess the new row, save it, then re-fetch the truth.
  * const addTodo = action(function* (text: string) {
- *   const tempId = crypto.randomUUID();
- *   setTodos(t => { t.push({ id: tempId, text, pending: true }); });
- *   const saved = yield api.createTodo(text);
- *   setTodos(t => {
- *     const i = t.findIndex(x => x.id === tempId);
- *     if (i >= 0) t[i] = saved;
- *   });
+ *   setTodos(t => { t.push({ id: crypto.randomUUID(), text, pending: true }); });
+ *   yield api.createTodo(text);
+ *   refresh(todos); // the guess reverts onto the re-fetched list
  * });
  *
  * // Return form: filter is the natural shape for removal.
  * const removeTodo = action(function* (id: string) {
  *   setTodos(t => t.filter(x => x.id !== id));
  *   yield api.removeTodo(id);
+ *   refresh(todos);
  * });
  * ```
  *

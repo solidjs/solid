@@ -2789,7 +2789,7 @@ export function getNextElement(template) {
     return template(true);
   }
   if ("_SOLID_DEV_" && template && template._html) {
-    const expected = template._html.match(/^<(\w+)/)?.[1];
+    const expected = template._html.match(/^<([^\s/>]+)/)?.[1];
     if (expected && node.localName !== expected) {
       console.warn(
         `Hydration tag mismatch for key "${key}": expected <${expected}> but found`,
@@ -2900,13 +2900,23 @@ export function runHydrationEvents() {
       if (!events) return;
       events.queued = false;
       while (events.length) {
-        const [el, e] = events[0];
+        const [el, e, origin] = events[0];
         if (!completed.has(el)) return;
         events.shift();
+        // Once native dispatch ends, a shadow event's target is retargeted to
+        // its host and composedPath() is empty. The bootstrap captured the
+        // original target while the event was still in flight.
+        // eventHandler deletes `target` when it finishes, so each replay
+        // defines it again.
+        const target = origin || e.target;
+        const replay = (container, state) => (
+          Object.defineProperty(e, "target", { configurable: true, value: target }),
+          eventHandler(e, container, state)
+        );
         let matchContainer, matchState, matchDistance, matches;
         for (const [container, state] of delegatedContainers) {
           if (!state.handlers.has(e.type)) continue;
-          const entry = findOwner(e.target, state);
+          const entry = findOwner(target, state);
           if (!entry) continue;
           if (matchContainer) {
             if (!matches)
@@ -2928,9 +2938,10 @@ export function runHydrationEvents() {
           // Replay innermost-first so queued hydration events follow the same
           // root-boundary handoff as live native bubbling.
           matches.sort((a, b) => a.distance - b.distance);
-          for (let i = 0; i < matches.length; i++)
-            eventHandler(e, matches[i].container, matches[i].state);
-        } else if (matchContainer) eventHandler(e, matchContainer, matchState);
+          for (let i = 0; i < matches.length; i++) replay(matches[i].container, matches[i].state);
+        } else if (matchContainer) replay(matchContainer, matchState);
+        // A replay that stopped early leaves the defined target behind.
+        delete e.target;
         // Each replayed event is its own instant, as live (#4285).
         flush();
       }
@@ -3374,9 +3385,10 @@ function writeSelectValue(node, value) {
     has = value != null && value.map;
   if (has) had || node.addEventListener("change", selectChange, true);
   else had && node.removeEventListener("change", selectChange, true);
+  const write = (node._$n = (node._$n || 0) + 1);
   if (value == null) {
     node._$v = null;
-    return queueMicrotask(() => (node.value = value)) || (node.value = value);
+    return queueMicrotask(() => node._$n === write && (node.value = value)) || (node.value = value);
   }
   node._$v = value;
   (selectInsert ||= applySelectValue)(node);

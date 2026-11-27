@@ -154,7 +154,7 @@ describe("Test HyperScript", () => {
     // Fragment is a component whose body returns props.children.
     const result = mount(() => h(h.Fragment, null, first, second));
     expect(Array.isArray(result)).toBe(true);
-    expect(result).toEqual([first, second]);
+    expect(result.map(node => node.outerHTML)).toEqual(["<span>A</span>", "<span>B</span>"]);
   });
 
   test("#id-only selector defaults to a div", () => {
@@ -227,6 +227,15 @@ describe("Test HyperScript", () => {
     expect(el.textContent).toBe("xyz");
   });
 
+  test("a function at index 0 of a nested-array child is detected as multiExpression", () => {
+    const [val, setVal] = createSignal("A");
+    const el = mount(() => h("p", "left", [() => val(), "right"]));
+    expect(el.textContent).toBe("leftAright");
+    setVal("B");
+    flush();
+    expect(el.textContent).toBe("leftBright");
+  });
+
   test("component invoked with only children arg (no props) wraps args as props.children", () => {
     const Comp = props => h("p", props.children);
     const el = mount(() => h(Comp, "just-text"));
@@ -241,6 +250,27 @@ describe("Test HyperScript", () => {
     const Comp = props => h("section", props.children);
     const el = mount(() => h(Comp, existing));
     expect(el.firstChild).toBe(existing);
+  });
+
+  test("a Text child is inserted, not read as props (#5056)", () => {
+    const text = document.createTextNode("hello");
+    const el = mount(() => h("div", text));
+    expect(el.firstChild).toBe(text);
+    expect(el.attributes.length).toBe(0);
+  });
+
+  test("a DocumentFragment child inserts its nodes, not read as props (#5056)", () => {
+    const frag = document.createDocumentFragment();
+    frag.append(document.createElement("b"), document.createTextNode("x"));
+    const el = mount(() => h("div", frag));
+    expect(el.outerHTML).toBe("<div><b></b>x</div>");
+  });
+
+  test("a component's Text second arg becomes props.children (#5056)", () => {
+    const text = document.createTextNode("inner");
+    const Comp = props => h("section", props.children);
+    const el = mount(() => h(Comp, text));
+    expect(el.firstChild).toBe(text);
   });
 
   test("component with multiple extra args bundles them into props.children array", () => {

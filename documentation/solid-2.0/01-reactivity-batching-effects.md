@@ -11,7 +11,7 @@ Solid 2.0 tightens the reactivity model: no writes under owned scope (with narro
 ## Motivation
 
 - **Writes under scope:** Writing to a signal inside a tracked context (e.g. inside an effect or component body) can cause subtle bugs and makes the graph harder to reason about. Split effects make it safe to disallow this by default.
-- **Strict top-level access (new):** Top-level reactive reads in component body can accidentally capture dependencies and re-run in async situations; in 2.0 we warn in dev unless the read is inside createMemo/createEffect or explicit `untrack`.
+- **Strict top-level access (new):** Top-level reactive reads in component body can accidentally capture dependencies and re-run in async situations; in 2.0 we warn in dev unless the read is inside a tracking scope (JSX, createMemo, createEffect's compute) or an explicit `untrack`.
 - **Batching:** Synchronous batching with `batch()` is replaced by default microtask batching. Setters queue work; reads (and DOM/effects) reflect the update after the batch flushes (next microtask, or via `flush()`). This aligns with Vue/Svelte and simplifies the model; `batch` is no longer needed.
 - **Split effects:** Running all “tracking” (compute) halves of effects before any “effect” (callback) halves gives a clear dependency picture before side effects run, which is required for async, Loading, and Errored boundaries.
 
@@ -44,12 +44,15 @@ button.onclick = () => setCount((c) => c + 1);
 
 ### Strict top-level access (new in 2.0)
 
-**What’s new:** In component body **top level**, reactive reads (signal, signal-backed prop, store property) **warn in dev** unless they are inside a reactive scope (e.g. `createMemo`, `createEffect`) or explicitly wrapped in `untrack`. This steers authors to avoid accidental dependencies that would re-run the component in async or lose reactivity.
+**What’s new:** In component body **top level**, reactive reads (signal, signal-backed prop, store property) **warn in dev** unless they are inside a reactive scope (e.g. JSX, `createMemo`, `createEffect`) or explicitly wrapped in `untrack` (a deliberate one-time read of a value never downstream of async, not a way to clear the warning). This steers authors to avoid accidental dependencies that would re-run the component in async or lose reactivity.
 
 ```js
 // New: top-level read in component body warns unless wrapped
 function Title(props) {
-  const t = untrack(() => props.title); // intentional one-time read — no warn
+  return <h1>{props.title}</h1>; // read where it is used — no warn
+}
+function FixedTitle(props) {
+  const t = untrack(() => props.title); // deliberate one-time read — no warn, never updates
   return <h1>{t}</h1>;
 }
 function Bad(props) {

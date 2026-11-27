@@ -53,6 +53,18 @@ button.onclick = () => refresh(user);
 const [ref, setRef] = createSignal(null, { ownedWrite: true });
 ```
 
+A cleanup is judged by the scope it belongs to, not by where teardown happens to run it. An `onCleanup` registered in a component body or a computation is part of that computation, so a write from it throws, whether a `<For>` drops the row or a `<Show>` switches the branch. A cleanup returned from an effect callback or from `onSettled` is imperative, like the callback that returned it, and may write.
+
+```js
+function Row() {
+  // Throws in dev when the row is removed
+  onCleanup(() => setOpenCount(n => n - 1));
+
+  // Fix: return the cleanup from onSettled (or from an effect callback)
+  onSettled(() => () => setOpenCount(n => n - 1));
+}
+```
+
 #### `ASYNC_STORE_SETTER`
 
 **Message:** "Store setter callback returned a Promise. A store setter is a synchronous transaction: the draft closes when the callback returns, so writes after an `await` are lost. Move the await into an action() and call the setter from there."
@@ -343,7 +355,7 @@ The flush cycle exceeded 100,000 iterations. This usually means a reactive write
 
 **Message:** "Calling an action inside an owned scope (component, computation) is not allowed. Call it from an event handler or another imperative scope."
 
-An `action()` was invoked from a component body or a computation. Actions are imperative transactions; start them from an event handler, an effect callback, or another imperative scope.
+An `action()` was invoked from a component body or a computation. Actions are imperative transactions; start them from an event handler, an effect callback, or another imperative scope. A cleanup returned from an effect callback or from `onSettled` is such a scope; an `onCleanup` belongs to the computation that registered it, so calling an action from it throws (see `REACTIVE_WRITE_IN_OWNED_SCOPE`).
 
 #### `MISSING_EFFECT_FN`
 
@@ -409,12 +421,21 @@ function Good(props) {
   return <div>{props.count}</div>;
 }
 
-// Fix: explicit one-time read
+// Fix: derive, or hand a hook an accessor
 function AlsoGood(props) {
+  const doubled = () => props.count * 2;
+  const user = createMemo(() => fetchUser(props.id));
+  return <div>{doubled()} {user().name}</div>;
+}
+
+// Deliberate one-time snapshot: the value must never update
+function Snapshot(props) {
   const n = untrack(() => props.count);
   return <div>{n}</div>;
 }
 ```
+
+`untrack()` is the explicit form of a one-time read: use it only when the value must never follow its source and is never downstream of async. A value that comes from async data can still be pending (the read throws `PENDING_ASYNC_UNTRACKED_READ`) or mid-transition (the snapshot is the old committed value), and a component rarely knows where its props come from. It silences the warning without changing what happens, so when the value should update, move the read to where it is used instead (JSX, a memo, an effect's compute, the event handler, or an accessor passed to the hook). Coding agents should not use `untrack` to clear this warning. Seed local state with a writable derived signal (`createSignal(() => props.initial)`) and form controls with `defaultValue`.
 
 This also fires for store property access in the same contexts.
 

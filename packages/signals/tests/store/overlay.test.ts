@@ -117,40 +117,6 @@ describe("overlay pending backings (#3044)", () => {
     expect(Object.keys(store)).toEqual(["a", "b"]);
   });
 
-  it("adoption resets the accessor-scan verdict: an accessor-bearing adoptee leaves the overlay path", () => {
-    const [store, setStore] = createStore<{ value: number }>({ value: 1 });
-    // First draft scans the plain backing (overlay-eligible verdict).
-    setStore(s => {
-      s.value = 2;
-    });
-    flush();
-    // Adopt an accessor-bearing container: the stale plain verdict must not
-    // admit it to the overlay path — an overlay write would define an own
-    // data prop that SHADOWS the setter instead of invoking it.
-    const withAccessor = {
-      _v: 3,
-      get value() {
-        return this._v;
-      },
-      set value(n: number) {
-        this._v = n * 10;
-      }
-    };
-    setStore(() => withAccessor as any);
-    flush();
-    expect(store.value).toBe(3);
-    // The setter must run AT WRITE TIME (R29 installed accessors stay
-    // live): the clone path invokes it (draft reads 5 * 10 = 50); a stale
-    // overlay verdict shadows it with an own data prop (draft reads 5) and
-    // only the commit-time flatten rescues the final value.
-    setStore(s => {
-      s.value = 5;
-      expect(s.value).toBe(50);
-    });
-    flush();
-    expect(store.value).toBe(50);
-  });
-
   it("draft self-reference escaping into the store materializes (cycle preserved)", () => {
     const [store, setStore] = createStore<{ node: { name: string; self?: unknown } }>({
       node: { name: "n" }

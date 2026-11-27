@@ -11,7 +11,25 @@ const path = require("path");
 
 const compilerDir = path.resolve(__dirname, "..");
 
+const templateCases = {
+  templateText: { code: "const t = <template>hi</template>;", throws: false },
+  malformedInTemplate: {
+    code: "const t = <template><p><div>x</div></p></template>;",
+    throws: true
+  },
+  nestedTemplate: {
+    code: 'const t = <div><template id="row"><template><li class="item">x</li></template></template></div>;',
+    options: { hydratable: true },
+    throws: false
+  },
+  templateInHead: {
+    code: "const t = <head><template><span>x</span></template></head>;",
+    throws: false
+  }
+};
+
 const cases = {
+  ...templateCases,
   pInDiv: { code: "const t = <p><div>bad</div></p>;", throws: true },
   nestedA: { code: "const t = <a><a>x</a></a>;", throws: true },
   tableNoTbody: { code: "const t = <table><tr><td>1</td></tr></table>;", throws: true },
@@ -29,6 +47,24 @@ const cases = {
   colPartial: { code: "const t = <col />;", throws: false },
   theadPartial: { code: "const t = <thead><tr><th>h</th></tr></thead>;", throws: false },
   emptyTbody: { code: "const t = <tbody></tbody>;", throws: false },
+  cellWhitespace: { code: "const t = <tr><td>a</td> <td>b</td></tr>;", throws: false },
+  cellSpaceExpression: {
+    code: 'const t = <table><thead><tr><th>a</th>{" "}<th>{x()}</th></tr></thead></table>;',
+    options: { hydratable: true },
+    throws: false
+  },
+  cellCarriageReturn: { code: 'const t = <tr><td>a</td>{"\\r"}<td>b</td></tr>;', throws: false },
+  rowWhitespace: {
+    code: "const t = <tbody><tr><td>a</td></tr> <tr><td>b</td></tr></tbody>;",
+    throws: false
+  },
+  colWhitespace: { code: "const t = <colgroup><col /> <col /></colgroup>;", throws: false },
+  cellMergedWhitespace: {
+    code: 'const t = <tr><td>a</td> {" "}<td>b</td></tr>;',
+    throws: false
+  },
+  headWhitespace: { code: "const t = <head> <title>x</title></head>;", throws: false },
+  cellText: { code: "const t = <tr><td>a</td> x <td>b</td></tr>;", throws: true },
   // Escaped text must not be re-interpreted as markup.
   scriptEscape: { code: 'const t = <div>{"<script>a();</script>"}<b>ok</b></div>;', throws: false },
   liOrphan: { code: "const t = <li>item</li>;", throws: false },
@@ -103,6 +139,7 @@ describe("validate error parity", () => {
 // for the server. The Babel plugin skips SSR templates, so these assert the
 // Oxc error alone and that its DOM diff matches the DOM compile's.
 const ssrCases = {
+  ...templateCases,
   pInDiv: { code: "const t = <p>a<div>b</div></p>;", throws: true },
   hydratablePInDiv: {
     code: "const t = <p class={c()}>a<div>b</div></p>;",
@@ -116,6 +153,12 @@ const ssrCases = {
     throws: false
   },
   tdPartial: { code: "const t = <td title={t()}>cell</td>;", throws: false },
+  cellWhitespace: {
+    code: "const t = <tr><td>{x()}</td> <td>b</td></tr>;",
+    options: { hydratable: true },
+    throws: false
+  },
+  cellText: { code: "const t = <tr><td>a</td> x <td>b</td></tr>;", throws: true },
   // SVG partials parse under an `<svg>` like the DOM compile's (#4241).
   svgImageUnderShow: {
     code: "const t = <svg><Show when={on()}><image href='a.png' /></Show></svg>;",

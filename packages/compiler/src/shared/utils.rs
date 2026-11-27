@@ -2,6 +2,9 @@ use crate::error::{Error, Result};
 use oxc_ast::ast::BinaryOperator;
 use oxc_ast::ast::{Expression, JSXChild, JSXElementName, JSXExpression};
 use oxc_span::Span;
+use oxc_syntax::identifier::is_white_space;
+use oxc_syntax::line_terminator::is_line_terminator;
+use oxc_syntax::xml_entities::XML_ENTITIES;
 
 use crate::shared::constants::void_elements;
 
@@ -243,8 +246,43 @@ fn static_binary_expression(
     }
 }
 
-pub(crate) fn source_from_span(span: Span, source: &str) -> &str {
-    &source[span.start as usize..span.end as usize]
+pub(crate) fn leading_comment_is(source: &str, start: u32, end: u32, marker: &str) -> bool {
+    let mut rest = source.get(start as usize..end as usize).unwrap_or_default();
+    let mut first = None;
+    while let Some(character) = rest.chars().next() {
+        if let Some((comment, after)) = split_comment(rest) {
+            first.get_or_insert(comment);
+            rest = after;
+            continue;
+        }
+        if !is_js_whitespace(character) && character != '(' {
+            first = None;
+        }
+        rest = &rest[character.len_utf8()..];
+    }
+    first.is_some_and(|comment| comment.trim_matches(is_js_whitespace) == marker)
+}
+
+pub(crate) fn opening_comment_is(source: &str, start: u32, end: u32, marker: &str) -> bool {
+    source
+        .get(start as usize..end as usize)
+        .and_then(|text| split_comment(text.trim_start_matches(is_js_whitespace)))
+        .is_some_and(|(comment, _)| comment.trim_matches(is_js_whitespace) == marker)
+}
+
+fn is_js_whitespace(character: char) -> bool {
+    is_white_space(character) || is_line_terminator(character)
+}
+
+fn split_comment(text: &str) -> Option<(&str, &str)> {
+    if let Some(body) = text.strip_prefix("/*") {
+        return body.split_once("*/");
+    }
+    let body = text.strip_prefix("//")?;
+    let end = body
+        .find(['\n', '\r', '\u{2028}', '\u{2029}'])
+        .unwrap_or(body.len());
+    Some(body.split_at(end))
 }
 
 /// Spans of the coverage-pragma block comments inside a JSX empty expression
@@ -360,6 +398,52 @@ pub(crate) fn escape_html_attribute(value: &str) -> String {
 /// legacy forms), matching the Babel plugin's `html-entities` `decode()`.
 pub(crate) fn decode_html_entities(value: &str) -> String {
     htmlize::unescape(value).into_owned()
+}
+
+pub(crate) fn decode_jsx_attribute_entities(value: &str) -> String {
+    let mut decoded = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(start) = rest.find('&') {
+        decoded.push_str(&rest[..start]);
+        rest = &rest[start + 1..];
+        match read_jsx_character_reference(rest) {
+            Some((character, after)) => {
+                decoded.push(character);
+                rest = after;
+            }
+            None => decoded.push('&'),
+        }
+    }
+    decoded.push_str(rest);
+    decoded
+}
+
+fn read_jsx_character_reference(rest: &str) -> Option<(char, &str)> {
+    let Some(number) = rest.strip_prefix('#') else {
+        let end = rest.bytes().take(10).position(|byte| byte == b';')?;
+        let character = XML_ENTITIES.get(&rest[..end]).copied()?;
+        return Some((character, &rest[end + 1..]));
+    };
+    let (code, after) = read_jsx_code_point(number)?;
+    if let Some(character) = char::from_u32(code) {
+        return Some((character, after));
+    }
+    let (low, after) = read_jsx_code_point(after.strip_prefix("&#")?)?;
+    let units = [u16::try_from(code).ok()?, u16::try_from(low).ok()?];
+    let character = char::decode_utf16(units).next()?.ok()?;
+    Some((character, after))
+}
+
+fn read_jsx_code_point(number: &str) -> Option<(u32, &str)> {
+    let (digits, radix) = match number.strip_prefix('x') {
+        Some(hex) => (hex, 16),
+        None => (number, 10),
+    };
+    let end = digits
+        .find(|digit: char| !digit.is_digit(radix))
+        .unwrap_or(digits.len());
+    let code = u32::from_str_radix(&digits[..end], radix).ok()?;
+    Some((code, digits[end..].strip_prefix(';')?))
 }
 
 pub(crate) fn format_attribute_value_with_quotes(value: &str, omit_quotes: bool) -> String {
@@ -722,7 +806,24 @@ pub(crate) fn jsx_child_is_function_hole(child: &JSXChild<'_>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::format_number;
+    use super::{decode_jsx_attribute_entities, format_number};
+
+    #[test]
+    fn jsx_attribute_entities_keep_unrepresentable_references_literal() {
+        let value = "&#xD800; &#xDE00; &#xD83D;&#65; &#x110000; &#1114112; &#99999999999;";
+        assert_eq!(
+            decode_jsx_attribute_entities(value),
+            value.replace("&#65;", "A")
+        );
+    }
+
+    #[test]
+    fn jsx_attribute_entities_decode_long_values_in_linear_time() {
+        let value = format!("{};", "&a".repeat(1 << 16));
+        let started = std::time::Instant::now();
+        assert_eq!(decode_jsx_attribute_entities(&value), value);
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    }
 
     /// Each pair is `String(value)` as Node prints it.
     #[test]

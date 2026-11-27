@@ -54,6 +54,7 @@ import {
   markLateLinker,
   prepareComputed,
   pullComputed,
+  refOwner,
   setVerdict,
   snapshotCaptureActive,
   spectating,
@@ -83,7 +84,7 @@ import {
   verdictLane,
   waiting
 } from "./lanes.js";
-import { covers, latestOf } from "./truth.js";
+import { landed, latestOf } from "./truth.js";
 import { deleteFromHeap, enqueueSub } from "./heap.js";
 import {
   blocked,
@@ -413,7 +414,11 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   if (__TEST__) shadowExpect(c, el, tracking, latestActive ? 2 : 1, spectating, served);
   if (served) {
     const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
-    if ((el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value) !== snapshot)
+    // A ref's own read is one-shot (#5232).
+    if (
+      (el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value) !== snapshot &&
+      (context !== refOwner || tracking)
+    )
       c!._flags |= REACTIVE_SNAPSHOT_STALE;
     if (__TEST__) shadowActual(SLOT_SNAPSHOT);
     return snapshot;
@@ -439,14 +444,14 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         if (
           probing &&
           (flying ||
-            (el._pendingValue !== NOT_PENDING &&
+            (landed(el) &&
               (!el._equals || !el._equals(latestOf(el) as any, el._pendingValue as any))))
         )
           probeFound = true;
         // A folded keyed arrangement reads its world whole; D-22's guess
         // clause is not built for it (D-22 status).
         if (latestActive && l.folded) {
-          if (__TEST__) shadowActual(el._pendingValue !== NOT_PENDING ? SLOT_P : SLOT_C);
+          if (__TEST__) shadowActual(landed(el) ? SLOT_P : SLOT_C);
           return l.folded(null, el);
         }
         if (__TEST__) shadowActual(SLOT_LV);
@@ -775,7 +780,6 @@ function seat(r: Computed<any>, t: Transaction): void {
 function leave(c: Computed<any>, l: Transaction, cur: Computed<any>): void {
   const x = c._x!;
   left.set(c, !x._shown && c._statusFlags & STATUS_PENDING);
-  covers.delete(c);
   x._shown = false;
   x._transaction = null;
   x._parked = undefined;

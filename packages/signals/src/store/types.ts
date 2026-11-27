@@ -3,7 +3,6 @@
  * by every store module; carries no reactive machinery of its own.
  */
 import type { Refreshable } from "../core/index.js";
-import { lookupTarget } from "./target.js";
 
 /** A reactive view of a store's value. Update it through the paired `StoreSetter`. */
 export type Store<T> = T;
@@ -111,13 +110,28 @@ export type NotWrappable =
 const rawValues = new WeakSet<object>();
 export let rawValuesUsed = false;
 
+/** The store engine's target brand. */
+export const $THIN = Symbol(__DEV__ ? "THIN_TARGET" : 0);
+
+/** A store record's keys as its `ownKeys` trap answers them (store/thin.ts),
+ * for utils.ts's merge and omit views to call without the Proxy's invariant
+ * checks. Installed by the store engine, so a view over plain objects
+ * carries none of it. */
+export let storeKeys: ((t: any) => (string | symbol)[]) | null = null;
+export function installStoreKeys(fn: (t: any) => (string | symbol)[]): void {
+  storeKeys = fn;
+}
+
 export function isRawValue(value: any): boolean {
   return rawValuesUsed && rawValues.has(value);
 }
 
-/** Mark a value so no store ever wraps it (sticky; it reads as a leaf). */
+/** Keep a value out of store wrapping: every store serves it as is. Pass a
+ * class to keep all instances of it and its subclasses raw. */
 export function markRaw<T>(value: T): T {
-  if (isWrappable(value)) {
+  if (typeof value === "function") {
+    if (value.prototype) wrappableProtos.set(value.prototype, false);
+  } else if (isWrappable(value)) {
     rawValuesUsed = true;
     rawValues.add(value as object);
   }
@@ -128,11 +142,7 @@ export function markRaw<T>(value: T): T {
  * verbatim, slots replaced by reference). */
 export function markRawOne(v: any): void {
   if (isWrappable(v)) {
-    if (v[$TARGET] !== undefined) return;
-    if (__DEV__ && lookupTarget(v, null) !== undefined)
-      throw new Error(
-        "shallow store: an ingested record is already tracked as a deep store — one value cannot present both wrapped and raw"
-      );
+    if (v[$THIN] !== undefined) return;
     rawValuesUsed = true;
     rawValues.add(v);
   }
@@ -165,7 +175,8 @@ export function isWrappable(obj: any) {
   if (wrappable === undefined) {
     wrappable =
       Object.prototype.toString.call(obj) === "[object Object]" &&
-      (typeof Node === "undefined" || !(obj instanceof Node));
+      (typeof Node === "undefined" || !(obj instanceof Node)) &&
+      isWrappable(proto);
     wrappableProtos.set(proto, wrappable);
   }
   return wrappable;
@@ -184,14 +195,4 @@ export function ownEnumerableKeys(o: object): (string | symbol)[] {
 export let writeOverride = false;
 export function setWriteOverride(value: boolean): void {
   writeOverride = value;
-}
-
-/** The list driver's view of a shallow store (map.ts): the backing a read of
- * every slot serves this reader, or `undefined` when the list is no shallow
- * store or a slot read could differ from it. Installed by store.ts's top
- * level, so a `<For>` in an app without stores carries none of it; it lives
- * beside `$TRACK` so map.ts reaches no other store module. */
-export let shallowView: ((t: any) => any[] | undefined) | null = null;
-export function installShallowView(view: (t: any) => any[] | undefined): void {
-  shallowView = view;
 }

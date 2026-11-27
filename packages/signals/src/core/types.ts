@@ -84,9 +84,12 @@ export interface NodeExtension {
   _flushedAt: number;
   /** Provenance (D-34): the question this node's guess or flight answers; 0 unstamped. */
   _q: number;
-  /** The lane has shown this node: `_value` is the guess and truth.ts `covers`
-   * holds what it covered. Cleared when the node leaves the lane. */
+  /** The lane has shown this node: `_value` is the lane's value. Cleared
+   * when the node leaves the lane. */
   _shown: boolean;
+  /** A shown guess nothing has answered yet: `_pendingValue` is the value
+   * it reverts to, staged at its reveal (lanes.ts `reveal`, F-11). */
+  _revert?: boolean;
   /** The hold, or flush clock, under which a window read this staging
    * (`holdStaging`, D-25, #4544). Never cleared; stale once that hold ends. */
   _askedIn?: Transaction | number;

@@ -1,6 +1,16 @@
 import * as r from "./custom.js";
 import { createRenderer } from "../src/universal.js";
-import { createRoot, createSignal, flush, NotReadyError, onCleanup } from "solid-js";
+import {
+  action,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+  isPending,
+  NotReadyError,
+  onCleanup,
+  Show
+} from "solid-js";
 
 // Static (non-function) accessors skip the effect wiring and call
 // insertExpression synchronously — exercise each branch of that path.
@@ -780,6 +790,76 @@ describe("universal insert caching", () => {
   });
 });
 
+describe("universal numeric text", () => {
+  function textTypeRenderer(types) {
+    return createRenderer({
+      createElement(string) {
+        return document.createElement(string);
+      },
+      createTextNode(value) {
+        types.push(typeof value);
+        return document.createTextNode(value);
+      },
+      replaceText(textNode, value) {
+        types.push(typeof value);
+        textNode.data = value;
+      },
+      setProperty(node, name, value) {
+        node.setAttribute(name, value);
+      },
+      insertNode(parent, node, anchor) {
+        parent.insertBefore(node, anchor);
+      },
+      isTextNode(node) {
+        return node.nodeType === 3;
+      },
+      removeNode(parent, node) {
+        parent.removeChild(node);
+      },
+      getParentNode(node) {
+        return node.parentNode;
+      },
+      getFirstChild(node) {
+        return node.firstChild;
+      },
+      getNextSibling(node) {
+        return node.nextSibling;
+      }
+    });
+  }
+
+  it("passes a numeric child to createTextNode and replaceText as a string", () => {
+    const types = [];
+    const renderer = textTypeRenderer(types);
+    const parent = document.createElement("div");
+    const [value, setValue] = createSignal(7);
+
+    let dispose;
+    createRoot(d => {
+      dispose = d;
+      renderer.insert(parent, () => value());
+    });
+    flush();
+    setValue(12);
+    flush();
+
+    expect(parent.textContent).toBe("12");
+    expect(types).toEqual(["string", "string"]);
+    dispose();
+  });
+
+  it("passes numeric array items to createTextNode as strings", () => {
+    const types = [];
+    const renderer = textTypeRenderer(types);
+    const parent = document.createElement("div");
+
+    renderer.insert(parent, [4, " apples"]);
+
+    expect(parent.textContent).toBe("4 apples");
+    expect(types).toEqual(["string", "string"]);
+  });
+});
+
 describe("universal render error handling", () => {
   it("disposes the root scope when the init function throws", () => {
     const parent = document.createElement("div");
@@ -792,4 +872,59 @@ describe("universal render error handling", () => {
     ).toThrow("boom");
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("universal insert under a held action", () => {
+  const tick = async () => {
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    flush();
+  };
+
+  for (const shape of ["sole child", "sibling"])
+    it(`mounts a born-held branch only at the commit, ${shape}`, async () => {
+      const container = document.createElement("div");
+      const [x, setX] = createSignal(0);
+      const [open, setOpen] = createSignal(false);
+      const Form = () => {
+        const data = createMemo(() => x());
+        const input = r.createElement("input");
+        r.effect(
+          () => ({ disabled: isPending(data), title: String(data()) }),
+          ({ disabled, title }) => {
+            r.setProp(input, "disabled", disabled ? "" : undefined);
+            r.setProp(input, "title", title);
+          }
+        );
+        return input;
+      };
+      const dispose = r.render(() => {
+        const main = r.createElement("main");
+        const branch = r.createComponent(Show, {
+          get when() {
+            return open();
+          },
+          children: () => r.createComponent(Form, {})
+        });
+        if (shape === "sibling") {
+          r.insertNode(main, r.createElement("i"));
+          r.insert(main, branch, null);
+        } else r.insert(main, branch);
+        return main;
+      }, container);
+      flush();
+      let release;
+      action(function* () {
+        setX(1);
+        yield new Promise(resolve => (release = resolve));
+      })();
+      flush();
+      setOpen(true);
+      flush();
+      await tick();
+      expect(container.querySelector("input")).toBe(null);
+      release();
+      await tick();
+      expect(container.querySelector("main").lastChild.outerHTML).toBe('<input title="1">');
+      dispose();
+    });
 });

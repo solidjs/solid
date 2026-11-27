@@ -13,7 +13,7 @@ import {
 } from "./core/index.js";
 import { accessor, type Accessor } from "./signals.js";
 import { attrHooks } from "./core/attribution-hooks.js";
-import { $TARGET, $TRACK, shallowView } from "./store/types.js";
+import { $TRACK } from "./store/types.js";
 
 export type Maybe<T> = T | void | null | undefined | false;
 
@@ -404,9 +404,6 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
   (this._owner as Root)._parentComputed = getOwner() as Root["_parentComputed"];
   let newItems = this._list() || [];
   (newItems as any)[$TRACK]; // top level tracking (a store array's container node)
-  // A shallow store array diffs its backing: its slots are raw records, and
-  // a trap per slot read was most of a one-row write on a 1k-row list.
-  newItems = shallowView?.((newItems as any)[$TARGET]) ?? newItems;
   const newLen = newItems.length;
 
   runWithOwner(this._owner, (updateKeyedRows<Item, MappedItem>).bind(this, newItems, newLen));
@@ -776,7 +773,7 @@ function updateRepeatRows<MappedItem>(
   newLen: number,
   from: number
 ): void {
-  if (newLen === 0) {
+  if (!newLen) {
     if (this._len !== 0) {
       this._owner.dispose(false);
       this._nodes = [];

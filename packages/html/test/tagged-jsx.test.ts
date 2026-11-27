@@ -57,6 +57,19 @@ describe("Tagged JSX Integration Tests", () => {
   });
 
   describe("Attributes and Props", () => {
+    it("keeps the outer traversal when an attribute getter renders a nested template", () =>
+      createRoot(dispose => {
+        const title = () => (html`<i>inner</i>` as HTMLElement).textContent;
+        const outer = html`<div>
+          <span title=${title}>a</span><b title=${"yes"}>b</b>
+        </div>` as HTMLElement;
+
+        expect(outer.querySelector("span")?.getAttribute("title")).toBe("inner");
+        expect(outer.querySelector("b")?.getAttribute("title")).toBe("yes");
+        expect(outer.textContent).toBe("ab");
+        dispose();
+      }));
+
     it("handles complex attribute names and mixed values", () => {
       const [cls, setCls] = createSignal("active");
       let el!: HTMLElement;
@@ -126,6 +139,92 @@ describe("Tagged JSX Integration Tests", () => {
 
         expect(el.id).toBe("final-id");
         expect(el.getAttribute("data-info")).toBe("hidden");
+        dispose();
+      }));
+
+    it("renders spread children when native elements have no template children", () => {
+      const [child, setChild] = createSignal("first");
+      const props = {
+        get children() {
+          return child();
+        }
+      };
+      const host = document.createElement("div");
+      const dispose = render(
+        () => html`
+          <article ...${props} />
+          <article ...${props}></article>
+          <article ...${props}>own</article>
+        `,
+        host
+      );
+
+      expect(Array.from(host.children, el => el.textContent)).toEqual(["first", "first", "own"]);
+      setChild("second");
+      flush();
+      expect(Array.from(host.children, el => el.textContent)).toEqual(["second", "second", "own"]);
+      dispose();
+    });
+
+    it("renders an explicit native children prop", () => {
+      const [child, setChild] = createSignal("first");
+      const host = document.createElement("div");
+      const dispose = render(() => html`<article children=${child} />`, host);
+
+      expect(host.textContent).toBe("first");
+      setChild("second");
+      flush();
+      expect(host.textContent).toBe("second");
+      dispose();
+    });
+
+    it("renders a static native children prop as content in either spread order", () => {
+      const host = document.createElement("div");
+      const dispose = render(
+        () => html`
+          <article children="text" />
+          <article ...${{ id: "a" }} children="text" />
+          <article children="text" ...${{ id: "b" }} />
+          <article children="text">own</article>
+          <article children />
+          <article ...${{ id: "c" }} children />
+          <article children ...${{ id: "d" }} />
+        `,
+        host
+      );
+
+      expect(Array.from(host.children, el => el.textContent)).toEqual([
+        "text",
+        "text",
+        "text",
+        "own",
+        "",
+        "",
+        ""
+      ]);
+      expect(Array.from(host.children, el => el.hasAttribute("children"))).toEqual([
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]);
+      dispose();
+    });
+
+    it("keeps later siblings in the traversal after inserting nested spread children", () =>
+      createRoot(dispose => {
+        const child = document.createElement("em");
+        const el = html`<section>
+          <article ...${{ children: child }} />
+          <b title=${"later"}>${"sibling"}</b>
+        </section>` as HTMLElement;
+
+        expect(el.querySelector("article")?.firstChild).toBe(child);
+        expect(el.querySelector("b")?.title).toBe("later");
+        expect(el.querySelector("b")?.textContent).toBe("sibling");
         dispose();
       }));
 
@@ -417,6 +516,20 @@ describe("Tagged JSX Integration Tests", () => {
   });
 
   describe("Custom Components", () => {
+    it("lets nested children override a function-valued children prop", () =>
+      createRoot(dispose => {
+        const Comp = (props: { children: unknown }) => props.children;
+        const localHtml = html.define({ Comp });
+
+        expect(localHtml`<Comp children=${() => "fallback"}>real</Comp>`).toBe("real");
+        expect(localHtml`<Comp children="fallback">real</Comp>`).toBe("real");
+        expect(
+          localHtml`<Comp ...${{ children: "spread" }} children=${() => "fallback"}>real</Comp>`
+        ).toBe("real");
+        expect(localHtml`<Comp children=${() => "fallback"} />`).toBe("fallback");
+        dispose();
+      }));
+
     it("passes children correctly to registered components", () =>
       createRoot(dispose => {
         const Wrapper = (props: { children: any }) => html`<section>${props.children}</section>`;
@@ -544,6 +657,49 @@ describe("Tagged JSX Integration Tests", () => {
   });
 
   describe("Special Elements and Namespaces", () => {
+    it("preserves whitespace-only text in pre and textarea", () =>
+      createRoot(dispose => {
+        // prettier-ignore
+        const pre = html`<pre> </pre>` as HTMLPreElement;
+        // prettier-ignore
+        const textarea = html`<textarea> </textarea>` as HTMLTextAreaElement;
+
+        expect(pre.textContent).toBe(" ");
+        expect(textarea.value).toBe(" ");
+        dispose();
+      }));
+
+    it("matches HTML parsing of a leading newline in pre and textarea", () =>
+      createRoot(dispose => {
+        // prettier-ignore
+        const pre = html`<pre>\nhello</pre>` as HTMLPreElement;
+        // prettier-ignore
+        const textarea = html`<textarea>\nhello</textarea>` as HTMLTextAreaElement;
+        const parsed = document.createElement("template");
+        parsed.innerHTML = "<pre>\nhello</pre><textarea>\nhello</textarea>";
+
+        expect(pre.textContent).toBe(parsed.content.querySelector("pre")?.textContent);
+        expect(textarea.value).toBe(parsed.content.querySelector("textarea")?.value);
+        dispose();
+      }));
+
+    it("preserves literal markup while decoding character references in textarea", () =>
+      createRoot(dispose => {
+        // prettier-ignore
+        const textarea = html`<textarea><p>Hello &amp; goodbye</p><!-- draft --></textarea>` as HTMLTextAreaElement;
+
+        expect(textarea.value).toBe("<p>Hello & goodbye</p><!-- draft -->");
+        dispose();
+      }));
+
+    it("preserves literal markup while decoding character references in title", () =>
+      createRoot(dispose => {
+        const title = html`<title><b>Docs</b> &copy; &#x3c;v2&gt;</title>` as HTMLTitleElement;
+
+        expect(title.textContent).toBe("<b>Docs</b> © <v2>");
+        dispose();
+      }));
+
     it("treats <script> and <style> as raw text", () =>
       createRoot(dispose => {
         const style = html` <style>
@@ -554,6 +710,31 @@ describe("Tagged JSX Integration Tests", () => {
 
         expect(style.textContent).toContain("body > div");
         expect(style.tagName).toBe("STYLE");
+        dispose();
+      }));
+
+    it("preserves character references in script and style raw text", () =>
+      createRoot(dispose => {
+        const style = html`<style>
+          .x::after {
+            content: "&amp;";
+          }
+        </style>` as HTMLStyleElement;
+        const script = html`<script>
+          const value = "&amp;";
+        </script>` as HTMLScriptElement;
+        const svg = html`<svg>
+          <style>
+            .x {
+              fill: &amp;
+            }
+          </style>
+        </svg>` as SVGSVGElement;
+
+        expect(style.textContent).toContain('content: "&amp;";');
+        expect(script.textContent).toContain('const value = "&amp;";');
+        expect(svg.querySelector("style")?.textContent).toContain("fill: &");
+        expect(svg.querySelector("style")?.textContent).not.toContain("&amp;");
         dispose();
       }));
 
@@ -579,6 +760,28 @@ describe("Tagged JSX Integration Tests", () => {
       expect(circle.getAttribute("r")).toBe("20");
       dispose();
     });
+
+    it("puts tags HTML and SVG share in the SVG namespace inside a static <svg> (#5057)", () =>
+      createRoot(dispose => {
+        const svg = html`<svg>
+          <title>hello</title>
+          <a href="#x">link</a>
+          <foreignObject><a href="#y">html</a></foreignObject>
+        </svg>` as SVGSVGElement;
+        const [svgLink, htmlLink] = Array.from(svg.querySelectorAll("a"));
+
+        expect(svg.querySelector("title")!.namespaceURI).toBe("http://www.w3.org/2000/svg");
+        expect(svgLink.namespaceURI).toBe("http://www.w3.org/2000/svg");
+        expect(htmlLink.namespaceURI).toBe("http://www.w3.org/1999/xhtml");
+        dispose();
+      }));
+
+    it("keeps an ambiguous tag outside <svg> in the HTML namespace (#5057)", () =>
+      createRoot(dispose => {
+        const div = html`<div><a href="#x">link</a></div>` as HTMLDivElement;
+        expect(div.querySelector("a")!.namespaceURI).toBe("http://www.w3.org/1999/xhtml");
+        dispose();
+      }));
 
     it("handles template elements correctly", () =>
       createRoot(dispose => {
@@ -679,6 +882,14 @@ describe("Tagged JSX Integration Tests", () => {
     it("throws for an unregistered capitalized component", () =>
       createRoot(dispose => {
         expect(() => html`<UnregisteredComponent />`).toThrow(/not found in registry/);
+        dispose();
+      }));
+
+    it("explains how to write a literal less-than sign in text", () =>
+      createRoot(dispose => {
+        expect(() => html`<div>1 < 2</div>`).toThrow(
+          'To include a literal "<" in text, use &lt; or ${"<"}.'
+        );
         dispose();
       }));
 
@@ -1040,6 +1251,40 @@ describe("Tagged JSX Integration Tests", () => {
     });
 
     describe("List and Table Rendering", () => {
+      it("rejects a row directly under a table with the compiler's malformed-HTML diagnostic", () => {
+        createRoot(dispose => {
+          expect(
+            () =>
+              html`<table>
+                <tr>
+                  <td>cell</td>
+                </tr>
+              </table>`
+          ).toThrow(
+            /The HTML provided is malformed and will yield unexpected output when evaluated by a browser\./
+          );
+          dispose();
+        });
+      });
+
+      it("keeps explicit table sections and standalone row partials valid", () => {
+        createRoot(dispose => {
+          const table = html`<table>
+            <tbody>
+              <tr>
+                <td>cell</td>
+              </tr>
+            </tbody>
+          </table>` as HTMLTableElement;
+          const row = html`<tr>
+            <td>cell</td>
+          </tr>` as HTMLTableRowElement;
+          expect(table.tBodies[0].rows[0].cells[0].textContent).toBe("cell");
+          expect(row.cells[0].textContent).toBe("cell");
+          dispose();
+        });
+      });
+
       it("renders table with dynamic rows and cells", () =>
         createRoot(dispose => {
           const [rows] = createSignal([

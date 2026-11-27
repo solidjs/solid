@@ -11,6 +11,25 @@
 const { modes, compileBabel, compileOxc, normalize, unifiedDiff } = require("./parity/harness");
 
 const cases = {
+  "import expression component prop": `const a = <Comp loader={import("./m")} />;`,
+  "import expression attribute": `const a = <div title={import("./m")} />;`,
+  "import expression child": `const a = <div>{import("./m")}</div>;`,
+  "import expression conditional": `const a = <div title={cond ? import("./m") : null} />;`,
+  "import expression element prop": `const a = <mesh loader={import("./m")} />;`,
+  "import expression spread ref": `const a = <div {...props} ref={import("./m")} />;`,
+  "static import expression": `const a = <Comp loader={/*@static*/ import("./m")} />;`,
+  "JSX in a later declarator splits the declarators before it (#5102)": `
+function Comp(props) {
+  const label = mk(), onClick = () => label, view = <div title={label()} onClick={() => onClick()}>x{label()}<Foo a={label} /></div>, other = 1;
+  return view;
+}
+function Two() {
+  const first = <i>{mk()}</i>, label = mk(), second = <p>{first}{label()}</p>;
+  return second;
+}
+export const exported = mk(), exportedView = <p>{exported()}</p>;
+let a = mk(), frag = <>{a()}</>, st = <b>static</b>;
+`,
   "slot prop hole before children (#3567)": `
 const a = <main>{props.header}{props.children}</main>;
 const z = <p>P</p>;
@@ -354,6 +373,18 @@ const b = <pre>{"line1"}
   "html entities": `
 const a = <div title="a&amp;b &lt;c&gt; &quot;d&quot;">&nbsp;&lt;tag&gt; &amp;&amp; &#169; text</div>;
 `,
+  "attribute entities without a semicolon stay literal": `
+const a = <a href="/s?a=1&param=2&region=3" title="&amp x &copy y &#65 &#x+41; &notit; &amp;" style="content: '&copy'">x</a>;
+`,
+  "component prop entities without a semicolon stay literal": `
+const a = <Comp href="/s?a=1&param=2&region=3" title="&amp x &copy y &amp;" />;
+`,
+  "spread attribute entities without a semicolon stay literal": `
+const a = <a {...props} href="/s?a=1&param=2&region=3" title="&amp x &copy y &amp;" style="content: '&copy'">x</a>;
+`,
+  "attribute surrogate pair references decode to one character": `
+const a = <a title="&#xD83D;&#xDE00; &#55357;&#56832; &#xD83D;&#56832;">x</a>;
+`,
   "comment only child": `
 const a = <div>{/* just a comment */}</div>;
 const b = <div>{ }</div>;
@@ -367,6 +398,21 @@ const a = (
     {third()}
   </div>
 );
+`,
+  "trailing whitespace after a dynamic child keeps the insert anchor": `
+const a = (
+  <div>
+    {count()}\x20\x20
+    <span>s</span>
+  </div>
+);
+const b = (
+  <ul>
+    <Comp />\t
+    <li>a</li>
+  </ul>
+);
+const c = <div>{count()}{""}tail</div>;
 `,
   "deep member component": `
 const a = <mod.ns.Comp x={v()}>{x()}</mod.ns.Comp>;
@@ -1262,6 +1308,35 @@ const a = <Comp p={state.x /*@static*/} />;
   "static marker in condition branch": `
 const a = <div>{cond() ? /*@static*/ x() : y()}</div>;
 `,
+  "static marker named inside a comment stays dynamic": `
+const a = <div title={/* not @static */ t()}>{/* see @staticMethod */ text()}</div>;
+const b = <div style={{ color: /* not @static */ c() }} class={{ on: /* not @static */ on() }} />;
+const c = <div>{cond() ? /* not @static */ x() : y()}</div>;
+`,
+  "static marker as second comment stays dynamic": `
+const a = <div title={/* note */ /* @static */ t()}>{/* note */ /* @static */ text()}</div>;
+`,
+  "jsdoc static marker stays dynamic": `
+const a = <div title={/** @static */ t()}>{/** @static */ text()}</div>;
+`,
+  "static marker text inside a spread stays dynamic": `
+const a = <div {...{ title: t(), "data-src": "@static/logo.png" }} />;
+const b = <div {...props() /* @static */} />;
+`,
+  "static marker line comment and parentheses": `
+const a = <div title={// @static
+t()}>{/* @static */ (text())}{(/* @static */ text())}</div>;
+const b = <div style={{ color /* note */ : /* @static */ c() }} />;
+const c = <div style={{ "--a//b": /* @static */ c() }} />;
+`,
+  "static marker trimmed and skipped as ECMAScript whitespace": `
+const a = <div title={/*\uFEFF@static */ t()}>{/* @static */\uFEFF text()}</div>;
+const b = <div {\uFEFF/*\uFEFF@static */ ...props()} />;
+`,
+  "static marker followed by a next-line character stays dynamic": `
+const a = <div title={/* @static\u0085 */ t()}>{/* @static\u0085 */ text()}</div>;
+const b = <div {/* @static\u0085 */ ...props()} />;
+`,
 
   // --- Round 9: spread children through the unified classifier. Babel's
   // JSXSpreadChild handling is one transformNode branch (dynamic spreads
@@ -1321,6 +1396,38 @@ const a = <Comp ref={getRef()} />;
   "component namespace member prop": `
 import * as styles from "./s.css";
 const a = <Comp class={styles.button} />;
+`,
+  "module const shadowed by function param": `
+const label = "items";
+function Inner(label) {
+  return <div>{count()}{label}</div>;
+}
+`,
+  "module const shadowed by map callback param": `
+const name = "outer";
+const a = <ul>{["a", "b"].map(name => <li>{name}</li>)}</ul>;
+`,
+  "module const shadowed by destructured param": `
+const label = "items";
+const Inner = ({ label }) => <div>{count()}{label}</div>;
+`,
+  "module const shadowed by param in attribute": `
+const label = "items";
+function Inner(label) {
+  return <div title={label}>{count()}</div>;
+}
+`,
+  "module const shadowed by class field arrow param": `
+const label = "items";
+class A {
+  row = label => <li title={label}>{this.n}{label}</li>;
+}
+`,
+  "module const shadowed by class field arrow param in conditional": `
+const label = "items";
+class A {
+  row = label => (ok() ? <li>{count()}{label}</li> : null);
+}
 `
 };
 

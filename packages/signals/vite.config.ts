@@ -90,6 +90,9 @@ export default defineConfig(({ mode }) => {
       globals: true,
       dir: "./tests",
       pool: "threads",
+      // Benchmarks only (CodSpeed runs them in forks): unpinned tiering makes
+      // some counts flip between two levels from run to run (#5141).
+      ...(benchmark && { execArgv: ["--always-sparkplug"] }),
       // Reader-seat shadow (S0): per-file mismatch report when
       // SEAT_SHADOW_REPORT=<file> is set (documentation/archive/plans/reader-seat-rebuild.md §4).
       setupFiles: process.env.SEAT_SHADOW_REPORT ? ["./tests/setup/seat-shadow-report.ts"] : [],

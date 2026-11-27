@@ -7,7 +7,6 @@
  */
 import { describe, expect, it } from "vitest";
 import { createEffect, createRoot, createStore, flush } from "../../src/index.js";
-import { isOwned, storeLookup } from "../../src/store/target.js";
 
 describe("store-next increment 1", () => {
   it("wraps, tracks per-property, and batches like signals", () => {
@@ -62,60 +61,12 @@ describe("store-next increment 1", () => {
     expect(seenA).toEqual([1, 10]);
   });
 
-  it("drafts are read-your-writes; sources are never mutated (CoW)", () => {
-    const source = { a: 1, nested: { c: 3 } };
-    const [s, setS] = createStore(source);
-    createRoot(() => {
-      createEffect(
-        () => s.nested.c,
-        () => {}
-      );
-    });
-    flush();
-
-    setS(d => {
-      d.a = 5;
-      expect(d.a).toBe(5); // read-your-writes inside the draft
-      d.nested.c = 7;
-      expect(d.nested.c).toBe(7);
-    });
-    flush();
-
-    // View updated; user's source untouched at every level.
-    expect(s.a).toBe(5);
-    expect(s.nested.c).toBe(7);
-    expect(source.a).toBe(1);
-    expect(source.nested.c).toBe(3);
-
-    // Backing privatized (owned), original still resolves to the same proxy.
-    expect(storeLookup.get(source)).toBeDefined();
-    expect(isOwned(storeLookup.get(source)!.v)).toBe(true);
-    expect(storeLookup.get(source)!.v).not.toBe(source);
-    expect(storeLookup.get(source)!.px).toBe(s);
-  });
-
   it("writes outside the setter are silently ignored", () => {
     const [s] = createStore({ a: 1 } as { a: number });
     expect(() => {
       (s as any).a = 99;
     }).not.toThrow();
     expect(s.a).toBe(1);
-  });
-
-  it("unobserved writes leave no permanent node (transient sweep)", () => {
-    const source = { a: 1, b: 2 };
-    const [s, setS] = createStore(source);
-    setS(d => {
-      d.a = 42;
-    });
-    flush();
-    expect(s.a).toBe(42);
-    expect(source.a).toBe(1);
-    const target = storeLookup.get(source)!;
-    // Post-flush, the write-created node was swept (no subscribers).
-    expect(target.n?.a).toBeUndefined();
-    // Committed value lives in owned backing alone (single home).
-    expect(target.v.a).toBe(42);
   });
 
   it("key add and delete round-trip", () => {

@@ -105,6 +105,30 @@ describe("#3928 select value when options arrive later", () => {
     root.remove();
   });
 
+  test("a value write after an unset value in the same turn wins", async () => {
+    const [value, setValue] = createSignal<string | undefined>(undefined);
+    let select!: HTMLSelectElement;
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const dispose = render(
+      () => (
+        <select ref={select} value={value()}>
+          <option value="a">a</option>
+          <option value="b">b</option>
+        </select>
+      ),
+      root
+    );
+
+    setValue("b");
+    flush();
+    await Promise.resolve();
+    expect(select.value).toBe("b");
+    expect(select.selectedIndex).toBe(1);
+    dispose();
+    root.remove();
+  });
+
   test("selects the bound value when options arrive inside an optgroup", async () => {
     const [options, setOptions] = createSignal<string[]>([]);
     let select!: HTMLSelectElement;

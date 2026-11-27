@@ -271,7 +271,8 @@ function runEffect(node: Effect<any>, type: number): void {
       );
     }
     // The final cleanup is invoked by disposeChildren at true disposal.
-    node._cleanup = nextCleanup as (() => void) | undefined;
+    // Dev throws above. Prod must not keep a non-function: the next run calls it (#5208).
+    node._cleanup = typeof nextCleanup === "function" ? nextCleanup : undefined;
   } catch (error) {
     // (D-42, dev: as above — a boundary takes it or the system halts.)
     if (__DEV__) forgetThrownRead();
@@ -385,7 +386,7 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
           `${node._name || "trackedEffect"} callback returned an invalid cleanup value. Return a cleanup function or undefined.`
         );
       }
-      node._cleanup = cleanup as (() => void) | undefined;
+      node._cleanup = typeof cleanup === "function" ? cleanup : undefined;
     },
     { ...options, lazy: true }
   ) as TrackedEffect;

@@ -1,6 +1,7 @@
 /** @jsxImportSource @solidjs/web */
 
 import type { ParentProps } from "solid-js";
+import { Portal } from "@solidjs/web";
 
 const text = document.createTextNode("hello");
 const span = document.createElement("span");
@@ -16,3 +17,31 @@ function Parent(props: ParentProps) {
 <Parent>{[text, span]}</Parent>;
 
 <selectedcontent />;
+
+<math displaystyle="true">
+  <mo
+    fence="true"
+    largeop="false"
+    movablelimits="false"
+    separator="false"
+    stretchy="false"
+    symmetric="false"
+    accent="false"
+  >
+    (
+  </mo>
+  <mover accent="true" />
+  <munder accentunder="true" />
+  <munderover accent="true" accentunder="false" />
+</math>;
+// @ts-expect-error MathML booleans are the strings "true" and "false", and `true` writes an empty attribute
+<mo stretchy={true} />;
+// @ts-expect-error a bare MathML boolean writes an empty attribute
+<mo stretchy />;
+
+declare const shadowRoot: ShadowRoot;
+declare const fragment: DocumentFragment;
+
+<Portal mount={shadowRoot}>{text}</Portal>;
+// @ts-expect-error a DocumentFragment is not a Portal mount
+<Portal mount={fragment}>{text}</Portal>;

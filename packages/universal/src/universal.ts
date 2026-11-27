@@ -9,6 +9,7 @@ import {
   createMemo,
   createRenderEffect,
   flush,
+  getOwner,
   $PROXY
 } from "solid-js";
 import {
@@ -102,7 +103,8 @@ const effect = (fn, effectFn, options) =>
     effectFn,
     options ? { sync: true, ...options, transparent: !options.scope } : transparentOptions
   );
-const memo = fn => createMemo(() => fn(), syncOptions);
+// No owner means an imperative read (a handler), which reads the screen (F-1).
+const memo = fn => (getOwner() ? createMemo(() => fn(), syncOptions) : fn);
 
 // Renderer-owned effects get stable fallback names so diagnostics and
 // attribution can locate updates flowing through renderer output (#3063);
@@ -155,9 +157,12 @@ export function createRenderer({
       initial = [sentinel];
     }
     let current = initial;
+    let ran = false;
     effect(
-      prev => {
+      () => {
         const value = normalize(accessor(), multi, true);
+        const again = ran;
+        ran = true;
         if (typeof value !== "function") return value;
         effect(
           () => normalize(value, multi),
@@ -166,7 +171,7 @@ export function createRenderer({
             current = inner;
             onUpdate && onUpdate(current);
           },
-          prev !== undefined && !(options && options.schedule)
+          again && !(options && options.schedule)
             ? { ...effectOptions, schedule: true }
             : effectOptions
         );
@@ -188,6 +193,7 @@ export function createRenderer({
       multi = marker !== undefined;
 
     if (t === "string" || t === "number") {
+      if (t === "number") value = value.toString();
       const tc = typeof current;
       if (tc === "string" || tc === "number") {
         replaceText(getFirstChild(parent), value);
@@ -230,7 +236,7 @@ export function createRenderer({
       for (let i = 0, len = value.length; i < len; i++) {
         const item = value[i],
           t = typeof item;
-        if (t === "string" || t === "number") value[i] = createTextNode(item);
+        if (t === "string" || t === "number") value[i] = createTextNode("" + item);
       }
     }
     return value;

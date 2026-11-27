@@ -118,8 +118,27 @@ if (!packageIsPublished(compiler.name, compiler.version)) {
   const runId =
     dispatchOutput.match(/actions\/runs\/(\d+)/)?.[1] ?? (await findDispatchedRun(startedAt));
 
+  // Poll the run instead of `gh run watch`: right after the dispatch the run,
+  // and then its jobs, can 404 for a while (both 2.0.4 attempts stopped there).
+  // A read that fails is retried; only the run's own conclusion decides.
   console.log(`Waiting for compiler platform packages: ${runId}`);
-  run("gh", ["run", "watch", runId, "--repo", repository, "--exit-status"]);
+  let state;
+  for (let attempt = 0; attempt < 480; attempt++) {
+    const view = spawnSync(
+      "gh",
+      ["run", "view", runId, "--repo", repository, "--json", "status,conclusion"],
+      { cwd: process.cwd(), env: process.env, encoding: "utf8" }
+    );
+    if (view.status === 0) {
+      state = JSON.parse(view.stdout);
+      if (state.status === "completed") break;
+    }
+    await new Promise(resolve => setTimeout(resolve, 15000));
+  }
+  if (state?.status !== "completed")
+    throw new Error(`The compiler binary run ${runId} did not finish in two hours.`);
+  if (state.conclusion !== "success")
+    throw new Error(`The compiler binary run ${runId} concluded ${state.conclusion}.`);
 } else {
   console.log(`${compiler.name}@${compiler.version} is already published; skipping binaries.`);
 }

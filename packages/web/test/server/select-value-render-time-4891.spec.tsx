@@ -10,6 +10,9 @@
 import { describe, expect, test } from "vitest";
 import { renderToString, renderToStream, Loading } from "@solidjs/web";
 import { For, Show, createMemo, createSignal } from "solid-js";
+// @ts-expect-error jsdom ships no types; used only to parse the rendered document
+import { JSDOM } from "jsdom";
+import { frameTransformDirectResult, ServerComponentPlugin } from "../../frames/src/frame-sink.js";
 
 function later<T>(value: T, ms = 5): Promise<T> {
   return new Promise(r => setTimeout(() => r(value), ms));
@@ -54,6 +57,41 @@ describe("SSR <select value> at render time (#4891)", () => {
     expect(selected(html)).toEqual(["c"]);
   });
 
+  test("an option from a signal-driven <Show> matches", () => {
+    const [show] = createSignal(true);
+    const html = renderToString(() => (
+      <select value="b">
+        <option value="a">a</option>
+        <Show when={show()}>
+          <option value="b">b</option>
+        </Show>
+      </select>
+    ));
+    expect(selected(html)).toEqual(["b"]);
+  });
+
+  test("an option from a signal-driven && matches", () => {
+    const [show] = createSignal(true);
+    const html = renderToString(() => (
+      <select value="b">
+        <option value="a">a</option>
+        {show() && <option value="b">b</option>}
+      </select>
+    ));
+    expect(selected(html)).toEqual(["b"]);
+  });
+
+  test("an option from a signal-driven ternary matches", () => {
+    const [show] = createSignal(true);
+    const html = renderToString(() => (
+      <select value="b">
+        <option value="a">a</option>
+        {show() ? <option value="b">b</option> : <option value="c">c</option>}
+      </select>
+    ));
+    expect(selected(html)).toEqual(["b"]);
+  });
+
   test("an option's text is its value when it has no value attribute", () => {
     const [label] = createSignal("Two");
     const html = renderToString(() => (
@@ -65,6 +103,16 @@ describe("SSR <select value> at render time (#4891)", () => {
     ));
     expect(html).toMatch(/<option selected>Two<\/option>/);
     expect(html).toMatch(/<option>One<\/option>/);
+  });
+
+  test("an option's text keeps non-ASCII whitespace when matched", () => {
+    const html = renderToString(() => (
+      <select value={"B\u00a0B"}>
+        <option>A</option>
+        <option>B&nbsp;B</option>
+      </select>
+    ));
+    expect(new JSDOM(html).window.document.querySelector("select").value).toBe("B\u00a0B");
   });
 
   test("a multiple select's array value marks every matching option", () => {
@@ -185,5 +233,25 @@ describe("SSR <select value> at render time (#4891)", () => {
       </select>
     ));
     expect(selected(html)).toEqual(["a&amp;b&quot;&lt;"]);
+  });
+
+  test("an option from a <Show> callback child in a live server component matches", async () => {
+    const [show] = createSignal(true);
+    const option = (() => <option value="b">B</option>) as any;
+    const ServerComp = () => (
+      <select value="b">
+        <option value="a">A</option>
+        <Show when={show()}>{option}</Show>
+      </select>
+    );
+    const Inline = frameTransformDirectResult(ServerComp, { id: "select/live-show" }) as any;
+    const html = await new Promise<string>(resolve => {
+      const chunks: string[] = [];
+      renderToStream(() => Inline({}), { plugins: [ServerComponentPlugin] } as any).pipe({
+        write: (c: string) => chunks.push(c),
+        end: () => resolve(chunks.join(""))
+      });
+    });
+    expect(selected(html)).toEqual(["b"]);
   });
 });

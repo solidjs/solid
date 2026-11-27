@@ -327,6 +327,62 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
 
 ## 7. Decision log
 
+- 2026-11-21: **A reader waiting only on re-asks follows a guess it reads**
+  (D-34's new sentences). When a guess is written, `laneDirty`
+  (scheduler.ts) seats the readers that are already waiting, before their
+  pass: a pass that reads the hold's flight before the guess throws there
+  and never reaches the guess. Which readers it seated had grown one case
+  at a time (#4629, #4666, #4577, #4824, #5113): a render effect on
+  re-asks, unless a lane already listed it; a memo on re-asks, but only if
+  some hold held it; a memo of the guess's own hold on any question; a
+  user effect never. Counting every reader the walk met across the suite
+  showed one rule under it with three odd cells (a memo nothing holds, a
+  user effect, a render effect another lane lists, each waiting only on
+  re-asks). Now the condition is the rule: waiting only on re-asks
+  (`reasks`), or a memo the guess's own hold holds. A reader in another
+  lane whose removal is staged is also re-staged by the guess, as it is
+  still on screen (D-9, #5095). No test and no generator case (150,000)
+  shows a different screen for the three cells, and no app shape tried
+  reaches them; they follow the rule because nothing separates them from
+  the readers beside them.
+- 2026-11-20b: **Overlap means merge, with no exception for an optimistic
+  input** (D-33's new sentence, ruled the same day; D-34's S-44 clause
+  now covers both kinds of write). Before, a lane pass over a node that
+  carried another hold's guess _took_ the slot: the guess left the screen
+  and the node became the lane's derivation (`take`), the guess was set
+  aside (`kept`) and given back if the taking lane reverted
+  (`revertLanding`, #4336's second half). With an optimistic filter over a
+  list that had adds in flight, the pending rows vanished and came back
+  when the adds landed. Now the two holds merge at that point (lanes.ts
+  `laneStage`; a store's carrier, store/optimistic.ts `_slotMerge`): the
+  lane is held with the merged hold (`over`, `_held` set at once so a
+  reader seated in the other lane stays on the screen), and the pass is the
+  hold's question, judged as a frame pass (`laneOutcome`), exactly as a
+  plain write of the input already was. `take`, `kept`, `revertLanding`,
+  their two hooks and the lane half of `marked` are deleted. Known
+  residue: after such an optimistic change reverts, the merged hold's
+  refresh still asks the reverted question once. The seat table's row L6
+  still describes the take (one shadow class, the re-pinned tests).
+- 2026-11-20: **A node stores two values; a lane stores a guess it has not
+  revealed** (the value model in the root `AGENTS.md`; F-11, F-6; no rule or
+  screen changes). Ruled the same day: one pending value per hold, a lane is
+  a hold of its own over its action, the lane's waiting guess is the one
+  value beside a node's two. Before, a guess's node kept more: the lane's
+  record (`covers`) held the guess until its reveal and then the value it
+  covered, also for lane derivations; a re-asked shown guess was written to
+  `_value` at once with a note of what the screen showed (`screens`, #4775).
+  Now `_value` is always the screen. `reveal` (lanes.ts) moves a waiting
+  guess from `covers` to `_value` and, with nothing staged beneath, stages
+  the value it showed over as `_pendingValue`: the revert is the hold's
+  write. `_x._revert` marks that staging, so `landed` (truth.ts) can tell a
+  truth that landed beneath the guess from the value it reverts to; the held
+  flag cannot (a same-tick truth lacks it, a refresh sets it). A re-asked
+  shown guess waits in `covers` (`setLaneValue`'s `wait`), still judged a
+  round later (`_reguessed`). A guess that becomes its lane's derivation
+  drops both (`laneStage`). `recompute`'s re-ask test ignores a staged
+  revert. `kept` (#4336) is unchanged. Census over the signals suite, nodes
+  at rest holding three values: 3,200 before, 21 after (16 a waiting guess,
+  3 `kept`).
 - 2026-11-12b: **A pass that asks reads ahead on the screen (C)** (S-51
   re-ruled; F-2's producer clause and F-6's limit of 2026-11-07 replaced;
   #4677, #4778). The producer clause made a pass that asks the hold's:

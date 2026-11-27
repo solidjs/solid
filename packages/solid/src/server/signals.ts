@@ -66,7 +66,7 @@ export function from<T>(source: FromSource<T>): AsyncIterable<T> {
     }
   });
 }
-export { snapshot, omit, storePath, isStatic, $PROXY, $TRACK } from "@solidjs/signals";
+export { snapshot, omit, storePath, isStatic, markRaw, $PROXY, $TRACK } from "@solidjs/signals";
 
 // === Type re-exports ===
 
@@ -89,6 +89,7 @@ export type {
   ExternalSourceConfig,
   ExternalSourceFactory,
   MemoOptions,
+  NoFn,
   NoInfer,
   SignalOptions,
   Setter,
@@ -131,6 +132,7 @@ import type {
   EffectBundle,
   EffectOptions,
   MemoOptions,
+  NoFn,
   SignalOptions,
   Setter,
   Signal,
@@ -546,15 +548,15 @@ export function setContext<T>(
  * are dropped here: `_context` holds the render's provided values (and, under
  * a boundary, its error handler and HTML), and a pooled owner can sit idle
  * for as long as the process runs while concurrent renders fill the pool
- * (#4890). `_parent` / `_nextSibling` are cleared by `unlinkOwner`,
- * `_firstChild` / `_disposal` by the dispose walk.
+ * (#4890). An owner a full pool turns away is reset too: a closure of an
+ * earlier render that reused it can still reach it (#5180). `_parent` /
+ * `_nextSibling` are cleared by `unlinkOwner`, `_firstChild` / `_disposal` by
+ * the dispose walk.
  */
 function recycleOwner(node: SSROwner): void {
-  if (ownerPool.length < OWNER_POOL_MAX) {
-    node.id = undefined;
-    node._context = defaultSSRContext;
-    ownerPool.push(node);
-  }
+  node.id = undefined;
+  node._context = defaultSSRContext;
+  if (ownerPool.length < OWNER_POOL_MAX) ownerPool.push(node);
 }
 
 function unlinkOwner(node: SSROwner): void {
@@ -994,7 +996,6 @@ type ServerMemoOptions<T> = MemoOptions<T> & {
   serialize?: false;
 };
 type ServerSignalOptions<T> = SignalOptions<T>;
-type NoFn<T> = T extends Function ? never : T;
 type NoArray<T> = Extract<T, readonly unknown[]> extends never ? unknown : never;
 
 /**
@@ -3181,6 +3182,17 @@ export function createProjection<T extends object = {}>(
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   try {
     result = runProjection();
+    // Synchronous: fn either mutated state directly (void) or returned a new
+    // value. Adopted here, a pending store it returns (`() => rows`) takes
+    // the NotReady retry below like a derive that read it (#5097).
+    if (
+      result !== undefined &&
+      result !== state &&
+      result !== draft &&
+      !isThenable(result) &&
+      typeof (result as any)[Symbol.asyncIterator] !== "function"
+    )
+      replaceState(state, result as T);
   } catch (error) {
     if (!(error instanceof NotReadyError)) throw error;
     // The derive read a client hole synchronously: FINAL at discovery, the
@@ -3196,16 +3208,33 @@ export function createProjection<T extends object = {}>(
     const deferred = createDeferredPromise<T>();
     const [pending, markReady, markError] = createPendingProxy(state, deferred.promise);
     if (seedLoading) markReady(frozenSeed);
+    // Sync derives that only waited on a pending source must not serialize:
+    // on the client they run live against their hydrated source (#5146).
+    // Serialize only when commit #0 was served as seed, or when retry yields
+    // its own async result (Promise / AsyncIterable).
+    let serialized = false;
+    const serializeOnce = () => {
+      if (serializes && !serialized) {
+        serialized = true;
+        ctx.serialize(id, deferred.promise, options?.deferStream);
+      }
+    };
+    if (seedLoading) serializeOnce();
     settleServerAsync<void | T, T>(
       Promise.reject(error),
-      () => normalizeAsync(runProjection()),
+      () => {
+        const res = runProjection();
+        if (isThenable(res) || typeof (res as any)?.[Symbol.asyncIterator] === "function") {
+          serializeOnce();
+        }
+        return normalizeAsync(res);
+      },
       deferred,
       settleWith(markReady),
       markError,
       () => disposed
     );
     registerSettledTrace(pending, deferred.promise, state, options?.shallow);
-    if (serializes) ctx.serialize(id, deferred.promise, options?.deferStream);
     return recordSlot(pending);
   }
 
@@ -3411,10 +3440,6 @@ export function createProjection<T extends object = {}>(
     return recordSlot(pending);
   }
 
-  // Synchronous: fn either mutated state directly (void) or returned a new value
-  if (result !== undefined && result !== state && result !== draft) {
-    replaceState(state, result as T);
-  }
   return state;
 }
 
@@ -3739,10 +3764,12 @@ export type BoundaryOutcome =
  * `<Errored>` fallback failing while the server waits for it. Each handler
  * meets it if its region can still change, else passes it up: a `<Loading>`
  * whose fragment is still pending fails it (as a failure in its own pass
- * does); an `<Errored>` whose markup sits raw in such a fragment draws its
- * fallback there (`FragmentContainer.region`), or, still pending itself,
- * on its next pull. A boundary whose subtree is already discarded absorbs
- * it. Answered `undefined` from the root: nothing could meet it. Not part
+ * does); an `<Errored>` whose markup sits raw in such a fragment, or in the
+ * shell the renderer still holds (a fallback finished as it renders only),
+ * draws its fallback there
+ * (`FragmentContainer.region`, `ShellContainer.region`), or, still pending
+ * itself, on its next pull. A boundary whose subtree is already discarded
+ * absorbs it. Answered `undefined` from the root: nothing could meet it. Not part
  * of the public API (the server entry does not export it).
  */
 export const ESCALATE: unique symbol = Symbol("escalate") as any;
@@ -3758,6 +3785,30 @@ export const ESCALATE: unique symbol = Symbol("escalate") as any;
 export type FragmentContainer = {
   open: boolean;
   region(from: string, to: string | (() => Promise<string | undefined>), err: any): void;
+};
+/**
+ * The shell as the `<Errored>` boundaries rendered into it see it, while the
+ * renderer still holds it (`open`, until it is handed to the sink): an
+ * `<Errored>` whose finished markup it `has` takes its finished fallback in
+ * place of that markup (`region`), as in a pending `<Loading>` fragment.
+ * It `has` only markup with a place of its own: carrying a hydration key or
+ * a `<Loading>` placeholder, and found once.
+ * `drop` releases what the subtree under an owner id left pending — its
+ * fragments, its serialized values, its head registrations — once its
+ * markup is out of the page (`region` drops the replaced content's) or was
+ * never put in it (a fallback rendered and not drawn); with `rerun`, only
+ * the head registrations, for a subtree about to render again at the same
+ * ids. Never waits: a fallback not finished when it renders is not drawn
+ * here.
+ * @internal
+ */
+export type ShellContainer = {
+  open: boolean;
+  /** How many failures the render's `<Errored>` boundaries have contained. */
+  readonly contained: number;
+  has(from: string): boolean;
+  region(from: string, to: string, scope: string | undefined): void;
+  drop(scope: string, rerun?: boolean): void;
 };
 const containers = /* @__PURE__ */ new WeakMap<object, FragmentContainer>();
 /** @internal A registered `<Loading>`'s content owner and its fragment. */
@@ -4248,14 +4299,11 @@ export function createErrorBoundary<T, U>(
     }
     return resolved;
   };
-  const renderFallback = (err: any) =>
+  const renderFallback = (err: any, read?: () => void) =>
     ctx
       ? runWithOwner(parent!, () => {
           return runWithOwner(outputOwner!, () =>
-            fallback(
-              () => err,
-              () => {}
-            )
+            fallback(read ? () => (read(), err) : () => err, () => {})
           );
         })
       : fallback(
@@ -4353,7 +4401,10 @@ export function createErrorBoundary<T, U>(
   // #4287) this boundary answers only when that Loading's placeholder is
   // all of its content: the fallback then lands where the client twin draws
   // it, and the error serialized here lets it adopt that markup. Deeper in
-  // the content it answers nothing — the client renders the failure fresh.
+  // the content it answers nothing: before the shell is handed to the sink
+  // the failure is then handed up (`ESCALATE`) and, the fallback finished as
+  // it renders, drawn in the shell in place of this boundary's markup
+  // (`drawInShell`); otherwise the client renders the failure fresh.
   // Asked by a `<Loading>` (outside a server component), a fallback still
   // resolving answers with a function instead: called, it waits out the
   // fallback's holes and answers with the finished markup (or `undefined`,
@@ -4404,36 +4455,42 @@ export function createErrorBoundary<T, U>(
   // #4316), met as the boundary's own pull would meet it: the fallback in
   // place of this boundary's markup. Still pending itself, the boundary is
   // pulled again and shows it then; finished, rendered raw into a fragment
-  // still pending, the fallback takes its markup's place in that fragment
-  // (drawn as an outcome is: waited for, its error serialized once it is
-  // finished, its own failure the next boundary's). Already showing the
-  // fallback, it absorbs the failure. Otherwise — the markup is out, or its
-  // fallback failed — the next boundary up meets it.
+  // still pending, the fallback takes its markup's place there (drawn as an
+  // outcome is: waited for, its error serialized once it is finished, its
+  // own failure the next boundary's); in the shell the renderer still holds
+  // (#4287), see `drawInShell`. Already showing the fallback, it absorbs the
+  // failure. Otherwise — the markup is out, or its fallback failed — the
+  // next boundary up meets it.
   const escalated = (err: any, up: BoundaryErrorHandler | null): BoundaryOutcome => {
     if (ctx && !fallbackFailed) {
       if (fallbackSettled) return true;
       if (pending || pulling) return (handleError(err), true);
       const from = markup();
-      const container = from !== undefined && fragmentContainer(parent);
-      if (container) {
-        const to = drawFallback(err, undefined, up);
-        if (fallbackFailed) return to;
-        container.region(from!, to as string | (() => Promise<string | undefined>), err);
-        return true;
+      if (from !== undefined) {
+        const fragment = fragmentContainer(parent);
+        if (fragment) {
+          const to = drawFallback(err, undefined, up) as
+            | string
+            | (() => Promise<string | undefined>);
+          if (fallbackFailed) return to;
+          fragment.region(from, to, err);
+          return true;
+        }
+        const shell = ctx.shell;
+        // The shell held and no fragment pending above: not drawn here (its
+        // fallback unfinished, its markup not found — not inserted, or with
+        // no place of its own), the failure is not an outer boundary's
+        // either: this one meets it on the client.
+        if (shell && shell.open && !fragmentContainer(parent, true))
+          return shellDrawable && shell.has(from) ? drawInShell(err, up, shell, from) : undefined;
       }
     }
     return up ? up(err, ESCALATE) : undefined;
   };
-  // Renders the fallback for `err` as an outcome (`outcome`: the asking
-  // position) or in place of this boundary's markup (`undefined`).
-  const drawFallback = (
-    err: any,
-    outcome: true | string | undefined,
-    parentHandler: BoundaryErrorHandler | null
-  ): BoundaryOutcome => {
-    // A hole of the fallback that throws while it renders reaches the
-    // fallback owner's handler first: hold it for `escalate` instead of
-    // letting the parent handler route it from here.
+  // A hole of the fallback that throws while it renders reaches the
+  // fallback owner's handler first: hold it for `escalate` instead of
+  // letting the parent handler route it from here.
+  const intercept = (parentHandler: BoundaryErrorHandler | null) => {
     if (parentHandler && !interceptor) {
       interceptor = true;
       setContext(
@@ -4445,22 +4502,120 @@ export function createErrorBoundary<T, U>(
         outputOwner
       );
     }
+  };
+  // Rendered from a resume loop, where the render context the compiled
+  // template reads has long moved past this boundary's: restore it.
+  const inCtx = (run: () => any, fail: (e: any) => void) => {
+    const prevCtx = sharedConfig.context;
+    sharedConfig.context = ctx;
+    answering = true;
+    try {
+      return run();
+    } catch (e) {
+      if (!(e instanceof NotReadyError)) fail(e);
+    } finally {
+      answering = false;
+      sharedConfig.context = prevCtx;
+    }
+  };
+  // Whether this boundary may still draw in the held shell: not once its
+  // fallback rendered unfinished there.
+  let shellDrawable = true;
+  // The fallback in place of this boundary's finished markup in the shell
+  // the renderer still holds (#4287), only when it is finished as it
+  // renders: the shell never waits for it. Rendered first with the error's
+  // default wire value, the hook not yet told: it hears `fallback` once the
+  // fallback is drawn (re-rendered when its mapping changes a value the
+  // fallback read), and nothing from here otherwise — the failing
+  // `<Loading>` then reports `client`, and what the unfinished fallback
+  // started is dropped (`ShellContainer.drop`), never retried. Its own
+  // failure is the next boundary's (#4316); met there, so is the content's.
+  const drawInShell = (
+    err: any,
+    up: BoundaryErrorHandler | null,
+    shell: ShellContainer,
+    from: string
+  ): BoundaryOutcome => {
+    intercept(up);
+    const scope = ownerId(outputOwner!);
     let failed: { e: any } | undefined;
-    // Rendered from a resume loop, where the render context the compiled
-    // template reads has long moved past this boundary's: restore it.
-    const inCtx = (run: () => any) => {
-      const prevCtx = sharedConfig.context;
-      sharedConfig.context = ctx;
-      answering = true;
+    let read = false;
+    let result: any;
+    let wire: any;
+    let reported = false;
+    const render = (value: any): string | undefined => {
+      read = false;
+      // Its registrations (head tags, assets) are the shell's, not the
+      // failing fragment's this runs under.
+      const boundary = ctx!._currentBoundaryId;
+      ctx!._currentBoundaryId = null;
+      let resolved: any;
       try {
-        return run();
-      } catch (e) {
-        if (!(e instanceof NotReadyError)) failed = { e };
+        resolved = inCtx(
+          () => ctx!.resolve(ctx!.escape((result = renderFallback(value, () => (read = true))))),
+          e => (failed = { e })
+        );
       } finally {
-        answering = false;
-        sharedConfig.context = prevCtx;
+        ctx!._currentBoundaryId = boundary;
       }
+      if (failed || !resolved || (resolved.h && resolved.h.length)) return;
+      return Array.isArray(resolved.t) ? resolved.t[0] : resolved.t;
     };
+    // `rerun`: rendered again at the same ids, where what the first render
+    // started (a `<Loading>` of the fallback's, a serialized value) is
+    // joined, not made again: only its head registrations go.
+    const undo = (rerun?: boolean) => {
+      resetOwnerForRerun(outputOwner!);
+      if (scope !== undefined) shell.drop(scope, rerun);
+    };
+    const report = () => {
+      reported = true;
+      reportContained(err);
+      wire = ssrSanitizeError(
+        err,
+        owner,
+        { kind: "render", handling: "fallback", boundary: boundaryId },
+        ctx!.errorPolicy,
+        ctx!._errorScope
+      );
+      if (ctx!.contained) ctx!.contained(err, wire);
+    };
+    const provisional = ssrSanitizeError(err, owner, undefined, undefined, ctx!._errorScope);
+    let to = render(provisional);
+    if (to !== undefined) {
+      report();
+      if (read && wire !== provisional) {
+        undo(true);
+        to = render(wire);
+      }
+      if (to !== undefined) {
+        shell.region(from, to, boundaryId);
+        serializeError(wire);
+        fallbackResult = result;
+        fallbackSettled = true;
+        return true;
+      }
+    }
+    undo();
+    if (failed) {
+      fallbackFailed = true;
+      const met = up ? up(failed.e, ESCALATE) : undefined;
+      if (met === true && !reported) report();
+      return met;
+    }
+    shellDrawable = false;
+    return undefined;
+  };
+  // Renders the fallback for `err` as an outcome (`outcome`: the asking
+  // position) or in place of this boundary's markup (`undefined`).
+  const drawFallback = (
+    err: any,
+    outcome: true | string | undefined,
+    parentHandler: BoundaryErrorHandler | null
+  ): BoundaryOutcome => {
+    intercept(parentHandler);
+    let failed: { e: any } | undefined;
+    const inCtxHere = (run: () => any) => inCtx(run, e => (failed = { e }));
     const finish = (resolved: any) => {
       if (!resolved || (resolved.h && resolved.h.length)) return;
       if (deferredWire) (serializeError(deferredWire), (deferredWire = undefined));
@@ -4483,7 +4638,7 @@ export function createErrorBoundary<T, U>(
       const met = parentHandler(e, ESCALATE);
       if (outcome === undefined) return met;
     };
-    let resolved: any = inCtx(() => ctx!.resolve(ctx!.escape(handleError(err, true))));
+    let resolved: any = inCtxHere(() => ctx!.resolve(ctx!.escape(handleError(err, true))));
     if (failed) return escalate();
     if (outcome === true || !resolved || !resolved.h || !resolved.h.length) return finish(resolved);
     disposed ||= new Promise<void>(r =>
@@ -4497,7 +4652,7 @@ export function createErrorBoundary<T, U>(
         if (torn) return;
         // Under the fallback's owner, as it rendered: a hole failing now
         // meets the handler a sync throw did.
-        resolved = inCtx(() =>
+        resolved = inCtxHere(() =>
           runWithOwner(outputOwner!, () => ctx!.ssr(resolved.t, ...resolved.h))
         );
         if (failed) {

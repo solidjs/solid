@@ -28,7 +28,8 @@ const expected = {
   // Incoming + own both lead Child's getter (#4701).
   stackedBeforeAndOwn: {
     Child: ["/* istanbul ignore next */", "/* c8 ignore next */"]
-  }
+  },
+  beforeComponentMentioningMarker: { Child: ["/* istanbul ignore next */"] }
 };
 
 exports.expectedFor = function expectedFor(_generate) {

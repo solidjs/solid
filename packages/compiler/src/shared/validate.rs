@@ -30,7 +30,8 @@ pub(crate) fn is_invalid_markup(html: &str) -> Option<InvalidMarkup> {
 
     // Text nodes are problematic ("doesn't" vs "doesn&#39;t"), so they all
     // become `#text` — the browser moving a text node still moves the
-    // placeholder.
+    // placeholder. A whitespace-only run between tags becomes one space,
+    // which the parser keeps in place wherever it keeps the original.
     html = replace_leading_text(&html);
     html = replace_trailing_text(&html);
     html = replace_inner_text(&html);
@@ -119,21 +120,7 @@ fn document_shell(html: &str, tag: &str) -> String {
         element
     };
 
-    let mut output = Vec::new();
-    let handle = SerializableHandle::from(shell);
-    if serialize(
-        &mut output,
-        &handle,
-        SerializeOpts {
-            traversal_scope: TraversalScope::IncludeNode,
-            ..SerializeOpts::default()
-        },
-    )
-    .is_err()
-    {
-        return String::new();
-    }
-    String::from_utf8_lossy(&output).into_owned()
+    serialize_tree(shell, TraversalScope::IncludeNode)
 }
 
 /// Parses `html` as if assigned to a `<body>` element's `innerHTML` and
@@ -155,13 +142,31 @@ fn inner_html(html: &str) -> String {
         return String::new();
     };
 
+    serialize_tree(root.clone(), TraversalScope::ChildrenOnly(None))
+}
+
+fn serialize_tree(root: Handle, traversal_scope: TraversalScope) -> String {
+    let mut nodes = vec![root.clone()];
+    while let Some(node) = nodes.pop() {
+        if let NodeData::Element {
+            template_contents, ..
+        } = &node.data
+            && let Some(contents) = template_contents.borrow().as_ref()
+        {
+            node.children
+                .borrow_mut()
+                .clone_from(&contents.children.borrow());
+        }
+        nodes.extend(node.children.borrow().iter().cloned());
+    }
+
     let mut output = Vec::new();
-    let handle = SerializableHandle::from(root.clone());
+    let handle = SerializableHandle::from(root);
     if serialize(
         &mut output,
         &handle,
         SerializeOpts {
-            traversal_scope: TraversalScope::ChildrenOnly(None),
+            traversal_scope,
             ..SerializeOpts::default()
         },
     )
@@ -192,7 +197,7 @@ fn replace_trailing_text(html: &str) -> String {
     }
 }
 
-/// `>[^<]+<` -> `>#text<` (global)
+/// `>[^<]+<` -> `>#text<`, or `> <` for a whitespace-only run (global)
 fn replace_inner_text(html: &str) -> String {
     let bytes = html.as_bytes();
     let mut output = String::with_capacity(html.len());
@@ -203,7 +208,10 @@ fn replace_inner_text(html: &str) -> String {
         match html[start..].find('<') {
             Some(0) => cursor = start,
             Some(gap) => {
-                output.push_str("#text");
+                let whitespace = bytes[start..start + gap]
+                    .iter()
+                    .all(|byte| b"\t\n\x0C\r ".contains(byte));
+                output.push_str(if whitespace { " " } else { "#text" });
                 cursor = start + gap;
             }
             None => {

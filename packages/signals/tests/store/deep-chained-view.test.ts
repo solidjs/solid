@@ -8,7 +8,7 @@ import {
   deep,
   flush
 } from "../../src/index.js";
-import { $TARGET } from "../../src/store/store.js";
+import { $TARGET } from "../../src/store/types.js";
 
 type Row = { id: string; qty: number; meta?: { tag: string } };
 
@@ -93,30 +93,6 @@ describe("deep() over a chained optimistic view (#3323)", () => {
     flush();
     expect(view[1].qty).toBe(6);
     expect(runs.root - before).toBe(1);
-  });
-
-  it("does not create a second view target for a row the walk reaches", () => {
-    createRoot(() => {
-      const [base] = createStore<Row[]>([{ id: "a", qty: 1 }]);
-      const [view] = createOptimisticStore<Row[]>(base);
-      flush();
-      let walked: any;
-      createEffect(
-        () => {
-          walked = deep(view);
-        },
-        () => {}
-      );
-      flush();
-      // The row the walk resolved is the one the get trap serves: one chained
-      // target per row, keyed by the inner proxy.
-      const served = view[0];
-      const fam = (view as any)[$TARGET]._fam;
-      const raw = (base as any)[$TARGET].v[0];
-      expect(fam.map.get(base[0])).toBe((served as any)[$TARGET]);
-      expect(fam.map.get(raw)).toBeUndefined(); // no orphan raw-keyed wrapper
-      expect(walked).toEqual([{ id: "a", qty: 1 }]);
-    });
   });
 
   // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame

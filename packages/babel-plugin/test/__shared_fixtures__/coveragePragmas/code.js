@@ -171,3 +171,10 @@ export const stackedBeforeAndOwn = (
     </Child>
   </Parent>
 );
+
+export const beforeComponentMentioningMarker = (
+  <Parent>
+    {/* istanbul ignore next */}
+    <Child>{/* not @static */ state.value}</Child>
+  </Parent>
+);

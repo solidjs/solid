@@ -53,12 +53,12 @@ function resolveThunks(value: any): any {
 function wrapCallback(orig: any): any {
   let w: any;
   if (orig.length === 1) {
-    w = function (this: any, a: any) {
-      return resolveThunks(orig.call(this, a));
+    w = function (this: unknown, _a: unknown) {
+      return resolveThunks(orig.apply(this, arguments));
     };
   } else if (orig.length === 2) {
-    w = function (this: any, a: any, b: any) {
-      return resolveThunks(orig.call(this, a, b));
+    w = function (this: unknown, _a: unknown, _b: unknown) {
+      return resolveThunks(orig.apply(this, arguments));
     };
   } else {
     w = function (this: any, ...args: any[]) {
@@ -97,12 +97,23 @@ function componentProps(src: Props | undefined, children: any[]): Props {
   const d: PropertyDescriptorMap = src ? Object.getOwnPropertyDescriptors(src) : {};
   let rewritten = !src;
   if (children.length) {
-    d.children = {
-      value: children.length > 1 ? children : children[0],
-      writable: true,
-      enumerable: true,
-      configurable: true
-    };
+    // A bare thunk array is read as accessors by `insert` and re-invoked (#5072).
+    if (children.length > 1) {
+      d.children = {
+        get() {
+          return resolveThunks(children);
+        },
+        enumerable: true,
+        configurable: true
+      };
+    } else {
+      d.children = {
+        value: children[0],
+        writable: true,
+        enumerable: true,
+        configurable: true
+      };
+    }
     rewritten = true;
   }
   const getters: string[] = [];
@@ -149,7 +160,7 @@ function materialize(args: any[]): ExpandableNode | ExpandableNode[] {
       (e as Node).appendChild(document.createTextNode(l.toString()));
     } else if (Array.isArray(l)) {
       for (let i = 0; i < l.length; i++) item(l[i]);
-    } else if (l instanceof Element) {
+    } else if (l instanceof Node) {
       insert(e as Element, l, multiExpression ? null : undefined);
     } else if ("object" === type) {
       let dynamic = false;
@@ -185,12 +196,12 @@ function materialize(args: any[]): ExpandableNode | ExpandableNode[] {
         const first = args[0];
         const src: Props | undefined =
           first == null ||
-          (typeof first === "object" && !Array.isArray(first) && !(first instanceof Element))
+          (typeof first === "object" && !Array.isArray(first) && !(first instanceof Node))
             ? args.shift() || undefined
             : undefined;
-        e = createComponent(l, componentProps(src, args)) as ExpandableNode;
-        // Drain nested h() thunks so downstream sees the real render result.
-        while (typeof e === "function" && (e as any)[$ELEMENT]) e = (e as any)();
+        // Resolve tagged thunks in the returned value, including arrays, so
+        // downstream sees nodes and `insert` never re-invokes a thunk (#5072).
+        e = resolveThunks(createComponent(l, componentProps(src, args)));
         args = [];
       } else if ((l as any)[$ELEMENT]) item(l());
       else {
@@ -228,13 +239,13 @@ function materialize(args: any[]): ExpandableNode | ExpandableNode[] {
       else if (v[0] === "#") e.setAttribute("id", s);
     }
   }
-  function detectMultiExpression(list: any[]) {
-    for (let i = 1; i < list.length; i++) {
+  function detectMultiExpression(list: any[], start = 1) {
+    for (let i = start; i < list.length; i++) {
       if (typeof list[i] === "function") {
         multiExpression = true;
         return;
       } else if (Array.isArray(list[i])) {
-        detectMultiExpression(list[i]);
+        detectMultiExpression(list[i], 0);
       }
     }
   }

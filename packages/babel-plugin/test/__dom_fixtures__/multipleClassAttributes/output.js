@@ -6,7 +6,8 @@ var _tmpl$ = /*#__PURE__*/ _$template(`<div class=b>static static`),
   _tmpl$2 = /*#__PURE__*/ _$template(`<div>static + dynamic`),
   _tmpl$3 = /*#__PURE__*/ _$template(`<div class=on>two dynamic`),
   _tmpl$4 = /*#__PURE__*/ _$template(`<div class=active>mixed`),
-  _tmpl$5 = /*#__PURE__*/ _$template(`<div class=c>three statics`);
+  _tmpl$5 = /*#__PURE__*/ _$template(`<div class=c>three statics`),
+  _tmpl$6 = /*#__PURE__*/ _$template(`<div class=a>`);
 // Multiple class= attributes on a DOM element should be combined into
 // a single class attribute/expression.
 const dynamicClass = () => "dyn";
@@ -23,3 +24,4 @@ const t2 = _el$2;
 const t3 = _tmpl$3();
 const t4 = _tmpl$4();
 const t5 = _tmpl$5();
+const t6 = _tmpl$6();

@@ -502,10 +502,15 @@ function unappend(into: unknown[] | null, own: unknown[] | null): void {
 export function joinFuture(t: Transaction | null): void {
   // A lane is never the flush's transaction (D-37, #4440).
   if (laneStageHook && t?._lane) return;
-  const f = flushTransaction;
+  // A landed transaction holds nothing: a write to a node it still lists
+  // (a cleanup its own landing ran) is the landing's, committed after it
+  // (#4089). Joining it would park the flush in it, or merge it while it is
+  // no longer in `transactions` (#5159). `liveTx` resolves the merges.
+  const l = t && liveTx(t),
+    f = flushTransaction;
   if (f === null) {
-    flushTransaction = t === null ? newTransaction(false) : resolveTx(t);
-  } else if (t !== null) merge(resolveTx(t), f);
+    if (t === null || l) flushTransaction = l || newTransaction(false);
+  } else if (l) merge(l, f);
   if (!globalQueue._running) schedule();
 }
 /** `t` merges into `f`: the work that touched both entangles them (A15).
@@ -1004,17 +1009,9 @@ export class GlobalQueue implements IQueue {
   declare static _runEffect: (el: Computed<unknown>) => void;
   /** A slot node's truth is in flight (its family's derive — store/store.ts). */
   declare static _slotFlight: ((n: Signal<any>) => boolean) | undefined;
-  /** A write to a slot node's guess (lanes.ts `laneWrite`): true when the
-   * store made the slot its derive's lane's derivation (optimistic.ts);
-   * `back`: the slot's node now, for a guess that comes back (lanes.ts
-   * `endLanes`). */
-  declare static _slotTake: ((n: Signal<any>, back?: boolean) => any) | undefined;
-  /** A lane dirtied a store's guess carrier: the readers of the leaves of
-   * the keys it changed re-derive as the lane's work (optimistic.ts). */
-  declare static _slotDirty: ((n: Signal<any>, l: Transaction) => void) | undefined;
-  /** A lane re-derives a store's guess carrier's readers at `t`'s landing
-   * (lanes `rerun`): the readers of the leaves of the keys it changed. */
-  declare static _slotRerun: ((n: Signal<any>, t: Transaction) => void) | undefined;
+  /** A store guess written by a derive re-asking in another hold's lane:
+   * the two holds merge (D-33; store/optimistic.ts). */
+  declare static _slotMerge: ((n: Signal<any>) => void) | undefined;
   /** The store's row judgment for a guessed slot (optimistic.ts): the truth
    * is the guess's echo when reconcile would write nothing into it. */
   declare static _echoes: ((guess: unknown, truth: unknown) => boolean) | undefined;
@@ -1023,10 +1020,18 @@ export class GlobalQueue implements IQueue {
   declare static _truth: ((el: any) => unknown) | undefined;
   declare static _confirmed: ((l: Transaction) => void) | undefined;
   /** `affects()` on a store (store/affects.ts): a store's node for a key
-   * (store/store.ts `getNode`); a bare registration (birth inheritance); a
+   * (store/thin.ts `_storeEngine`); a bare registration (birth inheritance); a
    * witnessed mark on an untracked probe (verdict.ts). */
-  declare static _storeNode: ((t: any, key: PropertyKey) => Signal<any>) | undefined;
-  declare static _storeWrappable: ((v: unknown) => boolean) | undefined;
+  declare static _storeEngine:
+    | {
+        node(t: any, key: PropertyKey): Signal<any>;
+        target(v: any, fam: any): any;
+        keys(t: any): PropertyKey[];
+        value(t: any, k: PropertyKey): any;
+        sub(t: any): Iterable<any>;
+        view(on: boolean): void;
+      }
+    | undefined;
   declare static _mark: ((node: Signal<any> | Computed<any>) => void) | undefined;
   declare static _witnessMark: (() => void) | undefined;
   /** A truth landing on a guess (lanes.ts `laneWrite`), `older` when it
@@ -1230,6 +1235,12 @@ export class GlobalQueue implements IQueue {
     for (let k = transactions.length - 1; k >= 0; k--) {
       const u = transactions[k];
       if (blocked(u)) continue;
+      // A landed transaction holds nothing (#5161): the flush stops calling
+      // `u` its own before its lanes end and its commits run. A cleanup an
+      // earlier landing ran can have opened it; a callback either step runs
+      // (a cleanup, a guess's `equals`) that starts an action must start a
+      // transaction of its own, not merge into `u` (#5233).
+      if (flushTransaction && resolveTx(flushTransaction) === u) flushTransaction = null;
       transactions.splice(k, 1);
       endLanesHook?.(u);
       land(u);
@@ -1430,10 +1441,6 @@ function land(u: Transaction): void {
     n._x!._transaction = null;
     commitPendingNode(n);
   }
-  // A cleanup those commits ran that wrote a node `u` still held joined
-  // `u`, which has left `transactions`: the write is this landing's, and
-  // the next flush must not park in it (#4089).
-  if (flushTransaction === u) flushTransaction = null;
   // An effect re-derives next round (`reruns`): the held runs wait for it
   // (D-9, the A15 reveal corollary, #4071). Its re-derivation can discover a
   // flight — a stale reader whose mainline pass stopped reading it, now
@@ -1586,44 +1593,27 @@ export function reasks(c: Computed<any>, seen: Set<Computed<any>> = new NewSet()
  * `laneRead` re-derives it on the screen if that lane holds (`entered`). */
 export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): void {
   insertSubs(node);
-  // A store's guess carrier: the readers of the keys it changed read their
-  // leaves — dirtied as the lane's work too (store/optimistic.ts).
-  if (node._config & CONFIG_SLOT_NODE) GlobalQueue._slotDirty?.(node as Signal<any>, l);
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const c = s._sub;
     let t = c._x?._transaction,
-      render = (c as any)._type === EFFECT_RENDER,
-      same: boolean;
-    // A reader a hold has pending on its re-ask (a correction's
-    // re-derivation waiting on a refresh) re-derives from the guess as the
-    // lane's work, seated there before its pass: lane work reads the
-    // hold's flight as the screen (D-26, D-37), whether it reads the
-    // flight before the guess or after (D-28), and whether it reads the
-    // guess itself or a derivation of it — this walk runs at every lane
-    // node's change. Seated at the guess read, the earlier read threw the
-    // pass back into the hold (#4629). The hold is the lane's parent's (the
-    // same slot, D-33), or any hold whose flights the reader waits on are all
-    // `refresh()` re-asks (`_reask`; with none, its own flight): a re-ask
-    // asks no new question and holds nothing new (D-34 ¶3), so a guess into
-    // another log shows beside it at once (F-11, #4666). A reader pending on
-    // another hold's new question stays with that hold (#4577: seated, it
-    // would ask its question over the screen's input). One seated in another
-    // lane this flush moves; its pass reads that lane's guess and links the
-    // two (`enterLane`, A15), and `dissolveLane` skips a node it lost.
+      render = (c as any)._type === EFFECT_RENDER;
+    // A reader waiting only on re-asks follows the guess, as the lane's
+    // work, seated before its pass: a re-ask asks no new question and holds
+    // nothing new (D-34), so the guess shows beside it at once (F-11, F-1).
+    // One waiting on a new question stays with the hold that asked it
+    // (D-33): seated, it would ask over the screen's input. A memo the
+    // guess's own hold holds is that hold's question either way.
     if (
       (c._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
-      // A render effect pending on another hold's re-asks, held by it or
-      // by none, the same (#4824): its first read of the re-asked rows threw
-      // it back out of the lane, and the guess beside a reader that showed
-      // it waited on the refresh (F-1, F-11).
-      (t ? (c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD : render) &&
-      ((same = !!t && resolveTx(t) === resolveTx(l._parent!)),
-      (c as any)._type ? render && !same && reasks(c) : same || reasks(c))
+      !(c._config & CONFIG_OVERRIDE) &&
+      (reasks(c) || (!(c as any)._type && t && !t._lane && resolveTx(t) === resolveTx(l._parent!)))
     )
       list(c, (t = l));
     if (render && node._config & CONFIG_VERDICT)
       ((c._config |= CONFIG_VERDICT), (c._flags &= ~REACTIVE_LANE_DIRTY));
-    if (t?._lane ? sameLane(t, l) : (c as any)._type) c._flags |= REACTIVE_LANE_DIRTY;
+    // A reader in another lane whose removal is staged is still on screen (D-9).
+    if (t?._lane ? sameLane(t, l) || c._flags & REACTIVE_ZOMBIE : (c as any)._type)
+      c._flags |= REACTIVE_LANE_DIRTY;
   }
 }
 

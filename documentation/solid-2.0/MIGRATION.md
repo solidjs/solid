@@ -228,7 +228,7 @@ These are **dev-only diagnostics** meant to catch bugs earlier. Some are warning
 
 #### “Top-level reactive read” in a component
 
-In 2.0, reading reactive values at the top level of a component body (including destructuring props) will warn. The fix is usually to move the read into a reactive scope (`createMemo`/`createEffect`) or make the intent explicit with `untrack`.
+In 2.0, reading reactive values at the top level of a component body (including destructuring props) will warn. The fix is to move the read to where the value is used: JSX, a memo, an effect's compute function, the event handler, or an accessor passed to a hook. If the value must never update and is never downstream of async, `untrack` makes the one-time read explicit; do not use it just to silence the warning.
 
 ```jsx
 // ❌ 2.0 warns (top-level reactive read)
@@ -303,7 +303,7 @@ If you truly need the old “read this once” behavior, the replacement is `unt
 const value = untrack(() => props.value);
 ```
 
-Keep this code narrow. It is not the common path and should not be used to opt reactive values out of updates.
+Keep this code narrow. It is not the common path and should not be used to opt reactive values out of updates, or to silence `STRICT_READ_UNTRACKED`. Seed local state with a writable derived signal (`createSignal(() => props.initial)`) instead.
 
 ## Async data & transitions
 

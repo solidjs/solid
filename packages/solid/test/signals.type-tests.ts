@@ -8,7 +8,8 @@ import {
   createSignal,
   createOptimistic,
   Signal,
-  Setter
+  Setter,
+  NoFn
 } from "../src/index.js";
 
 class Animal {
@@ -382,3 +383,13 @@ const s6: Setter<undefined> = setNumberOrUndefined;
 const s7: Setter<string> = setUndefined;
 // @ts-expect-error can't set string to undefined
 const s8: Setter<string | undefined> = setUndefined;
+
+//////////////////////////////////////////////////////////////////////////
+// NoFn ///////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+
+// The value constraint createSignal/createStore use is part of the public
+// type surface, so wrappers can state it on their own options.
+type NoFnFunctionIsNever = NoFn<() => void> extends never ? true : false;
+const noFnRejectsFunctions: NoFnFunctionIsNever = true;
+const noFnKeepsValues: NoFn<{ a: number }> = { a: 1 };

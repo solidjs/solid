@@ -377,7 +377,7 @@ function optionHole(
         } else return undefined;
       } else return undefined;
     }
-    if (!value) value = t.stringLiteral(text.replace(/\s+/g, " ").trim());
+    if (!value) value = t.stringLiteral(text.replace(/[\t\n\f\r ]+/g, " ").replace(/^ | $/g, ""));
   }
   const args: babelTypes.Expression[] = [value!];
   if (select || own) args.push(select ? t.cloneNode(select) : t.identifier("undefined"));
@@ -950,9 +950,14 @@ function transformAttributes(
                 );
               } else {
                 name = t.stringLiteral(
-                  (t.isIdentifier(p.key)
-                    ? p.key.name
-                    : (p.key as babelTypes.StringLiteral | babelTypes.NumericLiteral).value) + ":"
+                  (escapeHTML(
+                    String(
+                      t.isIdentifier(p.key)
+                        ? p.key.name
+                        : (p.key as babelTypes.StringLiteral | babelTypes.NumericLiteral).value
+                    ),
+                    true
+                  ) as string) + ":"
                 );
               }
               return [
@@ -980,8 +985,9 @@ function transformAttributes(
           ) {
             const values: babelTypes.Expression[] = [],
               quasis = [t.templateElement({ raw: "" })];
-            transformClasslistObject(path, value.expression, values, quasis);
-            if (!values.length) value.expression = t.stringLiteral(quasis[0].value.raw);
+            transformClasslistObject(path, value.expression, values, quasis, true);
+            if (!values.length)
+              value.expression = t.stringLiteral(quasis[0].value.cooked ?? quasis[0].value.raw);
             else if (values.length === 1 && !quasis[0].value.raw && !quasis[1].value.raw) {
               value.expression = values[0];
             } else value.expression = t.templateLiteral(quasis, values);
@@ -1101,7 +1107,8 @@ function transformClasslistObject(
   path: BabelPath,
   expr: babelTypes.ObjectExpression,
   values: babelTypes.Expression[],
-  quasis: babelTypes.TemplateElement[]
+  quasis: babelTypes.TemplateElement[],
+  attr = false
 ) {
   expr.properties.forEach((prop, i) => {
     if (t.isSpreadElement(prop) || t.isObjectMethod(prop)) return;
@@ -1114,18 +1121,21 @@ function transformClasslistObject(
         t.booleanLiteral(true)
       ]);
     } else
-      key = t.stringLiteral(escapeHTML((prop.key as babelTypes.StringLiteral).value) as string);
+      key = t.stringLiteral(
+        escapeHTML((prop.key as babelTypes.StringLiteral).value, attr) as string
+      );
     if (t.isBooleanLiteral(prop.value)) {
       if (prop.value.value === true) {
         if (!prop.computed) {
           const prev = quasis.pop();
+          const text =
+            (i ? " " : "") + (key as babelTypes.StringLiteral).value + (isLast ? "" : " ");
           quasis.push(
             t.templateElement({
               raw:
                 (prev ? prev.value.raw : "") +
-                (i ? " " : "") +
-                `${(key as babelTypes.StringLiteral).value}` +
-                (isLast ? "" : " ")
+                text.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${"),
+              cooked: (prev ? (prev.value.cooked ?? prev.value.raw) : "") + text
             })
           );
         } else {

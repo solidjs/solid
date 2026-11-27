@@ -39,15 +39,19 @@ function createHtml() {
   const rawTextElements = new Set(RawTextElements);
   rawTextElements.delete("template");
 
-  // Walk over text, comment, and element nodes.
-  const walker = document.createTreeWalker(document, 129);
-
-  const createElement = (name: string) => {
-    return SVGElements.has(name)
-      ? document.createElementNS("http://www.w3.org/2000/svg", name)
-      : MathMLElements.has(name)
-        ? document.createElementNS("http://www.w3.org/1998/Math/MathML", name)
-        : document.createElement(name);
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const MATHML_NS = "http://www.w3.org/1998/Math/MathML";
+  // `ns` is the namespace a static parent puts its children in, as the HTML
+  // parser does: inside <svg> or <math>, `title`/`a`/`style` stay foreign.
+  // Without one, the tag name alone decides.
+  const createElement = (name: string, ns?: string) => {
+    ns =
+      name === "svg"
+        ? SVG_NS
+        : name === "math"
+          ? MATHML_NS
+          : ns || (SVGElements.has(name) ? SVG_NS : MathMLElements.has(name) ? MATHML_NS : ns);
+    return ns ? document.createElementNS(ns, name) : document.createElement(name);
   };
 
   // Internal: build a tagged JSX tag bound to a component registry.
@@ -108,10 +112,21 @@ function createHtml() {
     }
   };
 
-  const buildNodes = (node: ChildNode): Node => {
+  const buildNodes = (
+    node: ChildNode,
+    ns?: string,
+    rawText = false,
+    stripFirstLF = false
+  ): Node => {
     switch (node.type) {
       case TEXT_NODE:
-        textTemplate.innerHTML = trustedHTML(node.value);
+        if (rawText) return document.createTextNode(node.value);
+        textTemplate.innerHTML = trustedHTML(
+          (stripFirstLF && node.value.startsWith("\n") ? node.value.slice(1) : node.value).replace(
+            /</g,
+            "&lt;"
+          )
+        );
         return document.createTextNode(textTemplate.content.textContent ?? "");
       case EXPRESSION_NODE:
         return document.createComment("+");
@@ -120,7 +135,7 @@ function createHtml() {
       case ELEMENT_NODE:
         let hasSpread = false;
 
-        const elem = createElement(node.name);
+        const elem = createElement(node.name, ns);
         // Element-claim contract (`a[href]`, `form[action]`): stamped here,
         // while static props are still visible — the filter below bakes them
         // into the template, after which the runtime can't tell a claim
@@ -132,11 +147,12 @@ function createHtml() {
         // Props located after spread need to be applied after spread for possible overrides.
         node.props = node.props.filter(prop => {
           if (prop.type === STATIC_PROP) {
-            if (prop.name.startsWith("prop:")) return true;
+            if (prop.name.startsWith("prop:") || prop.name === "children") return true;
             elem.setAttribute(prop.name, prop.value);
             if (!hasSpread && prop.name === claimAttr) node.claim = true;
             return hasSpread;
           } else if (prop.type === BOOLEAN_PROP) {
+            if (prop.name === "children") return true;
             elem.setAttribute(prop.name, "");
             if (!hasSpread && prop.name === claimAttr) node.claim = true;
             return hasSpread;
@@ -147,7 +163,26 @@ function createHtml() {
           return true;
         });
         const childRoot = node.name === "template" ? (elem as HTMLTemplateElement).content : elem;
-        childRoot.append(...node.children.map(buildNodes));
+        // An HTML parent, or <foreignObject>, hands its children back to HTML.
+        const childNs =
+          elem.namespaceURI === SVG_NS
+            ? node.name === "foreignObject"
+              ? undefined
+              : SVG_NS
+            : elem.namespaceURI === MATHML_NS
+              ? MATHML_NS
+              : undefined;
+        const childRawText =
+          elem.namespaceURI !== SVG_NS &&
+          elem.namespaceURI !== MATHML_NS &&
+          (node.name === "script" || node.name === "style");
+        const stripChildLF =
+          childNs === undefined && (node.name === "pre" || node.name === "textarea");
+        childRoot.append(
+          ...node.children.map((child, index) =>
+            buildNodes(child, childNs, childRawText, stripChildLF && index === 0)
+          )
+        );
 
         return elem;
     }
@@ -170,7 +205,7 @@ function createHtml() {
         const element = renderChildren(node, values, components) as Element;
         const props = gatherProps(node, values, components);
 
-        spread(element, props, true);
+        spread(element, props, node.children.length > 0);
         // Static href/action was baked into the template at build, so the
         // spread above never touched it — claim the clone directly.
         if (node.claim) claimElement(element);
@@ -189,23 +224,25 @@ function createHtml() {
     }
 
     const element = node.template.content.firstChild!.cloneNode(true) as Element;
-    walker.currentNode = element;
+    const walker = document.createTreeWalker(element, 129);
 
     const walkNodes = (nodes: ChildNode[], walker: TreeWalker) => {
+      const parent = walker.currentNode;
       for (const node of nodes) {
         if (
           node.type === ELEMENT_NODE ||
           node.type === EXPRESSION_NODE ||
           node.type === COMPONENT_NODE
         ) {
-          const domNode = walker.nextNode()!;
+          const domNode = (
+            walker.currentNode === parent ? walker.firstChild() : walker.nextSibling()
+          )!;
           if (node.type === EXPRESSION_NODE || node.type === COMPONENT_NODE) {
             insert(domNode.parentNode!, renderNode(node, values, components), domNode);
-            walker.currentNode = domNode;
           } else {
             if (node.props.length) {
               const props = gatherProps(node, values, components);
-              spread(domNode as Element, props, true);
+              spread(domNode as Element, props, node.children.length > 0);
             }
             if (node.claim) claimElement(domNode as Element);
             walkNodes(
@@ -215,6 +252,7 @@ function createHtml() {
                 : walker
             );
           }
+          walker.currentNode = domNode;
         }
       }
     };
@@ -239,6 +277,13 @@ function createHtml() {
     const sources: unknown[] = [];
     let own: Record<string, any> = props;
     for (const prop of node.props) {
+      if (
+        node.type === COMPONENT_NODE &&
+        node.children.length &&
+        prop.type !== SPREAD_PROP &&
+        prop.name === "children"
+      )
+        continue;
       switch (prop.type) {
         case BOOLEAN_PROP:
           own[prop.name] = true;

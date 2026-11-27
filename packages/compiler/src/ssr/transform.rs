@@ -33,8 +33,8 @@ use crate::shared::constants::{
     reserved_namespace,
 };
 use crate::shared::utils::{
-    child_slot_allocates_ids, decode_html_entities, element_name, escape_html_attribute,
-    escape_html_text_expression, expression_can_return_hydratable_child,
+    child_slot_allocates_ids, decode_html_entities, decode_jsx_attribute_entities, element_name,
+    escape_html_attribute, escape_html_text_expression, expression_can_return_hydratable_child,
     expression_is_function_shaped, format_number, is_component_name, is_void_element,
     normalize_static_attribute_value, trim_jsx_text,
 };
@@ -132,6 +132,10 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     /// Declaration statements to insert before the statement currently being
     /// processed (Babel's `getStatementParent().insertBefore`).
     pending_statements: std::vec::Vec<Statement<'a>>,
+    /// The JSX root each `pending_statements` entry was hoisted for, in step
+    /// with it, so a later declarator's setup can split the declarators
+    /// before it off first (#5102).
+    pending_jsx_spans: std::vec::Vec<Span>,
     /// Spans of JSX elements sitting in statement position (`return <jsx/>`,
     /// `const x = <jsx/>`) for the statement currently being processed.
     statement_jsx_spans: std::vec::Vec<Span>,
@@ -313,6 +317,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             in_class_field: false,
             hoisted_props: std::vec::Vec::new(),
             pending_statements: std::vec::Vec::new(),
+            pending_jsx_spans: std::vec::Vec::new(),
             statement_jsx_spans: std::vec::Vec::new(),
             component_child_depth: 0,
             var_scope_stack: std::vec::Vec::new(),
@@ -981,6 +986,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                             false,
                         )
                     }));
+            self.pending_jsx_spans.push(element.span);
             self.pending_statements.push(Statement::VariableDeclaration(
                 self.ast().alloc_variable_declaration(
                     span,
@@ -1194,7 +1200,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     std::vec::Vec::new(),
                 ),
                 Some(JSXAttributeValue::StringLiteral(value)) => {
-                    let value = decode_html_entities(&value.value);
+                    let value = decode_jsx_attribute_entities(&value.value);
                     (
                         self.ast().expression_string_literal(
                             attr.span,
@@ -1238,6 +1244,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                         let mut setup: std::vec::Vec<Statement<'a>> =
                             self.bare_var_declaration(&bare_vars).into_iter().collect();
                         setup.extend(self.pending_statements.split_off(pending_before));
+                        self.pending_jsx_spans.truncate(pending_before);
                         if root_jsx_span.is_some() {
                             self.statement_jsx_spans.pop();
                         }
@@ -1852,7 +1859,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 self.ast().expression_boolean_literal(attr.span, true),
             )))),
             Some(JSXAttributeValue::StringLiteral(value)) => {
-                let value = decode_html_entities(&value.value);
+                let value = decode_jsx_attribute_entities(&value.value);
                 Ok(Some(SpreadProp::Source(
                     self.object_property(
                         attr.span,
@@ -2613,7 +2620,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             } else {
                 let key =
                     crate::shared::attr_plan::static_style_key(&property.key).unwrap_or_default();
-                let name = format!("{}:", key);
+                let name = format!("{}:", escape_html_attribute(&key));
                 self.ast()
                     .expression_string_literal(span, self.ast().str(&name), None)
             };
@@ -2690,7 +2697,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                         Some(identifier.name.to_string())
                     }
                     oxc_ast::ast::PropertyKey::StringLiteral(value) => {
-                        Some(escape_html_text_expression(&value.value))
+                        Some(escape_html_attribute(&value.value))
                     }
                     oxc_ast::ast::PropertyKey::NumericLiteral(value) => {
                         Some(format_number(value.value))
@@ -2774,13 +2781,16 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         let quasi_count = quasis.len();
         let elements =
             self.ast()
-                .vec_from_iter(quasis.into_iter().enumerate().map(|(index, raw)| {
-                    let atom = self.ast().str(&raw);
+                .vec_from_iter(quasis.into_iter().enumerate().map(|(index, cooked)| {
+                    let raw = cooked
+                        .replace('\\', "\\\\")
+                        .replace('`', "\\`")
+                        .replace("${", "\\${");
                     self.ast().template_element_with_lone_surrogates(
                         SPAN,
                         oxc_ast::ast::TemplateElementValue {
-                            raw: atom,
-                            cooked: Some(atom),
+                            raw: self.ast().str(&raw),
+                            cooked: Some(self.ast().str(&cooked)),
                         },
                         index == quasi_count - 1,
                         true,
@@ -3341,7 +3351,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             }
             if value.is_none() {
                 let collapsed = text
-                    .split_whitespace()
+                    .split_ascii_whitespace()
                     .collect::<std::vec::Vec<_>>()
                     .join(" ");
                 value = Some(self.ast().expression_string_literal(
@@ -3964,6 +3974,15 @@ impl<'a> AstSsrTransform<'a, '_> {
             // emit their hoisted declarations as `var` statements before the
             // parent statement (Babel's `isReturnArg || isVarInit`).
             let recorded = record_statement_jsx_spans(&statement, &mut self.statement_jsx_spans);
+            let declarator_jsx_spans = statement_variable_declaration(&mut statement)
+                .map(|(declaration, _)| {
+                    declaration
+                        .declarations
+                        .iter()
+                        .map(|declarator| declarator.init.as_ref().and_then(statement_jsx_span))
+                        .collect::<std::vec::Vec<_>>()
+                })
+                .unwrap_or_default();
             self.visit_statement(&mut statement);
             self.statement_jsx_spans
                 .truncate(self.statement_jsx_spans.len() - recorded);
@@ -3996,7 +4015,30 @@ impl<'a> AstSsrTransform<'a, '_> {
                 body.push(capture);
                 self.clear_this_capture_context();
             }
-            for pending in self.pending_statements.drain(..) {
+            let pending = std::mem::take(&mut self.pending_statements);
+            let pending_spans = std::mem::take(&mut self.pending_jsx_spans);
+            let mut split = 0;
+            for (pending, span) in pending.into_iter().zip(pending_spans) {
+                // Setup for JSX in a later declarator reads the declarators
+                // before it (`const a = 1, b = <p>{a}</p>`): they split into
+                // their own statement ahead of it.
+                let position = declarator_jsx_spans.iter().position(|s| *s == Some(span));
+                if let Some(position) = position
+                    && position > split
+                    && let Some((declaration, exported)) =
+                        statement_variable_declaration(&mut statement)
+                {
+                    let before = self
+                        .ast()
+                        .vec_from_iter(declaration.declarations.drain(..position - split));
+                    body.push(self.ast().split_declaration_statement(
+                        declaration.span,
+                        declaration.kind,
+                        before,
+                        exported,
+                    ));
+                    split = position;
+                }
                 body.push(pending);
             }
             body.push(statement);
@@ -4036,9 +4078,13 @@ impl<'a> AstSsrTransform<'a, '_> {
                 // hoists (Babel's `scope.push` targets the arrow).
                 self.function_parent_stack
                     .push(crate::shared::transform::FunctionParentKind::Arrow);
+                self.bindings
+                    .enter_scope(crate::shared::bindings::BindingScopeKind::Function);
+                self.bindings.declare_function_params(&arrow.params);
                 self.push_var_scope(VarScopeKind::Collector);
                 self.visit_expression(&mut expression);
                 let vars = self.pop_var_scope();
+                self.bindings.exit_scope();
                 self.function_parent_stack.pop();
                 let mut statements = self.ast().vec();
                 if let Some(capture) = self.take_this_capture_statement(span) {
@@ -4200,8 +4246,10 @@ impl<'a> AstSsrTransform<'a, '_> {
         match &attr.value {
             None => markup.push_str(&format!(" {key}")),
             Some(JSXAttributeValue::StringLiteral(value)) => {
-                let text =
-                    normalize_static_attribute_value(key, &decode_html_entities(&value.value));
+                let text = normalize_static_attribute_value(
+                    key,
+                    &decode_jsx_attribute_entities(&value.value),
+                );
                 append_ssr_static_attribute(&mut markup, key, &text);
             }
             Some(JSXAttributeValue::ExpressionContainer(container)) => {
@@ -4327,6 +4375,9 @@ fn calls_outside_functions(expression: &Expression<'_>) -> bool {
     }
     impl<'b> Visit<'b> for CallFinder {
         fn visit_call_expression(&mut self, _it: &oxc_ast::ast::CallExpression<'b>) {
+            self.found = true;
+        }
+        fn visit_import_expression(&mut self, _it: &oxc_ast::ast::ImportExpression<'b>) {
             self.found = true;
         }
         fn visit_new_expression(&mut self, _it: &oxc_ast::ast::NewExpression<'b>) {
@@ -4544,16 +4595,34 @@ fn fragment_will_self_escape(fragment: &JSXFragment<'_>) -> bool {
     only.is_some_and(|element| !is_component_name(&element.opening_element.name))
 }
 
+fn statement_jsx_span(expression: &Expression<'_>) -> Option<Span> {
+    match expression {
+        Expression::ParenthesizedExpression(inner) => statement_jsx_span(&inner.expression),
+        Expression::JSXElement(element) => Some(element.span),
+        _ => None,
+    }
+}
+
+/// The variable declaration a statement is, directly or under `export`.
+fn statement_variable_declaration<'s, 'a>(
+    statement: &'s mut Statement<'a>,
+) -> Option<(&'s mut oxc_ast::ast::VariableDeclaration<'a>, bool)> {
+    match statement {
+        Statement::VariableDeclaration(declaration) => Some((declaration, false)),
+        Statement::ExportDeclaration(export) => match &mut export.declaration {
+            oxc_ast::ast::Declaration::VariableDeclaration(declaration) => {
+                Some((declaration, true))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// Records the spans of JSX elements in statement position — direct `return`
 /// arguments and variable-declarator inits, unwrapping parentheses.
 fn record_statement_jsx_spans(statement: &Statement<'_>, spans: &mut std::vec::Vec<Span>) -> usize {
-    fn jsx_span(expression: &Expression<'_>) -> Option<Span> {
-        match expression {
-            Expression::ParenthesizedExpression(inner) => jsx_span(&inner.expression),
-            Expression::JSXElement(element) => Some(element.span),
-            _ => None,
-        }
-    }
+    let jsx_span = statement_jsx_span;
     let mut count = 0;
     match statement {
         Statement::ReturnStatement(ret) => {

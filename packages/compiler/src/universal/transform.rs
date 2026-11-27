@@ -20,8 +20,8 @@ use crate::shared::condition::{
 };
 use crate::shared::refs::{assignment_fallback, callable_test, unwrap_ts_ref_value};
 use crate::shared::utils::{
-    decode_html_entities, element_name, get_numbered_id, is_component_name, static_jsx_expression,
-    trim_jsx_text,
+    decode_html_entities, decode_jsx_attribute_entities, element_name, get_numbered_id,
+    is_component_name, static_jsx_expression, trim_jsx_text,
 };
 
 pub(crate) struct AstUniversalTransform<'a, 'source> {
@@ -592,7 +592,7 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                             value.span,
                             JSXExpression::from(self.ast().expression_string_literal(
                                 value.span,
-                                self.ast().str(&decode_html_entities(&value.value)),
+                                self.ast().str(&decode_jsx_attribute_entities(&value.value)),
                                 None,
                             )),
                         ));
@@ -605,7 +605,7 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                 // string, no HTML parser downstream. oxc keeps the raw source.
                 let value = self.ast().expression_string_literal(
                     value.span,
-                    self.ast().str(&decode_html_entities(&value.value)),
+                    self.ast().str(&decode_jsx_attribute_entities(&value.value)),
                     None,
                 );
                 self.add_static_attr(
@@ -764,7 +764,8 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                                     // JSX entities decode (#3127), as above.
                                     self.ast().expression_string_literal(
                                         value.span,
-                                        self.ast().str(&decode_html_entities(&value.value)),
+                                        self.ast()
+                                            .str(&decode_jsx_attribute_entities(&value.value)),
                                         None,
                                     )
                                 }
@@ -1653,10 +1654,10 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
     ) -> Option<std::vec::Vec<Statement<'a>>> {
         // Babel's `isVarInit` is per-declarator and its `insertBefore`
         // targets the whole statement, including through `export const`.
-        let declaration = match statement {
-            Statement::VariableDeclaration(declaration) => declaration,
+        let (declaration, exported) = match statement {
+            Statement::VariableDeclaration(declaration) => (declaration, false),
             Statement::ExportDeclaration(export) => match &mut export.declaration {
-                oxc_ast::ast::Declaration::VariableDeclaration(declaration) => declaration,
+                oxc_ast::ast::Declaration::VariableDeclaration(declaration) => (declaration, true),
                 _ => return None,
             },
             _ => return None,
@@ -1673,8 +1674,10 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
         }
 
         let mut setup: Option<std::vec::Vec<Statement<'a>>> = None;
-        for index in 0..declaration.declarations.len() {
+        let mut index = 0;
+        while index < declaration.declarations.len() {
             let Some(init) = declaration.declarations[index].init.take() else {
+                index += 1;
                 continue;
             };
             let init = if matches!(
@@ -1683,7 +1686,22 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
             ) {
                 let (init, lowered) = self.lower_statement_position_jsx(init);
                 if let Some(lowered) = lowered {
-                    setup.get_or_insert_with(std::vec::Vec::new).extend(lowered);
+                    let setup = setup.get_or_insert_with(std::vec::Vec::new);
+                    // Setup reads the declarators before this one (#5102):
+                    // they split into their own statement ahead of it.
+                    if index > 0 && !lowered.is_empty() {
+                        let before = self
+                            .ast()
+                            .vec_from_iter(declaration.declarations.drain(..index));
+                        setup.push(self.ast().split_declaration_statement(
+                            declaration.span,
+                            declaration.kind,
+                            before,
+                            exported,
+                        ));
+                        index = 0;
+                    }
+                    setup.extend(lowered);
                 }
                 init
             } else {
@@ -1694,6 +1712,7 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                 init
             };
             declaration.declarations[index].init = Some(init);
+            index += 1;
         }
         setup
     }

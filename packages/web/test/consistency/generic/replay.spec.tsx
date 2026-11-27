@@ -121,24 +121,18 @@ describe("GH3 — a store write to a leaf no reader has materialized is not snap
   // id namespaces) and a list one row short until the next structural
   // change. With the leaf materialized before the write (a shell reader of
   // `items.length`) the resume claims two rows and catches up to three.
-  test.fails(
-    "C19 claim-shows-store-list: push before the reveals — [ab] :: H P C0 C1 C2 t",
-    async () => {
-      const r = await runScenario(schedule("ab", "H P C0 C1 C2 t"));
-      expect(only(r.findings, "C19", "claim-shows-store-list")).toEqual([]);
-    }
-  );
-  test.fails("C1 no-key-miss: the third row misses its key — [ab] :: H P C0 C1 C2 t", async () => {
+  test("C19 claim-shows-store-list: push before the reveals — [ab] :: H P C0 C1 C2 t", async () => {
+    const r = await runScenario(schedule("ab", "H P C0 C1 C2 t"));
+    expect(only(r.findings, "C19", "claim-shows-store-list")).toEqual([]);
+  });
+  test("C1 no-key-miss: the third row misses its key — [ab] :: H P C0 C1 C2 t", async () => {
     const r = await runScenario(schedule("ab", "H P C0 C1 C2 t"));
     expect(only(r.findings, "C1", "no-key-miss").filter(m => m.includes("<li>"))).toEqual([]);
   });
-  test.fails(
-    "C19 claim-shows-store-list: the other fragment order — [ba] :: H P C0 C1 C2 t",
-    async () => {
-      const r = await runScenario(schedule("ba", "H P C0 C1 C2 t"));
-      expect(only(r.findings, "C19", "claim-shows-store-list")).toEqual([]);
-    }
-  );
+  test("C19 claim-shows-store-list: the other fragment order — [ba] :: H P C0 C1 C2 t", async () => {
+    const r = await runScenario(schedule("ba", "H P C0 C1 C2 t"));
+    expect(only(r.findings, "C19", "claim-shows-store-list")).toEqual([]);
+  });
   test("control: push after both resumed — both lists update, no key miss", async () => {
     const r = await runScenario(schedule("ab", "H C0 C1 C2 t P t"));
     expect(only(r.findings, "C19", "claim-shows-store-list")).toEqual([]);

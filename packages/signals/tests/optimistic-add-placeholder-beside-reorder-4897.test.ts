@@ -3,16 +3,10 @@
  * placeholder at the end; a reorder of the two rows above it is guessed and
  * stays out.
  *
- * - The add's answer lands: the reorder's re-base over that truth kept the
- *   placeholder it carried from the add beside the new row ("2,1,(A),10").
- *   The add's own landing judges the rows the reorder carried from it.
- * - The add is declined while the reorder (draft writes) is out: its length
- *   reverts, and the reorder's carrier, which only borrowed the length
- *   (#4784), no longer served the list's readers, so a `mapArray` never saw
- *   the reorder end ("2,1" after it settled).
- * - A reorder returned as a copy (`slice` reads the presence of index 2 and
- *   the length the add wrote) derives from the add's guess, and the two holds
- *   entangle (D-33, #4788, #4812): neither ends while the other is out.
+ * An add and a reorder both change the list's arrangement, which is one
+ * slot: the two holds entangle, however the reorder is written (draft writes
+ * or a returned copy), and neither ends while the other is out (D-33). The
+ * placeholder stays until both settle.
  *
  * The DOM version is packages/web/test/optimistic-add-placeholder-beside-reorder-4897.spec.tsx.
  */
@@ -155,9 +149,7 @@ describe("#4897 an ended add's placeholder while a reorder guess on other slots 
           if (ending === "answered") t.land("add", { id: 10, title: "A" });
           else t.fail("add");
           await tick();
-          expect(t.state()).toBe(
-            !draftStyle ? "2,1,(A)" : ending === "answered" ? "2,1,10" : "2,1"
-          );
+          expect(t.state()).toBe("2,1,(A)");
           t.land("move", null);
           await tick();
           expect(t.state()).toBe(ending === "answered" ? "1,2,10" : "1,2");

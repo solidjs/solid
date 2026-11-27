@@ -810,7 +810,7 @@ export function createFrameHost(options = {}) {
         store.shown = r = store.records;
         store.shownVersion = msg.version;
         const landed = landings.get(msg.id);
-        if (landed && !(":complete" in records && ":error" in r)) {
+        if (landed && (":error" in records || !(":error" in r))) {
           landings.delete(msg.id);
           ":error" in records ? landed.j(records[":error"]) : landed.r();
         }

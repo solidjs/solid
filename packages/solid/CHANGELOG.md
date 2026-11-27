@@ -1,5 +1,60 @@
 # solid-js
 
+## 2.0.4
+
+### Patch Changes
+
+- fcaa051: Stop serializing synchronous `createProjection` / `createOptimisticStore` derives that only waited on a pending async source during SSR, so hydrated projections run live against their hydrated source and follow subsequent writes (#5146).
+- a406a5d: Hydrating a settled promise of an async iterable whose stream already yielded more than once now claims the first value, as a direct stream does, instead of a later one. A stream, direct or behind a settled promise, that threw after its first yield now claims that first value and then shows the `<Errored>` fallback, instead of failing inside the claim pass and leaving the server's content on screen.
+- 8bfca0d: Docs: the `createOptimistic`, `createOptimisticStore` and `action` JSDoc now say that optimistic writes always revert when the action settles, and their examples keep the result by refreshing or writing the source of truth. The previous examples kept nothing (#5129).
+- f353760: Ship the MIT `LICENSE` file in the fixed-group package roots (`solid-js`, `@solidjs/web`, and the same-release `@solidjs/universal` / `@solidjs/diagnostics`) so npm tarballs include the license text for third-party notice generators (#5106).
+- b7d939f: Ship the MIT `LICENSE` file in every published package (#5106).
+- 430314c: An SSR owner disposed while the owner pool is full now drops its render's context too, so a stale reference to a reused owner no longer keeps later renders alive.
+- fc0dac0: On the server, a projection or derived optimistic store whose function returns a pending async store (`createProjection(() => rows, …)`, `createOptimisticStore(() => rows, …)`) now waits for that store like a derive that read it, so `<Loading>` shows its fallback and the answer streams in. Before, adopting the pending store threw `NotReadyError` out of the component body.
+- Updated dependencies [543066e]
+- Updated dependencies [83d42ba]
+- Updated dependencies [30e7805]
+- Updated dependencies [21bfd2d]
+- Updated dependencies [3774ebe]
+- Updated dependencies [6ab70e2]
+- Updated dependencies [b4212bf]
+- Updated dependencies [da28cd5]
+- Updated dependencies [a4b4025]
+- Updated dependencies [8bfca0d]
+- Updated dependencies [3f655db]
+- Updated dependencies [c467fcd]
+- Updated dependencies [d165a5b]
+- Updated dependencies [99db9bc]
+- Updated dependencies [672c992]
+- Updated dependencies [e2757be]
+  - @solidjs/signals@2.0.4
+
+## 2.0.3
+
+### Patch Changes
+
+- 511db1b: `markRaw` is exported from `solid-js` and accepts a class: `markRaw(MyClass)` keeps every instance of the class and its subclasses out of store wrapping. Use it for self-managing objects (their own subscribers, `#private` fields) that a store would otherwise wrap (CS-R48).
+- Updated dependencies [511db1b]
+  - @solidjs/signals@2.0.3
+
+## 2.0.2
+
+### Patch Changes
+
+- f895c91: Agent guidance (CHEATSHEET, `solid-2.0` and `reactivity-diagnostics` skills, `diagnostics.json`): `STRICT_READ_UNTRACKED` is fixed by moving the read to where the value is used; agents should not wrap it in `untrack`, which stays the explicit form of a deliberate one-time read. The diagnostics skill now maps each use (rendered, derived, async input, hook argument, local-state seed, side effect, event, built-once object) to its repair.
+- cd201ce: Diagnostics guidance: a top-level `untrack` snapshot is only safe when the value is never downstream of async (an async-derived value can be pending or mid-transition).
+- Updated dependencies [8dd6497]
+- Updated dependencies [55e8f58]
+- Updated dependencies [b9ce3f7]
+- Updated dependencies [2024b4d]
+- Updated dependencies [6888e26]
+- Updated dependencies [7e7938b]
+- Updated dependencies [63e5284]
+- Updated dependencies [f9d7e57]
+- Updated dependencies [445012d]
+- Updated dependencies [04abe54]
+  - @solidjs/signals@2.0.2
+
 ## 2.0.1
 
 ### Patch Changes

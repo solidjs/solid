@@ -96,13 +96,14 @@ function clearPendingSources(el: Computed<any>): void {
 
 // A rejection-pending clears only through the settle walk over the source's
 // subscribers, so it can retry only when a live dep is the source or carries
-// it. A disposed dep is unlinked and holds nothing (F-3, #5003).
+// it. A disposed dep is unlinked and holds nothing (F-3, #5003). A source that
+// has settled has no walk to come: linked directly, it holds nothing (F-2).
 export function retryReaches(el: Computed<any>, source: any): boolean {
   for (let d = el._deps; d; d = d._nextDep) {
     const dep = d._dep as Computed<any>;
     if (
       !(dep._flags & REACTIVE_DISPOSED) &&
-      (dep === source || dep._x?._pendingSources?.has(source))
+      (dep === source ? dep._statusFlags & STATUS_PENDING : dep._x?._pendingSources?.has(source))
     )
       return true;
   }
@@ -284,8 +285,10 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       node._statusFlags &= ~STATUS_PENDING;
       if (!errored) setPendingError(node);
       // A held reader's re-pass over the landing is its hold's work (D-1); never a
-      // lane's (#4440).
-      if (node._config & CONFIG_HELD) joinFuture(txOf(node));
+      // lane's (#4440). A source still in flight has not landed: a reader that
+      // stopped carrying it joins nothing (F-2).
+      if (node._config & CONFIG_HELD && !(source._statusFlags & STATUS_PENDING))
+        joinFuture(txOf(node));
       if (node._x?._blocked) {
         enqueueSub(node);
         scheduled = true;

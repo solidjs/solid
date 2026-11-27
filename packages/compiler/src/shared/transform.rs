@@ -68,7 +68,7 @@ pub(crate) trait JsxTransform<'a>: VisitMut<'a> {
     fn enter_function_bindings(&mut self);
     fn exit_function_bindings(&mut self);
     /// Declares a function's parameters into the binding table after its
-    /// scope opens (dom only).
+    /// scope opens.
     fn declare_function_params(&mut self, _params: &oxc_ast::ast::FormalParameters<'a>) {}
 }
 
@@ -761,6 +761,10 @@ impl<'a> JsxTransform<'a> for AstSsrTransform<'a, '_> {
         self.bindings.exit_scope();
     }
 
+    fn declare_function_params(&mut self, params: &oxc_ast::ast::FormalParameters<'a>) {
+        self.bindings.declare_function_params(params);
+    }
+
     /// SSR runs both of its deferred passes only outside a JSX root, so a body
     /// that finishes while one is mid-lowering still holds raw JSX for the
     /// outer pass and must not be marked.
@@ -908,6 +912,7 @@ impl<'a> VisitMut<'a> for AstSsrTransform<'a, '_> {
         let pending_at_entry = self.pending_capture_name();
         self.function_parents().push(FunctionParentKind::Arrow);
         self.enter_function_bindings();
+        self.declare_function_params(&arrow.params);
         // Parameter positions resolve var hoists *outside* the function
         // (Babel's `getPatternParent`).
         self.push_var_scope(crate::ssr::transform::VarScopeKind::Params);
@@ -975,6 +980,7 @@ impl<'a> VisitMut<'a> for AstSsrTransform<'a, '_> {
         let pending_at_entry = self.pending_capture_name();
         self.function_parents().push(kind);
         self.enter_function_bindings();
+        self.declare_function_params(&function.params);
         // Parameter positions resolve var hoists *outside* the function
         // (Babel's `getPatternParent`).
         self.push_var_scope(crate::ssr::transform::VarScopeKind::Params);

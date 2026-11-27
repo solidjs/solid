@@ -1,6 +1,6 @@
 import { CONFIG_KEY_BAG, SUPPORTS_PROXY } from "../core/constants.js";
 import { createMemo } from "../signals.js";
-import { $PROXY, $RECORD, $TARGET, ownEnumerableKeys } from "./types.js";
+import { $PROXY, $RECORD, $TARGET, $THIN, ownEnumerableKeys, storeKeys } from "./types.js";
 
 function trueFn() {
   return true;
@@ -165,9 +165,10 @@ export function omitView(o: any): OmitView | undefined {
 function leafKeys(leaf: any, kind: SourceKind): (string | symbol)[] {
   if (kind === SOURCE_PLAIN) return Object.keys(leaf);
   if (kind === SOURCE_PROXY || leaf[$PROXY] === leaf) {
-    // A store's handler answers directly: the Proxy `ownKeys` invariant checks cost twice the trap.
-    const t = leaf[$TARGET];
-    return (t?.px === leaf ? t : Reflect).ownKeys(leaf);
+    // A store's trap answers directly: the Proxy `ownKeys` invariant checks
+    // cost twice the trap.
+    const t = leaf[$THIN];
+    return t?.p === leaf ? storeKeys!(t) : Reflect.ownKeys(leaf);
   }
   return Object.keys(leaf);
 }
@@ -821,7 +822,7 @@ const mergeTraps: ProxyHandler<MergeView> = {
     if (typeof property === "symbol") {
       if (property === $PROXY) return receiver;
       if (property === $RECORD) return view;
-      if (property === $TARGET) return undefined;
+      if (property === $TARGET || property === $THIN) return undefined;
     }
     // A trap read counts toward the table (see `mergeReadTable`); the walk
     // itself is the record's. `mergeReadTable` and the plain walk of
@@ -886,7 +887,7 @@ const omitTraps: ProxyHandler<OmitView> = {
     // omitted keys (#3014). A consumer walks the omit record as ONE filtered
     // entry (`recordOf` tells the two records apart by class).
     if (property === $RECORD) return view;
-    if (property === $TARGET) return undefined;
+    if (property === $TARGET || property === $THIN) return undefined;
     if (view.kind === SOURCE_MERGE) {
       const table = omitReadTable(view);
       if (table !== undefined) {
