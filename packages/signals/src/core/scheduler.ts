@@ -1235,6 +1235,12 @@ export class GlobalQueue implements IQueue {
     for (let k = transactions.length - 1; k >= 0; k--) {
       const u = transactions[k];
       if (blocked(u)) continue;
+      // A landed transaction holds nothing (#5161): the flush stops calling
+      // `u` its own before its lanes end and its commits run. A cleanup an
+      // earlier landing ran can have opened it; a callback either step runs
+      // (a cleanup, a guess's `equals`) that starts an action must start a
+      // transaction of its own, not merge into `u` (#5233).
+      if (flushTransaction && resolveTx(flushTransaction) === u) flushTransaction = null;
       transactions.splice(k, 1);
       endLanesHook?.(u);
       land(u);
