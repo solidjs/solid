@@ -118,10 +118,7 @@ export {
   createMemo,
   createDeferred,
   createSignal,
-  createStore,
-  createProjection,
   createOptimistic,
-  createOptimisticStore,
   createRenderEffect,
   createEffect,
   NoHydration,
@@ -130,11 +127,14 @@ export {
   isHydratable,
   onHydrationEnd
 } from "./client/hydration.js";
+export { createStore, createProjection, createOptimisticStore } from "./client/store.js";
 // Seams for the runtimes in this repo, reached through `solid-js/internal`
 // (src/internal.ts): exported here at runtime so that entry shares this
 // module's state, `@internal` so they are stripped from the declarations.
 /** @internal */
 export { sharedConfig } from "./client/hydration.js";
+/** @internal — the store adapter slot client/store.ts reads, shipped as a sibling file. */
+export { _hydrateStoreLike } from "./client/hydration.js";
 // The server-component half of hydration (the hold, the claim window,
 // fragment ownership, the ledger's published answer): installed by the
 // integration that owns server markup wholesale (`@solidjs/web/frames`'

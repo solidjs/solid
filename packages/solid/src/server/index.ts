@@ -255,6 +255,8 @@ export function hasLoadingWindow(options: any): boolean {
     ("loadingValue" in options || options.seedLoadingValue === true)
   );
 }
+/** @internal — client/store.ts's adapter slot; never installed on a server. */
+export const _hydrateStoreLike: undefined = undefined;
 /** @internal */
 export function isAsyncIterable(v: any): boolean {
   return v != null && typeof v[Symbol.asyncIterator] === "function";

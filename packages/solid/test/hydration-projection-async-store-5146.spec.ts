@@ -11,11 +11,13 @@ import { createRoot as clientRoot, flush } from "@solidjs/signals";
 import {
   enableHydration,
   sharedConfig as clientSharedConfig,
-  createMemo as clientMemo,
+  createMemo as clientMemo
+} from "../src/client/hydration.js";
+import {
   createProjection as clientProjection,
   createStore as clientStore,
   createOptimisticStore as clientOptimisticStore
-} from "../src/client/hydration.js";
+} from "../src/client/store.js";
 import {
   createRoot as serverRoot,
   createMemo as serverMemo,

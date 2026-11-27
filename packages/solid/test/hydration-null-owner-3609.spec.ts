@@ -20,13 +20,11 @@ import {
   createLoadingBoundary,
   createMemo,
   createOptimistic,
-  createOptimisticStore,
-  createProjection,
   createRenderEffect,
   createRoot,
-  createSignal,
-  createStore
+  createSignal
 } from "../src/client/hydration.js";
+import { createOptimisticStore, createProjection, createStore } from "../src/client/store.js";
 
 enableHydration();
 

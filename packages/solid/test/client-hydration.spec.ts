@@ -18,12 +18,10 @@ import {
   createErrorBoundary,
   createMemo,
   createOptimistic,
-  createProjection,
   createRenderEffect,
-  createSignal,
-  createStore,
-  createOptimisticStore
+  createSignal
 } from "../src/client/hydration.js";
+import { createProjection, createStore, createOptimisticStore } from "../src/client/store.js";
 import { lazy, lazyModule } from "../src/client/component.js";
 import { Errored, Loading } from "../src/client/flow.js";
 import { from } from "../src/from.js";

@@ -42,14 +42,8 @@ import {
   NotReadyError,
   refresh
 } from "@solidjs/signals";
-import {
-  enableHydration,
-  sharedConfig,
-  createMemo,
-  createProjection,
-  createStore,
-  createOptimisticStore
-} from "../src/client/hydration.js";
+import { enableHydration, sharedConfig, createMemo } from "../src/client/hydration.js";
+import { createProjection, createStore, createOptimisticStore } from "../src/client/store.js";
 import { Loading } from "../src/client/flow.js";
 
 enableHydration();
