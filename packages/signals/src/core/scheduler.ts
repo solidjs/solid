@@ -1426,6 +1426,10 @@ function land(u: Transaction): void {
   if (__OBSERVE__ && attrHooks !== null) attrHooks.transitionSettled(u);
   const frame = reruns(u);
   if (releaseMarksHook && u._marks !== null) releaseMarksHook(u._marks);
+  // A landed transaction holds nothing (D-9): the flush must not keep it as
+  // its own, or the next join merges into it and is never committed (D-7).
+  // A cleanup an earlier landing ran can have opened `u`.
+  if (flushTransaction !== null && resolveTx(flushTransaction) === u) flushTransaction = null;
   // Old children die in the commits (cleanups first), then the stashed
   // effects run ahead of this flush's own. A node a lane took over since
   // (a guess written over the staged truth) is the lane's to land.
