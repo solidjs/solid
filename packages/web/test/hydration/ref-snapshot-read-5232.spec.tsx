@@ -11,8 +11,8 @@
  * (ssr generate, hydratable); a lowered `<Show>` numbers its keys differently.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { createSignal, enableHydration, flush, Show } from "solid-js";
-import { hydrate, render } from "@solidjs/web";
+import { createSignal, enableHydration, Errored, flush, Loading, Show } from "solid-js";
+import { Dynamic, hydrate, render } from "@solidjs/web";
 
 enableHydration();
 
@@ -62,6 +62,87 @@ function SiblingWrite(props: { calls: Call[] }) {
   );
 }
 const SIBLING_WRITE_HTML = "<main _hk=0><i></i><!--$--><p _hk=10>target</p><!--/--></main>";
+
+// The same sibling write, read by a ref reached through each way a ref is
+// applied or each boundary an element is created under.
+function ArrayRef(props: { calls: Call[] }) {
+  const [n, setN] = createSignal(0);
+  return (
+    <main>
+      <i ref={() => setN(1)} />
+      {() => <p ref={[el => props.calls.push([el, n()]), () => {}]}>target</p>}
+    </main>
+  );
+}
+
+function Target(props: { ref: (el: HTMLParagraphElement) => void }) {
+  return <p ref={props.ref}>target</p>;
+}
+function ForwardedRef(props: { calls: Call[] }) {
+  const [n, setN] = createSignal(0);
+  return (
+    <main>
+      <i ref={() => setN(1)} />
+      {() => <Target ref={el => props.calls.push([el, n()])} />}
+    </main>
+  );
+}
+
+function SpreadRef(props: { calls: Call[] }) {
+  const [n, setN] = createSignal(0);
+  const attrs = () => ({ class: n() ? "set" : "unset" });
+  return (
+    <main>
+      <i ref={() => setN(1)} />
+      {() => (
+        <p {...attrs()} ref={el => props.calls.push([el, n()])}>
+          target
+        </p>
+      )}
+    </main>
+  );
+}
+const SPREAD_REF_HTML =
+  '<main _hk=0><i></i><!--$--><p _hk=10 class="unset">target</p><!--/--></main>';
+
+function InLoading(props: { calls: Call[] }) {
+  const [n, setN] = createSignal(0);
+  return (
+    <main>
+      <i ref={() => setN(1)} />
+      <Loading fallback={<s>wait</s>}>
+        <p ref={el => props.calls.push([el, n()])}>target</p>
+      </Loading>
+    </main>
+  );
+}
+const IN_LOADING_HTML = "<main _hk=0><i></i><!--$--><p _hk=1000>target</p><!--/--></main>";
+
+function InErrored(props: { calls: Call[] }) {
+  const [n, setN] = createSignal(0);
+  return (
+    <main>
+      <i ref={() => setN(1)} />
+      <Errored fallback={<s>failed</s>}>
+        <p ref={el => props.calls.push([el, n()])}>target</p>
+      </Errored>
+    </main>
+  );
+}
+const IN_ERRORED_HTML = "<main _hk=0><i></i><!--$--><p _hk=100>target</p><!--/--></main>";
+
+function InDynamic(props: { calls: Call[] }) {
+  const [n, setN] = createSignal(0);
+  return (
+    <main>
+      <i ref={() => setN(1)} />
+      <Dynamic component="p" ref={(el: Element) => props.calls.push([el, n()])}>
+        target
+      </Dynamic>
+    </main>
+  );
+}
+const IN_DYNAMIC_HTML = "<main _hk=0><i></i><!--$--><p _hk=30>target</p><!--/--></main>";
 
 function BodyWrite(props: { calls: Call[] }) {
   const [n, setN] = createSignal(0, { ownedWrite: true });
@@ -176,13 +257,35 @@ describe("#5232: a ref's snapshot read does not replay the creating pass", () =>
     expect(warnings).toEqual([]);
   });
 
+  test.each([
+    ["a ref array", ArrayRef, SIBLING_WRITE_HTML, ""],
+    ["a ref forwarded through a component's props", ForwardedRef, SIBLING_WRITE_HTML, ""],
+    ["a ref beside a reactive spread", SpreadRef, SPREAD_REF_HTML, "set"],
+    ["a ref inside <Loading>", InLoading, IN_LOADING_HTML, ""],
+    ["a ref inside <Errored>", InErrored, IN_ERRORED_HTML, ""],
+    ["a ref on <Dynamic>", InDynamic, IN_DYNAMIC_HTML, ""]
+  ] as const)(
+    "an earlier sibling's write read by %s: the served node stays",
+    (_, App, html, className) => {
+      const { served, calls, warnings } = hydrateServed(App, html, "p");
+      expect(calls).toHaveLength(1);
+      expect(calls[0][0]).toBe(served);
+      expect(calls[0][1]).toBe(0);
+      expect(served.isConnected).toBe(true);
+      expect(container.querySelector("p")).toBe(served);
+      expect(warnings).toEqual([]);
+      // A binding on the served node still catches up after the claim.
+      expect(served.className).toBe(className);
+    }
+  );
+
   test("control: a ref that only reads is called once on the served node", () => {
     const { served, calls } = hydrateServed(ReadOnly, READ_ONLY_HTML, "p");
     expect(calls).toEqual([[served, 0]]);
     expect(served.isConnected).toBe(true);
   });
 
-  test("control: a tracked binding of the written signal still updates after the claim", () => {
+  test("a tracked binding of the written signal still updates on the served node after the claim", () => {
     const { served, calls } = hydrateServed(TrackedText, TRACKED_TEXT_HTML, "p");
     expect(calls).toEqual([[served, 0]]);
     expect(container.querySelector("p")).toBe(served);
