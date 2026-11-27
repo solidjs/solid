@@ -64,13 +64,14 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import { bornInto, creatorReads, ext, stagedRead, tracking } from "./core.js";
+import { adopter, bornInto, creatorReads, ext, setAdopter, stagedRead, tracking } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
 import { removePendingSource, settlePendingSource } from "./async.js";
 import { covers, latestOf, underOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
 import {
   actionDepth,
+  adopted,
   blocked,
   question,
   clock,
@@ -1096,6 +1097,10 @@ function readsHeld(r: Computed<any>): boolean {
   return false;
 }
 const laneSeams = (t: Transaction | null): void => {
+  // An adoption (#4777) is its flush's: kept, `adopter` retains the pass and all it
+  // reaches, a landed hold among them. Cleared here: the verdict engine imports lanes.
+  setAdopter(null);
+  adopted.length = 0;
   // Passes that read a write the parked frame holds as the screen
   // (`stagedReaders`: lane work, a verdict reader before the verdict): they
   // re-derive on the committed world next round (and register as stale

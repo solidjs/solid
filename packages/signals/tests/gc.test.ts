@@ -11,8 +11,10 @@ import {
   getOwner,
   isPending,
   latest,
-  mapArray
+  mapArray,
+  refresh
 } from "../src/index.js";
+import { graphSize } from "../src/attribution.js";
 import { flushTransaction, type Transaction } from "../src/core/scheduler.js";
 
 function gc() {
@@ -132,6 +134,40 @@ it("releases the transaction a latest() read of an unheld refetch opened once it
   await collectGarbage();
   expect(ref.deref()).toBeUndefined();
 });
+
+for (const write of [false, true])
+  it(`releases refresh()'s waiter once the answer lands${write ? " (a write joined the hold)" : ""}`, async () => {
+    // The waiter's plain read of the held re-ask adopts the hold (#4777). A
+    // write to a held slot puts its tick, and the waiter, in that hold (D-8).
+    const asks: (() => void)[] = [];
+    const [, setFlag] = createSignal(0);
+    const { m, dispose } = createRoot(dispose => {
+      const m = createMemo(() => new Promise<number>(resolve => asks.push(() => resolve(1))));
+      createRenderEffect(m, () => {});
+      return { m, dispose };
+    });
+    const answer = async () => {
+      while (asks.length) {
+        asks.shift()!();
+        await new Promise<void>(r => setTimeout(r, 0));
+        flush();
+      }
+    };
+    flush();
+    await answer();
+    await collectGarbage();
+    const before = graphSize().roots;
+    for (let i = 1; i <= 3; i++) {
+      if (write) setFlag(i);
+      void refresh(m);
+      await new Promise<void>(r => setTimeout(r, 0));
+      flush();
+    }
+    await answer();
+    await collectGarbage();
+    expect(graphSize().roots).toBe(before);
+    dispose();
+  });
 
 if (global.gc) {
   it("should gc computed if there are no observers", async () => {
