@@ -99,6 +99,10 @@ describe("a plain store holding another store: one identity, shared state (CS-R2
 
   test("affects(list) marks the store it holds, through every holder", async () => {
     let run!: () => Promise<void>;
+    let release!: () => void;
+    // A gate, not a timer: three settle() ticks can outlast a short timer on
+    // a loaded machine, and the action would land before the first check.
+    const gate = new Promise<void>(r => (release = r));
     const flags: boolean[][] = [];
     createRoot(() => {
       const [person] = createStore({ name: "Alice" });
@@ -116,13 +120,14 @@ describe("a plain store holding another store: one identity, shared state (CS-R2
       );
       run = action(function* () {
         affects(list);
-        yield new Promise(r => setTimeout(r, 20));
+        yield gate;
       }) as any;
     });
     flush();
     const p = run();
     await settle();
     expect(flags.at(-1)).toEqual([true, true, true]);
+    release();
     await p;
     await settle();
     expect(flags.at(-1)).toEqual([false, false, false]);
