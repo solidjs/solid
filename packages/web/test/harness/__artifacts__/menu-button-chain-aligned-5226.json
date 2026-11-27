@@ -1,0 +1,5 @@
+{
+  "name": "menu-button-chain-aligned-5226",
+  "shell": "<sm-navigation-rail _hk=6 role=\"navigation\" aria-label=\"Primary\"><div class=\"rail-container\"><div class=\"rail\"><md-elevation></md-elevation><div class=\"menu-fab\"><sm-icon-button _hk=9e0 data-width=\"default\"><sm-button data-variant=\"text\" data-size=\"small\" data-toggle=\"false\"><button _hk=9e20 type=\"button\" role=\"switch\" aria-label=\"Open menu\" aria-checked=\"false\"><md-elevation _hk=9e22></md-elevation><md-icon _hk=9e250 aria-hidden><i _hk=9e2530>menu-icon</i></md-icon></button></sm-button></sm-icon-button></div><div class=\"center-items\"><div tabindex=\"-1\" role=\"menubar\" aria-orientation=\"vertical\"></div></div></div></div><!--$--><main _hk=a0><p>page content</p></main><!--/--></sm-navigation-rail>",
+  "rest": ""
+}

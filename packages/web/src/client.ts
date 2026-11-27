@@ -2778,6 +2778,13 @@ export function getNextElement(template) {
           `server render, wrap the document shell in <NoHydration> and re-enter with ` +
           `<Hydration> around the hydrated subtree (or pass hydrate() a renderId matching ` +
           `the server's <Hydration id>).` +
+          // The sequence drifts by every computation one build creates and the
+          // other does not; a primitive that returns early under `isServer`
+          // and only then allocates (an effect, a memo) shifts every key
+          // claimed after it (#5226).
+          ` A library or primitive that skips allocations on the server (an early ` +
+          `\`if (isServer) return\` before creating effects or memos) drifts the client's ` +
+          `sequence ahead of the server's the same way.` +
           // The parser drops a <form> start tag inside an open <form>: the
           // element never exists, so its key finds nothing (#4875).
           (template._html && template._html.startsWith("<form")
