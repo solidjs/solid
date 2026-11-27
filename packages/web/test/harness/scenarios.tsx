@@ -1583,11 +1583,10 @@ function PostflushRejectionAsyncFallback() {
 }
 
 // The same failure with markup between the Errored and the Loading: the
-// Loading's position is not the Errored's, and after the shell the
-// Errored's markup is already out, so the server draws nothing there (the
-// client twin's fallback replaces the whole <section>) and the client
-// renders the failure fresh, then recovers. (Before the shell it draws a
-// fallback ready as it renders in the shell: `preflushNested` below.)
+// Loading's position is not the Errored's, so after the shell the server
+// sends the Errored's fallback for the page to put in place of the whole
+// <section>, as the client twin replaces it (#5223; `postflushNested` below
+// has the other shapes, `preflushNested` the failure before the shell).
 let setNestedKey!: (v: string) => void;
 function PostflushRejectionNested() {
   const [key, setKey] = createSignal("u7");
@@ -3396,6 +3395,108 @@ export function preflushNested(shape: PreflushNestedShape, twin = false) {
   };
 }
 
+// #5223: the nested #4287 failure landing AFTER the shell (the read rejects
+// at 5ms), recorded by test/server/hydration-harness.spec.tsx and replayed by
+// test/hydration/errored-nested-postflush-5223.spec.tsx. `element`: markup
+// between the two boundaries; `sibling`: content beside the `<Loading>`;
+// `pending-sibling`: a sibling `<Loading>` still streaming (30ms);
+// `nested`: an inner `<Errored>` in an outer one's content; `async-fallback`:
+// a fallback with a bare async hole (20ms), which is not sent.
+export const postflushNestedShapes = [
+  "element",
+  "sibling",
+  "pending-sibling",
+  "nested",
+  "async-fallback"
+] as const;
+export type PostflushNestedShape = (typeof postflushNestedShapes)[number];
+export const postflushNestedName = (shape: PostflushNestedShape) =>
+  `errored-nested-loading-postflush-rejection-${shape}-5223`;
+export const postflushNestedControl: {
+  setKey?: (v: string) => void;
+  asks: number;
+  effects: number;
+} = { asks: 0, effects: 0 };
+export function postflushNested(shape: PostflushNestedShape) {
+  return function PostflushNested() {
+    const [key, setKey] = createSignal("u7");
+    postflushNestedControl.setKey = setKey;
+    const user = createMemo(async (): Promise<string> => {
+      const k = key();
+      if (!isServer && Promise === RealPromise) postflushNestedControl.asks++;
+      await sleep(5);
+      if (k === "u7") throw new Error("no user 7");
+      return k;
+    });
+    const hint = createMemo(async () => {
+      if (shape !== "async-fallback") return "";
+      if (!isServer && Promise === RealPromise) postflushNestedControl.asks++;
+      await sleep(20);
+      return " HINT";
+    });
+    const sib = createMemo(async () => {
+      await sleep(30);
+      return "sib";
+    });
+    const failing = () => (
+      <Loading fallback={<i>loading</i>}>
+        <span>user:{user()}</span>
+      </Loading>
+    );
+    const Fallback = (props: { e: any }) => {
+      createEffect(
+        () => 1,
+        () => {
+          if (!isServer) postflushNestedControl.effects++;
+        }
+      );
+      return (
+        <p>
+          failed: {props.e().message}
+          {hint()}
+        </p>
+      );
+    };
+    const content = () => {
+      if (shape === "sibling")
+        return (
+          <>
+            {failing()}
+            <h1>title</h1>
+          </>
+        );
+      if (shape === "pending-sibling")
+        return (
+          <section>
+            <Loading fallback={<i>sib loading</i>}>
+              <em>{sib()}</em>
+            </Loading>
+            {failing()}
+          </section>
+        );
+      return (
+        <section>
+          <h1>title</h1>
+          {failing()}
+        </section>
+      );
+    };
+    const errored = () => <Errored fallback={(e: any) => <Fallback e={e} />}>{content()}</Errored>;
+    return (
+      <div>
+        {shape === "nested" ? (
+          <Errored fallback={<p>outer failed</p>}>
+            <article>{errored()}</article>
+          </Errored>
+        ) : (
+          errored()
+        )}
+        <span>tail</span>
+      </div>
+    );
+  };
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "polymorphic-chain",
@@ -3921,7 +4022,7 @@ export const scenarios: Scenario[] = [
     App: PostflushRejectionNested,
     async: true,
     expectedText: "failed: no user 7tail",
-    serverText: "title loading tail",
+    serverText: "title loading tail failed: no user 7",
     update: () => setNestedKey("u8"),
     expectedTextAfterUpdate: "titleuser:u8tail"
   },

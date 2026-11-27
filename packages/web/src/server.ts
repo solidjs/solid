@@ -1766,6 +1766,49 @@ const REPLACE_SCRIPT = `function $df(e){return _$HY.f?_$HY.f(e):$dfr(e)}function
 // the client registry restores when every title registration disposes — and
 // this op is the last reader that can still see it.
 const HEAD_SCRIPT = `function $dha(o,i,e,n){for(i=0;i<o.length;i++)e=o[i],"t"==e[0]?((n=document.querySelector("title"))?n.hasAttribute("data-dh")||n.setAttribute("data-dhf",n.textContent):(n=document.createElement("title"),document.head.appendChild(n)),n.textContent=e[1],n.setAttribute("data-dh","title")):"r"==e[0]?$dhr(e[1]):(n=document.createElement(e[2]),Object.keys(e[3]).forEach(function(a){n.setAttribute(a,e[3][a])}),null!=e[4]&&(n.textContent=e[4]),n.setAttribute("data-dh",e[1]),document.head.appendChild(n))}function $dhr(v,l,i){for(l=document.head.querySelectorAll("[data-dh]"),i=0;i<l.length;i++)l[i].getAttribute("data-dh")==v&&l[i].remove()}function $dh(o){_$HY.h?_$HY.h(o):$dha(o)}`;
+// An <Errored>'s fallback for a failure after the shell (#5223), put in
+// place of the boundary's markup by the page itself, with no markup added
+// to mark the region: the server names the two ends of its node range by
+// what they already carry (see `markupEdges`), and the page takes the range
+// only if it still reads that way. Sent only for a fallback that is plain
+// markup (it registered nothing and has no <Loading> of its own), so the
+// swap is the whole of it: a page that does not take it is the page main
+// sends.
+// - $dfx(id, first, last, record): the fallback is the content of
+//   `<template id=id>`. `first` and `last` each list candidates for one
+//   end, outermost first: a hydration key (a string), or a <Loading>'s
+//   placeholder (`[key]`: its `pl-<key>` template as the first end, its
+//   closing comment as the last), then the same end of the markup that
+//   <Loading> settled with. The first one in the document is the end
+//   (`$dfq`). Every candidate is the boundary's own (the server sends none
+//   that is not under `id`). `record`: the error is staged at `<id>_ef`.
+//   The range is taken only while no client runtime has started (`_$HY.f`
+//   unset: after that the runtime owns the region and renders the failure
+//   itself), with both ends found, the last reachable from the first by
+//   `nextSibling` (the HTML parser kept the range together), an element as
+//   parent, and every element keyed under the boundary (`_hk` starting
+//   with `id`: ids are prefix-free within a render) inside the range: a
+//   parser that moved some of the content out of it (a block in a `<p>`, a
+//   row's content fostered out of a `<table>`) leaves it short. The
+//   fallback is parsed again in the context of the range's parent
+//   (`createContextualFragment` on its serialization), so it reads as it
+//   would have there: SVG inside `<svg>`, rows given the `<tbody>` a
+//   `<table>` implies; the leading newline a `<pre>`, `<textarea>` or
+//   `<listing>` keeps only through one parse is put back; and where that
+//   parse loses an element the client claims (a hydration key), the
+//   fallback goes in as written, as a client render would put it. Taken:
+//   the record moves to `id`, and the <Loading>s pending in the range are
+//   dead (`$dfp`, `_$HY.x[key]`). Either way the template and the staged
+//   record go.
+// - $dfu: wraps $dfr once (marked, so a second render never wraps the
+//   wrapper): a dead fragment drops its template, and the placeholders it
+//   held die with it. Exact keys only: another render's fragments, whatever
+//   their ids, are never touched. A render whose runtime script comes later
+//   redefines `$dfr` unwrapped; the next swap wraps it again, and a dead
+//   fragment in between only waits in the queue, inert.
+// Sent with the first such fallback of a render only: a render with none
+// carries none of it.
+const SWAP_SCRIPT = `function $dfx(e,a,b,r,n,f,l,i,o,k,c,p,t,x,y,z,s){if(n=document.getElementById(e)){$dfu();f=$dfq(a);l=$dfq(b,1);for(i=f;i&&i!==l;)i=i.nextSibling;p=_$HY.r;t=e+"_ef";if(i&&!_$HY.f&&1===f.parentNode.nodeType&&(!r||t in p)){c=document.createRange();c.setStartBefore(f);c.setEndAfter(l);for(o=document.querySelectorAll('[_hk^="'+$dfz(e)+'"]'),k=0;i&&k<o.length;k++)c.intersectsNode(o[k])||(i=0);if(i){x=c.createContextualFragment(n.innerHTML);o=n.content;for(y=x.querySelectorAll(s="pre,textarea,listing"),z=o.querySelectorAll(s),k=0;k<y.length;k++)(s=y[k].firstChild)&&z[k]&&(i=z[k].firstChild)&&3==s.nodeType&&i.data=="\\n"+s.data&&(s.data=i.data);$dfp(c.extractContents());c.insertNode(x.querySelectorAll("[_hk]").length==o.querySelectorAll("[_hk]").length?x:o);r&&(p[e]=p[t])}}n.remove();delete p[t]}}function $dfq(a,z,i,o,t){for(i=0;i<a.length;i++)if(o=a[i].map?document.getElementById(t="pl-"+a[i][0]):document.querySelector('[_hk="'+$dfz(a[i])+'"]')){if(z&&a[i].map)for(;o&&(8!==o.nodeType||o.nodeValue!==t);)o=o.nextSibling;return o}}function $dfz(e){return e.replace(/["\\\\]/g,"\\\\$&")}function $dfp(d,k,q,j){for(k=_$HY.x=_$HY.x||{},q=d.querySelectorAll('template[id^="pl-"]'),j=0;j<q.length;j++)k[q[j].id.slice(3)]=1}function $dfu(){$dfr.x||($dfo=$dfr,$dfr=function(e,n){return _$HY.x&&_$HY.x[e]?((n=document.getElementById(e))&&($dfp(n.content),n.remove()),1):$dfo(e)},$dfr.x=1)}`;
 export function renderToString<T>(
   fn: () => T,
   options?: {
@@ -2928,6 +2971,12 @@ export function renderToStream(code, options = {}) {
   let shellCompleted = false;
   let scriptFlushed = false;
   let headStyles;
+  // For an <Errored>'s fallback after the shell (`context.shell.locate`,
+  // `swap`): the ids whose fallback went out for the page to swap in, and,
+  // while one renders, its trial (`dirty`: it tried to register something).
+  const swapped = [];
+  let swapScriptFlushed = false;
+  let trial = null;
   const revealGroups = new Map();
   let timer = null;
   const emitTask = task => {
@@ -3354,6 +3403,69 @@ export function renderToStream(code, options = {}) {
     },
     drop: dropSubtree
   };
+  // Sent (#5223): the page puts an <Errored>'s fallback in place of its
+  // markup (`SWAP_SCRIPT`). A transport sink has no page, and with scripts
+  // off nothing runs there.
+  if (!options.sink && !noScripts) {
+    // An end's candidates, outermost first: the placeholder, then the same
+    // end of the markup its <Loading> settled with (`settled`, asked of the
+    // boundary only now, on the failure: a successful render reads no
+    // markup), and so on inward. The page picks the one it has: the
+    // placeholder while the <Loading> is pending or held, its content once
+    // revealed, spliced into a parent or inlined into the shell. Only the
+    // boundary's own (under `id`): an end that is not could name a node
+    // outside the region, and the list stops before it.
+    const candidates = (id, edge, end, settled) => {
+      const list = [];
+      for (let n = 0; edge !== undefined && n < 32; n++) {
+        const placeholder = typeof edge !== "string";
+        if (!(placeholder ? edge[0] : edge).startsWith(id)) break;
+        list.push(edge);
+        const inner = placeholder && settled ? settled(edge[0]) : undefined;
+        edge = inner !== undefined ? markupEdges(inner)[end] : undefined;
+      }
+      return list;
+    };
+    // A fallback rendering for the page to swap in registers nothing (head
+    // tags, assets, lazy modules, records) and starts no <Loading>
+    // (`trying`): a call marks its trial and leaves this render's state as
+    // it was, and that fallback is not sent. The page then gets only plain
+    // markup, and a page without it is main's.
+    for (const name of ["registerHeadTags", "registerAsset", "registerModule", "serialize"]) {
+      const f = context[name];
+      if (f)
+        context[name] = function () {
+          if (trial) trial.dirty = true;
+          else return f.apply(this, arguments);
+        };
+    }
+    context.shell.trying = () => !!trial && (trial.dirty = true);
+    context.shell.locate = (id, from, settled) => {
+      if (completed || dead || DOCUMENT_ELEMENT.test(from)) return;
+      // Inside a region whose fallback already went out: the page may have
+      // replaced it, and on a client the outer boundary has it.
+      for (let i = 0; i < swapped.length; i++) if (id.startsWith(swapped[i])) return;
+      const ends = markupEdges(from);
+      const first = candidates(id, ends[0], 0, settled);
+      const last = candidates(id, ends[1], 1, settled);
+      if (!first.length || !last.length) return;
+      // The fallback renders next, synchronously, up to `swap`.
+      trial = { dirty: false };
+      return [first, last];
+    };
+    context.shell.plain = () => !trial.dirty;
+    context.shell.swap = (id, at, to, record) => {
+      trial = null;
+      if (to === undefined) return;
+      swapped.push(id);
+      const staged = record();
+      buffer.write(`<template id="${id}">${to}</template>`);
+      emitTask(
+        `${swapScriptFlushed ? "" : SWAP_SCRIPT + ";"}$dfx(${[id, at[0], at[1]].map(wireArg).join(",")}${staged ? ",1" : ""})`
+      );
+      swapScriptFlushed = true;
+    };
+  }
   // The trace this render belongs to (see `getTraceContext`): the request's
   // under a request scope, the render's own otherwise. Set before the render
   // pass so the per-component context clones carry it; cleared at completion
@@ -3361,7 +3473,12 @@ export function renderToStream(code, options = {}) {
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
   render = timeDocument(context, context.trace, "stream", requestEvent);
   registerEntryAssets(manifest);
-  context.writer = createHydrationWriter(context, () => !completed);
+  // A fallback tried for the page (#5223) writes nothing (it marks the
+  // trial), and the key stays free for a later write.
+  context.writer = createHydrationWriter(
+    context,
+    () => !completed && !(trial && (trial.dirty = true))
+  );
 
   // The request's abort is a disconnect the transport could not report (see
   // the `signal` option). Armed once the root exists — `abandon` reaches the
@@ -6349,6 +6466,136 @@ function waitForFragments(registry, key) {
     if (key.startsWith(k)) return k;
   }
   return false;
+}
+
+// A value as a script argument: JSON, with no `<` to end the script.
+const wireArg = v => JSON.stringify(v).replace(/</g, "\\u003C");
+
+// Markup rooted at <html>, <head> or <body>: a <template> cannot carry it.
+const DOCUMENT_ELEMENT = /^\s*(?:<!doctype[^>]*>\s*)?<(?:html|head|body)[\s>]/i;
+
+// What finished markup carries at its two ends, [first, last], to name its
+// first and last top-level nodes in the page by (#5223): `[key]` for a
+// <Loading> placeholder (its `<template id="pl-<key>">` first, its closing
+// `<!--pl-<key>-->` last), the hydration key of an element (a string), or
+// nothing: text, another comment, an element with no key. One forward pass
+// over the markup the compiler makes, reading tags as the HTML tokenizer
+// does — quoted attribute values (whatever they spell), comments, raw text
+// (a `<script>` or `<textarea>` whose text spells a tag; none inside `<svg>`
+// or `<math>`), void and self-closed elements — so its cost is the markup's
+// length. Markup it does not model (authored HTML relying on implied end
+// tags, HTML inside an SVG `<foreignObject>`) names a node that is not a
+// sibling of the first, or nothing: the page refuses the range, or nothing
+// is sent.
+function markupEdges(html) {
+  let first;
+  let last;
+  let seen = false;
+  let depth = 0;
+  // The depth an <svg> or <math> opened at: inside, no element is raw text.
+  let foreign = 0;
+  const node = edge => {
+    if (!seen) {
+      seen = true;
+      first = edge;
+    }
+    last = edge;
+  };
+  for (let i = 0, n = html.length; i < n; ) {
+    const lt = html.indexOf("<", i);
+    if (lt !== i) {
+      // Text.
+      if (!depth) node(undefined);
+      if (lt < 0) break;
+      i = lt;
+    }
+    const c = html.charCodeAt(i + 1);
+    let end;
+    if (html.startsWith("<!--", i)) {
+      if ((end = html.indexOf("-->", i + 4)) < 0) return [first, undefined];
+      if (!depth) node(html.startsWith("pl-", i + 4) ? [own(html.slice(i + 7, end))] : undefined);
+      i = end + 3;
+    } else if (isLetter(c)) {
+      const tag = readTag(html, i);
+      if (!tag) return [first, undefined];
+      if (!depth) node(tag[2]);
+      i = tag[0];
+      if (!foreign && RAW_TEXT_ELEMENT.test(tag[1])) {
+        const close = rawTextEnd(tag[1]);
+        close.lastIndex = i;
+        if (!close.test(html)) return [first, undefined];
+        i = close.lastIndex;
+      } else if (!tag[3] && !VOID_ELEMENT.test(tag[1])) {
+        depth++;
+        if (!foreign && (tag[1] === "svg" || tag[1] === "math")) foreign = depth;
+      }
+    } else if (c === 47 && isLetter(html.charCodeAt(i + 2))) {
+      // An end tag.
+      if ((end = html.indexOf(">", i)) < 0 || !depth--) return [first, undefined];
+      if (depth < foreign) foreign = 0;
+      i = end + 1;
+    } else if (c === 33 || c === 47 || c === 63) {
+      // `<!…>`, `</…>`, `<?…>`: a doctype or a bogus comment.
+      if ((end = html.indexOf(">", i)) < 0) return [first, undefined];
+      if (!depth) node(undefined);
+      i = end + 1;
+    } else {
+      // A `<` that opens nothing: text.
+      if (!depth) node(undefined);
+      i++;
+    }
+  }
+  return [first, depth ? undefined : last];
+}
+const isLetter = c => (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+// Copies: a slice keeps the whole markup alive.
+const own = s => (" " + s).slice(1);
+const TAG_NAME = /[^\s/>]+/y;
+// One attribute (stray slashes and whitespace before it set aside): its name,
+// then its value double-quoted, single-quoted or bare.
+const ATTRIBUTE = /[\s/]*([^\s/>][^\s/>=]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]*)))?/y;
+const TAG_END = /[\s/]*>/y;
+const VOID_ELEMENT =
+  /^(?:area|base|br|col|embed|hr|img|input|keygen|link|meta|param|source|track|wbr)$/;
+// The elements whose content the HTML parser reads as text.
+const RAW_TEXT_ELEMENT =
+  /^(?:script|style|textarea|title|xmp|iframe|noembed|noframes|noscript|plaintext)$/;
+const rawTextEnds = {};
+const rawTextEnd = name =>
+  rawTextEnds[name] || (rawTextEnds[name] = new RegExp(`</${name}(?=[\\s/>])[^>]*>`, "gi"));
+// The open tag at `at`: [index past its `>`, lowercase name, edge (its
+// placeholder `[key]` or its hydration key), self-closed], or nothing when
+// it never closes.
+function readTag(html, at) {
+  TAG_NAME.lastIndex = at + 1;
+  const name = TAG_NAME.exec(html)[0].toLowerCase();
+  let i = TAG_NAME.lastIndex;
+  let key;
+  let id;
+  for (let m; ; ) {
+    ATTRIBUTE.lastIndex = i;
+    if (!(m = ATTRIBUTE.exec(html))) break;
+    i = ATTRIBUTE.lastIndex;
+    const attr = m[1].length < 4 ? m[1].toLowerCase() : "";
+    const value = m[2] !== undefined ? m[2] : m[3] !== undefined ? m[3] : m[4];
+    // The first of a name is the one the parser keeps.
+    if (attr === "_hk") key === undefined && (key = value || "");
+    else if (attr === "id" && id === undefined) id = value || "";
+  }
+  TAG_END.lastIndex = i;
+  if (!TAG_END.test(html)) return;
+  const end = TAG_END.lastIndex;
+  // `/>` of its own: a bare value's trailing `/` (`r=5/>`) is the value's.
+  return [
+    end,
+    name,
+    name === "template" && id && id.startsWith("pl-")
+      ? [own(id.slice(3))]
+      : key
+        ? own(key)
+        : undefined,
+    end - 2 >= i && html.charCodeAt(end - 2) === 47
+  ];
 }
 
 function replacePlaceholder(html, key, value) {

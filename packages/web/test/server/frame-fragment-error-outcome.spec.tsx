@@ -273,7 +273,7 @@ describe("C12 (c) server half — a rejected server <Loading> inside a server co
       expect(html).toContain(`_$HY.r["1"]=`);
     });
 
-    it("outside a server component, deeper in the <Errored>'s content: the blank the client twin renders fresh over", async () => {
+    it("outside a server component, deeper in the <Errored>'s content: the failed fragment stays blank, the Errored's fallback sent beside it for its region (#5223)", async () => {
       const App = () => {
         const value = lateReject("plain");
         return (
@@ -287,11 +287,14 @@ describe("C12 (c) server half — a rejected server <Loading> inside a server co
         );
       };
       const html = await collectDocument(() => <App />);
-      const tpls = templates(html);
-      const key = Object.keys(tpls).find(k => !k.startsWith("pl-"))!;
-      // Empty: a rejected template carries the outcome alone (#4287).
-      expect(tpls[key]).toBe("");
-      expect(html).not.toContain("app-fallback");
+      // The failed fragment's template, marked `e`, is empty: a rejected
+      // template carries the outcome alone (#4287), and a page that does
+      // not take the Errored's fallback renders the failure over the blank.
+      expect(html).toMatch(/<template id="\w+" e><\/template>/);
+      // The Errored's fallback, keyed by its id, for the page to put in
+      // place of the <section> while no client runtime has started.
+      const sent = /\$dfx\("(\w+)",\["(\w+)"\],\["\2"\],1\)/.exec(html)!;
+      expect(templates(html)[sent[1]]).toBe(`<em _hk=20>app-fallback</em>`);
     });
   });
 });

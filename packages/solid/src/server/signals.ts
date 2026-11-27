@@ -3768,9 +3768,12 @@ export type BoundaryOutcome =
  * shell the renderer still holds (a fallback finished as it renders only),
  * draws its fallback there
  * (`FragmentContainer.region`, `ShellContainer.region`), or, still pending
- * itself, on its next pull. A boundary whose subtree is already discarded
- * absorbs it. Answered `undefined` from the root: nothing could meet it. Not part
- * of the public API (the server entry does not export it).
+ * itself, on its next pull; its markup already sent, it sends the fallback
+ * for the page to put in its place (`ShellContainer.swap`, #5223) or leaves
+ * the failure to its client twin, never to a boundary above. A boundary
+ * whose subtree is already discarded absorbs it. Answered `undefined` from
+ * the root: nothing could meet it. Not part of the public API (the server
+ * entry does not export it).
  */
 export const ESCALATE: unique symbol = Symbol("escalate") as any;
 
@@ -3784,7 +3787,16 @@ export const ESCALATE: unique symbol = Symbol("escalate") as any;
  */
 export type FragmentContainer = {
   open: boolean;
-  region(from: string, to: string | (() => Promise<string | undefined>), err: any): void;
+  /**
+   * Draws `to` in place of `from` in the fragment. With no arguments
+   * (#5223): the markup the `<Loading>` settled with, or nothing (still
+   * open, or settled without content).
+   */
+  region(
+    from?: string,
+    to?: string | (() => Promise<string | undefined>),
+    err?: any
+  ): string | undefined;
 };
 /**
  * The shell as the `<Errored>` boundaries rendered into it see it, while the
@@ -3809,6 +3821,37 @@ export type ShellContainer = {
   has(from: string): boolean;
   region(from: string, to: string, scope: string | undefined): void;
   drop(scope: string, rerun?: boolean): void;
+  /**
+   * Once the shell is sent (#5223): where the page has the markup `from` of
+   * the `<Errored>` `id`, as the two ends of its node range, each named by
+   * what it already carries (a hydration key, a `<Loading>` placeholder)
+   * under `id`. Read from `from` alone, and only when the failure happens:
+   * a successful render reads no markup. Nothing when an end carries
+   * neither, or carries one that is not under `id`, when a `<template>`
+   * cannot hold the markup (a document element), or when an `<Errored>`
+   * above already sent its fallback for a region holding this one. A
+   * placeholder end is followed inward through the markup its settled
+   * `<Loading>` rendered (`settled`), so the page finds it revealed,
+   * spliced or inlined too. An answer opens the fallback's render, which
+   * `swap` closes: until then nothing registers (head tags, assets,
+   * records), and a `<Loading>` asks `trying` and renders nothing. Present
+   * only where the page can take the fallback (the document sink, with
+   * scripts).
+   */
+  locate?(id: string, from: string, settled?: (key: string) => string | undefined): unknown;
+  /** Whether the fallback rendering since `locate` is plain markup: it registered nothing. */
+  plain?(): boolean;
+  /** True (and the fallback is not plain) while a fallback renders for `swap`. */
+  trying?(): boolean;
+  /**
+   * Sends the plain fallback `to` of the `<Errored>` `id` for the page to
+   * put in place of the range `at` (from `locate`) while its client runtime
+   * has not started; `record` serializes the error, staged at `<id>_ef`,
+   * for the page to move to `id` with it, and answers whether it did.
+   * Releases nothing: a page that does not take it is the page as it was.
+   * With no `to`, nothing goes out.
+   */
+  swap?(id: string, at: unknown, to?: string, record?: () => boolean): void;
 };
 const containers = /* @__PURE__ */ new WeakMap<object, FragmentContainer>();
 /** @internal A registered `<Loading>`'s content owner and its fragment. */
@@ -4221,6 +4264,28 @@ function record(
   return wire;
 }
 
+// The markup the settled `<Loading>` placeholdered as `pl-<key>` rendered,
+// found in the subtree of `root` (#5223): its content owner carries the
+// `<key>00`/`<key>01` id and the registered container. Walked only on a
+// failure after the shell.
+function settledUnder(root: SSROwner, key: string): string | undefined {
+  for (let n: SSROwner | null = root._firstChild; n; ) {
+    const id = n.id;
+    if (typeof id === "string" && id.length === key.length + 2 && id.startsWith(key)) {
+      const c = containers.get(n as unknown as Owner);
+      if (c) return c.region();
+    }
+    if (n._firstChild) n = n._firstChild;
+    else {
+      while (n && n !== root && !n._nextSibling) n = n._parent;
+      n = n && n !== root ? n._nextSibling : null;
+    }
+  }
+}
+
+// Markup rooted at `<html>`, `<head>` or `<body>`.
+const DOCUMENT_ELEMENT = /^\s*(?:<!doctype[^>]*>\s*)?<(?:html|head|body)[\s>]/i;
+
 export function createErrorBoundary<T, U>(
   fn: () => T,
   fallback: (error: Accessor<unknown>, reset: () => void) => U
@@ -4324,10 +4389,14 @@ export function createErrorBoundary<T, U>(
   // `owner.id` is rewritten to the resolve scope's (see `resolveIn`), and the
   // client looks the record up at the boundary id.
   const boundaryId = ownerId(idOwner);
-  const serializeError = (err: any) => {
+  // `staged`: under `<id>_ef`, for the page to move to the id with the
+  // fallback it swaps in (`drawInShell`, #5223). Answers whether it wrote.
+  const serializeError = (err: any, staged?: boolean) => {
     if (ctx && boundaryId && !runWithOwner(owner, () => getContext(NoHydrateContext))) {
-      ctx.serialize(boundaryId, err, undefined, true);
+      ctx.serialize(staged ? boundaryId + "_ef" : boundaryId, err, undefined, true);
+      return true;
     }
+    return false;
   };
   // The finding (observe/dev): a render error this boundary contained by
   // rendering its fallback — the response completes, the failure is real,
@@ -4404,7 +4473,9 @@ export function createErrorBoundary<T, U>(
   // the content it answers nothing: before the shell is handed to the sink
   // the failure is then handed up (`ESCALATE`) and, the fallback finished as
   // it renders, drawn in the shell in place of this boundary's markup
-  // (`drawInShell`); otherwise the client renders the failure fresh.
+  // (`drawInShell`); after it, sent for the page to put in place of this
+  // boundary's markup where the page has a place for it (#5223); otherwise
+  // the client renders the failure fresh.
   // Asked by a `<Loading>` (outside a server component), a fallback still
   // resolving answers with a function instead: called, it waits out the
   // fallback's holes and answers with the finished markup (or `undefined`,
@@ -4458,8 +4529,12 @@ export function createErrorBoundary<T, U>(
   // still pending, the fallback takes its markup's place there (drawn as an
   // outcome is: waited for, its error serialized once it is finished, its
   // own failure the next boundary's); in the shell the renderer still holds
-  // (#4287), see `drawInShell`. Already showing the fallback, it absorbs the
-  // failure. Otherwise — the markup is out, or its fallback failed — the
+  // (#4287), see `drawInShell`; in a shell already sent, the fallback goes
+  // out for the page to put in place of that markup where the page can
+  // (#5223), and where it cannot, this boundary's client twin meets the
+  // failure, not an outer boundary. Already showing the fallback, it absorbs
+  // the failure. Otherwise — its fallback failed, or it has no markup of its
+  // own yet while the shell is held or a fragment above is pending — the
   // next boundary up meets it.
   const escalated = (err: any, up: BoundaryErrorHandler | null): BoundaryOutcome => {
     if (ctx && !fallbackFailed) {
@@ -4481,9 +4556,30 @@ export function createErrorBoundary<T, U>(
         // fallback unfinished, its markup not found — not inserted, or with
         // no place of its own), the failure is not an outer boundary's
         // either: this one meets it on the client.
-        if (shell && shell.open && !fragmentContainer(parent, true))
-          return shellDrawable && shell.has(from) ? drawInShell(err, up, shell, from) : undefined;
+        if (shell && !fragmentContainer(parent, true)) {
+          if (shell.open)
+            return shellDrawable && shell.has(from) ? drawInShell(err, up, shell, from) : undefined;
+          // Sent (#5223): the fallback goes out for the page to put in
+          // place of this boundary's markup, where the page has it as a
+          // range with two ends it can name. Not for a server component's
+          // (its own outcome rules).
+          const at =
+            boundaryId && shell.locate && !inServerComponentScope(owner as unknown as SSROwner)
+              ? shell.locate(boundaryId, from, key => settledUnder(idOwner, key))
+              : undefined;
+          if (!at) return undefined;
+          try {
+            return drawInShell(err, up, shell, from, at);
+          } catch (e) {
+            // What the fallback left (a cleanup that throws) ends its trial.
+            shell.swap!(boundaryId!, at);
+            return undefined;
+          }
+        }
       }
+      // Sent with no markup of its own to name: the failure is this
+      // boundary's on the client, not an outer boundary's.
+      if (ctx.shell && !ctx.shell.open && !fragmentContainer(parent, true)) return undefined;
     }
     return up ? up(err, ESCALATE) : undefined;
   };
@@ -4530,11 +4626,18 @@ export function createErrorBoundary<T, U>(
   // `<Loading>` then reports `client`, and what the unfinished fallback
   // started is dropped (`ShellContainer.drop`), never retried. Its own
   // failure is the next boundary's (#4316); met there, so is the content's.
+  // `at` (#5223): the shell is sent, and the fallback goes out for the page
+  // to put in place of the range `at` instead, under the same rules and
+  // only as plain markup (`ShellContainer.plain`): its error is staged for
+  // the page to record with the swap, and nothing the content left pending
+  // is dropped, since a page that does not take the fallback keeps the
+  // content.
   const drawInShell = (
     err: any,
     up: BoundaryErrorHandler | null,
     shell: ShellContainer,
-    from: string
+    from: string,
+    at?: unknown
   ): BoundaryOutcome => {
     intercept(up);
     const scope = ownerId(outputOwner!);
@@ -4559,7 +4662,10 @@ export function createErrorBoundary<T, U>(
         ctx!._currentBoundaryId = boundary;
       }
       if (failed || !resolved || (resolved.h && resolved.h.length)) return;
-      return Array.isArray(resolved.t) ? resolved.t[0] : resolved.t;
+      const t = Array.isArray(resolved.t) ? resolved.t[0] : resolved.t;
+      // After the shell, plain markup only, and no document element: a
+      // `<template>` cannot carry one.
+      return at && (!shell.plain!() || DOCUMENT_ELEMENT.test(t)) ? undefined : t;
     };
     // `rerun`: rendered again at the same ids, where what the first render
     // started (a `<Loading>` of the fallback's, a serialized value) is
@@ -4589,14 +4695,18 @@ export function createErrorBoundary<T, U>(
         to = render(wire);
       }
       if (to !== undefined) {
-        shell.region(from, to, boundaryId);
-        serializeError(wire);
+        if (at) shell.swap!(boundaryId!, at, to, () => serializeError(wire, true));
+        else {
+          shell.region(from, to, boundaryId);
+          serializeError(wire);
+        }
         fallbackResult = result;
         fallbackSettled = true;
         return true;
       }
     }
     undo();
+    if (at) shell.swap!(boundaryId!, at);
     if (failed) {
       fallbackFailed = true;
       const met = up ? up(failed.e, ESCALATE) : undefined;

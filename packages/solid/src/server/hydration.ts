@@ -78,6 +78,9 @@ export function createLoadingBoundary<T, U>(
   if (!currentCtx) {
     return coreLoadingBoundary(fn, fallback, options);
   }
+  // In an `<Errored>` fallback tried for the page after the shell (#5223):
+  // that fallback is not sent, and this boundary renders nothing.
+  if (currentCtx.shell?.trying?.()) return (() => undefined) as Accessor<T | U>;
   // Under an SSR context the accessor yields resolved template fragments, not
   // T/U — the declared signature is the isomorphic contract the renderer and
   // client share; the SSR plumbing below is cast to it.
@@ -165,9 +168,27 @@ function ssrLoadingBoundary(
   // the descendant `<Errored>` fallbacks to draw in place of their markup
   // when it does (#4316). `discarded` once it settled with a failure: a
   // later failure from inside it has nothing left to fail.
+  // `region()` with no region (#5223): once settled, the content markup
+  // that settled, for an `<Errored>` whose content ends at this boundary to
+  // name the page's end by, asked only when that `<Errored>` fails after the
+  // shell. `ret` is held here anyway, so a successful render keeps and reads
+  // nothing more.
   const container: FragmentContainer = {
     open: false,
-    region: (from, to, err) => void regions.push({ from, to, err })
+    region: (from, to, err) =>
+      from === undefined ? settledMarkup() : void regions.push({ from, to: to!, err })
+  };
+  // What settled as this boundary's content (`drawn`, when an inner
+  // `<Errored>` drew its fallback in it first): nothing while open, when it
+  // did not settle with content (a failure, a client handoff), or once
+  // discarded.
+  let drawn: string | undefined;
+  const settledMarkup = (): string | undefined => {
+    if (container.open || discarded || outcomeRendered || retryPromise || !ret || ret.p?.length)
+      return;
+    if (drawn !== undefined) return drawn;
+    const t = Array.isArray(ret.t) ? ret.t[0] : ret.t;
+    return typeof t === "string" ? t : undefined;
   };
   let regions: {
     from: string;
@@ -392,8 +413,10 @@ function ssrLoadingBoundary(
   // twin draws it, its error serialized at the Errored id so the hydrating
   // client adopts that markup; otherwise nothing — the blank the client
   // twin renders fresh over (`hydratedCreateLoadingBoundary`'s rejected
-  // arm), unless the shell is still held, where an enclosing `<Errored>`
-  // draws in place of its own markup (`failFragment`). Inside one
+  // arm), unless an enclosing `<Errored>` draws in place of its own markup:
+  // in the shell still held, or, the shell sent, by a fallback the page puts
+  // in its place while its runtime has not started (`failFragment`, #5223).
+  // Inside one
   // (frames-rulings 3.3, A0 corollary 4 inward — the position shows what the
   // SERVER rendered for the outcome, never a blank, never a client-invented
   // state; there is no twin): the nearest server `<Errored>`'s fallback for
@@ -454,14 +477,22 @@ function ssrLoadingBoundary(
       // between the two boundaries, as on the client (#4287). Settled first,
       // as above. Not met: the paths below, where settling again changes
       // nothing.
-      if (!outcome && parentHandler && ctx.shell && ctx.shell.open) {
-        done!(undefined, err);
+      // After it (#5223): handed up the same way, before this fragment
+      // settles, and the enclosing `<Errored>` sends its fallback for the
+      // page to put in place of its markup where the page can (see
+      // `ShellContainer.swap`). The fragment then settles as it does with
+      // nothing drawn: a page that does not take the fallback is the page
+      // as before, and its client renders the failure.
+      const shell = ctx.shell;
+      if (!outcome && parentHandler && shell) {
+        const open = shell.open;
+        if (open) done!(undefined, err);
         // Met only by a boundary that contained it: one that absorbs it
         // (its subtree already discarded) leaves it reported as before.
-        const contained = ctx.shell.contained;
-        if (parentHandler(err, ESCALATE) === true && ctx.shell.contained !== contained) {
+        const contained = shell.contained;
+        if (parentHandler(err, ESCALATE) === true && shell.contained !== contained) {
           outcomeRendered = true;
-          return true;
+          if (open) return true;
         }
       }
       if (report && !outcomeRendered) {
@@ -871,7 +902,7 @@ function ssrLoadingBoundary(
         flushSerializeBuffer();
         let value = ret && Array.isArray(ret.t) ? ret.t[0] : ((ret && ret.t) as any);
         if (regions.length) {
-          value = await drawRegions(value);
+          value = drawn = await drawRegions(value);
           if (disposed) return abandon();
           if (discarded) return;
         }

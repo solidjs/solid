@@ -37,9 +37,14 @@ import {
   erroredOutsideLoadingName,
   preflushNestedShapes,
   preflushNested,
-  preflushNestedName
+  preflushNestedName,
+  postflushNestedShapes,
+  postflushNested,
+  postflushNestedName,
+  type PostflushNestedShape
 } from "../harness/scenarios.jsx";
 import { hydrationRecordKeys } from "../harness/hydration-records.js";
+import { ctl, plans, reviewName, shapes } from "../harness/errored-postflush-review-5223.jsx";
 import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
 // Render every scenario under a request event so the http-primitives
@@ -289,6 +294,114 @@ describe("hydration parity harness — nested Loading failing before the shell (
       const Twin = preflushNested(shape, true);
       const t = await storage.run(makeEvent(), () => recordStream(() => <Twin />));
       expect(visible(shell + rest)).toBe(visible(t.shell + t.rest));
+    });
+  }
+});
+
+// #5223: the same nested failure landing after the shell, and the shapes
+// the reviews of the first attempt found broken (H1–H7), recorded for
+// test/hydration/errored-nested-postflush-5223.spec.tsx. Here: the shell
+// carries nothing for it; the stream sends the nearest Errored's fallback in
+// a template keyed by its id, the error staged at `<id>_ef`, and the `$dfx`
+// call naming the region's two ends, then settles the failed `<Loading>` as
+// before (its empty template). `null`: nothing is sent (a fallback with a
+// bare async hole is not finished as it renders; a <NoHydration> zone has no
+// key to name an end by), and the stream is as before.
+describe("hydration parity harness — nested Loading failing after the shell (#5223)", () => {
+  const strip = (html: string) => html.replace(/<script[\s\S]*?<\/script>/g, "");
+  async function record(name: string, App: () => any) {
+    const heard: string[] = [];
+    const { shell, rest } = await storage.run(makeEvent(), () =>
+      recordStream(() => <App />, {
+        onError: (e: any, site: any) => void heard.push(`${e.message} ${site.handling}`),
+        manifest: { "src/Inner.tsx": { file: "assets/inner.js" } }
+      } as any)
+    );
+    writeArtifact(name, { name, shell, rest });
+    const sent = [...rest.matchAll(/\$dfx\("(\w+)",(.*?),1\)/g)].map(m => [m[1], m[2]]);
+    return { shell, rest, heard, sent };
+  }
+  // The ends named: the <section> twice; for `sibling`, the placeholder to
+  // the <h1> beside it.
+  const section = /^\["(\w+)"\],\["\1"\]$/;
+  const ends: Record<PostflushNestedShape, RegExp | null> = {
+    element: section,
+    sibling: /^\[\["\w+"\]\],\["\w+"\]$/,
+    "pending-sibling": section,
+    nested: section,
+    "async-fallback": null
+  };
+  for (const shape of postflushNestedShapes) {
+    const name = postflushNestedName(shape);
+    test(name, async () => {
+      const { shell, rest, heard, sent } = await record(name, postflushNested(shape));
+      expect(strip(shell)).not.toContain(" e>");
+      expect(strip(shell)).toContain(">loading</i>");
+      expect(strip(shell)).not.toContain("failed");
+      expect(rest).not.toContain("outer failed");
+      if (!ends[shape]) {
+        expect(sent).toEqual([]);
+        expect(heard).toEqual(["no user 7 client"]);
+        expect(strip(rest)).toMatch(/^<template id="\w+" e><\/template>$/);
+        return;
+      }
+      expect(sent.length).toBe(1);
+      const [id, named] = sent[0];
+      expect(named).toMatch(ends[shape]!);
+      expect(heard).toEqual(["no user 7 fallback"]);
+      // The fallback, then the failed fragment's empty template (then, for
+      // `pending-sibling`, the sibling's fragment, its value the client's).
+      expect(strip(rest)).toMatch(
+        new RegExp(
+          `^<template id="${id}"><p _hk=\\w+>failed: <!--\\$-->no user 7<!--/--><!--\\$--><!--/--></p></template>` +
+            `<template id="\\w+" e></template>${shape === "pending-sibling" ? `<template id="\\w+"><em _hk=\\w+>sib</em></template>` : ""}$`
+        )
+      );
+      expect(rest).not.toContain("delete _$HY.r");
+      // Staged: the page records it at the Errored id with the swap.
+      expect(hydrationRecordKeys(shell + rest)).toContain(id + "_ef");
+      expect(hydrationRecordKeys(shell + rest)).not.toContain(id);
+    });
+  }
+
+  // The Errored whose fallback is sent, by the tag in its markup.
+  const sends: Record<string, string | null> = {
+    H1: "INNER",
+    H2: "E",
+    H3: null,
+    // H4: the outer fragment settles in the same turn, ahead of the failure.
+    H4: "E",
+    H4b: "E",
+    H5: "E",
+    H6: "E",
+    H7: "svg"
+  };
+  for (const key of Object.keys(plans)) {
+    const name = reviewName(key);
+    test(name, async () => {
+      ctl.plan = plans[key];
+      const { rest, heard, sent } = await record(name, shapes[key.slice(0, 2)]);
+      expect(rest).not.toContain("OUTER");
+      if (sends[key] === null) {
+        expect(sent).toEqual([]);
+        expect(rest).not.toContain("$dfx");
+        expect(heard).toEqual(["boom client"]);
+        return;
+      }
+      expect(sent.length).toBe(1);
+      const [id, named] = sent[0];
+      expect(rest).toMatch(
+        new RegExp(
+          `<template id="${id}">` +
+            (sends[key] === "svg"
+              ? `<circle _hk=\\w+ data-error="boom" cx="10"`
+              : `<p _hk=\\w+><!--\\$-->${sends[key]}<!--/-->: `)
+        )
+      );
+      // H1: the inner region's ends, its Loading's placeholder and, that one
+      // revealed, its content's root.
+      if (key === "H1") expect(named).toMatch(/^\[\["(\w+)"\],"\w+"\],\[\["\1"\],"\w+"\]$/);
+      expect(heard).toEqual(["boom fallback"]);
     });
   }
 });
