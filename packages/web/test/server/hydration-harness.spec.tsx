@@ -34,8 +34,12 @@ import {
   lazyErroredName,
   erroredOutsideLoadingShapes,
   erroredOutsideLoading,
-  erroredOutsideLoadingName
+  erroredOutsideLoadingName,
+  preflushNestedShapes,
+  preflushNested,
+  preflushNestedName
 } from "../harness/scenarios.jsx";
+import { hydrationRecordKeys } from "../harness/hydration-records.js";
 import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
 // Render every scenario under a request event so the http-primitives
@@ -244,4 +248,47 @@ describe("hydration parity harness — Errored fallback hole failure in the shel
       expect(recorded.get(name), name).toEqual(recorded.get(twin));
     }
   });
+});
+
+// #4287 follow-up: a `<Loading>` that is not all of its `<Errored>`'s
+// content fails before the shell is handed to the sink. Recorded for
+// test/hydration/errored-nested-preflush-4287.spec.tsx. Here: the shell
+// carries the Errored fallback in place of the Errored's content — the
+// markup between the two boundaries and every sibling with it — and the
+// error at the Errored id, nothing streams after it for that content, and
+// the page reads as the twin's (the read failing in the Errored's own
+// pull). Never the blank the position used to keep until hydration.
+describe("hydration parity harness — nested Loading failing before the shell (#4287)", () => {
+  const visible = (full: string) =>
+    full
+      .replace(/<script[\s\S]*?<\/script>/g, "")
+      .replace(/<[^>]*>/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .join(" ");
+  const strip = (html: string) => html.replace(/<script[\s\S]*?<\/script>/g, "");
+  for (const shape of preflushNestedShapes) {
+    const name = preflushNestedName(shape);
+    test(name, async () => {
+      const App = preflushNested(shape);
+      const { shell, rest } = await storage.run(makeEvent(), () => recordStream(() => <App />));
+      writeArtifact(name, { name, shell, rest });
+      expect(strip(shell)).toBe(
+        `<div _hk=4><!--$--><p _hk=60>failed: <!--$-->no user 7<!--/--><!--$--><!--/--></p>` +
+          `<!--/--><b>outer</b><span>tail</span></div>`
+      );
+      // Nothing streams for the replaced content: no fragment, no sibling's.
+      expect(strip(rest)).not.toContain("<template");
+      expect(strip(rest)).not.toContain("sib");
+      // The error record the client adopts the fallback with.
+      expect(hydrationRecordKeys(shell + rest)).toContain("5");
+      // (Not `pending-sibling`: its twin still streams the discarded
+      // sibling's fragment, a template for a position the page no longer
+      // has.)
+      if (shape === "pending-sibling") return;
+      const Twin = preflushNested(shape, true);
+      const t = await storage.run(makeEvent(), () => recordStream(() => <Twin />));
+      expect(visible(shell + rest)).toBe(visible(t.shell + t.rest));
+    });
+  }
 });
