@@ -1573,7 +1573,9 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
 
 /** > 0 while `runRefCallback` runs: a ref born into a held node's hold may
  * read its staging (#4767, F-7). */
-export let refCallbackDepth = 0;
+let refCallbackDepth = 0;
+/** The innermost running ref's owner; unset outside refs. */
+export let refOwner: Owner | null | undefined;
 
 /** A write, refresh, action call or `onFlush` here is an effect callback's
  * imperative work, not a computation's. */
@@ -1589,6 +1591,8 @@ export function inRefCallback(): boolean {
  *
  * @internal */
 export function runRefCallback(fn: () => void): void {
+  const prevRefOwner = refOwner;
+  refOwner = context;
   refCallbackDepth++;
   try {
     if (__DEV__) {
@@ -1606,6 +1610,7 @@ export function runRefCallback(fn: () => void): void {
     } else untrack(fn);
   } finally {
     refCallbackDepth--;
+    refOwner = prevRefOwner;
   }
 }
 
@@ -1962,9 +1967,9 @@ export function read<T>(el: any): T {
     if (sv !== undefined && !(el._statusFlags & STATUS_ERROR)) {
       const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
       const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
-      // A ref's read is one-shot: re-running its creating pass would rebuild
-      // the served node (#5232).
-      if (current !== snapshot && !(refCallbackDepth && !tracking))
+      // A ref's own read is one-shot: re-running its creating pass would
+      // rebuild the served node (#5232).
+      if (current !== snapshot && (context !== refOwner || tracking))
         (c as Computed<any>)._flags |= REACTIVE_SNAPSHOT_STALE;
       if (__TEST__) shadowActual(SLOT_SNAPSHOT);
       return snapshot as T;
