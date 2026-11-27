@@ -78,6 +78,15 @@ it("should return result", () => {
   expect(result).toBe(10);
 });
 
+it("should call init with dispose as its only argument", () => {
+  let args: unknown[] | undefined;
+  createRoot(function (this: unknown, ...rest: unknown[]) {
+    args = [this, ...rest];
+  });
+  expect(args).toEqual([undefined, expect.any(Function)]);
+  (args![1] as () => void)();
+});
+
 it("should create new tracking scope", () => {
   const [$x, setX] = createSignal(0);
   const effect = vi.fn();

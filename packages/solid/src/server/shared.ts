@@ -1,5 +1,5 @@
 import { getOwner, getNextChildId, getContext, devPeekNextChildId } from "./signals.js";
-import type { Context } from "./signals.js";
+import type { Context, ShellContainer } from "./signals.js";
 import type { BoundaryEvent } from "./observe.js";
 import type { NavigationRef, Observe } from "@solidjs/signals";
 
@@ -140,6 +140,11 @@ export type HydrationContext = {
    * renderToStream.
    */
   flushed?: () => boolean;
+  /**
+   * @internal The shell while the renderer still holds it (see
+   * `ShellContainer`). Set by @solidjs/web's renderToStream.
+   */
+  shell?: ShellContainer;
   /**
    * @internal Per-request memo of `resolveAssets(moduleUrl)` results, keyed
    * by moduleUrl. lazy() consults it so a component re-created across
