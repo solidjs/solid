@@ -1571,16 +1571,16 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
   }
 }
 
-/** > 0 while `runRefCallback` runs: a ref born into a held node's hold may
- * read its staging (#4767, F-7). */
-let refCallbackDepth = 0;
+/** The innermost running ref's owner, `0` outside `runRefCallback` (a
+ * shorter compare than `undefined`: bundle size). A ref born into a held
+ * node's hold may read its staging (#4767, F-7). */
+export let refOwner: Owner | null | 0 = 0;
 
 /** A write, refresh, action call or `onFlush` here is an effect callback's
  * imperative work, not a computation's. */
 export function inRefCallback(): boolean {
   return (
-    refCallbackDepth > 0 ||
-    (inEffectCallback && context !== null && context === effectCallbackOwner)
+    refOwner !== 0 || (inEffectCallback && context !== null && context === effectCallbackOwner)
   );
 }
 
@@ -1589,7 +1589,8 @@ export function inRefCallback(): boolean {
  *
  * @internal */
 export function runRefCallback(fn: () => void): void {
-  refCallbackDepth++;
+  const prevRefOwner = refOwner;
+  refOwner = context;
   try {
     if (__DEV__) {
       const prev = inEffectCallback,
@@ -1605,7 +1606,7 @@ export function runRefCallback(fn: () => void): void {
       }
     } else untrack(fn);
   } finally {
-    refCallbackDepth--;
+    refOwner = prevRefOwner;
   }
 }
 
@@ -1962,7 +1963,10 @@ export function read<T>(el: any): T {
     if (sv !== undefined && !(el._statusFlags & STATUS_ERROR)) {
       const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
       const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
-      if (current !== snapshot) (c as Computed<any>)._flags |= REACTIVE_SNAPSHOT_STALE;
+      // A ref's own read is one-shot: re-running its creating pass would
+      // rebuild the served node (#5232).
+      if (current !== snapshot && (context !== refOwner || tracking))
+        (c as Computed<any>)._flags |= REACTIVE_SNAPSHOT_STALE;
       if (__TEST__) shadowActual(SLOT_SNAPSHOT);
       return snapshot as T;
     }
@@ -2024,7 +2028,7 @@ export function read<T>(el: any): T {
         );
       }
       if (
-        !(c._config & CONFIG_CHILDREN_FORBIDDEN || (refCallbackDepth && !tracking)) ||
+        !(c._config & CONFIG_CHILDREN_FORBIDDEN || (refOwner !== 0 && !tracking)) ||
         el._statusFlags & STATUS_UNINITIALIZED
       ) {
         // Out of line, so `read` gains a call only where a pending read throws (D-22, F-9).
@@ -2116,7 +2120,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED &&
     (!c || spectating || c._config & CONFIG_CHILDREN_FORBIDDEN)
   ) {
-    if (refCallbackDepth > 0) {
+    if (refOwner !== 0) {
       const pass = creatorPass(context);
       if (pass && el._config & CONFIG_HELD && bornInto(pass, txOf(el))) {
         if (__TEST__) shadowActual(SLOT_P);
