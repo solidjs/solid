@@ -1,10 +1,10 @@
 /**
- * #4165 let a cleanup write during teardown: a cleanup is teardown, not part
- * of whichever computation is disposing its owner. Invoking an action from a
- * cleanup is the same imperative act, so the action guard stands down there
- * too. Without it, removing a keyed row whose cleanup calls an action threw
- * ACTION_CALLED_IN_OWNED_SCOPE in development, while the same cleanup under a
- * branch switching away ran.
+ * Invoking an action is a write for the owned-scope guard, and the guard goes
+ * by the phase a cleanup belongs to (#4165, #5123). An effect's returned
+ * cleanup belongs to the effect, so it can call an action when its row is
+ * removed. An `onCleanup` belongs to its computation: calling an action from
+ * it is ACTION_CALLED_IN_OWNED_SCOPE, under a removed row and under a branch
+ * switching away alike.
  */
 import { afterEach, expect, it } from "vitest";
 import {
@@ -22,7 +22,7 @@ import {
 
 afterEach(() => flush());
 
-it("a removed row's onCleanup can call an action", async () => {
+it("a removed row's onCleanup that calls an action is an owned call", async () => {
   const [rows, setRows] = createSignal([1, 2]);
   const [count, setCount] = createSignal(0);
   const release = action(function* () {
@@ -41,13 +41,14 @@ it("a removed row's onCleanup can call an action", async () => {
   });
   flush();
   setRows([2]);
-  flush();
+  expect(() => flush()).toThrow(/ACTION_CALLED_IN_OWNED_SCOPE/);
   await Promise.resolve();
   flush();
   setRows([2, 3]);
   flush();
+  // The row is gone and the list still updates.
   expect(seen).toEqual([[1, 2], [2], [2, 3]]);
-  expect(count()).toBe(1);
+  expect(count()).toBe(0);
 });
 
 it("a removed row's effect-returned cleanup can call an action", async () => {
@@ -74,7 +75,7 @@ it("a removed row's effect-returned cleanup can call an action", async () => {
   expect(count()).toBe(1);
 });
 
-it("a branch's cleanup can call an action when the branch switches away", async () => {
+it("a branch's onCleanup that calls an action is an owned call too", async () => {
   const [on, setOn] = createSignal(true);
   const [count, setCount] = createSignal(0);
   const release = action(function* () {
@@ -92,10 +93,10 @@ it("a branch's cleanup can call an action when the branch switches away", async 
   });
   flush();
   setOn(false);
-  flush();
+  expect(() => flush()).toThrow(/ACTION_CALLED_IN_OWNED_SCOPE/);
   await Promise.resolve();
   flush();
-  expect(count()).toBe(1);
+  expect(count()).toBe(0);
 });
 
 it("still rejects an action called in a row's mapping body", () => {
