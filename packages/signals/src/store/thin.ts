@@ -1820,11 +1820,13 @@ function merge(
   // identity travels with the raw (#4001).
   // (A row chained to a store is that store's alias, never a plain row's.)
   if (pt === undefined || pt.c !== null || map.has(nv) || resent(t, next, pv)) return nv;
-  // A keyed diff of a plain store skips a row nothing below ever read
-  // through a node (a proxy alone, read untracked): the slot takes the new
-  // raw whole and a capture may detach (#2902, the pruning contract, as
-  // store/reconcile.ts `descend`). Positional and derived diffs adopt.
-  if (!pt.d && keyFn !== null && t._fam === null) return nv;
+  // A keyed diff of a plain store does not walk a value nothing below ever
+  // read through a node (a proxy alone, read untracked): the slot takes the
+  // new raw whole and a capture may detach (#2902, the pruning contract).
+  // A list row matched by key keeps its proxy and is merged one level; its
+  // node-less children are still swapped whole (#5220). Positional and
+  // derived diffs adopt.
+  if (!pt.d && keyFn !== null && t._fam === null && !paired) return nv;
   // `paired`: the list pass already matched the two rows' keys.
   if (keyFn !== null && !paired) {
     const pk = pt.w || pt.c !== null ? keyAt(keyFn, pt) : keyFn(pv);
@@ -1937,7 +1939,8 @@ function reconcileTarget(
       if (made?.has(pv)) holdIn = L!.hold(t);
       const m = merge(t, next, map, keyFn, pv, nv, nk !== undefined);
       holdIn = hi;
-      write(t, i, m, t._fam === null ? cur : write);
+      if (t._fam !== null) write(t, i, m);
+      else if (!Object.is(cur, m)) write(t, i, m, cur);
     }
     ((sentFor = sf), (sentSet = ss));
     for (let i = next.length; i < len; i++) write(t, i, ABSENT);
@@ -1973,14 +1976,13 @@ function reconcileTarget(
           key,
           new Box({ value: nv, writable: true, enumerable: false, configurable: true })
         );
-    } else if (pv === nv && (typeof nv !== "object" || nv === null || !map.get(nv)?.w)) continue;
-    else
-      write(
-        t,
-        key,
-        merge(t, next, map, keyFn, pv === ABSENT ? undefined : pv, nv),
-        t._fam === null ? pv : write
-      );
+    } else if (typeof nv !== "object" || nv === null) {
+      if (pv !== nv) write(t, key, nv, t._fam === null ? pv : write);
+    } else if (pv !== nv || map.get(nv)?.w) {
+      const m = merge(t, next, map, keyFn, pv === ABSENT ? undefined : pv, nv);
+      if (t._fam !== null) write(t, key, m);
+      else if (!Object.is(pv, m)) write(t, key, m, pv);
+    }
   }
   const np = protoOf(next);
   if (t.c === null && np !== protoNow(t)) (put(t, protoNode(t), () => np), (t.w = true));
