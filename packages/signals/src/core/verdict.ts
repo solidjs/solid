@@ -54,6 +54,7 @@ import {
   markLateLinker,
   prepareComputed,
   pullComputed,
+  refOwner,
   setVerdict,
   snapshotCaptureActive,
   spectating,
@@ -413,7 +414,11 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   if (__TEST__) shadowExpect(c, el, tracking, latestActive ? 2 : 1, spectating, served);
   if (served) {
     const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
-    if ((el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value) !== snapshot)
+    // A ref's own read is one-shot (#5232).
+    if (
+      (el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value) !== snapshot &&
+      (context !== refOwner || tracking)
+    )
       c!._flags |= REACTIVE_SNAPSHOT_STALE;
     if (__TEST__) shadowActual(SLOT_SNAPSHOT);
     return snapshot;
