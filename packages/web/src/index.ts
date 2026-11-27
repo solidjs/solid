@@ -361,7 +361,12 @@ function staticElement(tag: string, props: any): JSX.Element {
       untrack(() => props.xmlns)
     );
   const el = hydrating ? getNextElement(create) : create();
-  spread(el, props);
+  // Pass the resolved tag as `name` so the attribute effect is labelled
+  // `<tag>.spread` (and children `<tag>.children`) under the observe/dev
+  // runtimes — the same labels a compiled `<tag {...props}>` gets. Without
+  // it every string-tag `dynamic()` / `<Dynamic component="…">` spread
+  // reports as the anonymous `"effect"` (#5219).
+  spread(el, props, undefined, undefined, tag);
   // Compiled JSX emits runHydrationEvents() after an element that carries
   // event handlers. Handlers bound through spread() here need the same call,
   // or events the hydration script queued for this element are only replayed
