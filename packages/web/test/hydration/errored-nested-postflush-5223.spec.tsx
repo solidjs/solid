@@ -33,13 +33,7 @@ import {
   postflushNestedShapes,
   type PostflushNestedShape
 } from "../harness/scenarios.jsx";
-import {
-  ctl,
-  Inner,
-  plans,
-  reviewName,
-  shapes
-} from "../harness/errored-postflush-review-5223.jsx";
+import { ctl, Inner, plans, shapeName, shapes } from "../harness/errored-postflush-shapes-5223.jsx";
 import { bootstrapHydrationGlobal } from "../harness/hydration-bootstrap.js";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -271,7 +265,7 @@ describe("#5223: the harness's nested shapes, hydrated", () => {
   });
 });
 
-// What a client render of a review shape shows once the read has failed.
+// What a client render of a shape shows once the read has failed.
 async function clientRender(key: string) {
   ctl.plan = plans[key];
   ctl.lazyDelay = 0;
@@ -288,10 +282,10 @@ async function clientRender(key: string) {
   return shown;
 }
 
-// The shapes the reviews of the first attempt found broken (see
-// test/harness/errored-postflush-review-5223.tsx). The fallback is live: its
+// The further shapes (see
+// test/harness/errored-postflush-shapes-5223.tsx). The fallback is live: its
 // click handler runs and its effect ran once.
-describe("#5223 review shapes, hydrated", () => {
+describe("#5223 shapes, hydrated", () => {
   // The fallback's tag; H2 is the Errored in a lazy component, its module
   // still loading (150ms) when the stream arrives: the root gathers when
   // `hydrate()` is called and renders once the module is in, so a fallback
@@ -327,7 +321,7 @@ describe("#5223 review shapes, hydrated", () => {
       ctl.effects = [];
       ctl.lazyDelay = lazyDelay;
       await replay(
-        reviewName(key),
+        shapeName(key),
         shapes[key.slice(0, 2)],
         mode,
         async r => {
@@ -395,7 +389,7 @@ describe("#5223 review shapes, hydrated", () => {
     (mode, shown) => {
       ctl.plan = plans.H3;
       ctl.lazyDelay = 0;
-      return replay(reviewName("H3"), shapes.H3, mode, async r => {
+      return replay(shapeName("H3"), shapes.H3, mode, async r => {
         await sleep(120);
         flush();
         await settle();

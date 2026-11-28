@@ -44,7 +44,7 @@ import {
   type PostflushNestedShape
 } from "../harness/scenarios.jsx";
 import { hydrationRecordKeys } from "../harness/hydration-records.js";
-import { ctl, plans, reviewName, shapes } from "../harness/errored-postflush-review-5223.jsx";
+import { ctl, plans, shapeName, shapes } from "../harness/errored-postflush-shapes-5223.jsx";
 import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
 // Render every scenario under a request event so the http-primitives
@@ -298,8 +298,8 @@ describe("hydration parity harness — nested Loading failing before the shell (
   }
 });
 
-// #5223: the same nested failure landing after the shell, and the shapes
-// the reviews of the first attempt found broken (H1–H7), recorded for
+// #5223: the same nested failure landing after the shell, and seven
+// further shapes of it (H1–H7), recorded for
 // test/hydration/errored-nested-postflush-5223.spec.tsx. Here: the shell
 // carries nothing for it; the stream sends the nearest Errored's fallback in
 // a template keyed by its id, the error staged at `<id>_ef`, and the `$dfx`
@@ -377,7 +377,7 @@ describe("hydration parity harness — nested Loading failing after the shell (#
     H7: "svg"
   };
   for (const key of Object.keys(plans)) {
-    const name = reviewName(key);
+    const name = shapeName(key);
     test(name, async () => {
       ctl.plan = plans[key];
       const { rest, heard, sent } = await record(name, shapes[key.slice(0, 2)]);

@@ -1,8 +1,8 @@
 /**
  * @jsxImportSource @solidjs/web
  *
- * #5223 review shapes, a `<Loading>` deep in an `<Errored>` failing after the
- * shell, as the reviews of the first attempt found broken. Recorded by
+ * #5223 shapes: a `<Loading>` deep in an `<Errored>` failing after the
+ * shell, in layouts the swap has to get right. Recorded by
  * test/server/hydration-harness.spec.tsx, replayed by
  * test/hydration/errored-nested-postflush-5223.spec.tsx. H1: an inner
  * direct-shape `<Errored>` whose `<Loading>` streamed owns a later failure in
@@ -217,4 +217,4 @@ export const plans: Record<string, typeof ctl.plan> = {
   H6: { a: [20, "fail", "boom"], c: [60, "ok", "C"] },
   H7: { a: [20, "fail", "boom"] }
 };
-export const reviewName = (key: string) => `errored-postflush-review-${key}-5223`;
+export const shapeName = (key: string) => `errored-postflush-shape-${key}-5223`;

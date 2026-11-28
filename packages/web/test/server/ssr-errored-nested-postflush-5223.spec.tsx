@@ -195,7 +195,7 @@ async function check(c: Case, outcome: Outcome) {
   c.more?.(r, p);
 }
 
-// The two boundaries of the review's OVERTAKE and NEVER repros: an inner
+// Two boundaries: an inner
 // Errored whose fallback has a bare async hole, an outer one whose own
 // Loading fails later.
 const Overtake = (props: { hint: () => string }) => {
@@ -321,7 +321,7 @@ const swapped: Case[] = [
   {
     // The inner failure is the inner boundary's on the client; the outer
     // failure, in the outer boundary's own content, is sent.
-    name: "a fallback with a bare async hole is not finished as it renders: nothing is sent for it, nothing waits for it (review OVERTAKE)",
+    name: "a fallback with a bare async hole is not finished as it renders: nothing is sent for it, nothing waits for it",
     App: () => {
       const hint = ok(20, "late hint");
       return <Overtake hint={hint} />;
@@ -331,7 +331,7 @@ const swapped: Case[] = [
     more: r => expect(r.rest).not.toContain("inner:")
   },
   {
-    name: "the outer region replaced, an inner Errored's Loading failing later: no second fallback, reported as before (review S2)",
+    name: "the outer region replaced, an inner Errored's Loading failing later: no second fallback, reported as before",
     App: () =>
       inMain(
         () => (
@@ -373,7 +373,7 @@ const swapped: Case[] = [
     }
   },
   {
-    name: "Reveal groups: a member settled and held by the group when another fails: no leftover (review REVEAL)",
+    name: "Reveal groups: a member settled and held by the group when another fails: no leftover",
     App: () => (
       <div>
         <Errored fallback={<p>group error</p>}>
@@ -387,7 +387,7 @@ const swapped: Case[] = [
     body: `<div><p>group error</p></div>`
   },
   {
-    name: "Reveal groups: a sequential group around a failing member, one revealed, one still streaming (review S15)",
+    name: "Reveal groups: a sequential group around a failing member, one revealed, one still streaming",
     App: () => {
       const [c, a, d] = [ok(5, "C"), fail(30, "boom A"), ok(60, "D")];
       return inMain(() => (
@@ -410,7 +410,7 @@ const swapped: Case[] = [
     body: `<main><p>failed: boom A</p></main>`
   },
   {
-    name: "the parser: rows in an explicit <tbody>: the row is replaced (review Table)",
+    name: "the parser: rows in an explicit <tbody>: the row is replaced",
     App: () => {
       const a = fail(20, "boom");
       return (
@@ -440,7 +440,7 @@ const swapped: Case[] = [
   {
     // The fallback where the row was: inside the <tbody> the parser made for
     // the rows, as authored markup this shape always lands.
-    name: "the parser: a row a component puts straight into <table>: the parser's <tbody> holds the range whole; the other rows stay, nothing throws (review TABLE)",
+    name: "the parser: a row a component puts straight into <table>: the parser's <tbody> holds the range whole; the other rows stay, nothing throws",
     App: () => (
       <table>
         <Row>first row</Row>
@@ -750,7 +750,7 @@ const swapped: Case[] = [
 // Each the page main sends: the client renders the failure.
 const nothingSent: Case[] = [
   {
-    name: "a fallback that throws with no Errored above: the hook hears `client` (review S14)",
+    name: "a fallback that throws with no Errored above: the hook hears `client`",
     App: () =>
       inMain(
         () => <b>{slot(noUser())}</b>,
@@ -763,7 +763,7 @@ const nothingSent: Case[] = [
     more: r => expect(strip(r.rest)).toMatch(/^<template id="\w+" e><\/template>$/)
   },
   {
-    name: "an inner fallback whose async hole rejects later: the client's, nothing sent for the outer boundary (review ASYNC-THROW)",
+    name: "an inner fallback whose async hole rejects later: the client's, nothing sent for the outer boundary",
     App: () => {
       const hint = fail(15, "fallback failed");
       return (
@@ -782,7 +782,7 @@ const nothingSent: Case[] = [
     body: `<div><section><article></article></section></div>`
   },
   {
-    name: "an Errored inside a Loading still pending: drawn in that fragment, as before (review S10)",
+    name: "an Errored inside a Loading still pending: drawn in that fragment, as before",
     App: () => {
       const slow = ok(30, "SLOW");
       const user = noUser();
@@ -803,7 +803,7 @@ const nothingSent: Case[] = [
     body: `<main><article>SLOW<p>failed: no user 7</p></article></main>`
   },
   {
-    name: "a document-level Errored (<html> as its content): the document is intact (review Doc)",
+    name: "a document-level Errored (<html> as its content): the document is intact",
     App: () => (
       <Errored
         fallback={(e: any) => (
@@ -835,7 +835,7 @@ const nothingSent: Case[] = [
     }
   },
   {
-    name: "an Errored around <body>: the document is intact (review Body)",
+    name: "an Errored around <body>: the document is intact",
     App: () => (
       <html lang="en">
         <head>
@@ -1119,7 +1119,8 @@ describe("#5223: a nested Loading failing after the shell", () => {
   });
 
   describe("sent and swapped", () => {
-    test.each(swapped)("$name", c => check(c, "swapped"));
+    // One row parses 4,000 nested elements in jsdom (about 2.5 s locally).
+    test.each(swapped)("$name", c => check(c, "swapped"), 20_000);
   });
   describe("nothing sent, the stream is main's and the client renders the failure", () => {
     test.each(nothingSent)("$name", c => check(c, "nothing sent"));
@@ -1128,7 +1129,7 @@ describe("#5223: a nested Loading failing after the shell", () => {
     test.each(pageRefuses)("$name", c => check(c, "page refuses"));
   });
 
-  test("a source that never settles holds the response as on main; the fallback that read it adds no wait (review NEVER)", async () => {
+  test("a source that never settles holds the response as on main; the fallback that read it adds no wait", async () => {
     // The source is serialized when it is created, read or not: the
     // response stays open on it with or without this change. What this pins
     // is that everything else goes out, the outer boundary's fallback
@@ -1176,17 +1177,14 @@ describe("#5223: a nested Loading failing after the shell", () => {
       `<main><p>failed: no user 7</p></main>`
     ],
     ["answers a promise", async () => new Error("mapped async"), undefined]
-  ] as const)(
-    "the record survives the swap when the hook %s (review S4a, S4b)",
-    async (_, onError, body) => {
-      const { shell, rest } = await recordStream(() => <Basic />, { onError } as any);
-      const p = page(shell + rest);
-      expect(p.errors).toEqual([]);
-      if (body) expect(p.body).toBe(body);
-      expect(p.records).toContain("2");
-      expect(rest).not.toContain(`delete _$HY.r["2"]`);
-    }
-  );
+  ] as const)("the record survives the swap when the hook %s", async (_, onError, body) => {
+    const { shell, rest } = await recordStream(() => <Basic />, { onError } as any);
+    const p = page(shell + rest);
+    expect(p.errors).toEqual([]);
+    if (body) expect(p.body).toBe(body);
+    expect(p.records).toContain("2");
+    expect(rest).not.toContain(`delete _$HY.r["2"]`);
+  });
 
   const race = {
     sync: (go: () => void) => go(),
@@ -1195,7 +1193,7 @@ describe("#5223: a nested Loading failing after the shell", () => {
     t0: (go: () => void) => void setTimeout(go, 0)
   };
   test.each(Object.keys(race) as (keyof typeof race)[])(
-    "a failure racing the shell's completion (%s) is sent like any other after it (review S8, SHELL-RACE)",
+    "a failure racing the shell's completion (%s) is sent like any other after it",
     async when => {
       let reject!: (e: any) => void;
       const App = () => {
@@ -1439,11 +1437,7 @@ describe("#5223: a nested Loading failing after the shell", () => {
       },
       "Error title"
     ],
-    [
-      "a <Loading> of its own (review S3)",
-      () => <p>error fallback{slot(ok(30, "help"))}</p>,
-      "help"
-    ],
+    ["a <Loading> of its own", () => <p>error fallback{slot(ok(30, "help"))}</p>, "help"],
     [
       "a <Loading> of its own whose content registers a stylesheet later",
       () => (
@@ -1595,7 +1589,7 @@ describe("#5223: a nested Loading failing after the shell", () => {
   });
 
   describe("controls: nothing of the swap where nothing fails after the shell", () => {
-    test("authored markup that looks like a stream range is sent as written (review AUTHORED)", async () => {
+    test("authored markup that looks like a stream range is sent as written", async () => {
       const html = `<template id="pl-editor" e></template><b>authored</b><!--pl-editor-->`;
       const { shell } = await recordStream(() => <div innerHTML={html} />);
       expect(shell).toContain(html);
@@ -1624,7 +1618,7 @@ describe("#5223: a nested Loading failing after the shell", () => {
       expect(strip(string)).toBe(`<main _hk=1><b _hk=200><i _hk=20100>loading</i></b></main>`);
     });
 
-    test("many rows that settle: no fallback machinery in the output (review S5)", async () => {
+    test("many rows that settle: no fallback machinery in the output", async () => {
       const Item = (props: { i: number }) => {
         const a = createMemo(async () => {
           await Promise.resolve();
