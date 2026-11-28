@@ -1588,6 +1588,13 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
   }
 }
 
+/** `untrack` for a one-argument call: no closure per call when nothing is tracking.
+ * @internal */
+export function untrackCall<A, T>(fn: (arg: A) => T, arg: A): T {
+  // `bind`, not a closure: a closure here makes every call allocate its context.
+  return __DEV__ || tracking || externalUntrackHook ? untrack(fn.bind(undefined, arg)) : fn(arg);
+}
+
 /** The innermost running ref's owner, `0` outside `runRefCallback` (a
  * shorter compare than `undefined`: bundle size). A ref born into a held
  * node's hold may read its staging (#4767, F-7). */

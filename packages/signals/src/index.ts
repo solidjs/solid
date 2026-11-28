@@ -19,6 +19,7 @@ export {
   getObserver,
   isEqual,
   untrack,
+  untrackCall,
   isPending,
   latest,
   SUPPORTS_PROXY,
