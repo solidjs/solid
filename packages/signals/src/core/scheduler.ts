@@ -432,6 +432,17 @@ export let passLane: Transaction | null = null;
 export function setPassLane(l: Transaction | null): void {
   passLane = l;
 }
+/** Classify a zombie by its nearest non-zombie owner: 1 = lane, 2 = unheld mainline, 0 = held mainline. */
+export function zombieState(el: Computed<any>): number {
+  let o: any = el._parent;
+  while (o._flags & REACTIVE_ZOMBIE) o = o._parent;
+  return (o._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE ||
+    (o._type && o._x?._transaction?._lane)
+    ? 1
+    : o._config & CONFIG_HELD
+      ? 0
+      : 2;
+}
 /** The transaction this flush parks into: set by the first join, merged
  * with every further one. Consumed at the seam. A join outside a flush (a
  * mount's pending observer, a write to a held node, an action opening)
@@ -1192,7 +1203,8 @@ export class GlobalQueue implements IQueue {
         for (let i = 0; i < zombies.length; i++)
           if (
             (zombies[i]._flags & (REACTIVE_DISPOSED | REACTIVE_ZOMBIE)) === REACTIVE_ZOMBIE &&
-            zombies[i]._config & CONFIG_VERDICT
+            zombies[i]._config & CONFIG_VERDICT &&
+            !(laneStageHook && zombieState(zombies[i]) === 1)
           )
             recompute(zombies[i]);
       }

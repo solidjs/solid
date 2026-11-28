@@ -147,6 +147,7 @@ import {
   deferZombie,
   dirtyQueue,
   flushTransaction,
+  zombieState,
   adopted,
   globalQueue,
   GlobalQueue,
@@ -205,6 +206,7 @@ import type {
 // queue: routing through the heap orders the run after the commit whatever
 // phase the write came from (#3291).
 GlobalQueue._update = el => {
+  let s: number;
   if ((el as any)._type === EFFECT_TRACKED) {
     deleteFromHeap(el, dirtyQueue);
     (el as any)._modified = true;
@@ -213,26 +215,20 @@ GlobalQueue._update = el => {
   // A zombie's fate is the seam's; it runs now only for its lane's re-staging,
   // which shows ahead of any park (#3463).
   else if (el._flags & REACTIVE_ZOMBIE && !(el._flags & REACTIVE_LANE_DIRTY)) deferZombie(el);
-  // A lane frame member follows mainline writes only: the lane's dirty is
-  // cancelled (#3698, #4137). Folded away without the lane engine.
-  else if (laneStageHook && el._flags & REACTIVE_ZOMBIE && laneFrameMember(el)) {
-    deleteFromHeap(el, dirtyQueue);
-    el._flags &= ~(REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_LANE_DIRTY);
+  // Under the lane engine, cancel a lane-frame zombie's lane dirty
+  // (#3698, #4137) or defer one whose mainline owner is closing unheld
+  // (#5160). Folded away without the lane engine.
+  else if (laneStageHook && el._flags & REACTIVE_ZOMBIE && (s = zombieState(el))) {
+    if (s > 1) deferZombie(el);
+    else {
+      deleteFromHeap(el, dirtyQueue);
+      el._flags &= ~(REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_LANE_DIRTY);
+    }
   }
   // A reader the landing re-derives whose frame flight the seam parked
   // adopts it at its turn (verdict.ts `adoptParked`, D-25, F-9).
   else if (!(laneAdoptHook && el._x?._parked && laneAdoptHook(el, 1))) recompute(el);
 };
-/** The nearest non-zombie owner carries a lane's value or, an effect, is
- * listed in a lane. */
-function laneFrameMember(el: Computed<any>): boolean {
-  let o: any = el._parent;
-  while (o._flags & REACTIVE_ZOMBIE) o = o._parent;
-  return (
-    (o._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE ||
-    (o._type && o._x?._transaction?._lane)
-  );
-}
 GlobalQueue._dispose = disposeChildren;
 
 export const PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE =
