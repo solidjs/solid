@@ -1,5 +1,26 @@
 # @solidjs/diagnostics
 
+## 2.0.5
+
+### Patch Changes
+
+- Updated dependencies [f7b6b9c]
+- Updated dependencies [a3df43a]
+- Updated dependencies [e0f2ad4]
+- Updated dependencies [162d46a]
+- Updated dependencies [caba92a]
+- Updated dependencies [91260dc]
+- Updated dependencies [cc4b6cf]
+- Updated dependencies [8fa0476]
+- Updated dependencies [0b703b4]
+- Updated dependencies [510bb8d]
+- Updated dependencies [50a4bfd]
+- Updated dependencies [8fa0476]
+- Updated dependencies [46e665b]
+  - @solidjs/signals@2.0.5
+  - solid-js@2.0.5
+  - @solidjs/web@2.0.5
+
 ## 2.0.4
 
 ### Patch Changes

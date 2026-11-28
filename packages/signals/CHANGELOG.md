@@ -1,5 +1,18 @@
 # @solidjs/signals
 
+## 2.0.5
+
+### Patch Changes
+
+- f7b6b9c: An action started while a transition lands, from a cleanup (`onCleanup` or an effect's returned cleanup) or from an optimistic value's `equals`, no longer leaves the flush pointing at the landed transaction. Before, the next action merged into it: its write showed but was never committed, and a later write that compared against the signal was skipped (#5233). An action that yielded could also commit its first write during the `yield`.
+- a3df43a: Development: whether a cleanup may write is now decided by the scope it belongs to, not by where teardown runs it. A setter, store setter, `refresh` or `action` call from an `onCleanup` is an owned write again (`REACTIVE_WRITE_IN_OWNED_SCOPE`, `ACTION_CALLED_IN_OWNED_SCOPE`), under a removed `<For>` row and under a `<Show>` branch alike. A cleanup returned from an effect callback or from `onSettled` may still write and call actions. Move the write into a returned cleanup, or mark the signal `ownedWrite`. Production output is unchanged by this.
+- e0f2ad4: `createRoot` calls `init` without allocating a wrapper closure for each root. Creating a root is 10 to 25% faster in a Node microbench; `init` still receives `dispose` as its only argument.
+- 162d46a: In production, an effect that returns a non-function cleanup no longer stores that value. The next run used to call it and halt the reactive system. Development still throws on the run that returned it.
+- cc4b6cf: Hydration no longer discards a served element and calls its ref twice when the ref reads a signal whose value differs from the hydration snapshot. The ref is served the snapshot and runs once on the served element; its read no longer replays the pass that created the element.
+- 510bb8d: A keyed `reconcile` keeps a row's store proxy when the row is matched by key, even if nothing has subscribed to any of its fields. Before, such a row got a new proxy at every reconcile, so a `<For>` over the list disposed and remade the row and lost its local state. Updates to the kept proxy follow normal store flush and transition timing.
+- 50a4bfd: fix(signals): a re-parked reader drops a pending source that was disposed while loading, so a hold whose owner re-ran and replaced that source lands, and a staged error reaches its boundary
+- 46e665b: Stores run on one signal per key a reader touches (the "thin" engine), in place of the deep engine's per-target committed backing and overlay. The public store API is unchanged, with one correctness fix: a store write now becomes visible at the flush that carries it for every reader, the same as a signal write. The deep engine let some reads between a setter and its flush see the new value early; those reads now return the old value until `flush()`. An app with stores ships about 0.65 to 1.3 KB less brotli, and an app without stores ships no store code at all. A push to a list no reader has read yet is now kept for a boundary that resumes after it, so the resume claims the server's rows and catches up (GH3).
+
 ## 2.0.4
 
 ### Patch Changes

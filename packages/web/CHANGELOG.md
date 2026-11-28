@@ -1,5 +1,24 @@
 # @solidjs/web
 
+## 2.0.5
+
+### Patch Changes
+
+- caba92a: A server render under a request event now adds the client entry's assets to the response as a `Link` header: the entry script and its static imports as `rel=preload; as=script; crossorigin`, and their stylesheets as `rel=preload; as=style`. Hosts and CDNs that build `103 Early Hints` from `Link` headers, such as Cloudflare, can then start those downloads before the page arrives. Scripts use `preload` rather than `modulepreload` because Cloudflare and Chrome document only `preload` and `preconnect` for Early Hints. It covers the static build manifest only, so dev renders add nothing, and `noScripts` renders hint only stylesheets.
+
+  `createSSRResponse` now appends the response stub's `Link` values to a `Link` header in `responseInit` instead of replacing it, as it already does for `Server-Timing`.
+
+- 91260dc: During `renderToStream`, an `<Errored>` whose `<Loading>` fails before the shell is sent now draws its error fallback in the shell even when the `<Loading>` is not all of its content: markup between them (`<Errored><section><Loading>`), a sibling beside the `<Loading>`, or another `<Loading>` inside the `<Errored>`. The fallback replaces the `<Errored>`'s whole content, as a client render shows it, and the error is serialized at the `<Errored>`, so the hydrating client adopts that markup without asking again and recovers when the content's inputs change (#4287). The server error hook hears `fallback`. Before, the shell kept the content with the failed `<Loading>`'s position empty (`<b></b>` for `<Errored><b><Loading>`), and the fallback appeared only once the client hydrated, or never without JavaScript. The same applies to the awaited form (`await renderToStream(...)`).
+
+  The fallback is drawn only when it is ready as it renders; the shell never waits for it. A fallback with an async or client-only hole, or one that throws with no `<Errored>` above it, leaves the shell as before: the client renders the failure, and the hook hears `client`. So does an `<Errored>` whose markup has no place of its own in the shell: one that put no element and no `<Loading>` placeholder into the page (text alone, or nothing), or that was itself never inserted. A fallback that throws inside an outer `<Errored>` is that boundary's failure, drawn in the shell the same way. When the hook maps the error to another value, a fallback that reads the error is rendered again with that value; if that second render throws or is not ready, nothing is drawn, although the hook has already heard `fallback`. Whatever the replaced content still had pending goes with it. A `<Loading>` still pending inside it streams nothing, and its head tags (`useHead`) never reach the document head, whether they come from a settled `<Loading>` or from the content itself. A later failure inside the replaced content is still reported to the hook as `client`. After the shell has been sent, a nested `<Loading>` failure still streams an empty fragment and the client renders the failure, as before.
+
+- 8fa0476: Replace stale server-rendered Loading boundary content if its module preload fails and the client renders the boundary again.
+- 8fa0476: Share the hydration node collection logic used for live children and captured marker regions.
+- Updated dependencies [a3df43a]
+- Updated dependencies [91260dc]
+- Updated dependencies [0b703b4]
+  - solid-js@2.0.5
+
 ## 2.0.4
 
 ### Patch Changes
