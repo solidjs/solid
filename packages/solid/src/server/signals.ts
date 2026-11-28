@@ -3478,6 +3478,8 @@ function proxySource(read: Accessor<any>) {
       return Object.keys(read() || {});
     },
     getOwnPropertyDescriptor(_, property) {
+      const source = Object(read() || {});
+      if (!Object.hasOwn(source, property) && !(property in source)) return undefined;
       return {
         configurable: true,
         enumerable: true,
