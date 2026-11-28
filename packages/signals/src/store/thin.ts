@@ -14,8 +14,10 @@ import {
   CONFIG_MANUAL_WRITE,
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
+  REACTIVE_LANE_DIRTY,
   CONFIG_NO_SNAPSHOT,
   REACTIVE_RECOMPUTING_DEPS,
+  REACTIVE_ZOMBIE,
   CONFIG_SLOT_NODE,
   CONFIG_OVERRIDE,
   CONFIG_STAGED_ERROR,
@@ -873,8 +875,23 @@ function holdWithDerive(t: Target, node: Signal<any>): void {
     node._pendingValue !== NOT_PENDING &&
     !(node._config & CONFIG_OVERRIDE)
   ) {
-    list(node, passLane);
+    const lane = passLane;
+    list(node, lane);
     node._config |= CONFIG_OVERRIDE;
+    // A leaf's notified readers re-derive as the lane's work, as `laneDirty` marks them.
+    if (node !== t.k)
+      for (let s = node._subs; s !== null; s = s._nextSub) {
+        const c = s._sub;
+        const tx = c._x?._transaction;
+        if (
+          tx?._lane
+            ? tx === lane ||
+              (tx._links !== null && tx._links === lane._links) ||
+              c._flags & REACTIVE_ZOMBIE
+            : (c as any)._type
+        )
+          c._flags |= REACTIVE_LANE_DIRTY;
+      }
     return;
   }
   if (
