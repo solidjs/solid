@@ -314,7 +314,7 @@ export interface Transaction {
    * the seam. */
   _nodes: Signal<any>[];
   /** Stashed effect queues (render, user): run ahead of the landing flush's. */
-  _queues: [QueueCallback[], QueueCallback[]];
+  _queues: [QueueItem[], QueueItem[]];
   /** Render effects that read a held node as committed (A15's stale
    * readers): re-derived after the landing. One entry per pass. */
   _reruns: Computed<any>[];
@@ -886,6 +886,8 @@ export function setEffectCallback(
 }
 
 export type QueueCallback = (type: number) => void;
+/** A queued run: a callback, or an effect node `runQueue` hands to `_runEffect`. */
+type QueueItem = QueueCallback | Computed<any>;
 
 export function schedule() {
   if (halted) {
@@ -1002,11 +1004,11 @@ export interface IQueue {
 }
 
 export class GlobalQueue implements IQueue {
-  _queues: [QueueCallback[], QueueCallback[]] = [[], []];
+  _queues: [QueueItem[], QueueItem[]] = [[], []];
   _running: boolean = false;
   declare static _update: (el: Computed<unknown>) => void;
   declare static _dispose: (el: Computed<unknown>, self: boolean, zombie?: boolean) => void;
-  declare static _runEffect: (el: Computed<unknown>) => void;
+  declare static _runEffect: (el: Computed<any>, type: number) => void;
   /** A slot node's truth is in flight (its family's derive — store/store.ts). */
   declare static _slotFlight: ((n: Signal<any>) => boolean) | undefined;
   /** A store guess written by a derive re-asking in another hold's lane:
@@ -1222,7 +1224,7 @@ export class GlobalQueue implements IQueue {
     // This flush's own runs, the lanes' reveals, and the landings' held runs
     // are collected apart and ordered below.
     const own = this._queues;
-    let lanes: [QueueCallback[], QueueCallback[]] | null = null;
+    let lanes: [QueueItem[], QueueItem[]] | null = null;
     // The passes that read this frame's stagings as the screen read held
     // writes if it parked: the lane seam re-derives them on the committed
     // world (a lane's runs wait this round).
@@ -1304,7 +1306,7 @@ export class GlobalQueue implements IQueue {
       runQueue(effects, type);
     }
   }
-  enqueue(type: number, fn: QueueCallback, lane: Transaction | null = passLane): void {
+  enqueue(type: number, fn: QueueItem, lane: Transaction | null = passLane): void {
     // Lane work's runs are the lane's: they run at its reveal, not with
     // the frame (which may park). A lane pass that read the frame's own
     // staging is the frame's (`recompute` passes null): its run waits with
@@ -1617,13 +1619,10 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
   }
 }
 
-/** An effect owes a run: marked, and its bound runner queued in its phase. */
+/** An effect owes a run: marked, and queued in its phase. */
 export function queueEffectRun(node: any): void {
   node._modified = true;
-  globalQueue.enqueue(
-    node._type,
-    (node._boundRunEffect ??= GlobalQueue._runEffect.bind(null, node))
-  );
+  globalQueue.enqueue(node._type, node);
 }
 
 /** One lane, or two of one link group (#3335): one reveal unit. */
@@ -1859,16 +1858,19 @@ export function flush<T>(fn?: () => T): T | void {
  * two effects of one synchronous queue (#4235). */
 export let queueEvent: unknown = ANY_EVENT;
 
-function runQueue(queue: QueueCallback[], type: number): void {
+function runQueue(queue: QueueItem[], type: number): void {
   if (__DEV__) {
     const prev = queueEvent;
     queueEvent = dispatchingEvent();
     try {
-      for (let i = 0; i < queue.length; i++) queue[i](type);
+      for (let i = 0; i < queue.length; i++) runItem(queue[i], type);
     } finally {
       queueEvent = prev;
     }
     return;
   }
-  for (let i = 0; i < queue.length; i++) queue[i](type);
+  for (let i = 0; i < queue.length; i++) runItem(queue[i], type);
+}
+function runItem(item: QueueItem, type: number): void {
+  typeof item === "function" ? item(type) : GlobalQueue._runEffect(item, type);
 }

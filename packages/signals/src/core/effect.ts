@@ -59,7 +59,6 @@ export interface Effect<T> extends Computed<T>, Owner {
   _modified: boolean;
   _prevValue: T | undefined;
   _type: number;
-  _boundRunEffect?: (type: number) => void;
 }
 
 /**
@@ -97,7 +96,7 @@ export function effect<T>(
     ? applyStaged(node)
     : node._pendingValue === NOT_PENDING &&
       (node._x?._transaction?._lane || node._type === EFFECT_USER || options?.schedule
-        ? globalQueue.enqueue(node._type, runEffect.bind(null, node), node._x?._transaction)
+        ? globalQueue.enqueue(node._type, node, node._x?._transaction)
         : // Type 0: the synchronous first render, not a queued run (D-19).
           runEffect(node, 0));
   if (__DEV__ && !node._parent) {
@@ -299,7 +298,7 @@ function runEffect(node: Effect<any>, type: number): void {
   if (__OBSERVE__ && attrHooks !== null) attrHooks.effectRunEnd(node);
 }
 
-GlobalQueue._runEffect = runEffect as (el: Computed<unknown>) => void;
+GlobalQueue._runEffect = runEffect as (el: Computed<any>, type: number) => void;
 
 export interface TrackedEffect extends Computed<void> {
   _modified: boolean;
