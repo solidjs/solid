@@ -246,13 +246,9 @@ for (const form of forms) {
       await tick();
       expect(isPending(h.read)).toBe(true);
       // The displayed slot's newest value is the guess, until the commit:
-      // `latest` keeps it as the screen and untracked reads do (D-34,
-      // decision 3 of 2026-11-05, #4689; built 2026-11-07 for a signal and
-      // a superseded keyed row). The truth `[]` is its staging, which
-      // derivations re-derive from. A store whose correction folded the
-      // lane (rows removed) still reads the world whole through `latest`
-      // (not built: kept rows beside the truth's length would tear).
-      expect(latest(h.read)).toEqual(form === "signal" ? ["dana", "mine (sending)"] : []);
+      // `latest` keeps it as the screen and untracked reads do (D-22, D-34).
+      // The truth `[]` is its staging, which derivations re-derive from.
+      expect(latest(h.read)).toEqual(["dana", "mine (sending)"]);
       expect(h.read()).toEqual(["dana", "mine (sending)"]);
 
       h.server.res({});

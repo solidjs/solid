@@ -633,13 +633,7 @@ export function slot(
       const flying = pending; // (quiet re-asks are the verdict's business, not the slot's)
       const parent = l._parent ?? l;
       const row = latest ? "Vl5" : "Vp1";
-      if (guess)
-        return pred(
-          row,
-          latest && l.folded ? (staged ? SLOT_P : SLOT_C) : SLOT_LV,
-          tr ? MARK_AH : 0,
-          parent
-        );
+      if (guess) return pred(row, SLOT_LV, tr ? MARK_AH : 0, parent);
       // A derivation with nothing in either view (born in the lane, its first
       // flight up, #4362 #4363): read as any uninitialized node — NotReady in
       // flight, else its staging or screen (F-9), the reader not moved into the

@@ -360,13 +360,10 @@ async function buildFold(setup: (todos: Row[]) => void = () => {}) {
 }
 
 describe("held truth is masked from lane passes only (store fold, #3568 shape held past the landing)", () => {
-  it("mid-hold: untracked keeps the optimistic frame, latest() shows the staged world whole", async () => {
+  it("mid-hold: untracked and latest() keep the optimistic frame (D-22, D-34)", async () => {
     const h = await buildFold();
     expect(render(h.todos)).toBe("1,2,3 len=3");
-    // D-34's displayed-guess clause (#4689, built 2026-11-07 for a signal
-    // and a superseded keyed row) is not built for a folded arrangement:
-    // `latest` of it still shows the world whole.
-    expect(latest(() => render(h.todos))).toBe("1,2,3,4 len=4");
+    expect(latest(() => render(h.todos))).toBe("1,2,3 len=3");
     expect(h.frames.at(-1)).toBe("1,2,3 len=3");
     await h.T.release();
     expect(h.frames.at(-1)).toBe("1,2,3,4 len=4");

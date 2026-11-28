@@ -327,6 +327,26 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
 
 ## 7. Decision log
 
+- 2026-11-27: **D-34's `latest` clause for a folded keyed arrangement**
+  (decision 3, #5234). verdict.ts's guess arm served `latest` of a lane a
+  correction folded under (`Transaction.folded`) the truth beneath, because
+  keeping the guess per leaf tore. Since #4906 a keyed list's arrangement
+  (its rows in order, its length: every index read is `t.k`, thin.ts
+  `keyNode`) is one node, so the general guess arm (`latestOf`) keeps it
+  whole; the special case is gone. The rows' fields are their own slots
+  (D-33) and `latest` of them reads the newest answer, the truth (D-22), as
+  before and as with `key: null`. Keeping a kept row's fields at the screen
+  instead would need the read's path: a raw row shared by two lists is one
+  proxy with one field node, and a first-parent rule made the answer depend
+  on which list reached the row first. Effects: every other guess in the folded
+  lane (a scalar, a positional store, an optimistic field) now reads its
+  guess through `latest` too, since the old arm was lane-wide; four #4906
+  pins, #4336's two store forms and held-truth-lane-only flipped to the
+  displayed guess; the seat shadow's
+  Vl5 row predicts SLOT_LV for every guess. Not covered: a field guess
+  written before the removal in one setter leaves no lane guess to fold (as
+  on main); a `latest` render effect over a kept guess when the commit
+  lands nothing on it (#5240, also for a signal).
 - 2026-11-21: **A reader waiting only on re-asks follows a guess it reads**
   (D-34's new sentences). When a guess is written, `laneDirty`
   (scheduler.ts) seats the readers that are already waiting, before their
@@ -750,11 +770,12 @@ primitive family` (both halves) +15 B brotli / +157 B minified. Suites,
   reader shows the truth at the commit and not a frame later. Built for a
   signal and for a superseded keyed row; seven pins flipped from "latest
   answers the truth" to the displayed guess (#4336's signal form, #4329,
-  #3698, #3331's entangled and provenance cases). Not built for a lane a
-  correction folded under (rows removed, `Transaction.folded`): `latest`
-  of a folded guess reads the world whole as before — kept rows beside the
-  truth's length tore inside one `latest` (#4336's store forms) when tried
-  per leaf; the arrangement needs to be kept as a whole or not at all.
+  #3698, #3331's entangled and provenance cases). Not built then for a lane
+  a correction folded under (rows removed, `Transaction.folded`; built
+  2026-11-27, see that entry): `latest` of a folded guess read the world
+  whole as before — kept rows beside the truth's length tore inside one
+  `latest` (#4336's store forms) when tried per leaf; the arrangement needs
+  to be kept as a whole or not at all.
   +25 B brotli on the isPending/latest chunk, 0 on the core floor.
 
 - 2026-07-17: **A18 store corollary — per-transaction optimistic layer**

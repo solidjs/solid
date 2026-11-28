@@ -213,19 +213,17 @@ function fold(el: any, truth: unknown): boolean {
   joinFuture(resolveTx(l._parent ?? l));
   return true;
 }
-function foldedRead(c: Computed<any> | null, el: any): unknown {
-  if (c !== null) {
-    if (
-      !(el._config & CONFIG_GUESS) ||
-      passLane !== null ||
-      (c as any)._type === EFFECT_RENDER ||
-      c._config & CONFIG_CHILDREN_FORBIDDEN ||
-      el._host?._fam?.node === c
-    )
-      return NOT_PENDING;
-    const l = txOf(el);
-    joinPassAt(c, resolveTx(l._parent ?? l));
-  }
+function foldedRead(c: Computed<any>, el: any): unknown {
+  if (
+    !(el._config & CONFIG_GUESS) ||
+    passLane !== null ||
+    (c as any)._type === EFFECT_RENDER ||
+    c._config & CONFIG_CHILDREN_FORBIDDEN ||
+    el._host?._fam?.node === c
+  )
+    return NOT_PENDING;
+  const l = txOf(el);
+  joinPassAt(c, resolveTx(l._parent ?? l));
   if (el._pendingValue !== NOT_PENDING) return el._pendingValue;
   return covered(el);
 }

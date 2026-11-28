@@ -355,13 +355,12 @@ export interface Transaction {
   _held: boolean;
   /** Lane: a current truth that differs folded beneath one of its keyed
    * guesses (lanes.ts `laneWrite`, D-34) — the store's reader of it: a
-   * deriving pass outside the lane, or `latest()` (`c` null), is served
-   * the hold's world from its guesses; NOT_PENDING otherwise
-   * (store/optimistic.ts `foldedRead`). Unset until then; not
-   * `_`-prefixed: a new mangled name shifts every later one
-   * (scripts/mangle-props.mjs), which costs the floors bytes for a path
-   * only optimistic stores reach. */
-  folded?: (c: Computed<any> | null, el: Signal<any> | Computed<any>) => unknown;
+   * deriving pass outside the lane is served the hold's world from its
+   * guesses; NOT_PENDING otherwise (store/thinOptimistic.ts `foldedRead`).
+   * Unset until then; not `_`-prefixed: a new mangled name shifts every
+   * later one (scripts/mangle-props.mjs), which costs the floors bytes for a
+   * path only optimistic stores reach. */
+  folded?: (c: Computed<any>, el: Signal<any> | Computed<any>) => unknown;
   /** Opened by a `latest()` read of an unheld flight (verdict.ts
    * `pendingVerdict`): it holds nothing of that flight, and a probe in it is
    * its verdict lane's with no re-run at its landing (F-6, D-23). Unset

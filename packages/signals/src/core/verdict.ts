@@ -448,12 +448,6 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
               (!el._equals || !el._equals(latestOf(el) as any, el._pendingValue as any))))
         )
           probeFound = true;
-        // A folded keyed arrangement reads its world whole; D-22's guess
-        // clause is not built for it (D-22 status).
-        if (latestActive && l.folded) {
-          if (__TEST__) shadowActual(landed(el) ? SLOT_P : SLOT_C);
-          return l.folded(null, el);
-        }
         if (__TEST__) shadowActual(SLOT_LV);
         return latestOf(el);
       }
