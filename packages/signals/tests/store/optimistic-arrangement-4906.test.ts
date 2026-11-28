@@ -12,10 +12,11 @@ import {
 } from "../../src/index.js";
 
 // An optimistic list's arrangement (its rows in order) is one slot (D-33).
-// A truth that lands beneath a guess leaves the guess on screen until its
-// hold commits and is what the graph off screen derives from at once (D-34);
+// A truth that lands beneath a guess leaves the guess on screen, and as
+// `latest`'s value, until its hold commits, and is what the graph off screen
+// derives from at once (D-22, D-34);
 // a second action's guess is made on what the user sees and the two holds
-// entangle. No reader, on screen or off, sees rows of two worlds mixed.
+// entangle. No reader, on screen or off, sees an arrangement of two worlds mixed.
 const tick = async () => {
   for (let i = 0; i < 3; i++) {
     await new Promise(r => setTimeout(r, 0));
@@ -25,22 +26,21 @@ const tick = async () => {
 const show = (l: any[]) => l.map(r => r.id + (r.v ? r.v : "")).join("");
 
 const second = {
-  "push Z": [(d: any[]) => void d.push({ id: "Z", v: 0 }), "abcXZ", "bacY"],
+  "push Z": [(d: any[]) => void d.push({ id: "Z", v: 0 }), "abcXZ"],
   "remove b": [
     (d: any[]) =>
       void d.splice(
         d.findIndex(r => r.id === "b"),
         1
       ),
-    "acX",
-    "bacY"
+    "acX"
   ],
   // A field guess is its row's, beside either arrangement.
-  "set c.v": [(d: any[]) => void (d.find(r => r.id === "c").v = 7), "abc7X", "bac7Y"],
-  reverse: [(d: any[]) => void d.reverse(), "Xcba", "bacY"]
+  "set c.v": [(d: any[]) => void (d.find(r => r.id === "c").v = 7), "abc7X"],
+  reverse: [(d: any[]) => void d.reverse(), "Xcba"]
 } as const;
 
-for (const [name, [edit, shown, ahead]] of Object.entries(second))
+for (const [name, [edit, shown]] of Object.entries(second))
   it(`a second guess (${name}) over a guess a landing already corrected`, async () => {
     let server: any[] = [
       { id: "a", v: 0 },
@@ -91,16 +91,16 @@ for (const [name, [edit, shown, ahead]] of Object.entries(second))
     server = ["b", "a", "c", "Y"].map(id => ({ id, v: 0 }));
     refresh(list as any);
     await tick();
-    expect(frame()).toEqual(["abcX", "abcX/4", "bacY"]);
+    expect(frame()).toEqual(["abcX", "abcX/4", "abcX"]);
     const pB = B();
     await tick();
-    expect(frame()).toEqual([shown, `${shown}/${shown.replace("7", "").length}`, ahead]);
+    expect(frame()).toEqual([shown, `${shown}/${shown.replace("7", "").length}`, shown]);
     endA();
     await pA;
     await tick();
     // Entangled with B through the arrangement (or, for the field guess,
     // through the list its setter navigated): nothing commits yet.
-    expect(frame()).toEqual([shown, `${shown}/${shown.replace("7", "").length}`, ahead]);
+    expect(frame()).toEqual([shown, `${shown}/${shown.replace("7", "").length}`, shown]);
     endB();
     await pB;
     await tick();

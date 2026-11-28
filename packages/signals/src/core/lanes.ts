@@ -196,7 +196,7 @@ export function rerun(n: Signal<any>, t: Transaction): void {
   for (let s = n._subs; s !== null; s = s._nextSub) staleReader(s._sub, t);
 }
 /** A guess's own truth is in flight: the node's own refetch — or, a store
- * leaf's, its family's derive (the slot's flight; store/optimistic.ts
+ * leaf's, its family's derive (the slot's flight; store/thinOptimistic.ts
  * installs the resolver). A17: the guess stands in for the flight. */
 export function inFlight(n: Signal<any>): unknown {
   return (
@@ -654,7 +654,7 @@ export const readGuesses: unknown[] = [];
 export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   const guess = el._config & CONFIG_GUESS;
   const l = txOf(el);
-  // A lane a correction folded under (D-34): store/optimistic.ts reads it.
+  // A lane a correction folded under (D-34): store/thinOptimistic.ts reads it.
   // Before the authoritative arm: an `until` outside the lane reads the
   // same truth there, and joins the hold it folded into — its posture over
   // a foreign hold (D-31), which the truth read alone would not take.
