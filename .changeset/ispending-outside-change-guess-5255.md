@@ -2,6 +2,6 @@
 "@solidjs/signals": patch
 ---
 
-`isPending()` of an optimistic value now reads `true` while a changed input's request is out under a guess (`createOptimistic(() => fetch(sel()))`, an action's `setX(...)` still pending, then `sel` changes). Before, a tracked `isPending` stayed `false` until that request answered (#5255). Only the readers that probe that value with `isPending` re-run: the held screen is unchanged, a reader that reads it through `latest()` (and does not probe it) starts no new request, and a `refresh()` under a guess stays quiet.
+A tracked `isPending()` probe of an optimistic value now reads `true` while the request for a changed input is out under a guess (#5255). This wake runs the current probes of that value. The screen stays held, `latest()`-only readers keep their existing work, and a bare `refresh()` stays quiet.
 
-An async memo that probes the value (`createMemo(() => fetch(isPending(c)))`) now re-runs on that input change and requests again, since its input changed.
+An async memo that directly probes the guess can request again on each input change, even while `isPending()` stays `true`.
