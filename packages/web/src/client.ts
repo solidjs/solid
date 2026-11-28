@@ -247,6 +247,7 @@ const $$EVENT_OWNER = "_$SOLID_EVENT_OWNER";
 const $$EVENT_TUPLE = Symbol();
 const hasOwn = Object.prototype.hasOwnProperty;
 const INNER_OWNED = {};
+const RELEASED_CHECKED = {};
 const delegatedEvents = new Set();
 const delegatedContainers = new Map();
 
@@ -1844,7 +1845,16 @@ export function assign(node, props, skipChildren, prevProps = {}, skipRef = fals
   for (const prop in prevProps) {
     if (!(prop in props)) {
       if (prop === "children") continue;
-      prevProps[prop] = assignProp(node, prop, null, prevProps[prop], skipRef, nodeName);
+      const prev = prevProps[prop];
+      if (prev === RELEASED_CHECKED) continue;
+      prevProps[prop] = assignProp(node, prop, null, prev, skipRef, nodeName);
+      if (
+        prop === "checked" &&
+        nodeName === "INPUT" &&
+        (!spreadHeld || prev !== null) &&
+        !isHydrating(node)
+      )
+        prevProps[prop] = RELEASED_CHECKED;
     }
   }
   for (const prop in props) {
@@ -1852,7 +1862,15 @@ export function assign(node, props, skipChildren, prevProps = {}, skipRef = fals
       if (!skipChildren) insertExpression(node, normalize(props.children, undefined, false));
       continue;
     }
-    prevProps[prop] = assignProp(node, prop, props[prop], prevProps[prop], skipRef, nodeName);
+    const prev = prevProps[prop];
+    prevProps[prop] = assignProp(
+      node,
+      prop,
+      props[prop],
+      prev === RELEASED_CHECKED ? null : prev,
+      skipRef,
+      nodeName
+    );
   }
 }
 
