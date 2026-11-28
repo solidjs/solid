@@ -516,6 +516,27 @@ describe("Tagged JSX Integration Tests", () => {
   });
 
   describe("Custom Components", () => {
+    it("preserves nested children when a component copies its props", () => {
+      const [label, setLabel] = createSignal("first");
+      const Wrapper = (props: { children: unknown }) => {
+        const copied = createMemo(() => ({ ...props }));
+        return html`<section>${() => copied().children}</section>`;
+      };
+      const host = document.createElement("div");
+      const dispose = render(() => html`<${Wrapper}><span>${label}</span><//>`, host);
+
+      const child = host.querySelector("section > span");
+      expect(child?.textContent).toBe("first");
+      setLabel("second");
+      flush();
+      expect(child?.textContent).toBe("second");
+
+      dispose();
+      setLabel("after disposal");
+      flush();
+      expect(child?.textContent).toBe("second");
+    });
+
     it("lets nested children override a function-valued children prop", () =>
       createRoot(dispose => {
         const Comp = (props: { children: unknown }) => props.children;
