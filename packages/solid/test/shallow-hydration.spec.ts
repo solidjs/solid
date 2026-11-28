@@ -1,12 +1,8 @@
 /** @vitest-environment jsdom */
 import { afterEach, describe, expect, test } from "vitest";
 import { createRoot, flush } from "@solidjs/signals";
-import {
-  enableHydration,
-  sharedConfig,
-  createStore,
-  createOptimisticStore
-} from "../src/client/hydration.js";
+import { enableHydration, sharedConfig } from "../src/client/hydration.js";
+import { createStore, createOptimisticStore } from "../src/client/store.js";
 enableHydration();
 function startHydration(data: Record<string, any>) {
   sharedConfig.hydrating = true;

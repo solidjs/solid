@@ -3209,6 +3209,15 @@ module.exports = [
     alias
   },
   {
+    name: "app: CSR whose lazy route uses createStore/createOptimisticStore/createProjection",
+    // 2026-11-27 (new, over main @ 510bb8d01): the store facades ship in their own file
+    // (solid.store.js), so the store engine follows the lazy route: 15.80 KB measured, 27.85 KB with one flat solid.js.
+    path: "csr-lazy-store-app.js",
+    limit: "15.81 KB",
+    capMinified: 42906,
+    alias
+  },
+  {
     name: "app: CSR, observe tier (same app on the `observe` artifacts)",
     // The CSR scenario resolved through the `observe` condition. The delta
     // against the prod CSR scenario is the tier's retained cost.

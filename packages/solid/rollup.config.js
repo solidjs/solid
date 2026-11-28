@@ -65,6 +65,22 @@ const externalizeAdapterHelpers = {
   }
 };
 
+// Store facades as a sibling file (a manualChunks chunk would pull hydration.ts in) so lazy routes keep their stores.
+const linkTo = (importer, source, id) => ({
+  name: "link-store-file",
+  resolveId(s, from) {
+    return from && importer.test(from) && s === source ? { id, external: true } : null;
+  }
+});
+const splitStores = (name, isObserve) => [
+  build("src/index.ts", name, client, false, isObserve, [
+    linkTo(/[\\/]src[\\/]index\.ts$/, "./client/store.js", `./${name}.store.js`)
+  ]),
+  build("src/client/store.ts", `${name}.store`, client, false, isObserve, [
+    linkTo(/[\\/]client[\\/]store\.ts$/, "./hydration.js", `./${name}.js`)
+  ])
+];
+
 const client = ["@solidjs/signals"];
 const server = ["@solidjs/signals", "stream"];
 // The refresh runtime imports the main entry ("solid-js", and its seams
@@ -74,12 +90,12 @@ const server = ["@solidjs/signals", "stream"];
 const refresh = ["solid-js", "solid-js/internal", "@solidjs/signals"];
 
 export default [
-  build("src/index.ts", "solid", client, false, false),
+  ...splitStores("solid", false),
   // Observe client build: component roots carry their `_name` label and flow
   // controls name their memos, so `ownerPath` and attribution see the
   // component tree; every dev-only check folds out. Selected by the `observe`
   // condition nested under `browser`.
-  build("src/index.ts", "solid.observe", client, false, true),
+  ...splitStores("solid.observe", true),
   build("src/index.ts", "solid.dev", client, true, true),
   // Server builds. `src/server/` has no wiring sites yet, so server.observe.*
   // differs from server.* only in exporting a live OBSERVE — it exists so

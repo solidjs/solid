@@ -317,6 +317,11 @@ room example's `/`), and it is a **prerequisite for B.2 and B.3** — the materi
 `staticElement` are welded into flat files today, so a lazy import would lazy-load a facade and
 leave the engine eager.
 
+**Store half landed 2026-11-27:** the store facades moved to `client/store.ts`, built as a
+sibling `dist/solid.store.js` rather than with `preserveModules`, which the facades did not need.
+A lazy route's stores now leave the entry (size scenario "app: CSR whose lazy route uses
+createStore/…": 27.85 → 15.80 KB). `@solidjs/web` is still one flat file.
+
 ### D. The server-driven preload seam (one mechanism for B.2, B.3, E)
 
 The SSR render records "this document needs client module X" (a trace was serialized; a
