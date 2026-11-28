@@ -1670,8 +1670,13 @@ export function commitPendingNode(n: Signal<any> & Partial<Computed<unknown>>): 
     (n._statusFlags! & STATUS_PENDING) !== 0 &&
     (n._pendingValue === NOT_PENDING || superseded(n as Computed<unknown>));
   const err = n._config & CONFIG_STAGED_ERROR;
-  // An answer commits: the error it replaces leaves the display (D-41).
-  if (!inFlight && n._x) n._x._shownError = null;
+  // An answer commits: the error it replaces leaves the display (D-41). A
+  // quiet re-ask's classification survives its landing and dies here too
+  // (A19 exc. 2, #3178): verdict-quiet through the reveal. (The sweep of a
+  // node still in flight is not a landing.) Not only with a staged value: a
+  // store derive's landing stages nothing on the node (the leaves took it),
+  // and a flag left set read the next new question as a re-ask (#5253).
+  if (!inFlight && n._x) ((n._x._shownError = null), (n._x._reask = false));
   n._config = inFlight
     ? (n._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_INPUTS_PUBLISHED
     : n._config &
@@ -1694,11 +1699,9 @@ export function commitPendingNode(n: Signal<any> & Partial<Computed<unknown>>): 
   } else if (applyStaged(n)) {
     // A node born staged (recompute) initializes at this commit.
     n._statusFlags! &= ~STATUS_UNINITIALIZED;
-    // A quiet re-ask's classification survives its landing and dies with
-    // the landed value's commit (A19 exc. 2, #3178): verdict-quiet through
-    // the reveal. (The sweep of a node still in flight is not a landing.)
-    // The A28 stash goes with it.
-    if (n._x != null) ((n._x._reask = false), (n._x._flushed = NOT_PENDING));
+    // The A28 stash goes with the landed value's commit (its `_reask` went
+    // above).
+    if (n._x != null) n._x._flushed = NOT_PENDING;
     // An effect with a staged value was born held (L2): its first run is
     // this commit's, not its creation's (A29) — queue it now.
     if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) queueEffectRun(n);
