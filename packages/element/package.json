@@ -30,8 +30,8 @@
     "component-register": "^0.8.7"
   },
   "peerDependencies": {
-    "solid-js": "^2.0.4",
-    "@solidjs/web": "^2.0.4"
+    "solid-js": "^2.0.5",
+    "@solidjs/web": "^2.0.5"
   },
   "devDependencies": {
     "solid-js": "workspace:*",
