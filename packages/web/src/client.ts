@@ -1495,6 +1495,7 @@ export function ref(
 
 export function ref(fn, element) {
   const resolved = untrack(fn);
+  if (resolved === undefined) return;
   // A render effect's callback at creation (#4761): untracked, in the
   // creating pass. Always through `runRefCallback` so a read of a born-held
   // staged memo by a ref born into that hold serves its staged value (#4767)

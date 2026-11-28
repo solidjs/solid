@@ -3,6 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test, vi } from "vitest";
+import { render } from "@solidjs/web";
 import {
   createRoot,
   createSignal,
@@ -126,6 +127,32 @@ describe("Basic element attributes", () => {
     expect(el()).toBeInstanceOf(HTMLDivElement);
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  test("forwards an optional ref through a const alias", () => {
+    function Button(props: { ref?: JSX.Ref<HTMLButtonElement> }) {
+      const forwarded = props.ref;
+      return <button ref={forwarded}>Save</button>;
+    }
+
+    const container = document.createElement("div");
+    const callback = vi.fn<(element: HTMLButtonElement) => void>();
+    const dispose = render(
+      () => (
+        <>
+          <Button />
+          <Button ref={callback} />
+        </>
+      ),
+      container
+    );
+    try {
+      expect(container.innerHTML).toBe("<button>Save</button><button>Save</button>");
+      expect(callback).toHaveBeenCalledTimes(1);
+      expect(callback.mock.calls[0][0]).toBe(container.lastElementChild);
+    } finally {
+      dispose();
+    }
   });
 
   test("callback ref runs in its creator's context, like a render effect callback (#4761)", () => {
