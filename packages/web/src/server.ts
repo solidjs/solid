@@ -498,7 +498,7 @@ function resolveAssets(moduleUrl, manifest) {
   return assets;
 }
 
-function registerEntryAssets(manifest) {
+function registerEntryAssets(manifest, noScripts) {
   // Resolver manifests can't be enumerated for entries; consumers that want
   // SSR'd entry assets resolve their entry key themselves.
   if (!manifest || typeof manifest === "function" || typeof manifest.resolve === "function") return;
@@ -517,10 +517,43 @@ function registerEntryAssets(manifest) {
         // js[0] is the entry itself, which the document loads with its own <script>;
         // preload only its static import closure.
         for (let i = 1; i < assets.js.length; i++) ctx.registerAsset("module", assets.js[i], true);
+        appendEntryLinkHeader(assets, noScripts);
       }
       return;
     }
   }
+}
+
+// Header values must be ASCII, and `<`/`>` would end the link target early.
+function linkTarget(url) {
+  return `<${url.replace(/[^!-~]|[<>]/gu, encodeLinkChar)}>`;
+}
+
+function encodeLinkChar(c) {
+  try {
+    return encodeURIComponent(c);
+  } catch {
+    // A lone surrogate has no UTF-8 form.
+    return "%EF%BF%BD";
+  }
+}
+
+// CDNs such as Cloudflare build 103 Early Hints from `Link` headers, honoring only preload/preconnect.
+function appendEntryLinkHeader(assets, noScripts) {
+  const response = peekRequestEvent()?.response;
+  if (!response || response.committed || !response.headers) return;
+  const headers = response.headers;
+  const existing = headers.get("link") || "";
+  const links = [];
+  const add = (url, params) => {
+    const target = linkTarget(url);
+    if (!existing.includes(target)) links.push(`${target}; ${params}`);
+  };
+  for (let i = 0; i < assets.css.length; i++) add(assets.css[i], "rel=preload; as=style");
+  if (!noScripts)
+    for (let i = 0; i < assets.js.length; i++)
+      add(assets.js[i], "rel=preload; as=script; crossorigin");
+  if (links.length) headers.append("link", links.join(", "));
 }
 
 // ---- Asset Tracking ----
@@ -1883,7 +1916,7 @@ export function renderToString(code, options = {}) {
     }
   };
   applyAssetTracking(sharedConfig.context, tracking, manifest, noScripts);
-  registerEntryAssets(manifest);
+  registerEntryAssets(manifest, noScripts);
   // The trace this render belongs to (see `getTraceContext`): the request's
   // under a request scope, the render's own otherwise — cleared with the
   // render's dispose so a later read outside any render does not find a
@@ -3360,7 +3393,7 @@ export function renderToStream(code, options = {}) {
   // (below) so a read outside any render never finds a stale one.
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
   render = timeDocument(context, context.trace, "stream", requestEvent);
-  registerEntryAssets(manifest);
+  registerEntryAssets(manifest, noScripts);
   context.writer = createHydrationWriter(context, () => !completed);
 
   // The request's abort is a disconnect the transport could not report (see
@@ -7182,6 +7215,7 @@ function mergeStubHeaders(target, stub) {
   if (!stub) return target;
   stub.headers.forEach((value, key) => {
     if (key === "server-timing") mergeServerTiming(target, value);
+    else if (key === "link") target.append(key, value);
     else if (key !== "set-cookie") target.set(key, value);
   });
   const setCookies = stub.headers.getSetCookie ? stub.headers.getSetCookie() : [];
