@@ -5,7 +5,7 @@
   "fixed": [],
   "linked": [["solid-js", "babel-preset-solid"]],
   "access": "public",
-  "baseBranch": "main",
+  "baseBranch": "1.x",
   "updateInternalDependencies": "patch",
   "ignore": []
 }
