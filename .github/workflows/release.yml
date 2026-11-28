@@ -1,0 +1,51 @@
+name: Release
+
+# Publishes the 1.x line from CI with npm trusted publishing (OIDC), so the
+# packages carry provenance. The file name matches the release workflow on
+# main, because npm matches a trusted publisher by workflow file name.
+on:
+  push:
+    branches:
+      - 1.x
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          registry-url: "https://registry.npmjs.org"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Opens a "Release packages (1.x)" pull request while changesets are
+      # pending. Once that pull request merges, runs `pnpm run publish`
+      # (build, types, then publish-solid-js.mjs and `changeset publish`).
+      - name: Create version pull request or publish
+        uses: changesets/action@v1
+        with:
+          version: pnpm exec changeset version && pnpm install --lockfile-only
+          publish: pnpm run publish
+          title: Release packages (1.x)
+          commit: Version packages (1.x)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
