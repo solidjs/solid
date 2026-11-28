@@ -903,7 +903,10 @@ function updateIfNecessary(el: Computed<unknown>): void {
     }
   }
 
-  if (el._flags & REACTIVE_DIRTY || (el._x?._error && el._time < clock && !el._x?._inFlight)) {
+  if (
+    el._flags & REACTIVE_DIRTY ||
+    (el._statusFlags & STATUS_PENDING && el._x?._error && el._time < clock && !el._x?._inFlight)
+  ) {
     recompute(el);
   }
 
