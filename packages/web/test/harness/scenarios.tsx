@@ -29,6 +29,7 @@ import {
   onSettled,
   createProjection,
   createStore,
+  createUniqueId,
   merge,
   omit,
   Show,
@@ -53,6 +54,7 @@ import {
   isServer,
   ssrElement,
   useHead,
+  HydrationScript,
   type JSX
 } from "@solidjs/web";
 import { makeRows, TriggerList, forms, type Row } from "./polymorphic.jsx";
@@ -3396,6 +3398,311 @@ export function preflushNested(shape: PreflushNestedShape, twin = false) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// #5226: a navigation-rail menu-button chain — server/client hydration-id
+// drift leaves the server-rendered button dead after hydration. The chain
+// that found it: custom-element wrappers, a tooltip component whose internal
+// non-keyed <Show> takes its fallback (nothing of the tooltip renders), a
+// dynamic() native button, and unrendered non-keyed <Show> branches that
+// still reserve ids. Every boundary here is a protocol participant.
+let toggleRailMenu!: () => void;
+// The focus primitive the real chain used comes in two allocation shapes,
+// switched per App below (each App sets it on every instantiation, so the
+// shape is deterministic regardless of scenario order in one module).
+let railFocusSignal: (target: () => unknown) => () => boolean;
+
+// The shape the reproduction ships: `isServer` returns early, so the three
+// id consumers below — the onSettled tracked effect and the two
+// event-listener effects — are created on the client only. The client's
+// claim pass then consumes ids the server never did (#5226).
+function createGatedFocusSignal(target: () => unknown) {
+  if (isServer) return () => false;
+  const [isActive, setIsActive] = createSignal(false);
+  onSettled(() => {
+    setIsActive(document.activeElement === target());
+  });
+  createEffect(
+    () => target(),
+    el => {
+      (el as Element | undefined)?.addEventListener?.("blur", () => setIsActive(false), true);
+      return () => undefined;
+    }
+  );
+  createEffect(
+    () => target(),
+    el => {
+      (el as Element | undefined)?.addEventListener?.("focus", () => setIsActive(true), true);
+      return () => undefined;
+    }
+  );
+  return isActive;
+}
+
+// The aligned shape: the same allocations run on both builds — the server's
+// onSettled stub and mock effects consume the same three ids the client's
+// effect nodes consume, so the tree's keys agree and the button claims.
+function createAlignedFocusSignal(target: () => unknown) {
+  const [isActive, setIsActive] = createSignal(false);
+  onSettled(() => {
+    setIsActive(document.activeElement === target());
+  });
+  createEffect(
+    () => target(),
+    el => {
+      (el as Element | undefined)?.addEventListener?.("blur", () => setIsActive(false), true);
+      return () => undefined;
+    }
+  );
+  createEffect(
+    () => target(),
+    el => {
+      (el as Element | undefined)?.addEventListener?.("focus", () => setIsActive(true), true);
+      return () => undefined;
+    }
+  );
+  return isActive;
+}
+
+function RailPlainTooltip(props: { children?: unknown }) {
+  return (
+    <sm-plain-tooltip role="tooltip">
+      <span>{props.children}</span>
+    </sm-plain-tooltip>
+  );
+}
+
+function RailTooltip(props: { variant?: string; tip?: unknown; children?: unknown }) {
+  const [refAnchor, setRefAnchor] = createSignal<unknown>();
+  let refTooltip: unknown;
+  const isPersistent = createMemo(() => false);
+  const [isOpen, setIsOpen] = createSignal(false);
+  const [shouldOpen, setShouldOpen] = createSignal({ open: false, immediately: false });
+  const [isHoveringOverTooltip, setIsHoveringOverTooltip] = createSignal(false);
+  const [isClicking, setIsClicking] = createSignal(false);
+  const isAnchorFocused = railFocusSignal(() => refAnchor());
+  createEffect(
+    () => [shouldOpen(), isOpen(), isClicking(), isHoveringOverTooltip()],
+    ([should, open, clicking, hovering]) => {
+      if (should.immediately) setIsOpen(should.open);
+      else if (should.open && !open && !clicking && !hovering)
+        setShouldOpen({ open: false, immediately: true });
+      return () => undefined;
+    }
+  );
+  const isTooltipVisible = () => Boolean(undefined);
+  const hasAnchorOrTooltipFocus = createMemo(
+    () => isAnchorFocused() && refAnchor() !== undefined && isPersistent()
+  );
+  createEffect(
+    () => [!isPersistent() || isOpen(), hasAnchorOrTooltipFocus(), isTooltipVisible()],
+    ([shouldBeVisible, focused, visible]) => {
+      if (shouldBeVisible && focused !== visible) setShouldOpen({ open: true, immediately: true });
+      return () => undefined;
+    }
+  );
+  const tooltipId = createUniqueId();
+  return (
+    <Show when={props.tip !== undefined} fallback={props.children}>
+      <div ref={setRefAnchor} aria-controls={tooltipId}>
+        {props.children}
+        <sm-tooltip ref={refTooltip} data-variant={props.variant ?? "plain"} id={tooltipId}>
+          {props.tip}
+        </sm-tooltip>
+      </div>
+    </Show>
+  );
+}
+
+function RailMenuButton(props: {
+  ariaLabel: string;
+  ariaLabelSelected: string;
+  title?: string;
+  titleSelected?: string;
+  expanded?: boolean;
+  variant?: string;
+  disabled?: boolean;
+  iconPosition?: string;
+  children?: unknown;
+  onClick?: (event: unknown) => void;
+}) {
+  let ref: any;
+  let refButton: any;
+  const size = () => "small";
+  const labelContent = children(() => props.children);
+  const label = () => (props.expanded ? props.ariaLabelSelected : props.ariaLabel);
+  const title = () => (props.expanded ? props.titleSelected : props.title);
+  const onContextMenu = (event: Event) => event.preventDefault();
+  const ButtonOrAnchor = dynamic(() => "button");
+  return (
+    <RailTooltip
+      variant="plain"
+      tip={title() !== undefined ? <RailPlainTooltip>{title()}</RailPlainTooltip> : undefined}
+    >
+      <sm-icon-button data-width="default">
+        <sm-button
+          ref={ref}
+          data-variant="text"
+          data-size={size()}
+          data-shape={undefined}
+          data-toggle={props.expanded !== undefined ? String(props.expanded) : undefined}
+          data-position={props.iconPosition}
+          onClick={props.onClick}
+          onContextMenu={onContextMenu}
+        >
+          <ButtonOrAnchor
+            ref={refButton}
+            disabled={props.disabled}
+            type="button"
+            role={props.expanded !== undefined ? "switch" : undefined}
+            aria-label={label() ?? title()}
+            aria-checked={props.expanded !== undefined ? String(props.expanded) : undefined}
+          >
+            <md-elevation />
+            <Show when={true}>
+              <md-icon aria-hidden={true}>
+                <Show when={props.expanded} fallback={<i>menu-icon</i>}>
+                  <i>menu-open-icon</i>
+                </Show>
+              </md-icon>
+            </Show>
+            <Show when={labelContent()}>
+              <div class="label">
+                <Show when={typeof labelContent() === "string"} fallback={labelContent()}>
+                  <span>{labelContent()}</span>
+                </Show>
+              </div>
+            </Show>
+            <Show when={props.variant === "outlined"}>
+              <div class="outline" />
+            </Show>
+          </ButtonOrAnchor>
+        </sm-button>
+      </sm-icon-button>
+    </RailTooltip>
+  );
+}
+
+function NavigationRail(props: {
+  show: boolean;
+  ariaLabel: string;
+  menuButton?: Record<string, unknown>;
+  expanded: boolean;
+  modal?: boolean;
+  center?: boolean;
+  hideWhenCollapsed?: boolean;
+  onClickMenuButton?: (event: unknown) => void;
+  children?: unknown;
+}) {
+  let refList: any;
+  const isExpanded = createMemo(prev =>
+    props.show || prev === undefined ? Boolean(props.expanded) : prev
+  );
+  const isModal = createMemo(prev =>
+    props.show || prev === undefined ? Boolean(props.modal) : prev
+  );
+  const isCenter = createMemo(prev =>
+    props.show || prev === undefined ? Boolean(props.center) : prev
+  );
+  const isHideWhenCollapsed = createMemo(prev =>
+    props.show || prev === undefined ? Boolean(props.hideWhenCollapsed) : prev
+  );
+  const hasMenuButton = () => props.menuButton !== undefined;
+  const isHiddenWhenCollapsed = createMemo(
+    () => hasMenuButton() && isModal() && isHideWhenCollapsed()
+  );
+  const isVisuallyExpanded = createMemo(() => isExpanded() || isHiddenWhenCollapsed());
+  return (
+    <sm-navigation-rail
+      role="navigation"
+      aria-label={props.ariaLabel}
+      data-modal={isModal()}
+      data-center={isCenter()}
+      data-always-expanded={isHiddenWhenCollapsed()}
+      data-show={isExpanded() && isHiddenWhenCollapsed()}
+    >
+      <div class="rail-container">
+        <div class="rail" data-expanded={isVisuallyExpanded()}>
+          <md-elevation />
+          <div class="menu-fab">
+            <Show when={hasMenuButton()}>
+              <RailMenuButton
+                {...(props.menuButton as any)}
+                expanded={isExpanded()}
+                onClick={props.onClickMenuButton}
+              />
+            </Show>
+          </div>
+          <div class="center-items">
+            <div ref={refList} tabindex={-1} role="menubar" aria-orientation="vertical" />
+          </div>
+        </div>
+      </div>
+      {props.children}
+    </sm-navigation-rail>
+  );
+}
+
+export function MenuButtonChain() {
+  railFocusSignal = createGatedFocusSignal;
+  const [expanded, setExpanded] = createSignal(false);
+  toggleRailMenu = () => setExpanded(expanded => !expanded);
+  return (
+    <NavigationRail
+      show={true}
+      ariaLabel="Primary"
+      menuButton={{ ariaLabel: "Open menu", ariaLabelSelected: "Close menu" }}
+      expanded={expanded()}
+      modal={false}
+      hideWhenCollapsed={false}
+      onClickMenuButton={() => setExpanded(expanded => !expanded)}
+    >
+      <main>
+        <p>page content</p>
+      </main>
+    </NavigationRail>
+  );
+}
+
+// The document shell the vite plugin's `start` mode renders on both sides:
+// the client hydrates this same tree at the document root.
+export function MenuButtonDocument(props: { children?: unknown }) {
+  return (
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>menu button chain</title>
+        <HydrationScript />
+      </head>
+      <body>{props.children}</body>
+    </html>
+  );
+}
+
+// The same chain with the aligned focus primitive: the server and client
+// allocate the tooltip's three extra ids in the same order, so hydration
+// claims the whole menu-button subtree.
+export function MenuButtonChainAligned() {
+  railFocusSignal = createAlignedFocusSignal;
+  const [expanded, setExpanded] = createSignal(false);
+  toggleRailMenu = () => setExpanded(expanded => !expanded);
+  return (
+    <NavigationRail
+      show={true}
+      ariaLabel="Primary"
+      menuButton={{ ariaLabel: "Open menu", ariaLabelSelected: "Close menu" }}
+      expanded={expanded()}
+      modal={false}
+      hideWhenCollapsed={false}
+      onClickMenuButton={() => setExpanded(expanded => !expanded)}
+    >
+      <main>
+        <p>page content</p>
+      </main>
+    </NavigationRail>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "polymorphic-chain",
@@ -4428,5 +4735,30 @@ export const scenarios: Scenario[] = [
     async: true,
     update: () => setLatestChain(4),
     expectedTextAfterUpdate: "7"
+  },
+  {
+    // #5226: the gated focus primitive leaves the server's id sequence
+    // behind the client's by three, so every keyed claim after the gate
+    // misses and the server-rendered menu button stays unclaimed while the
+    // client builds a detached clone — the button is dead after hydration,
+    // in dev and (silently) in production. Flips when a fix lands.
+    name: "menu-button-chain-5226",
+    App: MenuButtonChain,
+    knownFailure:
+      "#5226 — the gated focus primitive consumes three client-only ids; the menu-button chain misses its keys and stays unclaimed",
+    expectedText: "menu-iconpage content",
+    update: () => toggleRailMenu(),
+    expectedTextAfterUpdate: "menu-open-iconpage content",
+    stableSelector: "sm-navigation-rail, sm-icon-button, sm-button, button, md-icon, main, p"
+  },
+  {
+    // The control: the same chain with the aligned primitive claims the
+    // whole subtree and the button is interactive after hydration.
+    name: "menu-button-chain-aligned-5226",
+    App: MenuButtonChainAligned,
+    expectedText: "menu-iconpage content",
+    update: () => toggleRailMenu(),
+    expectedTextAfterUpdate: "menu-open-iconpage content",
+    stableSelector: "sm-navigation-rail, sm-icon-button, sm-button, button, md-icon, main, p"
   }
 ];
