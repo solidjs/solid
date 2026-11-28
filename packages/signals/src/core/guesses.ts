@@ -248,4 +248,9 @@ function answered(el: Computed<any>): number {
 }
 
 installGuessLayer(guessWrite);
-installGuessHooks(laneOutcome, applyGuessesAt, () => lanes.length !== 0 && laneCorrections());
+installGuessHooks(
+  laneOutcome,
+  applyGuessesAt,
+  () => lanes.length !== 0 && laneCorrections(),
+  guessesWaiting
+);

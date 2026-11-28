@@ -85,6 +85,7 @@ export let laneWriteHook: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | null =
 export let applyGuessesHook: ((parent: Transaction | null) => void) | null = null;
 export let laneSeamsHook: ((t: Transaction | null) => void) | null = null;
 export let laneCorrectionsHook: (() => boolean) | null = null;
+export let guessesWaitingHook: (() => number) | null = null;
 export let endLanesHook: ((u: Transaction) => void) | null = null;
 export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
 /** R5 (verdict.ts: the seam parks a frame flight of a reader that reads
@@ -140,11 +141,13 @@ export function installLaneHooks(
 export function installGuessHooks(
   outcome: NonNullable<typeof laneOutcomeHook>,
   applyGuesses: NonNullable<typeof applyGuessesHook>,
-  corrections: NonNullable<typeof laneCorrectionsHook>
+  corrections: NonNullable<typeof laneCorrectionsHook>,
+  waiting: NonNullable<typeof guessesWaitingHook>
 ): void {
   laneOutcomeHook = outcome;
   applyGuessesHook = applyGuesses;
   laneCorrectionsHook = corrections;
+  guessesWaitingHook = waiting;
 }
 // Boundaries (boundaries.ts): the display consumers between an observer
 // and the root. `catch` — status from a frame reader, nearest boundary
@@ -1076,6 +1079,10 @@ export class GlobalQueue implements IQueue {
       scheduled = dirtyQueue._max >= dirtyQueue._min || pendingNodes.length !== 0;
       this.run(EFFECT_RENDER);
       this.run(EFFECT_USER);
+      // A join after the seam (an action a cleanup or an effect started)
+      // that left no work for another round: the window was this flush's
+      // (D-7). Its slices rejoin it; a later action must not (#5251).
+      if (!scheduled) flushTransaction = null;
       if (__OBSERVE__ && holding) {
         holding = false;
         attrHooks!.holdEnd();
@@ -1232,9 +1239,12 @@ export class GlobalQueue implements IQueue {
       if (stagedReaders.length) stagedReaders.length = 0;
     }
     this._queues = [[], []];
+    // #5239: a late guess's frame waits for its own writes' passes before it
+    // lands — they may find the flight the guess is over (`judgeLate`).
+    let late = guessing ? judgeLate() : null;
     for (let k = transactions.length - 1; k >= 0; k--) {
       const u = transactions[k];
-      if (blocked(u)) continue;
+      if (blocked(u) || (late && resolveTx(late) === u)) continue;
       // A landed transaction holds nothing (#5161): the flush stops calling
       // `u` its own before its lanes end and its commits run. A cleanup an
       // earlier landing ran can have opened it; a callback either step runs
@@ -1244,6 +1254,7 @@ export class GlobalQueue implements IQueue {
       transactions.splice(k, 1);
       endLanesHook?.(u);
       land(u);
+      if (guessing) late = judgeLate() || late;
       // A landing's commits can dispose a zombie a transaction judged above
       // was blocked on (#3463: live "until the commit that disposes it") —
       // judge them again.
@@ -1354,6 +1365,17 @@ export class GlobalQueue implements IQueue {
     }
     return false;
   }
+}
+
+/** #5239: a guess a cleanup's action wrote after this round's seam is judged
+ * in that action's frame, once this round's queued work has run: with work
+ * still queued, the frame (if any) does not land this seam (returned), and
+ * the next seam judges the guess with the holds that work finds. */
+function judgeLate(): Transaction | null {
+  if (guessesWaitingHook!() === 0) return null;
+  if (dirtyQueue._max >= dirtyQueue._min || pendingNodes.length !== 0) return flushTransaction;
+  applyGuessesHook!(flushTransaction && liveTx(flushTransaction));
+  return null;
 }
 
 /** A15's stale readers: a frame whose LAST pass read a held node as
