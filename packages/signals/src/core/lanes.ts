@@ -875,6 +875,11 @@ function endLanes(u: Transaction): void {
   // nobody, so a reader whose current pass was served its guess (`keptEdge`)
   // re-runs with the stale readers, once, with no frame mark (F-6) and no
   // comparator. Listed only once the lanes' end returned: it can throw.
+  // Into `u._reruns`, which `land(u)` drains; the nested calls list none: a
+  // slot is kept only by being re-homed into a lane's parent, and no lane's
+  // parent is a lane (an action's hold, a held node's, a verdict's holder;
+  // `merge` refuses lanes). Were one kept in a lane, `dissolveLane(l, null)`
+  // above commits it and notifies its readers.
   let queued: Set<Computed<any>> | undefined;
   if (guessed && kept)
     for (const n of kept)
