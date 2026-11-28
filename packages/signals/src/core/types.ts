@@ -13,6 +13,9 @@ export interface Link {
   /** The subscriber's `_depGen` when this link was last validated: equal means
    * it is inside the `[deps.._depsTail]` prefix, an O(1) membership test. */
   _gen: number;
+  /** The subscriber's `_depGen` when its pass was served a kept guess
+   * through this link (lanes.ts `keptEdge`, D-34). */
+  _keptGen?: number;
 }
 
 export interface NodeOptions<T> {

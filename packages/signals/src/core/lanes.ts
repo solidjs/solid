@@ -165,7 +165,7 @@ export function landBeneath(n: Signal<any> | Computed<any>, truth: unknown): voi
 /** This module's copy of scheduler.ts `guessing`: its readers here stay
  * foldable when a bundler splits lanes.ts from scheduler.ts into separate
  * chunks (a cross-chunk binding is not folded; the compiled live page). */
-let guessed = false;
+export let guessed = false;
 /** A guess was written (guesses.ts `optimisticWrite`). */
 export function armGuessed(): void {
   guessed = true;
@@ -190,6 +190,15 @@ export const marked = /* @__PURE__ */ new WeakSet<Signal<any>>();
  * displayed slot's newest value is the guess, the truth its staging. */
 export function keptGuess(n: Signal<any> | Computed<any>): boolean {
   return guessed && marked.has(n);
+}
+/** `c`'s pass was served `n`'s kept guess as `latest` (verdict.ts, D-34):
+ * its link to `n` records the pass, for the hold's landing (`endLanes`).
+ * Nothing linked into `c` since `link(n, c)` (a pull of `n` links into `n`):
+ * the edge is `c`'s dep tail, or `n`'s sub tail where `link` kept a
+ * non-consecutive re-read. */
+export function keptEdge(n: Signal<any> | Computed<any>, c: Computed<any>): void {
+  const d = c._depsTail;
+  (d?._dep === n ? d : n._subsTail!)._keptGen = c._depGen;
 }
 /** `n`'s readers are stale readers of `t` (re-derived at its landing). */
 export function rerun(n: Signal<any>, t: Transaction): void {
@@ -854,13 +863,34 @@ function laneSeam(l: Transaction, leaked: boolean): void {
 /** The parent landed: its lanes end, nested first. (None is blocked: a
  * blocked lane blocks its parent.) */
 function endLanes(u: Transaction): void {
-  if (guessed) for (const n of u._nodes) marked.delete(n);
+  let kept: Signal<any>[] | undefined;
+  if (guessed) for (const n of u._nodes) if (marked.delete(n)) (kept ??= []).push(n);
   for (let k = lanes.length - 1; k >= 0; k--) {
     const l = lanes[k];
     if (resolveTx(l._parent!) !== u) continue;
     endLanes(l);
     dissolveLane(l, null);
   }
+  // D-34, #5240: the commit publishes a kept node's staging and notifies
+  // nobody, so a reader whose current pass was served its guess (`keptEdge`)
+  // re-runs with the stale readers, once, with no frame mark (F-6) and no
+  // comparator. Listed only once the lanes' end returned: it can throw.
+  let queued: Set<Computed<any>> | undefined;
+  if (guessed && kept)
+    for (const n of kept)
+      if (
+        n._x!._transaction &&
+        txOf(n) === u &&
+        n._pendingValue !== NOT_PENDING &&
+        (!n._equals || !Object.is(n._pendingValue, n._value))
+      )
+        for (let s = n._subs; s; s = s._nextSub) {
+          const r = s._sub;
+          if (s._keptGen === r._depGen && !queued?.has(r)) {
+            (queued ??= new Set()).add(r);
+            u._reruns.push(r);
+          }
+        }
 }
 
 /** A blocked lane blocks its parent (maintainer, 2026-10-01): the lane's
