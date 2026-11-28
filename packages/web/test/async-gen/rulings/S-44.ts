@@ -8,11 +8,12 @@ export default {
   id: "S-44",
   title: "An outside input change under a guess is held with the guess's hold",
   rules: ["D-34", "F-1"],
-  status: "ruled-not-built",
-  issues: ["#4336"],
+  status: "standing",
+  issues: ["#4336", "#5255"],
   pins: [
     "tests/optimistic-question-change-4336.test.ts",
-    "tests/optimistic-layered-filter-4336.test.ts"
+    "tests/optimistic-layered-filter-4336.test.ts",
+    "tests/ispending-outside-change-guess-5255.test.ts"
   ],
   names: { s0: "sel", m0: "comments" },
   cases: [

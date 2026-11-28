@@ -771,9 +771,20 @@ export function notifyStatus(el: Computed<any>, status: number, error?: any): vo
 
   // A guess is verdict-inert: its own flight is the hold's to wait on, not its
   // readers' (F-9, F-11). An input changed outside the guess's hold asks a
-  // new question, held with that hold (D-34, #4336); a `refresh()` does not.
+  // new question, held with that hold (D-34, #4336), and pending to the
+  // guess's own probes (S-44, #5255); a `refresh()` does not. The probes are
+  // the readers whose `isPending` read this guess since its last such
+  // question (`_probes`, verdict.ts): a `latest()` or plain reader, or a probe
+  // of another node, is not woken (F-6). Each probe records itself again.
   if (guessing && status === STATUS_PENDING && el._config & CONFIG_GUESS) {
     if (passLane === null) joinFuture(el._flags & REACTIVE_REASK ? null : txOf(el)._parent);
+    const ps = el._x!._probes;
+    if (ps && !((el._flags | (pendingSource || el)._flags) & REACTIVE_REASK)) {
+      el._x!._probes = undefined;
+      for (let s = el._subs; s; s = s._nextSub)
+        if (ps.get(s._sub) === s._sub._depGen) enqueueSub(s._sub);
+      schedule();
+    }
     return;
   }
 

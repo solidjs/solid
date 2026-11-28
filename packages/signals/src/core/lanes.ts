@@ -162,10 +162,11 @@ export function landBeneath(n: Signal<any> | Computed<any>, truth: unknown): voi
   n._config |= CONFIG_HELD;
 }
 
-/** This module's copy of scheduler.ts `guessing`: its readers here stay
- * foldable when a bundler splits lanes.ts from scheduler.ts into separate
- * chunks (a cross-chunk binding is not folded; the compiled live page). */
-let guessed = false;
+/** This module's copy of scheduler.ts `guessing`: its readers here and
+ * verdict.ts's probe record stay foldable when a bundler splits lanes.ts
+ * from scheduler.ts into separate chunks (a cross-chunk binding is not
+ * folded; the compiled live page). */
+export let guessed = false;
 /** A guess was written (guesses.ts `optimisticWrite`). */
 export function armGuessed(): void {
   guessed = true;
@@ -442,6 +443,7 @@ export function laneStage(
       // reverted to are void.
       if (guessed && el._config & CONFIG_GUESS) {
         covers.delete(el);
+        el._x!._probes = undefined;
         if (el._x!._revert) ((el._pendingValue = NOT_PENDING), (el._x!._revert = false));
       }
       el._config &= ~CONFIG_GUESS;
@@ -514,6 +516,7 @@ export function dissolveLane(l: Transaction, into: Transaction | null, except?: 
     const truth = guess ? underOf(n) : NOT_PENDING;
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
     n._x!._shown = n._x!._revert = false;
+    if (guessed) n._x!._probes = undefined;
     covers.delete(n);
     if (into === null) {
       // The parent landed: a guess lands the truth beneath it or reverts to

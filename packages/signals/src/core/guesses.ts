@@ -169,6 +169,7 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     if (l._shown) (marked.add(n), (n._config &= ~CONFIG_INPUTS_PUBLISHED));
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
     n._x!._shown = n._x!._revert = false;
+    n._x!._probes = undefined;
     covers.delete(n);
     holdNode(n, parent);
     n._pendingValue = value;
