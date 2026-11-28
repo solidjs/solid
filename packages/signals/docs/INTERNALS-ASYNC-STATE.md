@@ -327,6 +327,49 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
 
 ## 7. Decision log
 
+- 2026-11-28: **A `latest` reader served a kept guess re-runs at the
+  commit** (D-34's `latest` clause, #5240). verdict.ts's held arm serves a
+  tracked `latest` reader a kept guess (`marked`, a shown guess an outside
+  `refresh()` corrected) and links it, but the change it waits for — the
+  guess to the staged truth — is the hold's commit, which publishes the
+  staging and notifies no reader. The reader stayed on the guess beside a
+  screen, an untracked `latest()` and `isPending` that had moved on. Now the
+  arm stamps the reader's link to the kept node with the pass
+  (`Link._keptGen = c._depGen`, lanes.ts `keptEdge`), and the hold's landing
+  (lanes.ts `endLanes`, which already walks the hold's nodes to clear
+  `marked`) lists in `_reruns` each subscriber whose link to a kept node it
+  commits changed carries the subscriber's current `_depGen`.
+  - **Per link, no registry, no flag.** The stamp says which edge of which
+    pass was served the guess. A pass that re-ran since (onto the staging, or
+    away from the node) has a new `_depGen`; an old link a later pass dropped
+    but that is still linked does not match it; a pull that does not
+    recompute (`refresh()` of a memo over `latest()`) keeps it; a disposed
+    reader is unlinked. Nothing is listed before the landing, and a reader of
+    many kept nodes is listed once.
+  - **After the lanes' end.** The kept nodes are collected as `marked` is
+    cleared and their readers listed only once the nested lanes' teardown
+    returned. A teardown that throws (a guess's `equals`) lists nothing on a
+    hold that will not land, and leaves every other hold's stamps in place.
+  - **Folded without the guess layer.** The arm tests
+    `guessed && marked.has(el)` inline: with no optimistic primitive in the
+    bundle `guessed` is a constant and the arm, the stamp and the landing loop
+    fold (the call `keptGuess(el)` is not inlined by the minifier, so the
+    arm used to stay).
+  - **No frame mark (F-6).** The readers go into `_reruns` without
+    REACTIVE_FRAME_READ: `reruns` takes them as verdict readers
+    (CONFIG_VERDICT), so a kept reader never holds an unrelated action's
+    flight it also reads.
+  - **Changed only, no comparator.** The node must be `u`'s and its staging
+    differ from its committed value by same-value (`-0` is not `+0`, `NaN`
+    is `NaN`), or have `equals: false`.
+  - **Rejected:** a per-hold registry of readers (correct, +722 B minified
+    on the store family); a per-pass flag on the reader
+    (REACTIVE_KEPT_READ: a memo pull's tail wipes it, a throwing teardown
+    consumes another hold's, an old link matches it); re-running every
+    `latest()` subscriber of a kept node, which re-runs readers already on
+    the staging (every shown guess dissolving into its hold at the body's
+    end).
+
 - 2026-11-21: **A reader waiting only on re-asks follows a guess it reads**
   (D-34's new sentences). When a guess is written, `laneDirty`
   (scheduler.ts) seats the readers that are already waiting, before their

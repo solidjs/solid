@@ -78,7 +78,9 @@ import { link } from "./graph.js";
 import {
   ahead,
   heldMountUnder,
-  keptGuess,
+  guessed,
+  keptEdge,
+  marked,
   isVerdict,
   screenOf,
   verdictLane,
@@ -522,8 +524,11 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
             watchVerdict(c!);
         }
       if (latestActive && el._pendingValue !== NOT_PENDING) {
-        // A corrected shown guess stays `latest`'s value until the commit (D-34, #4689).
-        if (keptGuess(el) && blocked(t)) {
+        // A corrected shown guess stays `latest`'s value until the commit
+        // (D-34, #4689); the hold's landing re-runs a tracked reader there
+        // (#5240: the commit publishes the staging and notifies nobody).
+        if (guessed && marked.has(el) && blocked(t)) {
+          if (tracked) keptEdge(el, c!);
           if (__TEST__) shadowActual(SLOT_C);
           return el._value;
         }
