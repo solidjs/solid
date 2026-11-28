@@ -498,7 +498,7 @@ function resolveAssets(moduleUrl, manifest) {
   return assets;
 }
 
-function registerEntryAssets(manifest) {
+function registerEntryAssets(manifest, noScripts) {
   // Resolver manifests can't be enumerated for entries; consumers that want
   // SSR'd entry assets resolve their entry key themselves.
   if (!manifest || typeof manifest === "function" || typeof manifest.resolve === "function") return;
@@ -517,10 +517,43 @@ function registerEntryAssets(manifest) {
         // js[0] is the entry itself, which the document loads with its own <script>;
         // preload only its static import closure.
         for (let i = 1; i < assets.js.length; i++) ctx.registerAsset("module", assets.js[i], true);
+        appendEntryLinkHeader(assets, noScripts);
       }
       return;
     }
   }
+}
+
+// Header values must be ASCII, and `<`/`>` would end the link target early.
+function linkTarget(url) {
+  return `<${url.replace(/[^!-~]|[<>]/gu, encodeLinkChar)}>`;
+}
+
+function encodeLinkChar(c) {
+  try {
+    return encodeURIComponent(c);
+  } catch {
+    // A lone surrogate has no UTF-8 form.
+    return "%EF%BF%BD";
+  }
+}
+
+// CDNs such as Cloudflare build 103 Early Hints from `Link` headers, honoring only preload/preconnect.
+function appendEntryLinkHeader(assets, noScripts) {
+  const response = peekRequestEvent()?.response;
+  if (!response || response.committed || !response.headers) return;
+  const headers = response.headers;
+  const existing = headers.get("link") || "";
+  const links = [];
+  const add = (url, params) => {
+    const target = linkTarget(url);
+    if (!existing.includes(target)) links.push(`${target}; ${params}`);
+  };
+  for (let i = 0; i < assets.css.length; i++) add(assets.css[i], "rel=preload; as=style");
+  if (!noScripts)
+    for (let i = 0; i < assets.js.length; i++)
+      add(assets.js[i], "rel=preload; as=script; crossorigin");
+  if (links.length) headers.append("link", links.join(", "));
 }
 
 // ---- Asset Tracking ----
@@ -936,7 +969,7 @@ function registerPreloadLink(tracking, headRegistry, link, nonce) {
 
 function createHeadRegistry() {
   return {
-    pending: [], // { boundary, tags: [raw descriptor (+ peeked link rel)] }
+    pending: [], // { boundary, scope, tags: [raw descriptor (+ peeked link rel)] }
     committed: [], // { seq, tags: [{ tag, props, identity }] } in commit order
     seq: 0,
     uniq: 0,
@@ -953,6 +986,10 @@ function createHeadRegistry() {
 // pre-shell by construction).
 function registerHeadTags(registry, context, tracking, emitResource, nonce, tags) {
   const boundary = context._currentBoundaryId || "";
+  // The registering owner's id: a subtree dropped from the shell drops its
+  // registrations by it (`dropSubtree`).
+  const owner = getOwner();
+  const scope = owner ? owner.id : undefined;
   if (typeof tags === "function") {
     // Reactive group: membership resolves at the boundary's flush, the same
     // moment as prop getters — component-level grouping composes its list
@@ -963,6 +1000,7 @@ function registerHeadTags(registry, context, tracking, emitResource, nonce, tags
     // that is mid-flush is an ordering hazard, so gating is skipped.
     registry.pending.push({
       boundary,
+      scope,
       list: tags,
       resource: (desc, rel) =>
         emitHeadResource(registry, context, tracking, emitResource, nonce, desc, rel)
@@ -1026,7 +1064,7 @@ function registerHeadTags(registry, context, tracking, emitResource, nonce, tags
       );
     }
   }
-  if (replaceable) registry.pending.push({ boundary, tags: replaceable });
+  if (replaceable) registry.pending.push({ boundary, scope, tags: replaceable });
 }
 
 // Shell-attempt readiness pass for root-owned head registrations (called by
@@ -1878,7 +1916,7 @@ export function renderToString(code, options = {}) {
     }
   };
   applyAssetTracking(sharedConfig.context, tracking, manifest, noScripts);
-  registerEntryAssets(manifest);
+  registerEntryAssets(manifest, noScripts);
   // The trace this render belongs to (see `getTraceContext`): the request's
   // under a request scope, the render's own otherwise — cleared with the
   // render's dispose so a later read outside any render does not find a
@@ -2840,16 +2878,13 @@ export function renderToStream(code, options = {}) {
   // client re-renders that subtree from scratch, and a consumer watching
   // request cost wants to know how much was thrown away. A leaf fragment's
   // failure alone is the render error's own finding, not this one.
-  const abandonSubtree = (key, error) => {
-    // A boundary created where no owner id was current (inside an async
-    // memo's continuation, #4242) registers under an undefined key. It is
-    // nobody's descendant and has no addressable subtree of its own; reading
-    // its length would turn one fragment's failure into a whole-request one.
-    if (key == null) return;
+  // Releases the fragments and serialized values still pending under `key`
+  // (its descendants; `self`: `key` too). Returns how many of each.
+  const releaseSubtree = (key, self) => {
     let fragments = 0;
     let serialized = 0;
     for (const [k, entry] of registry) {
-      if (k != null && k.length > key.length && k.startsWith(key)) {
+      if (k != null && (self || k.length > key.length) && k.startsWith(key)) {
         registry.delete(k);
         entry.resolve();
         fragments++;
@@ -2873,6 +2908,15 @@ export function renderToStream(code, options = {}) {
     // that triggers the fresh render) and the read computes. A frame sink
     // has no reader for these records.
     if (unregister.length && !options.sink) pushTask(unregister.join(";"));
+    return { fragments, serialized };
+  };
+  const abandonSubtree = (key, error) => {
+    // A boundary created where no owner id was current (inside an async
+    // memo's continuation, #4242) registers under an undefined key. It is
+    // nobody's descendant and has no addressable subtree of its own; reading
+    // its length would turn one fragment's failure into a whole-request one.
+    if (key == null) return;
+    const { fragments, serialized } = releaseSubtree(key, false);
     if ("_SOLID_OBSERVE_" && (fragments || serialized))
       emitFinding(
         {
@@ -2887,6 +2931,18 @@ export function renderToStream(code, options = {}) {
         },
         null
       );
+  };
+  // A subtree whose markup the page does not have (`context.shell.drop`):
+  // nothing streams for it, and its head registrations — under a fragment
+  // of it, or made by its owners outside any — never commit, as a client
+  // render that never shows it registers none (#4287).
+  const dropSubtree = (scope, rerun) => {
+    if (!scope) return;
+    if (!rerun) releaseSubtree(scope, true);
+    const under = key => typeof key === "string" && key.startsWith(scope);
+    headRegistry.pending = headRegistry.pending.filter(
+      reg => !under(reg.boundary) && !under(reg.scope)
+    );
   };
   const writeTasks = () => {
     if (tasks.length && !completed && firstFlushed) {
@@ -2931,10 +2987,38 @@ export function renderToStream(code, options = {}) {
   // over a shell suspension keeps the boundary's placeholder in its own
   // retry state, out of `html`. Spliced in when a root-hole re-pull lands it.
   let parkedInlines = null;
-  function inlineFragment(key, value) {
+  // `splices`: how the fragment's settled children went into `value`.
+  function inlineFragment(key, value, splices) {
     if (rootHoles && !html.includes(`<template id="pl-${key}">`)) {
-      (parkedInlines ||= new Map()).set(key, value);
-    } else html = replacePlaceholder(html, key, value);
+      (parkedInlines ||= new Map()).set(key, { value, splices });
+    } else {
+      if (splices) shellEdits.push(...splices);
+      shellEdit(s => replacePlaceholder(s, key, value));
+    }
+  }
+  // The edits the held shell took after the markup in it rendered — a
+  // fragment inlined (with the children spliced into it), an <Errored>
+  // fallback drawn (`context.shell`) — in order: `shellText` replays them on
+  // a boundary's markup, as rendered, to find it in `html` as it reads now.
+  const shellEdits = [];
+  function shellEdit(edit) {
+    shellEdits.push(edit);
+    html = edit(html);
+  }
+  function shellText(markup) {
+    for (let i = 0; i < shellEdits.length; i++) markup = shellEdits[i](markup);
+    return markup;
+  }
+  // A boundary's markup as it reads in the held shell, when it has a place
+  // of its own there: it carries a hydration key or a <Loading> placeholder
+  // (no other markup has the same) and is found once. Empty or text-only
+  // markup, or markup that was never inserted, has none (#4287).
+  function shellFind(markup) {
+    if (typeof html !== "string") return;
+    const now = shellText(markup);
+    if (!now.includes(" _hk=") && !now.includes('<template id="pl-')) return;
+    const at = html.indexOf(now);
+    if (at >= 0 && html.indexOf(now, at + 1) < 0) return now;
   }
   let buffer = {
     write(payload) {
@@ -3181,9 +3265,13 @@ export function renderToStream(code, options = {}) {
           // into this fragment's content. On the error path there is no
           // content (`value` is undefined): the client re-renders the whole
           // subtree, so the parked children are dropped, not spliced (#3478).
+          let splices = item.splices;
           if (item.children && !error) {
             for (const k in item.children) {
-              value = replacePlaceholder(value, k, item.children[k]);
+              const child = item.children[k];
+              const splice = s => replacePlaceholder(s, k, child);
+              value = splice(value);
+              (splices ||= []).push(splice);
             }
           }
 
@@ -3192,6 +3280,7 @@ export function renderToStream(code, options = {}) {
             const parent = registry.get(parentKey);
             parent.children ||= {};
             parent.children[key] = value !== undefined ? value : "";
+            if (splices && !error) (parent.splices ||= []).push(...splices);
             serializeFragmentAssets(key, tracking.boundaryModules, context);
             propagateBoundaryStyles(key, parentKey, tracking);
             // The parent is the boundary that actually flushes; head
@@ -3206,7 +3295,9 @@ export function renderToStream(code, options = {}) {
               // Head registrations stay pending: a boundary that inlines into
               // the shell commits with the shell flush (its key is no longer
               // a pending fragment, so renderShellHead picks them up).
-              queue(() => inlineFragment(key, value !== undefined ? value : ""));
+              queue(() =>
+                inlineFragment(key, value !== undefined ? value : "", error ? undefined : splices)
+              );
               serializeFragmentAssets(key, tracking.boundaryModules, context);
               item.resolve(error);
             } else {
@@ -3270,18 +3361,39 @@ export function renderToStream(code, options = {}) {
   // fails the request.
   context.errorPolicy = options.onError;
   context._errorScope = errorScope;
+  let contained = 0;
   context.contained = (error, wire) => {
+    contained++;
     caught.add(error);
     caught.add(wire);
   };
   context.flushed = () => firstFlushed;
+  // An <Errored> whose finished markup is in the shell draws its finished
+  // fallback in place of it until the shell is handed to the sink (#4287);
+  // what the replaced content left pending goes with it (`dropSubtree`).
+  context.shell = {
+    get open() {
+      return !shellCompleted && !dead;
+    },
+    get contained() {
+      return contained;
+    },
+    has: from => shellFind(from) !== undefined,
+    region(from, to, scope) {
+      const now = shellFind(from);
+      if (now === undefined) return;
+      shellEdit(s => s.replace(now, () => to));
+      dropSubtree(scope);
+    },
+    drop: dropSubtree
+  };
   // The trace this render belongs to (see `getTraceContext`): the request's
   // under a request scope, the render's own otherwise. Set before the render
   // pass so the per-component context clones carry it; cleared at completion
   // (below) so a read outside any render never finds a stale one.
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
   render = timeDocument(context, context.trace, "stream", requestEvent);
-  registerEntryAssets(manifest);
+  registerEntryAssets(manifest, noScripts);
   context.writer = createHydrationWriter(context, () => !completed);
 
   // The request's abort is a disconnect the transport could not report (see
@@ -3393,9 +3505,10 @@ export function renderToStream(code, options = {}) {
       }
     }
     if (parkedInlines) {
-      for (const [key, value] of parkedInlines) {
+      for (const [key, { value, splices }] of parkedInlines) {
         if (!html.includes(`<template id="pl-${key}">`)) continue;
-        html = replacePlaceholder(html, key, value);
+        if (splices) shellEdits.push(...splices);
+        shellEdit(s => replacePlaceholder(s, key, value));
         parkedInlines.delete(key);
       }
     }
@@ -3476,6 +3589,7 @@ export function renderToStream(code, options = {}) {
         }
       });
     shellCompleted = true;
+    shellEdits.length = 0;
   }
   // Flush attempts run on microtasks — never paying a macrotask of
   // first-byte latency — with two guards:
@@ -7101,6 +7215,7 @@ function mergeStubHeaders(target, stub) {
   if (!stub) return target;
   stub.headers.forEach((value, key) => {
     if (key === "server-timing") mergeServerTiming(target, value);
+    else if (key === "link") target.append(key, value);
     else if (key !== "set-cookie") target.set(key, value);
   });
   const setCookies = stub.headers.getSetCookie ? stub.headers.getSetCookie() : [];

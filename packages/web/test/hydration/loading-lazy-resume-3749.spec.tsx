@@ -9,8 +9,8 @@
  * re-insert nodes that are already in place: moving a connected node blurs a
  * focused input the user is typing in.
  */
-import { afterEach, describe, expect, test } from "vitest";
-import { createSignal, flush, isHydrating, lazy, Loading, type Component } from "solid-js";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { createSignal, Errored, flush, isHydrating, lazy, Loading, type Component } from "solid-js";
 import { hydrate } from "@solidjs/web";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -134,6 +134,99 @@ describe("#3749: Loading around lazy() keeps server nodes in place on a late mod
     flush();
     expect(container!.textContent).toBe("Count: 1");
   });
+
+  function renderWithSibling(Page: Component) {
+    return (
+      <>
+        <Loading fallback="Loading...">
+          <Page />
+        </Loading>
+        <footer>Footer</footer>
+      </>
+    );
+  }
+
+  test.each([
+    {
+      context: "inside an element",
+      html: "<div _hk=0><main _hk=10000>Server page</main></div>",
+      boundaryId: "1",
+      moduleId: "1000",
+      render: (Page: Component) => (
+        <div>
+          <Loading fallback="Loading...">
+            <Page />
+          </Loading>
+        </div>
+      )
+    },
+    {
+      context: "beside a sibling in the same insert",
+      html: "<main _hk=00000>Server page</main><footer _hk=1>Footer</footer>",
+      boundaryId: "0",
+      moduleId: "0000",
+      render: renderWithSibling
+    },
+    {
+      context: "when the retry fails beside a sibling",
+      html: "<main _hk=00000>Server page</main><footer _hk=1>Footer</footer>",
+      boundaryId: "0",
+      moduleId: "0000",
+      render: renderWithSibling,
+      retryFails: true
+    }
+  ])(
+    "a failed preload replaces the server page $context",
+    async ({ html, boundaryId, moduleId, render, retryFails }) => {
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      container.innerHTML = html;
+      const serverPage = container.querySelector("main")!;
+      const footer = container.querySelector("footer");
+      const fragment = Object.assign(Promise.resolve(true), { s: 1, v: true });
+      let rejectPreload!: (error: Error) => void;
+      (globalThis as any)._$HY = {
+        events: [],
+        completed: new WeakSet(),
+        r: {
+          [boundaryId + "_assets"]: { [moduleId]: "/assets/Page.js" },
+          [boundaryId + "_fr"]: fragment
+        },
+        fe() {},
+        modules: {},
+        loading: { [moduleId]: new Promise<void>((_, reject) => (rejectPreload = reject)) }
+      };
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const lazyLoad = vi.fn(async () => {
+        if (retryFails) throw new Error("retry 404");
+        return { default: () => <main>Client page</main> };
+      });
+      const LazyPage = lazy(lazyLoad, undefined, "src/Page.tsx");
+      const Page = retryFails
+        ? () => (
+            <Errored fallback={<p>Client error</p>}>
+              <LazyPage />
+            </Errored>
+          )
+        : LazyPage;
+      try {
+        dispose = hydrate(() => render(Page), container);
+        expect(container.querySelector("main")).toBe(serverPage);
+        rejectPreload(new Error("chunk 404"));
+        await sleep(0);
+        flush();
+        await sleep(0);
+        expect(lazyLoad).toHaveBeenCalledTimes(1);
+        expect(container.textContent).toBe(
+          (retryFails ? "Client error" : "Client page") + (footer ? "Footer" : "")
+        );
+        expect(serverPage.isConnected).toBe(false);
+        expect(container.querySelector("footer")).toBe(footer);
+      } finally {
+        error.mockRestore();
+      }
+    }
+  );
 
   test("after hydration an untracked region re-inserts nodes already in its parent", async () => {
     container = document.createElement("div");
