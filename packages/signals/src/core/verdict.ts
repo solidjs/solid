@@ -79,6 +79,7 @@ import {
   ahead,
   heldMountUnder,
   keptGuess,
+  guessed,
   isVerdict,
   screenOf,
   verdictLane,
@@ -441,6 +442,8 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       const inLane = passLane !== null && sameLane(passLane, l);
       if (tracked) verdictRead(c!, l._parent ?? l);
       if (guess) {
+        // A probe of this guess, woken by its next new question (`notifyStatus`).
+        if (guessed && tracked && probing) (el._x!._probes ??= new WeakMap()).set(c!, c!._depGen);
         if (
           probing &&
           (flying ||

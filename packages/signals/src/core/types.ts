@@ -78,6 +78,10 @@ export interface NodeExtension {
   _transaction: Transaction | null;
   /** The current flight re-asks the same question: quiet through its commit (F-9). */
   _reask: boolean;
+  /** A guess's probes: the readers whose `isPending` read it since its last
+   * new question (S-44, #5255). Cleared when that question is asked or the
+   * guess ends. */
+  _probes?: WeakMap<Computed<any>, number>;
   /** The staging the last flush left on a held node, kept across an unflushed
    * rewrite (F-10); valid while `_flushedAt` is the current clock. */
   _flushed: unknown;

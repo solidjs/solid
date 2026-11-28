@@ -1075,9 +1075,9 @@ _Pinned: `tests/optimistic-lane-release.test.ts`, `tests/body-end-supersession-v
 | 3   | the hold commits                                                                                          | the truth                                | false                                                                      |                                                                 |
 
 <!-- ruling:S-44 -->
-### S-44. An outside input change under a guess is held with the guess's hold — D-34, F-1 (#4336)
+### S-44. An outside input change under a guess is held with the guess's hold — D-34, F-1 (#4336, #5255)
 
-_Generated from `packages/web/test/async-gen/rulings/S-44.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: ruled-not-built. Pins also: `tests/optimistic-question-change-4336.test.ts`, `tests/optimistic-layered-filter-4336.test.ts`._
+_Generated from `packages/web/test/async-gen/rulings/S-44.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/optimistic-question-change-4336.test.ts`, `tests/optimistic-layered-filter-4336.test.ts`, `tests/ispending-outside-change-guess-5255.test.ts`._
 
 ```tsx
 const [sel, setSel] = createSignal(3);
@@ -1087,16 +1087,15 @@ const [comments, setComments] = createOptimistic(async () => fetch(1 + sel()));
 <span>{isPending(comments)}</span>
 ```
 
-| # | Action                                             | Screen                                                                                   | Notes                                                                                      |
-| --- | -------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| 0 | comments(4) lands; tick                            | `sel 3 \| comments 4 \| latest(comments) 4 \| isPending(comments) false`                 | primed                                                                                     |
-| 1 | action: setComments(9); refresh(comments); flush() | `sel 3 \| comments 9 \| latest(comments) 9 \| isPending(comments) false`                 | the guess shows; verdict-inert                                                             |
-| 2 | setSel(1); flush()                                 | `sel 3 \| comments 9 \| latest(comments) 9 \| isPending(comments) true`                  | a new question, not the guess's source answering: the change is held with the post         |
-| 3 | comments(2) lands; tick                            | —                                                                                        | issue 1's answer lands: still held; `latest(comments)` is the displayed guess (Decision 3) |
-| 4 | the action lands; tick                             | —                                                                                        | the post settles; its refresh re-asks issue 1                                              |
-| 5 | comments(2) lands; tick                            | `sel 1 \| comments 2 \| latest(comments) 2 \| isPending(comments) false`                 | one frame                                                                                  |
-| ✗ |                                                    | after 3: `sel 1 \| comments 2 \| latest(comments) 2 \| isPending(comments) false`        | a `sel 1` frame before the post settles                                                    |
-| ✗ |                                                    | today, after 2: `sel 3 \| comments 9 \| latest(comments) 9 \| isPending(comments) false` | not yet built — the frames test is `it.fails`                                              |
+| # | Action                                             | Screen                                                                            | Notes                                                                                      |
+| --- | -------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| 0 | comments(4) lands; tick                            | `sel 3 \| comments 4 \| latest(comments) 4 \| isPending(comments) false`          | primed                                                                                     |
+| 1 | action: setComments(9); refresh(comments); flush() | `sel 3 \| comments 9 \| latest(comments) 9 \| isPending(comments) false`          | the guess shows; verdict-inert                                                             |
+| 2 | setSel(1); flush()                                 | `sel 3 \| comments 9 \| latest(comments) 9 \| isPending(comments) true`           | a new question, not the guess's source answering: the change is held with the post         |
+| 3 | comments(2) lands; tick                            | —                                                                                 | issue 1's answer lands: still held; `latest(comments)` is the displayed guess (Decision 3) |
+| 4 | the action lands; tick                             | —                                                                                 | the post settles; its refresh re-asks issue 1                                              |
+| 5 | comments(2) lands; tick                            | `sel 1 \| comments 2 \| latest(comments) 2 \| isPending(comments) false`          | one frame                                                                                  |
+| ✗ |                                                    | after 3: `sel 1 \| comments 2 \| latest(comments) 2 \| isPending(comments) false` | a `sel 1` frame before the post settles                                                    |
 
 The prose row's 1″/1⁗ (an optimistic `sel`), 1‴ (a keyed store) and the layered two-action case are not migrated yet.
 <!-- /ruling -->
