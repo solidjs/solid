@@ -608,15 +608,17 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // A re-park drops sources this pass no longer reaches, from dependents that
       // reached them only through here; their landing walk stops at this node and
       // would never find them (#3456, #4541). Dependents with another path keep
-      // the source. A still-pending source has its own walk to come.
+      // the source. A still-pending source has its own walk to come, unless it is
+      // disposed: then it has none and holds nothing (F-3).
       if ((notReady || stagedErr) && outgoingPendingSources)
         for (const source of outgoingPendingSources)
           if (
             source !== el &&
-            !(
-              el._x?._pendingSources?.has(source) &&
-              (source._statusFlags & STATUS_PENDING || retryReaches(el, source))
-            )
+            (source._flags & REACTIVE_DISPOSED ||
+              !(
+                el._x?._pendingSources?.has(source) &&
+                (source._statusFlags & STATUS_PENDING || retryReaches(el, source))
+              ))
           )
             settlePendingSource(el, source);
     }
@@ -1452,18 +1454,35 @@ export function enterCallback(): void {
 export function exitCallback(): void {
   callbackDepth--;
 }
-/** Dev: > 0 while teardown runs cleanups: their writes are imperative too, so
- * the owned-scope guard stands down (#4165). No try/finally here (prod), so
+/** Dev: > 0 while teardown runs cleanups. No try/finally here (prod), so
  * dev.ts resets it on the next microtask. */
 export let disposalDepth = 0;
-export function enterDisposal(): void {
+/** Dev: the owner whose `onCleanup` is running: it belongs to that owner's
+ * computation, so its writes are owned wherever teardown runs it. `false`
+ * while an effect's returned cleanup runs: that one is imperative (#4165). */
+let cleaning: Owner | false | null = null;
+export function enterDisposal(of: Owner | false): Owner | false | null {
+  const was = cleaning;
   disposalDepth++;
+  cleaning = of;
+  return was;
 }
-export function exitDisposal(): void {
+export function exitDisposal(was: Owner | false | null): void {
   disposalDepth--;
+  cleaning = was;
 }
 export function resetDisposalDepth(): void {
   disposalDepth = 0;
+  cleaning = null;
+}
+/** Dev: the owner a write made here is owned by, if any. */
+export function ownedScope(): Owner | false | null {
+  return cleaning === null
+    ? context !== null &&
+        !(context._config & CONFIG_CHILDREN_FORBIDDEN) &&
+        !inRefCallback() &&
+        context
+    : cleaning;
 }
 /** Dev: the event current when the strict-read window opened, or `ANY_EVENT`.
  * A handler dispatched synchronously from an effect callback is a snapshot,
@@ -1569,16 +1588,16 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
   }
 }
 
-/** > 0 while `runRefCallback` runs: a ref born into a held node's hold may
- * read its staging (#4767, F-7). */
-let refCallbackDepth = 0;
+/** The innermost running ref's owner, `0` outside `runRefCallback` (a
+ * shorter compare than `undefined`: bundle size). A ref born into a held
+ * node's hold may read its staging (#4767, F-7). */
+export let refOwner: Owner | null | 0 = 0;
 
 /** A write, refresh, action call or `onFlush` here is an effect callback's
  * imperative work, not a computation's. */
 export function inRefCallback(): boolean {
   return (
-    refCallbackDepth > 0 ||
-    (inEffectCallback && context !== null && context === effectCallbackOwner)
+    refOwner !== 0 || (inEffectCallback && context !== null && context === effectCallbackOwner)
   );
 }
 
@@ -1587,7 +1606,8 @@ export function inRefCallback(): boolean {
  *
  * @internal */
 export function runRefCallback(fn: () => void): void {
-  refCallbackDepth++;
+  const prevRefOwner = refOwner;
+  refOwner = context;
   try {
     if (__DEV__) {
       const prev = inEffectCallback,
@@ -1603,7 +1623,7 @@ export function runRefCallback(fn: () => void): void {
       }
     } else untrack(fn);
   } finally {
-    refCallbackDepth--;
+    refOwner = prevRefOwner;
   }
 }
 
@@ -1960,7 +1980,10 @@ export function read<T>(el: any): T {
     if (sv !== undefined && !(el._statusFlags & STATUS_ERROR)) {
       const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
       const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
-      if (current !== snapshot) (c as Computed<any>)._flags |= REACTIVE_SNAPSHOT_STALE;
+      // A ref's own read is one-shot: re-running its creating pass would
+      // rebuild the served node (#5232).
+      if (current !== snapshot && (context !== refOwner || tracking))
+        (c as Computed<any>)._flags |= REACTIVE_SNAPSHOT_STALE;
       if (__TEST__) shadowActual(SLOT_SNAPSHOT);
       return snapshot as T;
     }
@@ -2022,7 +2045,7 @@ export function read<T>(el: any): T {
         );
       }
       if (
-        !(c._config & CONFIG_CHILDREN_FORBIDDEN || (refCallbackDepth && !tracking)) ||
+        !(c._config & CONFIG_CHILDREN_FORBIDDEN || (refOwner !== 0 && !tracking)) ||
         el._statusFlags & STATUS_UNINITIALIZED
       ) {
         // Out of line, so `read` gains a call only where a pending read throws (D-22, F-9).
@@ -2114,7 +2137,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED &&
     (!c || spectating || c._config & CONFIG_CHILDREN_FORBIDDEN)
   ) {
-    if (refCallbackDepth > 0) {
+    if (refOwner !== 0) {
       const pass = creatorPass(context);
       if (pass && el._config & CONFIG_HELD && bornInto(pass, txOf(el))) {
         if (__TEST__) shadowActual(SLOT_P);
@@ -2300,25 +2323,19 @@ export function landThroughSetSignal(el: Computed<any>, value: unknown): boolean
 
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   if (writeHook !== null) writeHook(el);
-  if (
-    __DEV__ &&
-    !(el._config & CONFIG_OWNED_WRITE) &&
-    !(context && context._config & CONFIG_CHILDREN_FORBIDDEN) &&
-    context &&
-    !disposalDepth &&
-    !inRefCallback()
-  ) {
+  const owned = __DEV__ && !(el._config & CONFIG_OWNED_WRITE) && ownedScope();
+  if (__DEV__ && owned) {
     emitDiagnostic({
       code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
       kind: "write",
       severity: "error",
       message: REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE,
-      ownerId: context.id,
-      ownerName: (context as any)._name,
+      ownerId: owned.id,
+      ownerName: (owned as any)._name,
       nodeName: (el as any)._name,
       data: { operation: "setSignal" }
     });
-    throw new Error(ownedScopeWriteMessage(context));
+    throw new Error(ownedScopeWriteMessage(owned));
   }
 
   const currentValue = el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T);
@@ -2437,7 +2454,9 @@ export function setMemo<T>(el: Computed<T>, v: T | ((prev: T) => T)): T {
  * }
  * ```
  */
-export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
+export function runWithOwner<T>(owner: Owner | null, fn: () => T): T;
+// `arg` is `createRoot`'s only: `fn(arg)` without a closure per root. Not in the public type.
+export function runWithOwner(owner: Owner | null, fn: (arg?: unknown) => unknown, arg?: unknown) {
   if (__DEV__ && owner && (owner as any)._flags & REACTIVE_DISPOSED) {
     const message =
       "[RUN_WITH_DISPOSED_OWNER] runWithOwner called with a disposed owner. Children created inside will never be disposed.";
@@ -2460,7 +2479,7 @@ export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   context = owner;
   tracking = false;
   try {
-    return fn();
+    return arg === undefined ? fn() : fn(arg);
   } finally {
     context = oldContext;
     tracking = prevTracking;
@@ -2481,21 +2500,15 @@ export function staleValues<T>(fn: () => T, set = true): T {
  * re-ask and schedules it. `check`: the owned-scope check alone, the mark
  * coming after the answer out lands (#5094). */
 export function markRefresh(node: Computed<any>, check?: boolean): void {
-  if (
-    __DEV__ &&
-    context &&
-    !((node._config ?? 0) & CONFIG_OWNED_WRITE) &&
-    !(context._config & CONFIG_CHILDREN_FORBIDDEN) &&
-    !disposalDepth &&
-    !inRefCallback()
-  ) {
+  const owned = __DEV__ && !((node._config ?? 0) & CONFIG_OWNED_WRITE) && ownedScope();
+  if (__DEV__ && owned) {
     emitDiagnostic({
       code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
       kind: "write",
       severity: "error",
       message: REACTIVE_WRITE_IN_OWNED_SCOPE_REFRESH_MESSAGE,
-      ownerId: context.id,
-      ownerName: (context as any)._name,
+      ownerId: owned.id,
+      ownerName: (owned as any)._name,
       nodeName: (node as any)._name,
       data: { operation: "refresh" }
     });

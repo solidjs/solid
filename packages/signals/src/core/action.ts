@@ -1,7 +1,5 @@
-import { CONFIG_CHILDREN_FORBIDDEN } from "./constants.js";
 import { isThenable } from "./async.js";
-import { disposalDepth, enterCallback, exitCallback, inRefCallback } from "./core.js";
-import { getOwner } from "./owner.js";
+import { enterCallback, exitCallback, ownedScope } from "./core.js";
 import type { Owner } from "./types.js";
 import { emitDiagnostic } from "./dev.js";
 import { attrHooks } from "./attribution-hooks.js";
@@ -133,17 +131,11 @@ export function action<Args extends any[], Y, R>(
     // and a computation tracking what its action writes livelocks (every
     // write retriggers the compute, which fires a fresh invocation). Same
     // scope test as setSignal: leaf imperative scopes (tracked effects,
-    // onSettled) stay legal, and so do cleanups during teardown — a cleanup
-    // is not part of the computation disposing its owner (a list pass
-    // removing a row), so invoking an action there is imperative (#4165).
+    // onSettled) and the cleanups they return stay legal; an `onCleanup`
+    // belongs to its computation.
     if (__DEV__) {
-      const owner = getOwner();
-      if (
-        owner &&
-        !(owner._config & CONFIG_CHILDREN_FORBIDDEN) &&
-        !disposalDepth &&
-        !inRefCallback()
-      ) {
+      const owner = ownedScope();
+      if (owner) {
         emitDiagnostic({
           code: "ACTION_CALLED_IN_OWNED_SCOPE",
           kind: "write",

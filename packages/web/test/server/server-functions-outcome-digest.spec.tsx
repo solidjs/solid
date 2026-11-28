@@ -206,10 +206,31 @@ describe("the invalidation scope", () => {
     registerServerFunction("digest-all", async () => reload({ revalidate: REVALIDATE_ALL }));
 
     const empty = await collect(post("digest-empty", { referer: "https://app.example/cart" }));
-    expect(empty.revalidateKeys).toEqual([""]);
+    expect(empty.revalidateKeys).toEqual([]);
 
     const all = await collect(post("digest-all", { referer: "https://app.example/cart" }));
     expect(all.revalidateKeys).toEqual(["*"]);
+  });
+
+  it("answers an empty declaration with a non-empty header that names no key", async () => {
+    registerServerFunction("digest-empty-wire", async () => respond({}, { revalidate: [] }));
+
+    let outcome!: ServerFunctionOutcome;
+    const response = await handleServerFunctionRequest(
+      post("digest-empty-wire", { referer: "https://app.example/cart" }),
+      {
+        createEvent,
+        collectFlightData: (_event, received) => {
+          outcome = received;
+          return { collected: true };
+        }
+      }
+    );
+
+    const declared = response.headers.get("X-Revalidate");
+    expect(declared).toBe(",");
+    expect(declared!.split(",").filter(Boolean)).toEqual([]);
+    expect(outcome.revalidateKeys).toEqual([]);
   });
 
   it("the helpers refuse the all key beside named keys", () => {

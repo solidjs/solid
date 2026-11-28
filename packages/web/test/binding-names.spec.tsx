@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { createRoot, createSignal, getOwner, flush, OBSERVE } from "solid-js";
-import { effect, insert, spread } from "@solidjs/web";
+import { dynamic, effect, insert, spread } from "@solidjs/web";
 
 function ownerName(): string | undefined {
   return (getOwner() as { _name?: string } | null)?._name;
@@ -173,5 +173,32 @@ describe("sourceNames.bindings at runtime", () => {
     });
     flush();
     expect([...seen]).toEqual(["effect"]);
+  });
+
+  test("string-tag dynamic labels its spread `<tag>.spread` and children `<tag>.children` (#5219)", () => {
+    const seen = new Set<string | undefined>();
+    const El = dynamic(() => "section");
+    let el!: HTMLElement;
+    createRoot(() => {
+      El({
+        ref: (node: HTMLElement) => {
+          el = node;
+        },
+        get title() {
+          seen.add(ownerName());
+          return "t";
+        },
+        get children() {
+          seen.add(ownerName());
+          return "kids";
+        }
+      });
+    });
+    flush();
+    expect(el).toBeInstanceOf(HTMLElement);
+    expect(el.tagName).toBe("SECTION");
+    expect(el.getAttribute("title")).toBe("t");
+    expect(el.textContent).toBe("kids");
+    expect([...seen].sort()).toEqual(["section.children", "section.spread"]);
   });
 });

@@ -56,21 +56,7 @@ const GATE =
 
 /** Failing cases per kind at the default seed and case count, by
  * `form/actions`. A kind not listed is 0. */
-const BASELINE: Record<string, Record<string, number>> = {
-  "seeded/2": { "agree: snapshot≠proxy": 1 },
-  "seeded/3": {
-    "agree: snapshot≠proxy": 7,
-    "live: a guessed row is off screen": 2,
-    "live: a removed row is on screen": 1,
-    "frame: a torn frame was shown": 1
-  },
-  "seedless/2": { "agree: snapshot≠proxy": 3 },
-  "seedless/3": {
-    "agree: snapshot≠proxy": 5,
-    "live: a guessed row is off screen": 2,
-    "frame: a torn frame was shown": 2
-  }
-};
+const BASELINE: Record<string, Record<string, number>> = {};
 
 type Row = { id: number; n: number };
 const ser = (rows: Row[]): string => {
@@ -99,7 +85,7 @@ interface Edit {
 const setN = (id: number, v: number): Edit => ({
   text: `row(${id}).n = ${v}`,
   run: d => {
-    const row = d.find(x => x.id === id);
+    const row = d.find(x => x?.id === id);
     return row ? ((row.n = v), true) : false;
   }
 });
@@ -110,14 +96,14 @@ const push = (id: number): Edit => ({
 const remove = (id: number): Edit => ({
   text: `remove row(${id})`,
   run: d => {
-    const at = d.findIndex(x => x.id === id);
+    const at = d.findIndex(x => x?.id === id);
     return at >= 0 ? (d.splice(at, 1), true) : false;
   }
 });
 const front = (id: number): Edit => ({
   text: `move row(${id}) to front`,
   run: d => {
-    const at = d.findIndex(x => x.id === id);
+    const at = d.findIndex(x => x?.id === id);
     return at > 0 ? (d.unshift(d.splice(at, 1)[0]), true) : false;
   }
 });

@@ -59,6 +59,9 @@ const tick = () => new Promise<void>(r => queueMicrotask(r));
 
 describe("#3585 draft lifetime: valid until superseded or disposed", () => {
   describe("GabbeV's cases (issue text verbatim)", () => {
+    // F-10 (Ryan, 2026-11-14): the late write is visible at the flush that
+    // carries it, not before. The deep engine serves it to an untracked read
+    // at once (its pending backing), so this pin fails there.
     it("sync derive: a subscription set up in the derive writes through the draft after it returned", async () => {
       const feed = makeFeed();
       const subscribeToData = feed.subscribe;
@@ -93,8 +96,9 @@ describe("#3585 draft lifetime: valid until superseded or disposed", () => {
       // the effect sees it WITHOUT an explicit flush (the late write arms the
       // microtask drain itself).
       feed.emit(1, 10);
-      expect(data.length).toBe(1);
+      expect(data.length).toBe(0);
       await tick();
+      expect(data.length).toBe(1);
       expect(seen).toEqual([[], [10]]);
 
       feed.emit(1, 11);

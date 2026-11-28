@@ -2822,8 +2822,11 @@ describe("SSR Streaming — Reveal", () => {
       );
     }
 
-    const chunksPromise = collectChunks(() => <App />);
-    rejectA(new Error("A failed"));
+    // A fails after the shell: before it, the Errored around the group
+    // would draw its fallback in the shell in place of both slots (#4287).
+    const chunksPromise = collectChunks(() => <App />, {
+      onCompleteShell: () => rejectA(new Error("A failed"))
+    });
     await delay(20);
     resolveB("B-content");
 
@@ -2872,8 +2875,10 @@ describe("SSR Streaming — Reveal", () => {
       );
     }
 
-    const chunksPromise = collectChunks(() => <App />);
-    rejectA(new Error("A failed"));
+    // After the shell, as above.
+    const chunksPromise = collectChunks(() => <App />, {
+      onCompleteShell: () => rejectA(new Error("A failed"))
+    });
     await delay(20);
     resolveB("B-content");
 
@@ -2885,6 +2890,103 @@ describe("SSR Streaming — Reveal", () => {
     expect(full).toContain("$dfj");
     expect(full).toContain("A failed");
   });
+
+  for (const order of ["sequential", "together"] as const) {
+    test(`a slot failing before the shell: the Errored around the group draws in the shell (${order}, #4287)`, async () => {
+      const { promise: pA, reject: rejectA } = deferred<string>();
+      pA.catch(() => {});
+      const { promise: pB, resolve: resolveB } = deferred<string>();
+      function BadSlot() {
+        const data = createMemo(async () => pA);
+        return <div>{data()}</div>;
+      }
+      function GoodSlot() {
+        const data = createMemo(async () => pB);
+        return <div>{data()}</div>;
+      }
+      function App() {
+        return (
+          <Errored fallback={e => <div>outer caught: {String(e())}</div>}>
+            <Reveal order={order}>
+              <Loading fallback={<div>fallback-A</div>}>
+                <BadSlot />
+              </Loading>
+              <Loading fallback={<div>fallback-B</div>}>
+                <GoodSlot />
+              </Loading>
+            </Reveal>
+          </Errored>
+        );
+      }
+
+      const chunksPromise = collectChunks(() => <App />);
+      rejectA(new Error("A failed"));
+      await delay(20);
+      resolveB("B-content");
+
+      const { shell, chunks } = await chunksPromise;
+      const full = chunks.join("");
+      // The fallback in place of the whole group, as the client renders it;
+      // B's slot (`0001`) went with it, so nothing streams or activates for it.
+      expect(shell.replace(/<script[\s\S]*?<\/script>/g, "")).toBe(
+        `<div _hk=10>outer caught: <!--$-->Error: A failed<!--/--></div>`
+      );
+      expect(full).toContain('_$HY.r["0001_fr"]');
+      expect(full).not.toContain("B-content");
+      expect(full).not.toContain("<template");
+      for (const [, keys] of full.matchAll(/\$dfj\((\[[^\]]*\])\)/g))
+        expect(JSON.parse(keys)).not.toContain("0001");
+    });
+
+    // The same failure with a fallback the server cannot finish (a
+    // client-only hole): nothing is drawn, and the failed slot still
+    // releases the group (#2776) — B streams and is activated.
+    test(`a slot failing before the shell, the Errored unable to draw: B still streams and activates (${order}, #2776)`, async () => {
+      const { promise: pA, reject: rejectA } = deferred<string>();
+      pA.catch(() => {});
+      const { promise: pB, resolve: resolveB } = deferred<string>();
+      function BadSlot() {
+        const data = createMemo(async () => pA);
+        return <div>{data()}</div>;
+      }
+      function GoodSlot() {
+        const data = createMemo(async () => pB);
+        return <div>{data()}</div>;
+      }
+      function App() {
+        const client = createMemo(async () => "client", { ssrSource: "client" });
+        return (
+          <Errored fallback={() => <div>outer caught: {client()}</div>}>
+            <Reveal order={order}>
+              <Loading fallback={<div>fallback-A</div>}>
+                <BadSlot />
+              </Loading>
+              <Loading fallback={<div>fallback-B</div>}>
+                <GoodSlot />
+              </Loading>
+            </Reveal>
+          </Errored>
+        );
+      }
+
+      const chunksPromise = collectChunks(() => <App />);
+      rejectA(new Error("A failed"));
+      await delay(20);
+      resolveB("B-content");
+
+      const { shell, chunks } = await chunksPromise;
+      const full = chunks.join("");
+      expect(shell).not.toContain("outer caught");
+      expect(shell).toContain("fallback-B");
+      const template = full.match(/<template id="(\d+)"><div[^>]*>B-content/);
+      expect(template).not.toBe(null);
+      const activation = [...full.matchAll(/\$dfj\((\[[^\]]*\])\)/g)].find(([, keys]) =>
+        JSON.parse(keys).includes(template![1])
+      );
+      expect(activation).toBeDefined();
+      expect(activation!.index).toBeGreaterThan(full.indexOf(template![0]));
+    });
+  }
 
   test("sequential collapsed: shell contains first fallback, later slots deferred", async () => {
     function BoundaryA() {

@@ -28,6 +28,7 @@ import {
   type Accessor,
   type ComputeFunction,
   type MemoOptions,
+  type NoFn,
   type NoInfer,
   type Owner,
   type ProjectionOptions,
@@ -911,7 +912,8 @@ function armLiveTakeover(o: Owner, streaming?: boolean) {
     const scope = streaming ? null : liveScopeOf(o);
     let entry = liveGates.get(scope);
     if (!entry) {
-      entry = coreSignal(false);
+      // A boundary's cleanup can end hydration, and write this (dev: `ownedWrite`).
+      entry = IS_DEV ? coreSignal(false, { ownedWrite: true }) : coreSignal(false);
       liveGates.set(scope, entry);
       if (scope === null)
         onHydrationEnd(() => {
@@ -2003,7 +2005,6 @@ export const createProjection: {
     : (coreProjection as Function)(...args);
 }) as any;
 
-type NoFn<T> = T extends Function ? never : T;
 type NoArray<T> = Extract<T, readonly unknown[]> extends never ? unknown : never;
 
 /**

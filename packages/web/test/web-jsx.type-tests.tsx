@@ -1,6 +1,7 @@
 /** @jsxImportSource @solidjs/web */
 
 import type { ParentProps } from "solid-js";
+import { Portal } from "@solidjs/web";
 
 const text = document.createTextNode("hello");
 const span = document.createElement("span");
@@ -37,3 +38,10 @@ function Parent(props: ParentProps) {
 <mo stretchy={true} />;
 // @ts-expect-error a bare MathML boolean writes an empty attribute
 <mo stretchy />;
+
+declare const shadowRoot: ShadowRoot;
+declare const fragment: DocumentFragment;
+
+<Portal mount={shadowRoot}>{text}</Portal>;
+// @ts-expect-error a DocumentFragment is not a Portal mount
+<Portal mount={fragment}>{text}</Portal>;

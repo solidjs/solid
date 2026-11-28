@@ -284,7 +284,9 @@ describe("OBSERVE.include", () => {
     );
     flush();
     expect(attribution.history("interaction")).toHaveLength(2);
-    expect(attribution.history("interaction")[1].writes).toBe(1);
+    // One root write on the deep engine (the container); the thin engine
+    // (spike, ruled 2026-11-14) writes the index and length nodes.
+    expect(attribution.history("interaction")[1].writes).toBe(2);
     expect(delivered).toHaveLength(2);
   });
 });

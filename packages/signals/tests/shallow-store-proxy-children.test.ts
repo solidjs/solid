@@ -1,3 +1,4 @@
+import { targetOf } from "./_thin/target.js";
 /**
  * #2932: a shallow store ingesting another store's proxy sticky-marked that
  * proxy as a raw value. The mark is global — wrap() serves raw-marked values
@@ -12,7 +13,7 @@
  * isolation matches the shallow:false chain.
  */
 import { createRoot, createStore, flush } from "../src/index.js";
-import { $TARGET } from "../src/store/store.js";
+import { $TARGET } from "../src/store/types.js";
 
 function chain(shallow: boolean) {
   const base = [
@@ -65,7 +66,7 @@ describe("#2932: derived chain through a shallow store", () => {
     const { s0, ss0, s1, s2 } = chain(true);
     expect(s1.items === s0.items).toBe(false);
     expect(s2.items === s1.items).toBe(false);
-    expect((s1.items as any)[$TARGET]).toBeDefined();
+    expect(targetOf(s1.items)).toBeDefined();
 
     // Upstream (derived) writes land in s0's override layer and must be
     // visible through the shallow pass-through and the deep tail alike.

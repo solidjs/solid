@@ -68,6 +68,7 @@ export type {
   FromSource,
   Merge,
   MemoOptions,
+  NoFn,
   NoInfer,
   NotWrappable,
   Omit,

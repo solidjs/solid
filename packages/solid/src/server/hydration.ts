@@ -392,7 +392,8 @@ function ssrLoadingBoundary(
   // twin draws it, its error serialized at the Errored id so the hydrating
   // client adopts that markup; otherwise nothing — the blank the client
   // twin renders fresh over (`hydratedCreateLoadingBoundary`'s rejected
-  // arm). Inside one
+  // arm), unless the shell is still held, where an enclosing `<Errored>`
+  // draws in place of its own markup (`failFragment`). Inside one
   // (frames-rulings 3.3, A0 corollary 4 inward — the position shows what the
   // SERVER rendered for the outcome, never a blank, never a client-invented
   // state; there is no twin): the nearest server `<Errored>`'s fallback for
@@ -445,6 +446,23 @@ function ssrLoadingBoundary(
         parentHandler(err, ESCALATE);
         outcomeRendered = true;
         return true;
+      }
+      // Before the shell is handed to the sink, with nothing drawn at this
+      // position: an enclosing `<Errored>` whose markup is in the shell
+      // meets the failure there when its fallback is finished as it
+      // renders, the fallback in place of that markup and of whatever sits
+      // between the two boundaries, as on the client (#4287). Settled first,
+      // as above. Not met: the paths below, where settling again changes
+      // nothing.
+      if (!outcome && parentHandler && ctx.shell && ctx.shell.open) {
+        done!(undefined, err);
+        // Met only by a boundary that contained it: one that absorbs it
+        // (its subtree already discarded) leaves it reported as before.
+        const contained = ctx.shell.contained;
+        if (parentHandler(err, ESCALATE) === true && ctx.shell.contained !== contained) {
+          outcomeRendered = true;
+          return true;
+        }
       }
       if (report && !outcomeRendered) {
         reportServerError(

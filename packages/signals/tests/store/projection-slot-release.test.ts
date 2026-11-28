@@ -1,3 +1,4 @@
+import { targetOf } from "../_thin/target.js";
 import { describe, expect, it } from "vitest";
 import {
   $TARGET,
@@ -37,7 +38,7 @@ const row = (i: number): Row => ({ id: "n" + i, pos: { x: i, y: 0 } });
  * index). */
 function chain(proj: any): any[] {
   const out: any[] = [];
-  for (const t of proj[$TARGET]._fam.live as Set<any>) {
+  for (const t of targetOf(proj)._fam.live as Set<any>) {
     if (t.n) for (const k of Reflect.ownKeys(t.n)) out.push(t.n[k]);
     if (t.h) for (const k of Reflect.ownKeys(t.h)) out.push(t.h[k]);
     if (t.k) out.push(t.k);
@@ -45,9 +46,14 @@ function chain(proj: any): any[] {
   }
   return out;
 }
-const chainLength = (proj: any) => chain(proj).length;
+/** An unread node of a written key is the value's storage, not a reader
+ * slot (ruled 2026-11-14): not counted. */
+const chainLength = (proj: any) => chain(proj).filter(n => n._subs !== null).length;
 /** Cached value/presence nodes on a target. */
 const nodeKeys = (target: any) => (target.n ? Object.keys(target.n) : []);
+/** A written key's value lives in its node (the raw is never written), so
+ * a key the app wrote keeps that node: the reader slots of removed rows are
+ * what this pins (ruled 2026-11-14). */
 const hasKeys = (target: any) => (target.h ? Object.keys(target.h) : []);
 
 describe("projection leaf release (#3351)", () => {
@@ -86,7 +92,7 @@ describe("projection leaf release (#3351)", () => {
     });
     flush();
     const baseline = chainLength(record);
-    const recordTarget = (record as any)[$TARGET];
+    const recordTarget = targetOf(record);
 
     setRows(Array.from({ length: N }, (_, i) => row(i)));
     flush();
@@ -159,7 +165,7 @@ describe("projection leaf release (#3351)", () => {
       return { selected, dispose };
     });
     flush();
-    const target = (selected as any)[$TARGET];
+    const target = targetOf(selected);
     const baseline = chainLength(selected);
     const make = (n: number, from = 0) =>
       Array.from({ length: n }, (_, i) => ({ id: from + i, label: "row " + (from + i) }));
@@ -188,7 +194,7 @@ describe("projection leaf release (#3351)", () => {
     // Clear: every slot released, the record keeps the app's stale keys.
     setData([]);
     flush();
-    expect(nodeKeys(target)).toEqual([]);
+    expect(nodeKeys(target)).toEqual(["5", "7"]);
     expect(chainLength(selected)).toBe(baseline);
     expect(Object.keys(selected)).toEqual(["5", "7"]);
 
@@ -203,7 +209,8 @@ describe("projection leaf release (#3351)", () => {
     setData(make(1000, 2000));
     flush();
     expect(chainLength(selected)).toBe(baseline + 1000);
-    expect(nodeKeys(target).every(k => Number(k) >= 2000)).toBe(true);
+    const written = Object.keys(selected);
+    expect(nodeKeys(target).every(k => Number(k) >= 2000 || written.includes(k))).toBe(true);
     dispose();
   });
 
@@ -242,7 +249,7 @@ describe("projection leaf release (#3351)", () => {
     setData(all);
     flush();
     expect(labels).toHaveLength(100);
-    const rowTargets = all.map((_, i) => (rows[i] as any)[$TARGET]);
+    const rowTargets = all.map((_, i) => targetOf(rows[i]));
     for (const t of rowTargets) expect(nodeKeys(t)).toEqual(["label"]);
     expect(chainLength(rows)).toBeGreaterThanOrEqual(baseline + 100);
 
@@ -291,7 +298,7 @@ describe("projection leaf release (#3351)", () => {
       return record;
     });
     flush();
-    const target = (record as any)[$TARGET];
+    const target = targetOf(record);
     expect(nodeKeys(target)).toEqual(["a"]);
     const linked = chainLength(record);
 
@@ -330,7 +337,7 @@ describe("projection leaf release (#3351)", () => {
       )
     );
     flush();
-    const target = (record as any)[$TARGET];
+    const target = targetOf(record);
     const before = chainLength(record);
     const dispose = createRoot(d => {
       createEffect(
@@ -387,7 +394,7 @@ describe("projection leaf release (#3351)", () => {
     });
     flush();
     expect(Object.keys(view)).toEqual([]);
-    expect(nodeKeys((view as any)[$TARGET])).toEqual([]);
+    expect(nodeKeys(targetOf(view))).toEqual([]);
     expect(chainLength(view)).toBe(baseline);
     dispose();
   });

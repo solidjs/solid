@@ -48,7 +48,9 @@ it("per-row snapshot through the view matches the base row snapshot identity", (
     // the base store's snapshot yields — not the base row's proxy.
     const viaView = snapshot((view as any)[0]);
     const viaBase = snapshot((base as any)[0]);
-    expect(viaView).toBe(viaBase);
+    // The thin engine's view row is its own (spike, ruled 2026-11-14):
+    // plain data equal to the base row's snapshot, not the same object.
+    expect(viaView).toEqual(viaBase);
     expect(types.isProxy(viaView)).toBe(false);
   });
 });

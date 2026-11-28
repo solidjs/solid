@@ -56,6 +56,8 @@ import type { Computed, Signal } from "./types.js";
  * Applied at the seam: only then is it known whether there is a hold to
  * guess over (D-33). */
 const pendingGuesses: any[] = [];
+/** How many guesses wait for the seam (a setter that wrote none: store/thinOptimistic.ts). */
+export const guessesWaiting = (): number => pendingGuesses.length;
 /** The lanes this seam's guesses read from (D-33). */
 const readFrom: Transaction[] = [];
 /** What an optimistic updater composes on (F-10: the writer sees its own
