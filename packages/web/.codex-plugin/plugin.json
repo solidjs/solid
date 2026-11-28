@@ -1,0 +1,30 @@
+{
+  "name": "solid-web",
+  "version": "2.0.4",
+  "description": "Skills for @solidjs/web: writing Solid 2.0 server components and their slots.",
+  "author": {
+    "name": "Solid",
+    "url": "https://www.solidjs.com/"
+  },
+  "homepage": "https://docs.solidjs.com/",
+  "repository": "https://github.com/solidjs/solid",
+  "license": "MIT",
+  "keywords": ["solid", "solid-js", "solid-2.0", "signals", "reactivity", "jsx", "agent-skills"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Solid Web",
+    "shortDescription": "Solid server components",
+    "longDescription": "The skill that ships in @solidjs/web for writing and reviewing Solid 2.0 server components (\"use server\" functions that return a template) and their slots.",
+    "developerName": "Solid",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://www.solidjs.com/",
+    "defaultPrompt": [
+      "Write a Solid server component with a client slot",
+      "Review this server component for Solid 2.0 rules"
+    ],
+    "brandColor": "#2C4F7C",
+    "composerIcon": "./assets/logo.png",
+    "logo": "./assets/logo.png"
+  }
+}

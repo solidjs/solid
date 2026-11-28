@@ -1,0 +1,31 @@
+{
+  "name": "solid",
+  "version": "2.0.4",
+  "description": "Solid 2.0 primer and diagnostic-code repair skills for coding agents, shipped with solid-js.",
+  "author": {
+    "name": "Solid",
+    "url": "https://www.solidjs.com/"
+  },
+  "homepage": "https://docs.solidjs.com/",
+  "repository": "https://github.com/solidjs/solid",
+  "license": "MIT",
+  "keywords": ["solid", "solid-js", "solid-2.0", "signals", "reactivity", "jsx", "agent-skills"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Solid",
+    "shortDescription": "Solid 2.0 for agents",
+    "longDescription": "The skills that ship in the solid-js package: the Solid 2.0 primer (props are read not destructured, two-function createEffect, writing stores through the draft, and the 1.x to 2.0 corrections) and a reactivity-diagnostics skill that maps dev diagnostic codes such as STRICT_READ_UNTRACKED or REACTIVE_WRITE_IN_OWNED_SCOPE to their repair.",
+    "developerName": "Solid",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://www.solidjs.com/",
+    "defaultPrompt": [
+      "Review this component for Solid 2.0 mistakes",
+      "Migrate this Solid 1.x code to 2.0",
+      "What does STRICT_READ_UNTRACKED mean and how do I fix it?"
+    ],
+    "brandColor": "#2C4F7C",
+    "composerIcon": "./assets/logo.png",
+    "logo": "./assets/logo.png"
+  }
+}

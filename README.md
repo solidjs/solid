@@ -131,6 +131,8 @@ The public API differs from any Solid examples that predate 2.0. Before generati
 
 The primer and the cheatsheet ship inside the `solid-js` npm package (`node_modules/solid-js/skills/solid-2.0/SKILL.md`, `node_modules/solid-js/CHEATSHEET.md`; the build also emits the cheatsheet as the `solid-2.0-cheatsheet` skill). The packages carry the `tanstack-intent` keyword, so skill registries that scan `node_modules` find them.
 
+Coding agents that read `.agents` plugin marketplaces (including Codex and Claude Code) can install these skills straight from this repository: [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json) registers `solid` (`packages/solid`), `solid-web` (`packages/web`) and `solid-diagnostics` (`packages/diagnostics`), each pointing at the `skills/` folder its package already ships.
+
 ## Repository
 
 This is a PNPM workspaces monorepo. The core runtime (`solid-js`, `@solidjs/signals`, `@solidjs/web`, `@solidjs/universal`, `@solidjs/diagnostics`) always shares one version. The two compilers share a version when they release together, and `@solidjs/h`, `@solidjs/html` and `@solidjs/element` version on their own.
