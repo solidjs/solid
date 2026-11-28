@@ -1,0 +1,30 @@
+{
+  "name": "solid-diagnostics",
+  "version": "2.0.4",
+  "description": "Skills for @solidjs/diagnostics: verifying Solid 2.0 reactive code with captured diagnostic artifacts.",
+  "author": {
+    "name": "Solid",
+    "url": "https://www.solidjs.com/"
+  },
+  "homepage": "https://docs.solidjs.com/",
+  "repository": "https://github.com/solidjs/solid",
+  "license": "MIT",
+  "keywords": ["solid", "solid-js", "solid-2.0", "signals", "reactivity", "jsx", "agent-skills"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Solid Diagnostics",
+    "shortDescription": "Verify Solid with evidence",
+    "longDescription": "The skill that ships in @solidjs/diagnostics for verifying Solid 2.0 reactive code with evidence from captureArtifact instead of reading it: generation, acceptance, attribution, responsiveness and server-render loops.",
+    "developerName": "Solid",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://www.solidjs.com/",
+    "defaultPrompt": [
+      "Verify this Solid component with captureArtifact",
+      "Write a diagnostics-backed test for this signal graph"
+    ],
+    "brandColor": "#2C4F7C",
+    "composerIcon": "./assets/logo.png",
+    "logo": "./assets/logo.png"
+  }
+}

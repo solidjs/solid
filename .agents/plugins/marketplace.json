@@ -1,0 +1,44 @@
+{
+  "name": "solid",
+  "interface": {
+    "displayName": "Solid"
+  },
+  "plugins": [
+    {
+      "name": "solid",
+      "source": {
+        "source": "local",
+        "path": "./packages/solid"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "solid-web",
+      "source": {
+        "source": "local",
+        "path": "./packages/web"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "solid-diagnostics",
+      "source": {
+        "source": "local",
+        "path": "./packages/diagnostics"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

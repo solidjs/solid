@@ -1,0 +1,14 @@
+{
+  "name": "solid",
+  "version": "2.0.4",
+  "description": "Solid 2.0 primer and diagnostic-code repair skills for coding agents, shipped with solid-js.",
+  "author": {
+    "name": "Solid",
+    "url": "https://www.solidjs.com/"
+  },
+  "homepage": "https://docs.solidjs.com/",
+  "repository": "https://github.com/solidjs/solid",
+  "license": "MIT",
+  "keywords": ["solid", "solid-js", "solid-2.0", "signals", "reactivity", "jsx", "agent-skills"],
+  "skills": "./skills/"
+}
