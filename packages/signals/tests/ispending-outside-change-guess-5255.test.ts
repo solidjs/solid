@@ -172,6 +172,31 @@ for (const form of ["signal", "store"] as const)
       expect(h.screen()).toBe("1 2 2 false");
     });
 
+    it("reads true while the change's request is out when another action changes the input", async () => {
+      const h = await guessed(form);
+      const other = action(function* () {
+        h.setSel(1);
+        yield ask("other");
+      });
+
+      other();
+      flush();
+      await tick();
+      expect([...flights.keys()].sort()).toEqual(["c:1", "other", "post"]);
+      expect(h.screen()).toBe("3 9 9 true");
+
+      answer("other", 0);
+      await tick();
+      answer("c:1", 2);
+      await tick();
+      answer("post", 0);
+      await tick();
+      for (const k of [...flights.keys()]) answer(k, 2);
+      await tick();
+      expect(flights.size).toBe(0);
+      expect(h.screen()).toBe("1 2 2 false");
+    });
+
     it("control: with no guess, the change reads true while its request is out", async () => {
       const h = setup(form);
       await tick();

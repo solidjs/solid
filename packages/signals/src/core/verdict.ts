@@ -443,7 +443,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       if (tracked) verdictRead(c!, l._parent ?? l);
       if (guess) {
         // A probe of this guess, woken by its next new question (`notifyStatus`).
-        if (guessed && tracked && probing) (el._x!._probes ??= new Map()).set(c!, c!._depGen);
+        if (guessed && tracked && probing) (el._x!._probes ??= new WeakMap()).set(c!, c!._depGen);
         if (
           probing &&
           (flying ||

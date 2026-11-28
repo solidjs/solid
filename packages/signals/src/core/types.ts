@@ -81,7 +81,7 @@ export interface NodeExtension {
   /** A guess's probes: the readers whose `isPending` read it since its last
    * new question (S-44, #5255). Cleared when that question is asked or the
    * guess ends. */
-  _probes?: Map<Computed<any>, number>;
+  _probes?: WeakMap<Computed<any>, number>;
   /** The staging the last flush left on a held node, kept across an unflushed
    * rewrite (F-10); valid while `_flushedAt` is the current clock. */
   _flushed: unknown;

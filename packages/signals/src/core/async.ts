@@ -781,9 +781,10 @@ export function notifyStatus(el: Computed<any>, status: number, error?: any): vo
     const ps = el._x!._probes;
     if (ps && !((el._flags | (pendingSource || el)._flags) & REACTIVE_REASK)) {
       el._x!._probes = undefined;
+      // No `_time = clock` as `propagateStatus` stamps: nothing is marked, and
+      // the re-run stamps it (`recompute`). `schedule` is idempotent.
       for (let s = el._subs; s; s = s._nextSub)
-        if (ps.get(s._sub) === s._sub._depGen) enqueueSub(s._sub);
-      schedule();
+        if (ps.get(s._sub) === s._sub._depGen) (enqueueSub(s._sub), schedule());
     }
     return;
   }
