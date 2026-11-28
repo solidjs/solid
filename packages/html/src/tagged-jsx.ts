@@ -309,7 +309,8 @@ function createHtml() {
       Object.defineProperty(own, "children", {
         get() {
           return renderChildren(node, values, components);
-        }
+        },
+        enumerable: true
       });
     }
     if (sources.length === 0) return own;
