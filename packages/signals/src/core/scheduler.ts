@@ -1081,7 +1081,8 @@ export class GlobalQueue implements IQueue {
       this.run(EFFECT_USER);
       // A join after the seam (an action a cleanup or an effect started)
       // that left no work for another round: the window was this flush's
-      // (D-7). Its slices rejoin it; a later action must not (#5251).
+      // (D-7). The action's later slices rejoin its transaction; a later
+      // action must not join it (#5251).
       if (!scheduled) flushTransaction = null;
       if (__OBSERVE__ && holding) {
         holding = false;
