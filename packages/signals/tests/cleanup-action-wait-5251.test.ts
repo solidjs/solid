@@ -6,17 +6,22 @@
  * the flush's across flushes, and a later, unrelated action joined it on
  * entry — its write waited for the cleanup's action to end. Independent
  * actions commit separately (D-4, D-9); an ambient window is one flush, and
- * the action's own slices still rejoin its transaction (D-7).
+ * the action's own slices still rejoin its transaction (D-7). Having staged
+ * nothing, it does not own the landing's effect phase either: an effect's
+ * write reacting to the landed values commits (#5257's first case).
  */
 import { describe, expect, it } from "vitest";
 import {
   action,
   createEffect,
   createMemo,
+  createOptimistic,
   createRenderEffect,
   createRoot,
   createSignal,
   flush,
+  isPending,
+  onSettled,
   untrack
 } from "../src/index.js";
 
@@ -220,4 +225,124 @@ describe("#5251 an action a cleanup starts does not hold a later, unrelated acti
     expect([untrack(own), untrack(late), ...app.read()]).toEqual([1, 1, 3, 3]);
     app.dispose();
   });
+
+  // The landing's own effect phase: the cleanup's action has staged nothing,
+  // so an effect's write reacting to the landed values is not its own.
+  it("an effect's write reacting to the landing commits while the cleanup's action waits", async () => {
+    for (const on of ["count", "open"] as const) {
+      const g = gate();
+      let done: Promise<unknown> | undefined;
+      const wait = action(function* () {
+        yield g.promise;
+      });
+      const [open, setOpen] = createSignal(true);
+      const [count, setCount] = createSignal(0);
+      const [total, setTotal] = createSignal(0);
+      let shown = -1;
+      const dispose = createRoot(dispose => {
+        const branch = createMemo(() => {
+          if (open())
+            createEffect(
+              () => 1,
+              () => () => void (done = wait())
+            );
+          return open();
+        });
+        createRenderEffect(branch, () => {});
+        if (on === "count") createEffect(count, c => void (c && setTotal(c * 10)));
+        else createEffect(open, v => void (!v && setTotal(10)));
+        createRenderEffect(total, v => void (shown = v));
+        return dispose;
+      });
+      flush();
+      await action(function* () {
+        setOpen(false);
+        setCount(1);
+      })();
+      await tick();
+      expect([on, untrack(total), shown, isPending(total)]).toEqual([on, 10, 10, false]);
+      g.release();
+      await done;
+      dispose();
+    }
+  });
+
+  it("a cleanup's action that guesses and then waits: the guess shows over its hold, and an effect's write reacting to the close commits", async () => {
+    const g = gate();
+    let done: Promise<unknown> | undefined;
+    const [guess, setGuess] = createOptimistic(0);
+    const mark = action(function* () {
+      setGuess(1);
+      yield g.promise;
+    });
+    const [open, setOpen] = createSignal(true);
+    const [total, setTotal] = createSignal(0);
+    let shown = -1;
+    const guesses: number[] = [];
+    const dispose = createRoot(dispose => {
+      const branch = createMemo(() => {
+        if (open())
+          createEffect(
+            () => 1,
+            () => () => void (done = mark())
+          );
+        return open();
+      });
+      createRenderEffect(branch, () => {});
+      createEffect(open, v => void (!v && setTotal(10)));
+      createRenderEffect(total, v => void (shown = v));
+      createRenderEffect(guess, v => void guesses.push(v));
+      return dispose;
+    });
+    flush();
+    await action(function* () {
+      setOpen(false);
+    })();
+    await tick();
+    const whileWaiting = [untrack(total), shown, untrack(guess)];
+    g.release();
+    await done;
+    for (let i = 0; i < 3; i++) {
+      await tick();
+      flush();
+    }
+    const after = [untrack(total), untrack(guess)];
+    dispose();
+    expect({ whileWaiting, after, guesses }).toEqual({
+      whileWaiting: [10, 10, 1],
+      after: [10, 0],
+      guesses: [0, 1, 0]
+    });
+  });
+
+  for (const owned of [true, false]) {
+    it(`an action ${owned ? "an owned" : "an unowned"} onSettled starts that waits holds no later action`, async () => {
+      const g = gate();
+      let done: Promise<unknown> | undefined;
+      const wait = action(function* () {
+        yield g.promise;
+      });
+      const [plain, setPlain] = createSignal(0);
+      let shown = -1;
+      const dispose = createRoot(dispose => {
+        if (owned) onSettled(() => void (done = wait()));
+        createRenderEffect(plain, v => void (shown = v));
+        return dispose;
+      });
+      flush();
+      if (!owned) {
+        onSettled(() => void (done = wait()));
+        flush();
+      }
+      expect(done).toBeDefined();
+      await action(function* () {
+        setPlain(2);
+      })();
+      await tick();
+      expect([untrack(plain), shown]).toEqual([2, 2]);
+      g.release();
+      await done;
+      dispose();
+    });
+  }
 });

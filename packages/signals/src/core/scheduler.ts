@@ -1073,16 +1073,20 @@ export class GlobalQueue implements IQueue {
       if (revertHook) revertHook();
       runHeap(dirtyQueue, GlobalQueue._update);
       this.settle();
-      clock++;
       // A write the commit sweep staged with no subscriber to dirty is work
       // too — the next round commits it.
-      scheduled = dirtyQueue._max >= dirtyQueue._min || pendingNodes.length !== 0;
-      this.run(EFFECT_RENDER);
-      this.run(EFFECT_USER);
       // A join after the seam (an action a cleanup or an effect started)
       // that left no work for another round: the window was this flush's
       // (D-7). The action's later slices rejoin its transaction; a later
-      // action must not join it (#5251).
+      // action must not join it (#5251), and neither does this flush's
+      // effect phase: an effect's write reacting to the landing is not the
+      // action's (#5257). Cleared again after it, for an action an effect
+      // starts.
+      if (!(scheduled = dirtyQueue._max >= dirtyQueue._min || pendingNodes.length !== 0))
+        flushTransaction = null;
+      clock++;
+      this.run(EFFECT_RENDER);
+      this.run(EFFECT_USER);
       if (!scheduled) flushTransaction = null;
       if (__OBSERVE__ && holding) {
         holding = false;
@@ -1371,11 +1375,14 @@ export class GlobalQueue implements IQueue {
 /** #5239: a guess a cleanup's action wrote after this round's seam is judged
  * in that action's frame, once this round's queued work has run: with work
  * still queued, the frame (if any) does not land this seam (returned), and
- * the next seam judges the guess with the holds that work finds. */
+ * the next seam judges the guess with the holds that work finds. Judged now,
+ * the guess's lane is the action's whole frame: the round its passes leave
+ * (and this flush's effect phase) is not the action's (#5257). */
 function judgeLate(): Transaction | null {
   if (guessesWaitingHook!() === 0) return null;
   if (dirtyQueue._max >= dirtyQueue._min || pendingNodes.length !== 0) return flushTransaction;
   applyGuessesHook!(flushTransaction && liveTx(flushTransaction));
+  flushTransaction = null;
   return null;
 }
 

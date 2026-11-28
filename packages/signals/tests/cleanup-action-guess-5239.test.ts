@@ -17,6 +17,7 @@ import {
   createEffect,
   createMemo,
   createOptimistic,
+  createOptimisticStore,
   createRenderEffect,
   createRoot,
   createSignal,
@@ -407,4 +408,176 @@ describe("#5239 a guess written by a cleanup's action", () => {
     expect({ whileHeld, landed }).toEqual({ whileHeld: [2, 7], landed: [0, 0] });
     expect(rendered).toContainEqual([2, 7]);
   });
+
+  // Closed outside an action: the landing that runs the cleanup is a plain
+  // commit (a signal write) or a guess's reveal, not an action's landing.
+  for (const waits of [false, true]) {
+    it(`closed by a plain write: the cleanup action's guess ${waits ? "shows while it waits" : "is void"}, and no later action shows it`, async () => {
+      const gate = deferred();
+      const later = deferred();
+      const [guess, setGuess] = createOptimistic(0);
+      const [open, setOpen] = createSignal(true);
+      let done: Promise<unknown> | undefined;
+      const mark = action(function* () {
+        setGuess(1);
+        if (waits) yield gate.promise;
+      });
+      const rendered: number[] = [];
+      const dispose = createRoot(dispose => {
+        const panel = createMemo(() => {
+          if (open())
+            createEffect(
+              () => 1,
+              () => () => void (done = mark())
+            );
+          return open();
+        });
+        createRenderEffect(panel, () => {});
+        createRenderEffect(guess, v => void rendered.push(v));
+        return dispose;
+      });
+      flush();
+      setOpen(false);
+      flush();
+      await tick();
+      const afterClose = untrack(guess);
+      gate.resolve();
+      await done;
+      await settle();
+      const landed = untrack(guess);
+      const unrelated = action(function* () {
+        yield later.promise;
+      })();
+      await settle();
+      const whileLater = untrack(guess);
+      later.resolve();
+      await unrelated;
+      await settle();
+      dispose();
+      expect({ afterClose, landed, whileLater }).toEqual({
+        afterClose: waits ? 1 : 0,
+        landed: 0,
+        whileLater: 0
+      });
+      if (waits) expect(rendered).toEqual([0, 1, 0]);
+      else expect(rendered).not.toContain(1);
+    });
+  }
+
+  it("closed by a guess's reveal: the cleanup action's guess shows while it waits, and reverts when it lands", async () => {
+    const closing = deferred();
+    const gate = deferred();
+    const later = deferred();
+    const [guess, setGuess] = createOptimistic(0);
+    const [open, setOpen] = createOptimistic(true);
+    let done: Promise<unknown> | undefined;
+    const mark = action(function* () {
+      setGuess(1);
+      yield gate.promise;
+    });
+    const rendered: number[] = [];
+    const dispose = createRoot(dispose => {
+      const panel = createMemo(() => {
+        if (open())
+          createEffect(
+            () => 1,
+            () => () => void (done = mark())
+          );
+        return open();
+      });
+      createRenderEffect(panel, () => {});
+      createRenderEffect(guess, v => void rendered.push(v));
+      return dispose;
+    });
+    flush();
+    const close = action(function* () {
+      setOpen(false);
+      yield closing.promise;
+    })();
+    await settle();
+    const whileClosing = [untrack(open), untrack(guess), done !== undefined];
+    closing.resolve();
+    await close;
+    await settle();
+    const afterClose = untrack(guess);
+    gate.resolve();
+    await done;
+    await settle();
+    const landed = untrack(guess);
+    const unrelated = action(function* () {
+      yield later.promise;
+    })();
+    await settle();
+    const whileLater = untrack(guess);
+    later.resolve();
+    await unrelated;
+    await settle();
+    dispose();
+    expect({ whileClosing, afterClose, landed, whileLater, rendered }).toEqual({
+      whileClosing: [false, 1, true],
+      afterClose: 1,
+      landed: 0,
+      whileLater: 0,
+      rendered: [0, 1, 0]
+    });
+  });
+
+  for (const waits of [false, true]) {
+    it(`a createOptimisticStore guess the cleanup's action writes ${waits ? "shows while it waits" : "is void"}`, async () => {
+      const gate = deferred();
+      const later = deferred();
+      const [store, setStore] = createOptimisticStore({ n: 0 });
+      const [open, setOpen] = createSignal(true);
+      let done: Promise<unknown> | undefined;
+      const mark = action(function* () {
+        setStore(s => {
+          s.n = 1;
+        });
+        if (waits) yield gate.promise;
+      });
+      const rendered: number[] = [];
+      const dispose = createRoot(dispose => {
+        const panel = createMemo(() => {
+          if (open())
+            createEffect(
+              () => 1,
+              () => () => void (done = mark())
+            );
+          return open();
+        });
+        createRenderEffect(panel, () => {});
+        createRenderEffect(
+          () => store.n,
+          v => void rendered.push(v)
+        );
+        return dispose;
+      });
+      flush();
+      await action(function* () {
+        setOpen(false);
+      })();
+      await tick();
+      const afterClose = untrack(() => store.n);
+      const unrelated = action(function* () {
+        yield later.promise;
+      })();
+      await settle();
+      const whileLater = untrack(() => store.n);
+      gate.resolve();
+      await done;
+      await settle();
+      const landed = untrack(() => store.n);
+      later.resolve();
+      await unrelated;
+      await settle();
+      dispose();
+      expect({ afterClose, whileLater, landed }).toEqual({
+        afterClose: waits ? 1 : 0,
+        whileLater: waits ? 1 : 0,
+        landed: 0
+      });
+      if (waits) expect(rendered).toEqual([0, 1, 0]);
+      else expect(rendered).not.toContain(1);
+    });
+  }
 });
