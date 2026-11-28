@@ -33,6 +33,41 @@ describe("SSR spread with function source (#2815)", () => {
     expect(html).toContain('id="y"');
   });
 
+  test("a lone function spread distinguishes an omitted prop from explicit undefined", () => {
+    type LabelProps = { label?: string | undefined };
+    const Label = (props: LabelProps) =>
+      Object.hasOwn(props, "label") ? String(props.label) : "Untitled";
+    const renderLabel = (read: () => LabelProps) => renderToString(() => <Label {...read()} />);
+    const inherited = Object.create({ label: "Inherited" }) as LabelProps;
+
+    expect(renderLabel(() => ({}))).toBe("Untitled");
+    expect(renderLabel(() => ({ label: undefined }))).toBe("undefined");
+    expect(renderLabel(() => ({ label: "Supplied" }))).toBe("Supplied");
+    expect(renderLabel(() => inherited)).toBe("Inherited");
+  });
+
+  test("a function spread exposes the indices of a string source", () => {
+    const html = renderToString(() => {
+      const props = mergeProps(() => "ab");
+      expect(Object.hasOwn(props, "missing")).toBe(false);
+      return Object.keys(props).join(",");
+    });
+
+    expect(html).toBe("0,1");
+  });
+
+  test("copying a function spread forwards own props hidden by its has trap", () => {
+    const source = new Proxy(
+      { "data-label": "supplied" },
+      { has: (target, key) => key !== "data-label" && Reflect.has(target, key) }
+    );
+    const html = renderToString(() =>
+      ssrElement("div", { ...mergeProps(() => source) }, "", false)
+    );
+
+    expect(html).toContain('data-label="supplied"');
+  });
+
   test("textarea value from props merged around a spread becomes text content (#3286)", () => {
     const value = () => "something";
     const html = renderToString(() => <textarea {...{ "data-x": "x" }} value={value()} />);
