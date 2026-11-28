@@ -1133,10 +1133,7 @@ export class GlobalQueue implements IQueue {
         // Already held: the pass that re-staged it joined its transaction,
         // which is `t` (or merged into it). Lane work is the lane's (a
         // pending mark propagated onto it queued it here too).
-        if (
-          !(n._config & (CONFIG_HELD | CONFIG_OVERRIDE)) &&
-          (n._x === null || n._x._transaction === null || !n._x._transaction._lane)
-        ) {
+        if (!(n._config & (CONFIG_HELD | CONFIG_OVERRIDE)) && !n._x?._transaction?._lane) {
           // A loading source — pending with nothing staged and no committed
           // value (A16, A19 exc. 1: uninitialized is loading, not pending)
           // that is not an observer — is nobody's frame: not held. Its
@@ -1261,6 +1258,13 @@ export class GlobalQueue implements IQueue {
       // judge them again.
       k = transactions.length;
     }
+    // A join a landing made (an action its cleanup started) with nothing
+    // staged since: the action has no frame in the drain's next round, and
+    // that round's work (an effect's write reacting to the landing, a
+    // corrected guess's reveal) is not its own to hold (#5257). Its later
+    // slices rejoin its transaction; a late guess keeps the join
+    // (`judgeLate`).
+    if (!late && pendingNodes.length === 0) flushTransaction = null;
     // The store folds the pending backings whose container nodes committed
     // — this flush's, or a landing's (store/store.ts installs it).
     storeCommitHook?.();
